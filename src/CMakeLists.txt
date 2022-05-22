@@ -13,8 +13,7 @@ set(HEADERS
 
   # ZModel details here.
   ZModel.hpp
-  DirectBRVelocity.hpp
-
+  # DirectBRVelocity.hpp
   # FMMBRVelocity.hpp
   # VerletBRVelocity.hpp
   )
