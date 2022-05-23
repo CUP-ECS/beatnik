@@ -4,9 +4,9 @@
  *
  * @section DESCRIPTION
  * Problem manager class that stores mesh state shared between classes and 
- * maintained across multiple processes. Note that specific compitational methods 
+ * maintained across multiple processes. Specific compitational methods 
  * may also have mesh state, but if it is not shared between classes it resides
- * in that method, not here.
+ * in that method, not here. 
  */
 
 #ifndef BEATNIK_PROBLEMMANAGER_HPP
@@ -62,26 +62,21 @@ struct Vorticity
  * to perform gathers and scatters
  **/
 template <class ExecutionSpace, class MemorySpace>
-class ProblemManager;
-
-/* The 2D implementation of hte problem manager class */
-template <class ExecutionSpace, class MemorySpace>
-class ProblemManager<ExecutionSpace, MemorySpace>
+class ProblemManager
 {
   public:
-    using memory_space = MemorySpace;
-    using execution_space = ExecutionSpace;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
+    using exec_space = ExecutionSpace;
+    using mem_space = MemorySpace;
+    using device_type = Kokkos::Device<exec_space, mem_space>;
 
     using Node = Cajita::Node;
 
     using node_array =
         Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>,
-                      MemorySpace>;
+                      mem_space>;
 
-    // Meaningless type for now until we have 3D support in.
     using halo_type = Cajita::Halo<MemorySpace>;
-    using mesh_type = Mesh<ExecutionSpace, MemorySpace>;
+    using mesh_type = Mesh<exec_space, mem_space>;
 
     template <class InitFunc>
     ProblemManager( const std::shared_ptr<mesh_type>& mesh,
@@ -110,11 +105,11 @@ class ProblemManager<ExecutionSpace, MemorySpace>
 
         /* Halo pattern for the position. The halo is two cells deep so that 
          * to be able to do fourth-order central differencing to compute 
-         * surface normals. */
+         * surface normals. The laplacian we compute for vorticity only 
+         * requires one deep halos, but we reuse this halo anyway. */
         int halo_depth = _mesh->localGrid()->haloCellWidth();
-        _surface_halo =
-            Cajita::createHalo( Cajita::NodeHaloPattern<2>(), halo_depth,
-                                _position, _vorticity);
+        _surface_halo = Cajita::createHalo( Cajita::NodeHaloPattern<2>(), 
+                            halo_depth, *_position, *_vorticity);
 
         // Initialize State Values ( quantity and velocity )
         initialize( create_functor );
@@ -129,7 +124,7 @@ class ProblemManager<ExecutionSpace, MemorySpace>
     {
         // DEBUG: Trace State Initialization
         if ( _mesh->rank() == 0 && DEBUG )
-            std::cout << "Initializing Cell Fields\n";
+            std::cout << "Initializing Mesh State\n";
 
         // Get Local Grid and Local Mesh
         auto local_grid = *( _mesh->localGrid() );
@@ -158,7 +153,7 @@ class ProblemManager<ExecutionSpace, MemorySpace>
      * Return mesh
      * @return Returns Mesh object
      **/
-    const std::shared_ptr<Mesh<2, ExecutionSpace, MemorySpace>>& mesh() const
+    const std::shared_ptr<Mesh<exec_space, mem_space>>& mesh() const
     {
         return _mesh;
     };
@@ -169,7 +164,7 @@ class ProblemManager<ExecutionSpace, MemorySpace>
      * @param Field::Position
      * @return Returns view of current position at nodes
      **/
-    typename cell_array::view_type get( Cajita::Node, Field::Position ) const
+    typename node_array::view_type get( Cajita::Node, Field::Position ) const
     {
         return _position->view();
     };
@@ -180,7 +175,7 @@ class ProblemManager<ExecutionSpace, MemorySpace>
      * @param Field::Vorticity
      * @return Returns view of current vorticity at nodes
      **/
-    typename cell_array::view_type get( Cajita::Node, Field::Vorticity ) const
+    typename node_array::view_type get( Cajita::Node, Field::Vorticity ) const
     {
         return _vorticity->view();
     };
@@ -191,7 +186,7 @@ class ProblemManager<ExecutionSpace, MemorySpace>
      **/
     void gather( ) const
     {
-        _surface_halo->gather( ExecutionSpace(), _position, _vorticity );
+        _surface_halo->gather( ExecutionSpace(), *_position, *_vorticity );
     };
 
   private:
@@ -204,7 +199,7 @@ class ProblemManager<ExecutionSpace, MemorySpace>
 
     // Halo communication pattern for problem-manager stored data
     std::shared_ptr<halo_type> _surface_halo;
-};
+}; // template class ProblemManager
 
 } // namespace Beatnik
 

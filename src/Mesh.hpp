@@ -132,6 +132,6 @@ class Mesh
 
 //---------------------------------------------------------------------------//
 
-} // end namespace CajitaFluids
+} // end namespace Beatnik
 
 #endif // end BEATNIK_MESH_HPP

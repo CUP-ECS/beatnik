@@ -1,8 +1,8 @@
 /****************************************************************************
- * Copyright (c) 2021 by the CajitaFluids authors                           *
+ * Copyright (c) 2021 by the Beatnik authors                                *
  * All rights reserved.                                                     *
  *                                                                          *
- * This file is part of the CajitaFluids benchmark. CajitaFluids is         *
+ * This file is part of the Beatnik benchmark. Beatnik is                   *
  * distributed under a BSD 3-clause license. For the licensing terms see    *
  * the LICENSE file in the top-level directory.                             *
  *                                                                          *
@@ -11,15 +11,15 @@
 
 #include <Mesh.hpp>
 
-namespace CajitaFluids
+namespace Beatnik
 {
 //---------------------------------------------------------------------------//
 #ifdef KOKKOS_ENABLE_CUDA
-template class Mesh<2, Kokkos::Cuda, Kokkos::CudaSpace>;
+template class Mesh<Kokkos::Cuda, Kokkos::CudaSpace>;
 #else
-template class Mesh<2, Kokkos::DefaultHostExecutionSpace, Kokkos::HostSpace>;
+template class Mesh<Kokkos::DefaultHostExecutionSpace, Kokkos::HostSpace>;
 #endif
 
 //---------------------------------------------------------------------------//
 
-} // end namespace CajitaFluids
+} // end namespace Beatnik

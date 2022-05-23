@@ -31,9 +31,8 @@ struct BoundaryType
     enum Values
     {
         PERIODIC = 0,
-        FIXED = 1, 
-        FREE = 2,
-        /* XXX What are appropriate boundary conditions here? */
+        FREE_SLIP = 1,
+        NO_SLIP = 2, 
     };
 };
 

@@ -12,9 +12,7 @@
 #ifndef BEATNIK_SOLVER_HPP
 #define BEATNIK_SOLVER_HPP
 
-#include <Cajita_HypreStructuredSolver.hpp>
 #include <Cajita_Partitioner.hpp>
-#include <Cajita_ReferenceStructuredSolver.hpp>
 #include <Cajita_Types.hpp>
 
 #include <ArtificialViscosity.hpp>
@@ -30,7 +28,7 @@
 
 #include <mpi.h>
 
-namespace BEATNIK
+namespace Beatnik
 {
 /*
  * Convenience base class so that examples that use this don't need to know
@@ -45,21 +43,28 @@ class SolverBase
     virtual void solve( const double t_final, const int write_freq ) = 0;
 };
 
-template <class ExecutionSpace, class MemorySpace>
-class Solver;
-
 //---------------------------------------------------------------------------//
-template <class ExecutionSpace, class MemorySpace>
-class Solver<ExecutionSpace, MemorySpace> : public SolverBase
+
+/* A note on memory management:
+ * 1. The BoundaryCondition and ArtificialViscosity objects are created by
+ *    the calling application and passed in, so we don't control their 
+ *    memory. As a result, the Solver object makes a copy of them (they're 
+ *    small) and passes references of those to the objects it uses. 
+ * 2. The other objects created by the solver (mesh, problem manager, 
+ *    time integrator, and zmodel) are owned and managed by the solver, and 
+ *    so are managed unique_ptrs.
+ */
+
+template <class ExecutionSpace, class MemorySpace, class ModelOrder>
+class Solver : public SolverBase
 {
   public:
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cajita::UniformMesh<double, 2>;
     using node_array =
         Cajita::Array<double, Cajita::Node, mesh_type, MemorySpace>;
-    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
-    using bc_type = BoundaryCondition;
-
+    using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder>;
+    using ti_type = TimeIntegrator<ExecutionSpace, MemorySpace, ModelOrder>;
     using Node = Cajita::Node;
 
     template <class InitFunc>
@@ -105,7 +110,7 @@ class Solver<ExecutionSpace, MemorySpace> : public SolverBase
 
     void step() override
     {
-        TimeIntegrator::step( ExecutionSpace(), *_pm, _dt, _bc );
+        _ti->step(ExecutionSpace(), *_pm, _dt, _bc );
         _time += _dt;
     }
 
@@ -142,13 +147,14 @@ class Solver<ExecutionSpace, MemorySpace> : public SolverBase
     /* Solver state variables */
     int _halo_min;
     double _atwood;
+    double _g;
     BoundaryCondition _bc;
     ArtificialViscosity _av;
-    ZModel<ZModelOrder> _zm;
-    TimeIntegrator<
     double _dt;
     double _time;
-    std::unique_ptr<Mesh<ExecutionSpace, MemorySpace>> _mesh;
+    std::unique_ptr<zmodel_type> _zm;
+    std::unique_ptr<ti_type> _ti;
+    std::unique_ptr<mesh_type> _mesh;
     std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace>> _pm;
     std::unique_ptr<SiloWriter<ExecutionSpace, MemorySpace>> _silo;
     int _rank;
@@ -161,11 +167,11 @@ template <class InitFunc>
 std::shared_ptr<SolverBase>
 createSolver( const std::string& device, MPI_Comm comm,
               const std::array<int, 2>& global_num_cell,
-              const Cajita::BlockPartitioner& partitioner,
+              const Cajita::BlockPartitioner<2> & partitioner,
               const double atwood, const double g, 
               const InitFunc& create_functor, 
               const BoundaryCondition& bc, 
-              const ArtificialViscosity& bc, 
+              const ArtificialViscosity& av, 
               const double delta_t )
 {
     if ( 0 == device.compare( "serial" ) )

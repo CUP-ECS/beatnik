@@ -17,6 +17,8 @@
 #include <Mesh.hpp>
 
 #include <Kokkos_Core.hpp>
+#include <Cabana_Core.hpp>
+#include <Cajita.hpp>
 
 namespace Beatnik
 {
@@ -27,13 +29,11 @@ namespace Beatnik
  * using Kokkos inline Functions
  */
 
-struct ArtificialViscosity
+class ArtificialViscosity
 {
-    using node_array = Cajita::Array<Cajita::Node, 2>;
-    using Position = Field::Position;
-
     template <class PType>
-    KOKKOS_INLINE_FUNCTION void operator()( int i, int j, Node, Position, PType& p, 
+    KOKKOS_INLINE_FUNCTION void operator()( Cajita::Node, Field::Position, 
+                                            PType& p, 
                                             const int gi, const int gj,
                                             const int i, const int j ) const
     {

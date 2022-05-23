@@ -9,8 +9,8 @@
  * strategies
  */
 
-#ifndef BEATNIK_PROBLEMMANAGER_HPP
-#define BEATNIK_PROBLEMMANAGER_HPP
+#ifndef BEATNIK_ZMODEL_HPP
+#define BEATNIK_ZMODEL_HPP
 
 #ifndef DEBUG
 #define DEBUG 0
@@ -25,6 +25,9 @@
 
 #include <Mesh.hpp>
 
+#include <BoundaryCondition.hpp>
+#include <ArtificialViscosity.hpp>
+
 namespace Beatnik
 {
 
@@ -37,21 +40,24 @@ namespace Order
     struct Medium {};
 
     struct High {};
-}
+} // namespace Order
 
 /**
- * The ProblemManager Class
- * @class ProblemManager
- * @brief ProblemManager class to store the mesh and state values, and
- * to perform gathers and scatters in the approprate number of dimensions.
+ * The ZModel Class
+ * @class ZModel
+ * @brief ZModel class handles the specific of the various ZModel versions, 
+ * invoking an external class to solve far-field forces if necessary.
  **/
-template <class PMType, class MethodOrder, class BRSolver> 
-class ZModel<PMType, MethodOrder, BRSolver>
+
+//class BRSolver> 
+//
+template <class ExecutionSpace, class MemorySpace, class MethodOrder>
+class ZModel
 {
-    using pm_type = PMType;
   public:
+    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
+    using exec_space = ExecutionSpace;
     using memory_space = MemorySpace;
-    using execution_space = ExecutionSpace;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
 
     using Node = Cajita::Node;
@@ -65,12 +71,10 @@ class ZModel<PMType, MethodOrder, BRSolver>
     using mesh_type = Mesh<ExecutionSpace, MemorySpace>;
 
     ZModel( const std::shared_ptr<pm_type>& pm,
-            const std::shared_ptr<mesh_type>& mesh,
             BoundaryCondition &bc,
             ArtificialViscosity &av,
             double g )
         : _pm( pm ),
-        , _mesh( mesh ),
         , _bc( bc )
         , _av( av ),
         , _g( g)
@@ -78,11 +82,11 @@ class ZModel<PMType, MethodOrder, BRSolver>
         // Need the node triple layout for storing vector normals and the 
         // node double layout for storing x and y surface derivative
         auto node_pair_layout =
-            Cajita::createArrayLayout( _mesh->localGrid(), 2, Cajita::Node() );
+            Cajita::createArrayLayout( _pm->mesh()->localGrid(), 2, Cajita::Node() );
         auto node_triple_layout =
-            Cajita::createArrayLayout( _mesh->localGrid(), 3, Cajita::Node() );
+            Cajita::createArrayLayout( _pm->mesh()->localGrid(), 3, Cajita::Node() );
         auto node_scalar_layout =
-            Cajita::createArrayLayout( _mesh->localGrid(), 3, Cajita::Node() );
+            Cajita::createArrayLayout( _pm->mesh()->localGrid(), 3, Cajita::Node() );
 
         // We do lots of calculations with these derivatives, but they're only
         // used after the velocity calculations are done so they can probably be
@@ -115,15 +119,15 @@ class ZModel<PMType, MethodOrder, BRSolver>
 
     void computeVelocities(Order::Low, node_array z, node_array w) 
     {
-    };
+    }
 
     void computeVelocities(Order::Medium, node_array z, node_array w) 
     {
-    };
+    }
 
     void computeVelocities(Order::High, node_array z, node_array w) 
     {
-    };
+    }
 
     // Compute the final interface velocities and normalized BR velocities
     // from the previously computed Fourier and/or BR velocities and the surface
@@ -146,7 +150,7 @@ class ZModel<PMType, MethodOrder, BRSolver>
     {
     }
 
-    void computeDerivatives(double A, c, node_array z, node_array w, 
+    void computeDerivatives(double A, node_array z, node_array w, 
                             node_array zdot, node_array wdot)
     { 
         // 1. Compute the interface and vorticity velocities using 
@@ -160,6 +164,7 @@ class ZModel<PMType, MethodOrder, BRSolver>
         double g = _g;
         // 3. Now process those into final interface position derivatives
         //    and the information needed for calculating the vorticity derivative
+#if 0
         parallel_for( ExecutionSpace, IndexSpace, KOKKOS_LABMDA(int i, int j) {
             //  3.1 Compute Dx and Dy of z and w by fourth-order central 
             //      differencing
@@ -190,27 +195,27 @@ class ZModel<PMType, MethodOrder, BRSolver>
                          - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11.*w2.^2)./deth 
                          - 2*g*z(i, j, 2);   
         });
-
+#endif
         // 4. Halo V and apply boundary condtions, since we need it for central
         //    differencing
         
         // 5. Compute the final vorticity derivative
+#if 0
         parallel_for( ExecutionSpace, IndexSpace, KOKKOS_LABMDA(int i, int j) {
             wdot(i, i, 0) = Dx(V(i, j, 0), dx) + av(i, j, w, 0);
             wdot(i, i, 1) = Dy(V(i, j, 0), dy) + av(i, j, w, 1);
         }
+#endif
     }
 
   private:
-    // The mesh on which our data items are stored
-    std::shared_ptr<mesh_type> _mesh;
     BoundaryCondition & _bc;
     ArtificialViscosity & _av;
     double _g;
     std::shared_ptr<node_array> _ubar, _ueps, _V; // intermediate state for 
                                                   // calculation of derivatives
-};
+}; // class ZModel
 
 } // namespace Beatnik
 
-#endif // BEATNIK_PROBLEMMANAGER_HPP
+#endif // BEATNIK_ZMODEL_HPP
