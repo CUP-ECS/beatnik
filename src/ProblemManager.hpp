@@ -79,7 +79,7 @@ class ProblemManager
     using mesh_type = Mesh<exec_space, mem_space>;
 
     template <class InitFunc>
-    ProblemManager( const std::unique_ptr<mesh_type>& mesh,
+    ProblemManager( const mesh_type & mesh,
                     const InitFunc& create_functor )
         : _mesh( mesh )
     // , other initializers
@@ -88,9 +88,9 @@ class ProblemManager
         // and other associated data strutures. Do there need to be version with
         // halos associuated with them?
         auto node_triple_layout =
-            Cajita::createArrayLayout( _mesh->localGrid(), 3, Cajita::Node() );
+            Cajita::createArrayLayout( _mesh.localGrid(), 3, Cajita::Node() );
         auto node_pair_layout =
-            Cajita::createArrayLayout( _mesh->localGrid(), 2, Cajita::Node() );
+            Cajita::createArrayLayout( _mesh.localGrid(), 2, Cajita::Node() );
 
         // The actual arrays storing mesh quantities
         // 1. The spatial positions of the interface
@@ -107,7 +107,7 @@ class ProblemManager
          * to be able to do fourth-order central differencing to compute 
          * surface normals. The laplacian we compute for vorticity only 
          * requires one deep halos, but we reuse this halo anyway. */
-        int halo_depth = _mesh->localGrid()->haloCellWidth();
+        int halo_depth = _mesh.localGrid()->haloCellWidth();
         _surface_halo = Cajita::createHalo( Cajita::NodeHaloPattern<2>(), 
                             halo_depth, *_position, *_vorticity);
 
@@ -123,11 +123,11 @@ class ProblemManager
     void initialize( const InitFunctor& create_functor )
     {
         // DEBUG: Trace State Initialization
-        if ( _mesh->rank() == 0 && DEBUG )
+        if ( _mesh.rank() == 0 && DEBUG )
             std::cout << "Initializing Mesh State\n";
 
         // Get Local Grid and Local Mesh
-        auto local_grid = *( _mesh->localGrid() );
+        auto local_grid = *( _mesh.localGrid() );
         auto local_mesh = Cajita::createLocalMesh<device_type>( local_grid );
 
 	// Get State Arrays
@@ -156,7 +156,7 @@ class ProblemManager
      * Return mesh
      * @return Returns Mesh object
      **/
-    const std::unique_ptr<Mesh<exec_space, mem_space>>& mesh() const
+    const mesh_type & mesh() const
     {
         return _mesh;
     };
@@ -194,7 +194,7 @@ class ProblemManager
 
   private:
     // The mesh on which our data items are stored
-    const std::unique_ptr<mesh_type> &_mesh;
+    const mesh_type &_mesh;
 
     // Basic long-term quantities stored in the mesh and periodically written
     // to storage (specific computiontional methods may store additional state)

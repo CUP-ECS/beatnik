@@ -52,7 +52,9 @@ class SolverBase
  *    small) and passes references of those to the objects it uses. 
  * 2. The other objects created by the solver (mesh, problem manager, 
  *    time integrator, and zmodel) are owned and managed by the solver, and 
- *    so are managed unique_ptrs.
+ *    are managed as unique_ptr by the Solver object. They are passed 
+ *    by reference to the classes that use them, which store the references
+ *    as const references.
  */
 
 template <class ExecutionSpace, class MemorySpace, class ModelOrder>
@@ -96,11 +98,17 @@ class Solver : public SolverBase
 
         // Create a problem manager to manage mesh state
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
-            _mesh, create_functor );
+            *_mesh, create_functor );
+
+        // Create the ZModel solver
+        _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder>>(
+            *_pm, _bc, _av, atwood, g);
+        // Make a time integrator to move the zmodel forward
+        _ti = std::make_unique<TimeIntegrator<ExecutionSpace, MemorySpace, ModelOrder>>( *_pm, *_zm );
 
         // Set up Silo for I/O
         _silo =
-            std::make_unique<SiloWriter<ExecutionSpace, MemorySpace>>( _pm );
+            std::make_unique<SiloWriter<ExecutionSpace, MemorySpace>>( *_pm );
     }
 
     void setup() override
@@ -139,7 +147,7 @@ class Solver : public SolverBase
             // 4. Output mesh state periodically
             if ( 0 == t % write_freq )
             {
-                _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
+                //_silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
             }
             t++;
         } while ( ( _time < t_final ) );
@@ -163,7 +171,6 @@ class Solver : public SolverBase
 };
 
 //---------------------------------------------------------------------------//
-// XXX Should this be a shared_ptr or a unique_ptr?
 // Creation method.
 template <class InitFunc, class ModelOrder>
 std::shared_ptr<SolverBase>

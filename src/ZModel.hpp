@@ -70,9 +70,9 @@ class ZModel
     using halo_type = Cajita::Halo<MemorySpace>;
     using mesh_type = Mesh<ExecutionSpace, MemorySpace>;
 
-    ZModel( const std::unique_ptr<pm_type>& pm,
-            BoundaryCondition &bc,
-            ArtificialViscosity &av,
+    ZModel( const pm_type & pm,
+            const BoundaryCondition &bc,
+            const ArtificialViscosity &av,
             double A,
             double g )
         : _pm( pm )
@@ -84,11 +84,11 @@ class ZModel
         // Need the node triple layout for storing vector normals and the 
         // node double layout for storing x and y surface derivative
         auto node_pair_layout =
-            Cajita::createArrayLayout( _pm->mesh()->localGrid(), 2, Cajita::Node() );
+            Cajita::createArrayLayout( _pm.mesh().localGrid(), 2, Cajita::Node() );
         auto node_triple_layout =
-            Cajita::createArrayLayout( _pm->mesh()->localGrid(), 3, Cajita::Node() );
+            Cajita::createArrayLayout( _pm.mesh().localGrid(), 3, Cajita::Node() );
         auto node_scalar_layout =
-            Cajita::createArrayLayout( _pm->mesh()->localGrid(), 3, Cajita::Node() );
+            Cajita::createArrayLayout( _pm.mesh().localGrid(), 3, Cajita::Node() );
 
         // We do lots of calculations with these derivatives, but they're only
         // used after the velocity calculations are done so they can probably be
@@ -208,10 +208,10 @@ class ZModel
     }
 
   private:
-    BoundaryCondition & _bc;
-    ArtificialViscosity & _av;
+    const BoundaryCondition & _bc;
+    const ArtificialViscosity & _av;
     double _g, _A;
-    const std::unique_ptr<pm_type> & _pm;
+    const pm_type & _pm;
     std::shared_ptr<node_array> _ubar, _ueps, _V; // intermediate state for 
                                                   // calculation of derivatives
 }; // class ZModel

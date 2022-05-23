@@ -75,7 +75,7 @@ class Mesh
     }
 
     // Get the local grid.
-    const std::shared_ptr<Cajita::LocalGrid<mesh_type>>& localGrid() const
+    const std::shared_ptr<Cajita::LocalGrid<mesh_type>> & localGrid() const
     {
         return _local_grid;
     }

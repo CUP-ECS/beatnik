@@ -38,8 +38,8 @@ class TimeIntegrator
     using halo_type = Cajita::Halo<MemorySpace>;
 
   public:
-    TimeIntegrator( const std::shared_ptr<ProblemManager<exec_space, mem_space>> & pm,
-                    ZModel<exec_space, mem_space, ModelOrder> & zm )
+    TimeIntegrator( const ProblemManager<exec_space, mem_space> & pm,
+                    const ZModel<exec_space, mem_space, ModelOrder> & zm )
     : _pm(pm)
     , _zm(zm)
     {
@@ -47,9 +47,9 @@ class TimeIntegrator
         // Create a layout of the temporary arrays we'll need for velocity
         // intermediate positions, and change in vorticity
         auto node_triple_layout =
-            Cajita::createArrayLayout( pm->mesh()->localGrid(), 3, Cajita::Node() );
+            Cajita::createArrayLayout( pm.mesh().localGrid(), 3, Cajita::Node() );
         auto node_double_layout =
-            Cajita::createArrayLayout( pm->mesh()->localGrid(), 2, Cajita::Node() );
+            Cajita::createArrayLayout( pm.mesh().localGrid(), 2, Cajita::Node() );
 
         _zdot = Cajita::createArray<double, mem_space>("velocity", 
                                                        node_triple_layout);
@@ -64,8 +64,8 @@ class TimeIntegrator
     void step( [[maybe_unused]] const double delta_t ) 
     { 
         // Compute the derivatives of position and vorticityat our current point
-        auto z_orig = _pm->get(Cajita::Node(), Field::Position());
-        auto w_orig = _pm->get(Cajita::Node(), Field::Vorticity());
+        auto z_orig = _pm.get(Cajita::Node(), Field::Position());
+        auto w_orig = _pm.get(Cajita::Node(), Field::Vorticity());
 
         // TVD RK3 Step One - derivative at forward euler point
         //zm.computeDerivatives(z_orig, w_orig, _zdot, _wdot);
@@ -85,10 +85,10 @@ class TimeIntegrator
     }
 
   private:
-    BoundaryCondition &_bc;
-    ZModel<ExecutionSpace, MemorySpace, ModelOrder> & _zm;
-    std::shared_ptr<ProblemManager<ExecutionSpace, MemorySpace>> & _pm;
-    node_array _zdot, _wdot, _wtmp, _ztmp;
+    //const BoundaryCondition &_bc;
+    const ZModel<ExecutionSpace, MemorySpace, ModelOrder> & _zm;
+    const ProblemManager<ExecutionSpace, MemorySpace> & _pm;
+    std::shared_ptr<node_array> _zdot, _wdot, _wtmp, _ztmp;
 };
 
 } // end namespace Beatnik

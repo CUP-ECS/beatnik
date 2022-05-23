@@ -44,7 +44,7 @@ class SiloWriter
     SiloWriter( ProblemManagerType& pm )
         : _pm( pm )
     {
-        if ( DEBUG && _pm->mesh()->rank() == 0 )
+        if ( DEBUG && _pm.mesh().rank() == 0 )
             std::cerr << "Created Beatnik SiloWriter\n";
     };
 
@@ -67,7 +67,7 @@ class SiloWriter
         DBoptlist* optlist;
 
         // Rertrieve the Local Grid and Local Mesh
-        auto local_grid = _pm->mesh()->localGrid();
+        auto local_grid = _pm.mesh().localGrid();
 
 
         // Set DB Options: Time Step, Time Stamp and Delta Time
@@ -87,8 +87,7 @@ class SiloWriter
 
         for ( unsigned int i = 0; i < 2; i++ )
         {
-            dims[i] = node_domain.extent( i ); // zones (cells) in a dimension
-            // spacing[i] = _pm->mesh()->cellSize(); // uniform mesh
+            dims[i] = node_domain.extent( i ); 
         }
         dims[2] = 1;
 
@@ -98,6 +97,8 @@ class SiloWriter
             coords[i] = (double*)malloc( sizeof( double ) * dims[0] * dims[1] );
         }
 
+        auto z = _pm.get( Cajita::Node(), Field::Position() );
+        auto zHost = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), z );
         // Fill out coords[] arrays with coordinate values in each dimension
         for ( unsigned int d = 0; d < 3; d++ )
         {
@@ -107,27 +108,22 @@ class SiloWriter
                 {
 		    int iown = i - node_domain.min( 0 );
                     int jown = j - node_domain.min( 1 );
-                    // Get the location data onto the host and use it to set
-                    // mesh coordinates for the curvilinear mesh
-                    auto z = _pm->get( Cajita::Node(), Field::Position() );
-                    auto zHost = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), z );
-	
-                    coords[d][iown * node_domain.extent(0) + jown ] = zHost(i, j, d);
+                    coords[d][iown * dims[0] + jown ] = zHost(i, j, d);
 		}
             }
         }
 
         DBPutQuadmesh( dbfile, meshname, (DBCAS_t)coordnames, coords, dims,
-                       2, DB_DOUBLE, DB_NONCOLLINEAR, optlist );
+                       3, DB_DOUBLE, DB_NONCOLLINEAR, optlist );
 
         // Now we write the individual variables associated with this
         // portion of the mesh, potentially copying them out of device space
         // and making sure not to write ghost values.
 
+#if 0
         // Advected quantity first - copy owned portion from the primary
         // execution space to the host execution space
-        auto w =
-            _pm->get( Cajita::Node(), Field::Vorticity() );
+        auto w = _pm.get( Cajita::Node(), Field::Vorticity() );
         auto xmin = node_domain.min( 0 );
         auto ymin = node_domain.min( 1 );
 
@@ -144,6 +140,7 @@ class SiloWriter
                      typename pm_type::node_array::device_type>
             w2Owned( "w2owned", node_domain.extent( 0 ), node_domain.extent( 1 ),
                     1 );
+
         Kokkos::parallel_for(
             "SiloWriter::wowned copy",
             createExecutionPolicy( node_domain, ExecutionSpace() ),
@@ -163,7 +160,7 @@ class SiloWriter
         DBPutQuadvar( dbfile, "vorticity", meshname, 2, (DBCAS_t)varnames,
                       vars, dims, 2, NULL, 0, DB_DOUBLE, DB_NODECENT,
                       optlist );
-
+#endif
         for ( unsigned int i = 0; i < 2; i++ )
         {
             free( coords[i] );
@@ -333,9 +330,9 @@ class SiloWriter
         sprintf( masterfilename, "data/Beatnik%05d.%s", time_step,
                  file_ext );
         sprintf( filename, "data/raw/BeatnikOutput%05d%05d.%s",
-                 PMPIO_GroupRank( baton, _pm->mesh()->rank() ), time_step,
+                 PMPIO_GroupRank( baton, _pm.mesh().rank() ), time_step,
                  file_ext );
-        sprintf( nsname, "domain_%05d", _pm->mesh()->rank() );
+        sprintf( nsname, "domain_%05d", _pm.mesh().rank() );
 
         // Show Errors and Force FLoating Point
         DBShowErrors( DB_ALL, NULL );
@@ -343,7 +340,7 @@ class SiloWriter
         silo_file = (DBfile*)PMPIO_WaitForBaton( baton, filename, nsname );
 
         writeFile( silo_file, name, time_step, time, dt );
-        if ( _pm->mesh()->rank() == 0 )
+        if ( _pm.mesh().rank() == 0 )
         {
             master_file = DBCreate( masterfilename, DB_CLOBBER, DB_LOCAL,
                                     "Beatnik", driver );
@@ -358,7 +355,7 @@ class SiloWriter
     }
         
   private:
-    const std::unique_ptr<pm_type> &_pm;
+    const pm_type &_pm;
 }; 
 
 }; // namespace Beatnik
