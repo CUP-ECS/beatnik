@@ -70,14 +70,16 @@ class ZModel
     using halo_type = Cajita::Halo<MemorySpace>;
     using mesh_type = Mesh<ExecutionSpace, MemorySpace>;
 
-    ZModel( const std::shared_ptr<pm_type>& pm,
+    ZModel( const std::unique_ptr<pm_type>& pm,
             BoundaryCondition &bc,
             ArtificialViscosity &av,
+            double A,
             double g )
-        : _pm( pm ),
+        : _pm( pm )
         , _bc( bc )
-        , _av( av ),
-        , _g( g)
+        , _av( av )
+        , _A( A )
+        , _g( g )
     {
         // Need the node triple layout for storing vector normals and the 
         // node double layout for storing x and y surface derivative
@@ -106,9 +108,6 @@ class ZModel
 
         Cajita::ArrayOp::assign( *_ubar, 0.0, Cajita::Ghost() );
         Cajita::ArrayOp::assign( *_ueps, 0.0, Cajita::Ghost() );
-
-        // Initialize State Values ( quantity and velocity )
-        initialize( create_functor );
     }
 
     // This depends on the 
@@ -117,15 +116,15 @@ class ZModel
         return delta_t;
     }
 
-    void computeVelocities(Order::Low, node_array z, node_array w) 
+    void computeVelocities(Order::Low)
     {
     }
 
-    void computeVelocities(Order::Medium, node_array z, node_array w) 
+    void computeVelocities(Order::Medium)
     {
     }
 
-    void computeVelocities(Order::High, node_array z, node_array w) 
+    void computeVelocities(Order::High)
     {
     }
 
@@ -150,18 +149,18 @@ class ZModel
     {
     }
 
-    void computeDerivatives(double A, node_array z, node_array w, 
-                            node_array zdot, node_array wdot)
+    void computeDerivatives( node_array zdot, node_array wdot )
     { 
         // 1. Compute the interface and vorticity velocities using 
         // the supplied methods.
-        computeVelocities(MethodOrder(), z, w);
+        computeVelocities(MethodOrder());
 
-        // 2 Halo the positions and vorticity so we can compute surface normals
-        //   and vorticity laplacians.
-        pm.gather();
+        // 2. Halo the positions and vorticity so we can compute surface normals
+        // and vorticity laplacians.
+        _pm.gather();
 
         double g = _g;
+        double A = _A;
         // 3. Now process those into final interface position derivatives
         //    and the information needed for calculating the vorticity derivative
 #if 0
@@ -211,7 +210,8 @@ class ZModel
   private:
     BoundaryCondition & _bc;
     ArtificialViscosity & _av;
-    double _g;
+    double _g, _A;
+    std::unique_ptr<pm_type> & _pm;
     std::shared_ptr<node_array> _ubar, _ueps, _V; // intermediate state for 
                                                   // calculation of derivatives
 }; // class ZModel

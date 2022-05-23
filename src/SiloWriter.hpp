@@ -105,10 +105,8 @@ class SiloWriter
             {
                 for ( int j = node_domain.min( 1 ); j < node_domain.max( 1 ); j++ )
                 {
-		    int iown = i - cell_domain.min( 0 );
-                    int jown = j - cell_domain.min( 1 );
-                    for ( unsigned int j = 0; j < 3; j++ )
-                        index[j] = 0;
+		    int iown = i - node_domain.min( 0 );
+                    int jown = j - node_domain.min( 1 );
                     // Get the location data onto the host and use it to set
                     // mesh coordinates for the curvilinear mesh
                     auto z = _pm->get( Cajita::Node(), Field::Position() );
@@ -158,10 +156,10 @@ class SiloWriter
         auto w2Host =
             Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), w2Owned );
 
-        vars[0] = uHost.data();
-        vars[1] = vHost.data();
+        vars[0] = w1Host.data();
+        vars[1] = w2Host.data();
 
-        char *varnames[2] = {"w1", "w2"};
+        const char *varnames[2] = {"w1", "w2"};
         DBPutQuadvar( dbfile, "vorticity", meshname, 2, (DBCAS_t)varnames,
                       vars, dims, 2, NULL, 0, DB_DOUBLE, DB_NODECENT,
                       optlist );

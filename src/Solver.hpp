@@ -97,7 +97,7 @@ class Solver : public SolverBase
 
         // Set up Silo for I/O
         _silo =
-            std::make_unique<SiloWriter<2, ExecutionSpace, MemorySpace>>( _pm );
+            std::make_unique<SiloWriter<ExecutionSpace, MemorySpace>>( _pm );
     }
 
     void setup() override
@@ -105,7 +105,6 @@ class Solver : public SolverBase
         // Should assert that _time == 0 here.
 
 	// Apply boundary conditions
-	_bc.apply()
     }
 
     void step() override
@@ -129,7 +128,7 @@ class Solver : public SolverBase
         // Start advancing time.
         do
         {
-            if ( 0 == _mesh->rank() && 0 == t % write_freq )
+            if ( 0 == _pm->rank() && 0 == t % write_freq )
                 printf( "Step %d / %d at time = %f\n", t, num_step, _time );
 
             step();
@@ -157,13 +156,12 @@ class Solver : public SolverBase
     std::unique_ptr<mesh_type> _mesh;
     std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace>> _pm;
     std::unique_ptr<SiloWriter<ExecutionSpace, MemorySpace>> _silo;
-    int _rank;
 };
 
 //---------------------------------------------------------------------------//
 // XXX Should this be a shared_ptr or a unique_ptr?
 // Creation method.
-template <class InitFunc>
+template <class InitFunc, class ModelOrder>
 std::shared_ptr<SolverBase>
 createSolver( const std::string& device, MPI_Comm comm,
               const std::array<int, 2>& global_num_cell,
@@ -178,9 +176,9 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #if defined( KOKKOS_ENABLE_SERIAL )
         return std::make_shared<
-            Beatnik::Solver<Kokkos::Serial, Kokkos::HostSpace>>(
+            Beatnik::Solver<Kokkos::Serial, Kokkos::HostSpace, ModelOrder>>(
             comm, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, delta_t);
+            create_functor, bc, av, delta_t);
 #else
         throw std::runtime_error( "Serial Backend Not Enabled" );
 #endif
@@ -189,9 +187,9 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #if defined( KOKKOS_ENABLE_OPENMP )
         return std::make_shared<
-            Beatnik::Solver<Kokkos::OpenMP, Kokkos::HostSpace>>(
+            Beatnik::Solver<Kokkos::OpenMP, Kokkos::HostSpace, ModelOrder>>(
             comm, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, delta_t);
+            create_functor, bc, av, delta_t);
 #else
         throw std::runtime_error( "OpenMP Backend Not Enabled" );
 #endif
@@ -200,9 +198,9 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #ifdef KOKKOS_ENABLE_CUDA
         return std::make_shared<
-            Beatnik::Solver<Kokkos::Cuda, Kokkos::CudaSpace>>(
+            Beatnik::Solver<Kokkos::Cuda, Kokkos::CudaSpace, ModelOrder>>(
             comm, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, delta_t);
+            create_functor, bc, av, delta_t);
 #else
         throw std::runtime_error( "CUDA Backend Not Enabled" );
 #endif
@@ -210,11 +208,10 @@ createSolver( const std::string& device, MPI_Comm comm,
     else if ( 0 == device.compare( "hip" ) )
     {
 #ifdef KOKKOS_ENABLE_HIP
-        return std::make_shared<
-            Kokkos::Experimental::HIP, Kokkos::Experimental::HIPSpace>>(
-            Beatnik::Solver<Kokkos::Cuda, Kokkos::CudaSpace>>(
-            comm, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, delta_t);
+        return std::make_shared<Beatnik::Solver<Kokkos::Experimental::HIP, 
+            Kokkos::Experimental::HIPSpace, ModelOrder>>(
+                comm, global_num_cell, partitioner, atwood, g, 
+                create_functor, bc, av, delta_t);
 #else
         throw std::runtime_error( "HIP Backend Not Enabled" );
 #endif

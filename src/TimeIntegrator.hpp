@@ -68,8 +68,8 @@ class TimeIntegrator
     void step( const double delta_t ) 
     { 
         // Compute the derivatives of position and vorticityat our current point
-        auto z_orig = pm.get(Cajita::Node(), Field::Position());
-        auto w_orig = pm.get(Cajita::Node(), Field::Vorticity());
+        auto z_orig = _pm->get(Cajita::Node(), Field::Position());
+        auto w_orig = _pm->get(Cajita::Node(), Field::Vorticity());
 
         // TVD RK3 Step One - derivative at forward euler point
         //zm.computeDerivatives(z_orig, w_orig, _zdot, _wdot);
@@ -92,7 +92,7 @@ class TimeIntegrator
     BoundaryCondition &_bc;
     ZModel<ExecutionSpace, MemorySpace, ModelOrder> & _zm;
     std::shared_ptr<ProblemManager<ExecutionSpace, MemorySpace>> & _pm;
-    node_array _zdot, _vtmp, _wtmp, _ztmp;
+    node_array _zdot, _wdot, _wtmp, _ztmp;
 };
 
 } // end namespace Beatnik
