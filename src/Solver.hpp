@@ -60,9 +60,8 @@ class Solver : public SolverBase
 {
   public:
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
-    using mesh_type = Cajita::UniformMesh<double, 2>;
     using node_array =
-        Cajita::Array<double, Cajita::Node, mesh_type, MemorySpace>;
+        Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>, MemorySpace>;
     using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder>;
     using ti_type = TimeIntegrator<ExecutionSpace, MemorySpace, ModelOrder>;
     using Node = Cajita::Node;
@@ -72,20 +71,24 @@ class Solver : public SolverBase
             const Cajita::BlockPartitioner<2>& partitioner,
             const double atwood, const double g, const InitFunc& create_functor,
             const BoundaryCondition& bc, const ArtificialViscosity& av,
-            const double delta_t)
+            const double epsilon, const double delta_t)
         : _halo_min( 2 )
         , _atwood( atwood )
         , _g( g )
         , _bc( bc )
         , _av( av )
         , _dt( delta_t )
+        , _eps( epsilon )
         , _time( 0.0 )
     {
+	std::array<bool, 2> periodic;
+        periodic[0] =  (bc.boundary_type[0] == PERIODIC);
+        periodic[1] =  (bc.boundary_type[1] == PERIODIC);
 
         // Create a mesh one which to do the solve and a problem manager to
         // handle state
         _mesh = std::make_unique<Mesh<ExecutionSpace, MemorySpace>>(
-            global_num_cell, partitioner, _halo_min, comm );
+            global_num_cell, periodic, partitioner, _halo_min, comm );
 
         // Check that our timestep is small enough to handle the mesh size,
         // atwood number and acceleration, and solution method. 
@@ -109,7 +112,7 @@ class Solver : public SolverBase
 
     void step() override
     {
-        _ti->step(ExecutionSpace(), *_pm, _dt, _bc );
+        _ti->step(_dt);
         _time += _dt;
     }
 
@@ -128,7 +131,7 @@ class Solver : public SolverBase
         // Start advancing time.
         do
         {
-            if ( 0 == _pm->rank() && 0 == t % write_freq )
+            if ( 0 == _mesh->rank() && 0 == t % write_freq )
                 printf( "Step %d / %d at time = %f\n", t, num_step, _time );
 
             step();
@@ -150,10 +153,11 @@ class Solver : public SolverBase
     BoundaryCondition _bc;
     ArtificialViscosity _av;
     double _dt;
+    double _eps;
     double _time;
     std::unique_ptr<zmodel_type> _zm;
     std::unique_ptr<ti_type> _ti;
-    std::unique_ptr<mesh_type> _mesh;
+    std::unique_ptr<Mesh<ExecutionSpace, MemorySpace>> _mesh;
     std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace>> _pm;
     std::unique_ptr<SiloWriter<ExecutionSpace, MemorySpace>> _silo;
 };
@@ -169,7 +173,9 @@ createSolver( const std::string& device, MPI_Comm comm,
               const double atwood, const double g, 
               const InitFunc& create_functor, 
               const BoundaryCondition& bc, 
-              const ArtificialViscosity& av, 
+              const ArtificialViscosity& av,
+              const ModelOrder,
+              const double epsilon, 
               const double delta_t )
 {
     if ( 0 == device.compare( "serial" ) )
@@ -178,7 +184,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<
             Beatnik::Solver<Kokkos::Serial, Kokkos::HostSpace, ModelOrder>>(
             comm, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, av, delta_t);
+            create_functor, bc, av, epsilon, delta_t);
 #else
         throw std::runtime_error( "Serial Backend Not Enabled" );
 #endif
@@ -189,7 +195,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<
             Beatnik::Solver<Kokkos::OpenMP, Kokkos::HostSpace, ModelOrder>>(
             comm, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, av, delta_t);
+            create_functor, bc, av, epsilon, delta_t);
 #else
         throw std::runtime_error( "OpenMP Backend Not Enabled" );
 #endif
@@ -200,7 +206,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<
             Beatnik::Solver<Kokkos::Cuda, Kokkos::CudaSpace, ModelOrder>>(
             comm, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, av, delta_t);
+            create_functor, bc, av, epsilon, delta_t);
 #else
         throw std::runtime_error( "CUDA Backend Not Enabled" );
 #endif
@@ -211,7 +217,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<Beatnik::Solver<Kokkos::Experimental::HIP, 
             Kokkos::Experimental::HIPSpace, ModelOrder>>(
                 comm, global_num_cell, partitioner, atwood, g, 
-                create_functor, bc, av, delta_t);
+                create_functor, bc, av, epsilon, delta_t);
 #else
         throw std::runtime_error( "HIP Backend Not Enabled" );
 #endif

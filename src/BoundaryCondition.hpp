@@ -28,14 +28,11 @@ namespace Beatnik
  * These are used for setting ghost cell values prior to calculating surface
  * normals
  */
-struct BoundaryType
+enum BoundaryType
 {
-    enum Values
-    {
-        PERIODIC = 0,
-        FREE_SLIP = 1,
-        NO_SLIP = 2, 
-    };
+    PERIODIC = 0,
+    FREE_SLIP = 1,
+    NO_SLIP = 2, 
 };
 
 /**

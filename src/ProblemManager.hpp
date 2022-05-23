@@ -79,7 +79,7 @@ class ProblemManager
     using mesh_type = Mesh<exec_space, mem_space>;
 
     template <class InitFunc>
-    ProblemManager( const std::shared_ptr<mesh_type>& mesh,
+    ProblemManager( const std::unique_ptr<mesh_type>& mesh,
                     const InitFunc& create_functor )
         : _mesh( mesh )
     // , other initializers
@@ -128,24 +128,27 @@ class ProblemManager
 
         // Get Local Grid and Local Mesh
         auto local_grid = *( _mesh->localGrid() );
-        double cell_size = _mesh->cellSize();
+        auto local_mesh = Cajita::createLocalMesh<device_type>( local_grid );
 
 	// Get State Arrays
         auto z = get( Cajita::Node(), Field::Position() );
         auto w = get( Cajita::Node(), Field::Vorticity() );
 
         // Loop Over All Owned Nodes ( i, j )
-        auto own_cells = local_grid.indexSpace( Cajita::Own(), Cajita::Node(),
+        auto own_nodes = local_grid.indexSpace( Cajita::Own(), Cajita::Node(),
                                                 Cajita::Local() );
-        int index[2] = { 0, 0 };
-        double loc[2]; // x/y loocation of the cell at 0, 0
         Kokkos::parallel_for(
             "Initialize Cells`",
-            Cajita::createExecutionPolicy( own_cells, ExecutionSpace() ),
+            Cajita::createExecutionPolicy( own_nodes, ExecutionSpace() ),
             KOKKOS_LAMBDA( const int i, const int j ) {
+                int index[2] = { i, j };
+                double coords[2];
+                local_mesh.coordinates( Cajita::Node(), index, coords);
                 // Initialization Function
-                create_functor( Cajita::Node(), Field::Position(), i, j, z );
-                create_functor( Cajita::Node(), Field::Vorticity(), i, j, w );
+                create_functor( Cajita::Node(), Field::Position(), index, 
+                                coords, z(i, j, 0), z(i, j, 1), z(i, j, 2) );
+                create_functor( Cajita::Node(), Field::Vorticity(), index, 
+                                coords, w(i, j, 0), w(i, j, 1) );
             } );
     };
 
@@ -153,7 +156,7 @@ class ProblemManager
      * Return mesh
      * @return Returns Mesh object
      **/
-    const std::shared_ptr<Mesh<exec_space, mem_space>>& mesh() const
+    const std::unique_ptr<Mesh<exec_space, mem_space>>& mesh() const
     {
         return _mesh;
     };
@@ -191,7 +194,7 @@ class ProblemManager
 
   private:
     // The mesh on which our data items are stored
-    std::shared_ptr<mesh_type> _mesh;
+    const std::unique_ptr<mesh_type> &_mesh;
 
     // Basic long-term quantities stored in the mesh and periodically written
     // to storage (specific computiontional methods may store additional state)

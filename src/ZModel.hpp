@@ -211,7 +211,7 @@ class ZModel
     BoundaryCondition & _bc;
     ArtificialViscosity & _av;
     double _g, _A;
-    std::unique_ptr<pm_type> & _pm;
+    const std::unique_ptr<pm_type> & _pm;
     std::shared_ptr<node_array> _ubar, _ueps, _V; // intermediate state for 
                                                   // calculation of derivatives
 }; // class ZModel

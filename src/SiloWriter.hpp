@@ -358,7 +358,7 @@ class SiloWriter
     }
         
   private:
-    std::shared_ptr<pm_type> _pm;
+    const std::unique_ptr<pm_type> &_pm;
 }; 
 
 }; // namespace Beatnik

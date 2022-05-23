@@ -29,7 +29,7 @@ namespace Beatnik
  * using Kokkos inline Functions
  */
 
-class ArtificialViscosity
+struct ArtificialViscosity
 {
     template <class PType>
     KOKKOS_INLINE_FUNCTION void operator()( Cajita::Node, Field::Position, 
