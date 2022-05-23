@@ -105,16 +105,17 @@ class SiloWriter
             {
                 for ( int j = node_domain.min( 1 ); j < node_domain.max( 1 ); j++ )
                 {
-                int iown = i - cell_domain.min( 0 );
-                int jown = j - cell_domain.min( 1 );
-                for ( unsigned int j = 0; j < 3; j++ )
-                    index[j] = 0;
-                // Get the location data onto the host and use it to set mesh
-                // coordinates for the curvilinear mesh
-                auto z = _pm->get( Cajita::Node(), Field::Position() );
-                auto zHost = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), z );
+		    int iown = i - cell_domain.min( 0 );
+                    int jown = j - cell_domain.min( 1 );
+                    for ( unsigned int j = 0; j < 3; j++ )
+                        index[j] = 0;
+                    // Get the location data onto the host and use it to set
+                    // mesh coordinates for the curvilinear mesh
+                    auto z = _pm->get( Cajita::Node(), Field::Position() );
+                    auto zHost = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), z );
 	
-                coords[d][iown * node_domain.extent(0) + jown ] = zHost(i, j, d);
+                    coords[d][iown * node_domain.extent(0) + jown ] = zHost(i, j, d);
+		}
             }
         }
 
@@ -351,16 +352,16 @@ class SiloWriter
             writeMultiObjects( master_file, baton, size, time_step, "pdb" );
             DBClose( master_file );
         }
-
+    
         PMPIO_HandOffBaton( baton, silo_file );
 
         PMPIO_Finish( baton );
 
     }
-
+        
   private:
     std::shared_ptr<pm_type> _pm;
-};
+}; 
 
 }; // namespace Beatnik
 #endif
