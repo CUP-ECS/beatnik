@@ -61,7 +61,7 @@ class TimeIntegrator
                                                        node_triple_layout);
     }
 
-    void step( const double delta_t ) 
+    void step( [[maybe_unused]] const double delta_t ) 
     { 
         // Compute the derivatives of position and vorticityat our current point
         auto z_orig = _pm->get(Cajita::Node(), Field::Position());

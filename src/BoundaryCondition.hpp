@@ -57,8 +57,6 @@ struct BoundaryCondition
 
     Kokkos::Array<int, 4>
         boundary_type; /**< Boundary condition type on all surface edges  */
-    Kokkos::Array<int, 2> min;
-    Kokkos::Array<int, 2> max;
 };
 
 } // namespace Beatnik

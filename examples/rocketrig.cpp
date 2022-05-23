@@ -244,7 +244,8 @@ struct MeshInitFunc
 
     KOKKOS_INLINE_FUNCTION
     bool operator()( Cajita::Node, Beatnik::Field::Position,
-                     const int index[2], const double coord[2], 
+                     [[maybe_unused]] const int index[2], 
+                     const double coord[2], 
                      double &z1, double &z2, double &z3) const
     {
         /* Compute the physical position of the interface from its global
@@ -258,7 +259,8 @@ struct MeshInitFunc
 
     KOKKOS_INLINE_FUNCTION
     bool operator()( Cajita::Node, Beatnik::Field::Vorticity,
-                     const int index[2], const double coord[2],
+                     [[maybe_unused]] const int index[2], 
+                     [[maybe_unused]] const double coord[2],
                      double& w1, double &w2 ) const
     {
         // Initial vorticity along the interface is 0.
