@@ -38,8 +38,7 @@ TYPED_TEST( MeshTest, LocalGridSetup )
      * is right, the index spaces for owned, ghost, and boundary
      * cells are right, and so on. */
     auto local_grid = this->testMesh_->localGrid();
-    Cajita::GlobalGrid<Cajita::UniformMesh<double, 2>> & global_grid = local_grid->globalGrid();
-    std::cout << "Local Grid reference count: " << local_grid.use_count() << "\n";
+    auto global_grid & global_grid = local_grid->globalGrid();
 
     for ( int i = 0; i < 2; i++ )
     {
