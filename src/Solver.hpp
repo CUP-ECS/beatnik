@@ -69,7 +69,7 @@ class Solver : public SolverBase
     using Node = Cajita::Node;
 
     template <class InitFunc>
-    Solver( MPI_Comm comm, const std::array<int, 2>& global_num_cell,
+    Solver( MPI_Comm comm, const std::array<int, 2>& global_num_cells,
             const Cajita::BlockPartitioner<2>& partitioner,
             const double atwood, const double g, const InitFunc& create_functor,
             const BoundaryCondition& bc, const ArtificialViscosity& av,
@@ -90,7 +90,7 @@ class Solver : public SolverBase
         // Create a mesh one which to do the solve and a problem manager to
         // handle state
         _mesh = std::make_unique<Mesh<ExecutionSpace, MemorySpace>>(
-            global_num_cell, periodic, partitioner, _halo_min, comm );
+            global_num_cells, periodic, partitioner, _halo_min, comm );
 
         // Check that our timestep is small enough to handle the mesh size,
         // atwood number and acceleration, and solution method. 
@@ -103,6 +103,7 @@ class Solver : public SolverBase
         // Create the ZModel solver
         _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder>>(
             *_pm, _bc, _av, atwood, g);
+
         // Make a time integrator to move the zmodel forward
         _ti = std::make_unique<TimeIntegrator<ExecutionSpace, MemorySpace, ModelOrder>>( *_pm, *_zm );
 
@@ -143,13 +144,12 @@ class Solver : public SolverBase
                 printf( "Step %d / %d at time = %f\n", t, num_step, _time );
 
             step();
-
+            t++;
             // 4. Output mesh state periodically
             if ( 0 == t % write_freq )
             {
                 //_silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
             }
-            t++;
         } while ( ( _time < t_final ) );
     }
 

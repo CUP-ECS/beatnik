@@ -38,31 +38,31 @@ class Mesh
     using mesh_type = Cajita::UniformMesh<double, 2>;
 
     // Construct a mesh.
-    Mesh( const std::array<int, 2>& global_num_cell,
+    Mesh( const std::array<int, 2>& global_num_cells,
 	  const std::array<bool, 2>& periodic,
           const Cajita::BlockPartitioner<2>& partitioner,
           const int halo_cell_width, MPI_Comm comm )
     {
         // Make a copy of the global number of cells so we can modify it.
-        std::array<int, 2> num_cell = global_num_cell;
+        std::array<int, 2> num_cells = global_num_cells;
 
         // Create global mesh bounds.
         std::array<double, 2> global_low_corner, global_high_corner;
         for ( int d = 0; d < 2; ++d )
         {
             global_low_corner[d] = 0;
-            global_high_corner[d] = global_num_cell[d] + 1;
+            global_high_corner[d] = global_num_cells[d];
         }
 
         for ( int d = 0; d < 2; ++d )
         {
             _min_domain_global_node_index[d] = 0;
-            _max_domain_global_node_index[d] = num_cell[d] + 1;
+            _max_domain_global_node_index[d] = num_cells[d] - 1;
         }
 
         // Create the global mesh.
         auto global_mesh = Cajita::createUniformGlobalMesh(
-            global_low_corner, global_high_corner, num_cell );
+            global_low_corner, global_high_corner, 1.0 );
 
         auto global_grid = Cajita::createGlobalGrid( comm, global_mesh,
                                                      periodic, partitioner );
@@ -75,7 +75,7 @@ class Mesh
     }
 
     // Get the local grid.
-    const std::shared_ptr<Cajita::LocalGrid<mesh_type>> & localGrid() const
+    const std::shared_ptr<Cajita::LocalGrid<mesh_type>> localGrid() const
     {
         return _local_grid;
     }

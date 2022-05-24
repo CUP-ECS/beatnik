@@ -62,13 +62,13 @@ class SiloWriter
     {
         // Initialize Variables
         int dims[3];
-        double *coords[3], *vars[3];
-        const char* coordnames[3] = { "X", "Y", "Z" };
+        double *coords[2], *vars[3];
+        const char* coordnames[2] = { "X", "Y" };
         DBoptlist* optlist;
 
         // Rertrieve the Local Grid and Local Mesh
-        auto local_grid = _pm.mesh().localGrid();
-
+        const auto & local_grid = _pm.mesh().localGrid();
+        const auto & local_mesh = Cajita::createLocalMesh<device_type>(*local_grid);
 
         // Set DB Options: Time Step, Time Stamp and Delta Time
         optlist = DBMakeOptlist( 10 );
@@ -89,78 +89,82 @@ class SiloWriter
         {
             dims[i] = node_domain.extent( i ); 
         }
-        dims[2] = 1;
-
+                 
         // Allocate coordinate arrays in each dimension
-        for ( unsigned int i = 0; i < 3; i++ )
+        for ( unsigned int i = 0; i < 2; i++ )
         {
-            coords[i] = (double*)malloc( sizeof( double ) * dims[0] * dims[1] );
+            coords[i] = (double*)malloc( sizeof( double ) * dims[i]);
         }
 
-        auto z = _pm.get( Cajita::Node(), Field::Position() );
-        auto zHost = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), z );
         // Fill out coords[] arrays with coordinate values in each dimension
-        for ( unsigned int d = 0; d < 3; d++ )
+        for ( unsigned int d = 0; d < 2; d++ )
         {
-            for ( int i = node_domain.min( 0 ); i < node_domain.max( 0 ); i++ )
+            for ( int i = node_domain.min( d ); i < node_domain.max( d ); i++ )
             {
-                for ( int j = node_domain.min( 1 ); j < node_domain.max( 1 ); j++ )
-                {
-		    int iown = i - node_domain.min( 0 );
-                    int jown = j - node_domain.min( 1 );
-                    coords[d][iown * dims[0] + jown ] = zHost(i, j, d);
-		}
+                int iown = i - node_domain.min( d );
+                int index[2];
+                double location[2];
+                for ( unsigned int j = 0; j < 2; j++ )
+                    index[j] = 0;
+                index[d] = i;
+                local_mesh.coordinates( Cajita::Node(), index, location );
+                coords[d][iown] = location[d];
             }
         }
 
         DBPutQuadmesh( dbfile, meshname, (DBCAS_t)coordnames, coords, dims,
-                       3, DB_DOUBLE, DB_NONCOLLINEAR, optlist );
+                       2, DB_DOUBLE, DB_COLLINEAR, optlist );
 
         // Now we write the individual variables associated with this
         // portion of the mesh, potentially copying them out of device space
         // and making sure not to write ghost values.
 
-#if 0
-        // Advected quantity first - copy owned portion from the primary
+        // Mesh position values - copy owned portion from the primary
         // execution space to the host execution space
-        auto w = _pm.get( Cajita::Node(), Field::Vorticity() );
+        auto z = _pm.get( Cajita::Node(), Field::Position() );
         auto xmin = node_domain.min( 0 );
         auto ymin = node_domain.min( 1 );
 
-        // Silo is expecting row-major data so we make this a LayoutRight
         // array that we copy data into and then get a mirror view of.
-        // XXX WHY DOES THIS ONLY WORK LAYOUTLEFT?
         Kokkos::View<typename pm_type::node_array::value_type***,
                      Kokkos::LayoutLeft,
                      typename pm_type::node_array::device_type>
-            w1Owned( "w1owned", node_domain.extent( 0 ), node_domain.extent( 1 ),
+            z1Owned( "z1o", node_domain.extent( 0 ), node_domain.extent( 1 ),
                     1 );
         Kokkos::View<typename pm_type::node_array::value_type***,
                      Kokkos::LayoutLeft,
                      typename pm_type::node_array::device_type>
-            w2Owned( "w2owned", node_domain.extent( 0 ), node_domain.extent( 1 ),
+            z2Owned( "z2o", node_domain.extent( 0 ), node_domain.extent( 1 ),
+                    1 );
+        Kokkos::View<typename pm_type::node_array::value_type***,
+                     Kokkos::LayoutLeft,
+                     typename pm_type::node_array::device_type>
+            z3Owned( "z3o", node_domain.extent( 0 ), node_domain.extent( 1 ),
                     1 );
 
         Kokkos::parallel_for(
-            "SiloWriter::wowned copy",
+            "SiloWriter::zowned copy",
             createExecutionPolicy( node_domain, ExecutionSpace() ),
             KOKKOS_LAMBDA( const int i, const int j ) {
-                w1Owned( i - xmin, j - ymin, 0 ) = w( i, j, 0 );
-                w2Owned( i - xmin, j - ymin, 1 ) = w( i, j, 1 );
+                z1Owned( i - xmin, j - ymin, 0 ) = z( i, j, 0 );
+                z2Owned( i - xmin, j - ymin, 0 ) = z( i, j, 1 );
+                z3Owned( i - xmin, j - ymin, 0 ) = z( i, j, 2 );
             } );
-        auto w1Host =
-            Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), w1Owned );
-        auto w2Host =
-            Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), w2Owned );
+        auto z1Host =
+            Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), z1Owned );
+        auto z2Host =
+            Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), z2Owned );
+        auto z3Host =
+            Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), z3Owned );
+        vars[0] = z1Host.data();
+        vars[1] = z2Host.data();
+        vars[2] = z3Host.data();
 
-        vars[0] = w1Host.data();
-        vars[1] = w2Host.data();
-
-        const char *varnames[2] = {"w1", "w2"};
-        DBPutQuadvar( dbfile, "vorticity", meshname, 2, (DBCAS_t)varnames,
+        const char *varnames[3] = {"u", "v", "w"};
+        DBPutQuadvar( dbfile, "position", meshname, 3, (DBCAS_t)varnames,
                       vars, dims, 2, NULL, 0, DB_DOUBLE, DB_NODECENT,
                       optlist );
-#endif
+
         for ( unsigned int i = 0; i < 2; i++ )
         {
             free( coords[i] );
@@ -247,8 +251,8 @@ class SiloWriter
                             int time_step, const char* file_ext )
     {
         char** mesh_block_names = (char**)malloc( size * sizeof( char* ) );
-        char** q_block_names = (char**)malloc( size * sizeof( char* ) );
-        char** v_block_names = (char**)malloc( size * sizeof( char* ) );
+        char** z_block_names = (char**)malloc( size * sizeof( char* ) );
+//        char** w_block_names = (char**)malloc( size * sizeof( char* ) );
 
         int* block_types = (int*)malloc( size * sizeof( int ) );
         int* var_types = (int*)malloc( size * sizeof( int ) );
@@ -259,38 +263,38 @@ class SiloWriter
         {
             int group_rank = PMPIO_GroupRank( baton, i );
             mesh_block_names[i] = (char*)malloc( 1024 );
-            q_block_names[i] = (char*)malloc( 1024 );
-            v_block_names[i] = (char*)malloc( 1024 );
+            z_block_names[i] = (char*)malloc( 1024 );
+//            w_block_names[i] = (char*)malloc( 1024 );
 
             sprintf( mesh_block_names[i],
                      "raw/BeatnikOutput%05d%05d.%s:/domain_%05d/Mesh",
                      group_rank, time_step, file_ext, i );
-            sprintf( q_block_names[i],
-                     "raw/BeatnikOutput%05d%05d.%s:/domain_%05d/quantity",
+            sprintf( z_block_names[i],
+                     "raw/BeatnikOutput%05d%05d.%s:/domain_%05d/position",
                      group_rank, time_step, file_ext, i );
-            sprintf( v_block_names[i],
-                     "raw/BeatnikOutput%05d%05d.%s:/domain_%05d/velocity",
-                     group_rank, time_step, file_ext, i );
+//            sprintf( w_block_names[i],
+//                    "raw/BeatnikOutput%05d%05d.%s:/domain_%05d/vorticity",
+//                     group_rank, time_step, file_ext, i ); */
             block_types[i] = DB_QUADMESH;
             var_types[i] = DB_QUADVAR;
         }
 
         DBPutMultimesh( silo_file, "multi_mesh", size, mesh_block_names,
                         block_types, 0 );
-        DBPutMultivar( silo_file, "multi_quantity", size, q_block_names,
+        DBPutMultivar( silo_file, "multi_position", size, z_block_names,
                        var_types, 0 );
-        DBPutMultivar( silo_file, "multi_velocity", size, v_block_names,
-                       var_types, 0 );
+        //DBPutMultivar( silo_file, "multi_vorticity", size, w_block_names,
+        //               var_types, 0 ); */
         for ( int i = 0; i < size; i++ )
         {
             free( mesh_block_names[i] );
-            free( q_block_names[i] );
-            free( v_block_names[i] );
+            free( z_block_names[i] );
+//            free( v_block_names[i] );
         }
 
         free( mesh_block_names );
-        free( q_block_names );
-        free( v_block_names );
+        free( z_block_names );
+//        free( v_block_names );
         free( block_types );
         free( var_types );
     }

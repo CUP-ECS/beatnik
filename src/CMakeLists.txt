@@ -18,10 +18,10 @@ set(HEADERS
   # VerletBRVelocity.hpp
   )
 
-set(SOURCES
-  Mesh.cpp
-  ProblemManager.cpp
-  )
+#set(SOURCES
+#  Mesh.cpp
+#  ProblemManager.cpp
+#  )
 
 set(DEPENDS_ON
   Cabana::cabanacore

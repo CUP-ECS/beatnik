@@ -152,7 +152,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         {
         case 'n':
             cl.global_num_cells[0] = atoi( optarg );
-            if ( cl.global_num_cells[0] <= 0 )
+            if ( cl.global_num_cells[0] < 1 )
             {
                 if ( rank == 0 )
                 {
@@ -213,9 +213,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 
     /* Z-Model Solver Parameters */
     double dx = (cl.global_bounding_box[3] - cl.global_bounding_box[0]) 
-                    / cl.global_num_cells[0];
+                    / (cl.global_num_cells[0]);
     double dy = (cl.global_bounding_box[4] - cl.global_bounding_box[1]) 
-                    / cl.global_num_cells[1];
+                    / (cl.global_num_cells[1]);
     cl.mu = 1.0*sqrt(dx * dy);
     cl.eps = 0.25*sqrt(dx * dy);
     cl.order = 0; // Start with the low order model
@@ -332,7 +332,7 @@ int main( int argc, char* argv[] )
         std::cout << std::left << std::setw( 20 ) << "Thread Setting"
                   << ": " << std::setw( 8 ) << cl.driver
                   << "\n"; // Threading Setting
-        std::cout << std::left << std::setw( 20 ) << "Cells"
+        std::cout << std::left << std::setw( 20 ) << "Nodes"
                   << ": " << std::setw( 8 ) << cl.global_num_cells[0]
                   << std::setw( 8 ) << cl.global_num_cells[1]
                   << "\n"; // Number of Cells
