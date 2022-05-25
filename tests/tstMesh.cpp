@@ -13,7 +13,6 @@
 
 TYPED_TEST_SUITE( MeshTest, MeshDeviceTypes );
 
-#if 0
 TYPED_TEST( MeshTest, BasicParameters )
 {
     int r;
@@ -29,7 +28,6 @@ TYPED_TEST( MeshTest, BasicParameters )
     MPI_Comm_rank( MPI_COMM_WORLD, &r );
     EXPECT_EQ( this->testMesh_->rank(), r );
 };
-#endif
 
 TYPED_TEST( MeshTest, LocalGridSetup )
 {
@@ -38,7 +36,7 @@ TYPED_TEST( MeshTest, LocalGridSetup )
      * is right, the index spaces for owned, ghost, and boundary
      * cells are right, and so on. */
     auto local_grid = this->testMesh_->localGrid();
-    auto global_grid & global_grid = local_grid->globalGrid();
+    auto & global_grid = local_grid->globalGrid();
 
     for ( int i = 0; i < 2; i++ )
     {
