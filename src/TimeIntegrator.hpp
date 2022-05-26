@@ -74,18 +74,9 @@ class TimeIntegrator
         // TVD RK3 Step One - derivative at forward euler point
         auto z_dot = _zdot->view();
         auto w_dot = _wdot->view();
-        _zm.computeDerivatives(z_orig, w_orig, z_dot, w_dot);
-        //Compute derivative at forward euler point
-        std::cout << "zdot-rk3.1(10, 50) = " 
-               << "(" << z_dot(10, 50, 0) 
-               << ", " << z_dot(10, 50, 1) 
-               << ", " << z_dot(10, 50, 2) 
-               << ")\n"; 
-        std::cout << "wdot-rk3.1(10, 50) = " 
-               << "(" << w_dot(10, 50, 0) 
-               << ", " << w_dot(10, 50, 1) 
-               << ")\n"; 
 
+        // Find foward euler point using initial derivative
+        _zm.computeDerivatives(z_orig, w_orig, z_dot, w_dot);
         auto own_node_space = local_grid->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
         Kokkos::parallel_for("RK3 Euler Step",
             Cajita::createExecutionPolicy(own_node_space, ExecutionSpace()),
@@ -97,19 +88,13 @@ class TimeIntegrator
 	        w_tmp(i, j, d) = w_orig(i, j, d) + delta_t * w_dot(i, j, d);
             }
         });
+        //Compute derivative at forward euler point
         _zm.computeDerivatives(z_tmp, w_tmp, z_dot, w_dot);
-        std::cout << "zdot-rk3.2(10, 50) = " 
-               << "(" << z_dot(10, 50, 0) 
-               << ", " << z_dot(10, 50, 1) 
-               << ", " << z_dot(10, 50, 2) 
-               << ")\n"; 
-        std::cout << "wdot-rk3.2(10, 50) = " 
-               << "(" << w_dot(10, 50, 0) 
-               << ", " << w_dot(10, 50, 1) 
-               << ")\n"; 
  
         // TVD RK3 Step Two - derivative at half-step position
         // derivatives
+        
+        // Take the half-step
         Kokkos::parallel_for("RK3 Half Step",
             Cajita::createExecutionPolicy(own_node_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {
@@ -124,16 +109,8 @@ class TimeIntegrator
                     + 0.25 * delta_t * w_dot(i, j, d);
             }
         });
+        // Get the derivatives there
         _zm.computeDerivatives(z_tmp, w_tmp, z_dot, w_dot);
-        std::cout << "zdot-rk3.3(10, 50) = " 
-               << "(" << z_dot(10, 50, 0) 
-               << ", " << z_dot(10, 50, 1) 
-               << ", " << z_dot(10, 50, 2) 
-               << ")\n"; 
-        std::cout << "wdot-rk3.3(10, 50) = " 
-               << "(" << w_dot(10, 50, 0) 
-               << ", " << w_dot(10, 50, 1) 
-               << ")\n"; 
         
         // TVD RK3 Step Three - Combine start, forward euler, and half step
         // derivatives to take the final full step.

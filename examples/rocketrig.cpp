@@ -141,7 +141,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     /// Set default values
 
     cl.driver = "serial"; // Default Thread Setting
-    cl.global_num_cells = { 128, 128 };
+    cl.global_num_cells = { 129, 129 };
 
     // Now parse any arguments
     while ( ( ch = getopt_long( argc, argv, shortargs, longargs, NULL ) ) !=
@@ -207,7 +207,8 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
      * enough for the interface to evolve significantly */ 
     double tau = 1/sqrt(cl.atwood * cl.gravity);
     cl.delta_t = tau/25.0;  // This should depend on dx, dy, and num_cells?
-    cl.t_final = tau * 10.0; // Simulate for 10 characterisic periods
+    cl.t_final = tau * 2.0; // Simulate for 2 characterisic periods
+    cl.t_final = cl.delta_t * 25;
     cl.write_freq = 1;
 
     /* Z-Model Solver Parameters */
@@ -249,8 +250,8 @@ struct MeshInitFunc
     {
         /* Compute the physical position of the interface from its global
          * coordinate in mesh space */
-        z1 = x[0] + _dx * coord[0];
-        z2 = x[1] + _dy * coord[1];
+        z1 = _dx * coord[0];
+        z2 = _dy * coord[1];
         // We don't currently tilt the interface
         z3 = _m * cos(z1 * (2 * M_PI / _p)) * cos(z2 * (2 * M_PI / _p));
         return true;
@@ -325,7 +326,7 @@ int main( int argc, char* argv[] )
     if ( rank == 0 )
     {
         // Print Command Line Options
-        std::cout << "CajitaFluids\n";
+        std::cout << "RocketRig\n";
         std::cout << "=======Command line arguments=======\n";
         std::cout << std::left << std::setw( 20 ) << "Thread Setting"
                   << ": " << std::setw( 8 ) << cl.driver

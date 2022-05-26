@@ -52,24 +52,27 @@ namespace Operator
     KOKKOS_INLINE_FUNCTION
     double Dx(ViewType f, int i, int j, int d, double dx) 
     {
-        return (f(i - 2, j, d) - 8.0*f(i - 1, j, d) + 8.0*f(i + 1, j, d) - f(i + 2, j, d)) / (12.0 * dx);
+        //return (f(i - 2, j, d) - 8.0*f(i - 1, j, d) + 8.0*f(i + 1, j, d) - f(i + 2, j, d)) / (12.0 * dx);
+        return (f(i + 1, j, d) - f(i - 1, j, d)) / (2 * dx);
     } 
 
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION
     double Dy(ViewType f, int i, int j, int d, double dy)
     {
-        return (f(i, j - 2, d) - 8.0*f(i, j - 1, d) + 8.0*f(i, j + 1, d) - f(i, j + 2, d)) / (12.0 * dy);
+        //return (f(i, j - 2, d) - 8.0*f(i, j - 1, d) + 8.0*f(i, j + 1, d) - f(i, j + 2, d)) / (12.0 * dy);
+        return (f(i, j + 1, d) - f(i, j - 1, d)) / (2 * dy);
     }
  
     /* 9-point laplace stencil operator for computing artificial viscosity */
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION
-    double laplace(ViewType f, int i, int j, int d, double h) 
+    double laplace(ViewType f, int i, int j, int d, double dx, double dy) 
     {
-        return (0.5*f(i+1, j, d) + 0.5*f(i-1, j, d) + 0.5*f(i, j+1, d) + 0.5*f(i, j-1, d) 
-            + 0.25*f(i+1, j+1, d) + 0.25*f(i+1, j-1, d) + 0.5*f(i-1, j+1, d) + 0.5*f(i-1, j-1, d)
-            - 3*f(i, j, d))/(h*h);
+        //return (0.5*f(i+1, j, d) + 0.5*f(i-1, j, d) + 0.5*f(i, j+1, d) + 0.5*f(i, j-1, d) 
+        //    + 0.25*f(i+1, j+1, d) + 0.25*f(i+1, j-1, d) + 0.25*f(i-1, j+1, d) + 0.25*f(i-1, j-1, d)
+        //    - 3*f(i, j, d))/(dx*dy);
+        return (f(i + 1, j, d) + f(i -1, j, d) + f(i, j+1, d) + f(i, j-1,d) - 4.0 * f(i, j, d)) / (dx * dy);
     }
 
     KOKKOS_INLINE_FUNCTION
@@ -155,8 +158,8 @@ class ZModel
         /* If we're not the hgh order model, initialize the FFT solver and the working space
          * it will need. XXX figure out how to make this conditional on model order. */
         Cajita::Experimental::FastFourierTransformParams params;
-        _M1 = Cajita::createArray<double, MemorySpace>("M1", node_double_layout);
-        _M2 = Cajita::createArray<double, MemorySpace>("M2", node_double_layout);
+        _C1 = Cajita::createArray<double, MemorySpace>("C1", node_double_layout);
+        _C2 = Cajita::createArray<double, MemorySpace>("C2", node_double_layout);
 
         params.setAllToAll(true);
         params.setPencils(true);
@@ -172,32 +175,35 @@ class ZModel
     }
 
     /* Compute the velocities needed by the relevant Z-Model */
-    void computeFourierVelocity() const
+    template <class VorticityView>
+    void computeReiszTransform(VorticityView w) const
     {
         /* This is two FFTs on temporary arrays and an inverse FFT */
 
-        /* Construct the temporary arrays M1 and M2 */
+        /* Construct the temporary arrays C1 and C2 */
         auto local_grid = _pm.mesh().localGrid();
         auto local_mesh = Cajita::createLocalMesh<device_type>( *local_grid );
         auto local_nodes = local_grid->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
 
         /* Get the views we'll be computing with in parallel loops */
-        auto w = _pm.get( Cajita::Node(), Field::Vorticity() );
-        auto M1 = _M1->view();
-        auto M2 = _M1->view();
+        auto C1 = _C1->view();
+        auto C2 = _C2->view();
         auto reisz = _reisz->view();
 
-        /* First put w into the real parts of M1 and M2 */
+        /* First put w into the real parts of C1 and C2 (and zero out
+         * any imaginary parts left from previous runs!) */
         Kokkos::parallel_for("Build FFT Arrays", 
                      Cajita::createExecutionPolicy(local_nodes, ExecutionSpace()), 
                      KOKKOS_LAMBDA(const int i, const int j) {
-            M1(i, j, 0) = w(i, j, 0);
-            M2(i, j, 0) = w(i, j, 1);
+            C1(i, j, 0) = w(i, j, 0);
+            C1(i, j, 1) = 0;
+            C2(i, j, 0) = w(i, j, 1);
+            C2(i, j, 1) = 0;
         });
 
         /* Now do the FFTs of vorticity */
-        _fft->forward(*_M1, Cajita::Experimental::FFTScaleNone());
-        _fft->forward(*_M2, Cajita::Experimental::FFTScaleNone());
+        _fft->forward(*_C1, Cajita::Experimental::FFTScaleNone());
+        _fft->forward(*_C2, Cajita::Experimental::FFTScaleNone());
 
         /* Now construct reisz from the weighted sum of those FFTs to take the inverse FFT. */
         parallel_for("Combine FFTs", 
@@ -207,48 +213,55 @@ class ZModel
             double location[2];
             local_mesh.coordinates( Cajita::Node(), indicies, location );
             double len = sqrt(location[0] * location[0] + location[1] * location[1]);
+            double M1 = location[0] / len;
+            double M2 = location[1] / len;
             if ((location[0] != 0) || (location[1]  != 0)) {
-                reisz(i, j, 0) = (-M1(i, j, 1) * location[0] - M2(i, j, 1) * location[1]) / len;
-                reisz(i, j, 1) = ( M1(i, j, 0) * location[0] + M2(i, j, 1) * location[1]) / len;
+                reisz(i, j, 0) = (M1 * C1(i, j, 1) + M2 * C2(i, j, 1));
+                reisz(i, j, 1) = (-M1 * C1(i, j, 0) - M2 * C2(i, j, 0));
             } else {
                 reisz(i, j, 0) = 0.0; 
                 reisz(i, j, 1) = 0.0;
             }
         });
-        /* Finally do the reverse transform to get the non-normalized fourier velocity.
-         * We'll drop the imaginary part and project the real part onto the interface 
-         * velocity later */
-        _fft->reverse(*_reisz, Cajita::Experimental::FFTScaleNone());
+        /* Finally do the reverse transform to finish the reisz transform.
+         * We'll drop the imaginary part and project the real part onto the 
+         * interface velocity and divide it by 2 later. */
+        _fft->reverse(*_reisz, Cajita::Experimental::FFTScaleFull());
     }
 
     /* Compute the velocities needed by the relevant Z-Model */
-    void computeInterfaceVelocity() const
+    template <class PositionView, class VorticityView>
+    void computeInterfaceVelocity([[maybe_unused]]PositionView z,
+                                  [[maybe_unused]]VorticityView w) const
     {
     }
 
     /* For low order, we calculate the fourier velocity and then 
      * later finalize that once we have the normals into the interface
      * velocity */
-    void computeVelocities(Order::Low) const
+    template <class PositionView, class VorticityView>
+    void computeVelocities(Order::Low, [[maybe_unused]] PositionView z, VorticityView w) const
     {
-        computeFourierVelocity();
+        computeReiszTransform(w);
     }
 
     /* For medium order, we calculate the fourier velocity that we later 
      * normalize for vorticity calculations and directly compute the 
      * interface velocity (zdot) using a fast multipole method. */
-    void computeVelocities(Order::Medium) const
+    template <class PositionView, class VorticityView>
+    void computeVelocities(Order::Medium, PositionView z, VorticityView w) const
     {
-        computeFourierVelocity();
-        computeInterfaceVelocity();
+        computeReiszTransform(w);
+        computeInterfaceVelocity(z, w);
     }
 
     /* For high order, we just directly compute the interface velocity (zdot)
      * using a fast multipole method and later normalize that for use in the
      * vorticity calculation. */
-    void computeVelocities(Order::High) const
+    template <class PositionView, class VorticityView>
+    void computeVelocities(Order::High, PositionView z, VorticityView w) const
     {
-        computeInterfaceVelocity();
+        computeInterfaceVelocity(z, w);
     }
 
     // Compute the final interface velocities and normalized BR velocities
@@ -259,7 +272,7 @@ class ZModel
     static void finalizeVelocity(Order::Low, double &zndot, ViewType zdot, int i, int j, 
                           double reisz, double norm[3], double deth) 
     {
-        zndot = reisz / deth;
+        zndot = reisz / (2.0 * deth);
         for (int d = 0; d < 3; d++)
             zdot(i, j, d) = zndot * norm[d];
     }
@@ -270,7 +283,7 @@ class ZModel
         [[maybe_unused]] ViewType zdot, [[maybe_unused]] int i, [[maybe_unused]] int j,
         double reisz, [[maybe_unused]] double norm[3], double deth) 
     {
-        zndot = reisz / deth;
+        zndot = reisz / (2 * deth);
     }
 
     template <class ViewType>
@@ -285,10 +298,14 @@ class ZModel
     template <class PositionView, class VorticityView>
     void computeDerivatives( PositionView z, VorticityView w, 
         PositionView zdot, VorticityView wdot) const
-    { 
+    {
+	double dx = 1.0, dy = 1.0; //2.0/129, dy = 2.0/129;
+ 
         // 1. Compute the interface and vorticity velocities using 
         // the supplied methods in terms of the unit mesh.
-        computeVelocities(MethodOrder());
+        computeVelocities(MethodOrder(), z, w);
+
+        auto reisz = _reisz->view();
 
         // 2. Halo the positions and vorticity so we can compute surface normals
         // and vorticity laplacians.
@@ -299,7 +316,6 @@ class ZModel
 
         // 3. Now process those into final interface position derivatives
         //    and the information needed for calculating the vorticity derivative
-        auto reisz = _reisz->view();
         auto V = _V->view();
 
         auto local_grid = _pm.mesh().localGrid();
@@ -312,8 +328,8 @@ class ZModel
             double dx_z[3], dy_z[3];
 
             for (int n = 0; n < 3; n++) {
-               dx_z[n] = Operator::Dx(z, i, j, n, 1.0);
-               dy_z[n] = Operator::Dy(z, i, j, n, 1.0);
+               dx_z[n] = Operator::Dx(z, i, j, n, dx);
+               dy_z[n] = Operator::Dy(z, i, j, n, dy);
             }
 
             //  3.2 Compute h11, h12, h22, and det_h from Dx and Dy
@@ -340,6 +356,7 @@ class ZModel
                          - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
                          - 2*g*z(i, j, 2);   
         });
+
         // 4. Halo V and apply boundary condtions, since we need it for central
         //    differencing of V.
         _v_halo->gather( ExecutionSpace(), *_V );
@@ -349,8 +366,14 @@ class ZModel
         Kokkos::parallel_for( "Interface Vorticity",
             createExecutionPolicy(own_node_space, ExecutionSpace()), 
             KOKKOS_LAMBDA(int i, int j) {
-            wdot(i, j, 0) = A * Operator::Dx(V, i, j, 0, 1.0) + mu * Operator::laplace(w, i, j, 0, 1.0);
-            wdot(i, j, 1) = A * Operator::Dy(V, i, j, 0, 1.0) + mu * Operator::laplace(w, i, j, 1, 1.0);
+            double dx_v = Operator::Dx(V, i, j, 0, dx);
+            double dy_v = Operator::Dy(V, i, j, 0, dy);
+            double lap_w0 = Operator::laplace(w, i, j, 0, dx, dy);
+            double lap_w1 = Operator::laplace(w, i, j, 1, dx, dy);
+            //wdot(i, j, 0) = A * Operator::Dx(V, i, j, 0, dx) + mu * Operator::laplace(w, i, j, 0, dx, dy);
+            //wdot(i, j, 1) = A * Operator::Dy(V, i, j, 0, dy) + mu * Operator::laplace(w, i, j, 1, dx, dy);
+            wdot(i, j, 0) = A * dx_v + mu * lap_w0;
+            wdot(i, j, 1) = A * dy_v + mu * lap_w1;
         });
     }
 
@@ -363,7 +386,7 @@ class ZModel
 
     /* XXX Make this conditional on not being the high-order model */ 
     std::shared_ptr<node_array> _reisz;
-    std::shared_ptr<node_array> _M1, _M2; 
+    std::shared_ptr<node_array> _C1, _C2; 
     std::shared_ptr<Cajita::Experimental::HeffteFastFourierTransform<Cajita::Node, mesh_type, double, device_type, Cajita::Experimental::Impl::FFTBackendDefault>> _fft;
 
     /* XXX Conditional declarations for medium/high-order models */

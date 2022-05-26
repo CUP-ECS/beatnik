@@ -208,7 +208,7 @@ createSolver( const std::string& device, MPI_Comm comm,
     }
     else if ( 0 == device.compare( "cuda" ) )
     {
-#ifdef KOKKOS_ENABLE_CUDA
+#if defined(KOKKOS_ENABLE_CUDA)
         return std::make_shared<
             Beatnik::Solver<Kokkos::Cuda, Kokkos::CudaSpace, ModelOrder>>(
             comm, global_num_cell, partitioner, atwood, g, 
