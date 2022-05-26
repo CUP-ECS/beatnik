@@ -57,9 +57,9 @@ namespace Operator
 
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION
-    double Dy(ViewType f, int i, int j, int d, double dx)
+    double Dy(ViewType f, int i, int j, int d, double dy)
     {
-        return (f(i, j - 2, d) - 8.0*f(i, j - 1, d) + 8.0*f(i, j + 1, d) - f(i, j + 2, d)) / (12.0 * dx);
+        return (f(i, j - 2, d) - 8.0*f(i, j - 1, d) + 8.0*f(i, j + 1, d) - f(i, j + 2, d)) / (12.0 * dy);
     }
  
     /* 9-point laplace stencil operator for computing artificial viscosity */
@@ -349,8 +349,8 @@ class ZModel
         Kokkos::parallel_for( "Interface Vorticity",
             createExecutionPolicy(own_node_space, ExecutionSpace()), 
             KOKKOS_LAMBDA(int i, int j) {
-            wdot(i, i, 0) = A * Operator::Dx(V, i, j, 0, 1.0) + mu * Operator::laplace(w, i, j, 0, 1.0);
-            wdot(i, i, 1) = A * Operator::Dy(V, i, j, 0, 1.0) + mu * Operator::laplace(w, i, j, 1, 1.0);
+            wdot(i, j, 0) = A * Operator::Dx(V, i, j, 0, 1.0) + mu * Operator::laplace(w, i, j, 0, 1.0);
+            wdot(i, j, 1) = A * Operator::Dy(V, i, j, 0, 1.0) + mu * Operator::laplace(w, i, j, 1, 1.0);
         });
     }
 
