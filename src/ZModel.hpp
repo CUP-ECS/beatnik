@@ -330,7 +330,7 @@ class ZModel
 
             //  3.4 Compute zdot and zndot as needed using specialized helper functions
             double zndot;
-            finalizeVelocity(MethodOrder(), zndot, zdot, reisz(i, j, 0), i, j, N, deth );
+            finalizeVelocity(MethodOrder(), zndot, zdot, i, j, reisz(i, j, 0), N, deth );
 
             //  3.5 Compute V from zndot and vorticity 
 	    double w1 = w(i, j, 0); 

@@ -290,7 +290,7 @@ void rocketrig( ClArgs& cl )
             cl.driver, MPI_COMM_WORLD, cl.global_num_cells,
             partitioner, cl.atwood, cl.gravity, initializer,
             bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t );
-    } if (cl.order == 1) {
+    } else if (cl.order == 1) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD, cl.global_num_cells,
             partitioner, cl.atwood, cl.gravity, initializer,

@@ -143,8 +143,8 @@ class SiloWriter
             "SiloWriter::wowned copy",
             createExecutionPolicy( node_domain, ExecutionSpace() ),
             KOKKOS_LAMBDA( const int i, const int j ) {
-                w1Owned( i - xmin, j - ymin, 0 ) = z( i, j, 0 );
-                w2Owned( i - xmin, j - ymin, 0 ) = z( i, j, 1 );
+                w1Owned( i - xmin, j - ymin, 0 ) = w( i, j, 0 );
+                w2Owned( i - xmin, j - ymin, 0 ) = w( i, j, 1 );
             } );
         auto w1Host =
             Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), w1Owned );
@@ -153,7 +153,7 @@ class SiloWriter
         vars[0] = w1Host.data();
         vars[1] = w2Host.data();
 
-        const char *varnames[3] = {"w1", "w2"};
+        const char *varnames[2] = {"w1", "w2"};
         DBPutQuadvar( dbfile, "vorticity", meshname, 2, (DBCAS_t)varnames,
                       vars, dims, 3, NULL, 0, DB_DOUBLE, DB_NODECENT,
                       optlist );
@@ -241,7 +241,8 @@ class SiloWriter
      * @param file_ext File extension (PDB, HDF5)
      **/
     void writeMultiObjects( DBfile* silo_file, PMPIO_baton_t* baton, int size,
-                            int time_step, const char* file_ext )
+                            int time_step, double time, double dt, 
+                            const char* file_ext )
     {
         char** mesh_block_names = (char**)malloc( size * sizeof( char* ) );
         char** w_block_names = (char**)malloc( size * sizeof( char* ) );
@@ -270,6 +271,9 @@ class SiloWriter
         // Set DB Options: Time Step, Time Stamp and Delta Time
         DBoptlist* optlist;
         optlist = DBMakeOptlist( 10 );
+        DBAddOption( optlist, DBOPT_CYCLE, &time_step );
+        DBAddOption( optlist, DBOPT_TIME, &time );
+        DBAddOption( optlist, DBOPT_DTIME, &dt );
         int dbcoord = DB_CARTESIAN;
         DBAddOption( optlist, DBOPT_COORDSYS, &dbcoord );
         int dborder = DB_ROWMAJOR;
@@ -345,7 +349,8 @@ class SiloWriter
         {
             master_file = DBCreate( masterfilename, DB_CLOBBER, DB_LOCAL,
                                     "Beatnik", driver );
-            writeMultiObjects( master_file, baton, size, time_step, "silo" );
+            writeMultiObjects( master_file, baton, size, time_step, 
+                               time, dt, file_ext );
             DBClose( master_file );
         }
     

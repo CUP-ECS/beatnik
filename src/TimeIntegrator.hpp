@@ -76,6 +76,15 @@ class TimeIntegrator
         auto w_dot = _wdot->view();
         _zm.computeDerivatives(z_orig, w_orig, z_dot, w_dot);
         //Compute derivative at forward euler point
+        std::cout << "zdot-rk3.1(10, 50) = " 
+               << "(" << z_dot(10, 50, 0) 
+               << ", " << z_dot(10, 50, 1) 
+               << ", " << z_dot(10, 50, 2) 
+               << ")\n"; 
+        std::cout << "wdot-rk3.1(10, 50) = " 
+               << "(" << w_dot(10, 50, 0) 
+               << ", " << w_dot(10, 50, 1) 
+               << ")\n"; 
 
         auto own_node_space = local_grid->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
         Kokkos::parallel_for("RK3 Euler Step",
@@ -89,6 +98,15 @@ class TimeIntegrator
             }
         });
         _zm.computeDerivatives(z_tmp, w_tmp, z_dot, w_dot);
+        std::cout << "zdot-rk3.2(10, 50) = " 
+               << "(" << z_dot(10, 50, 0) 
+               << ", " << z_dot(10, 50, 1) 
+               << ", " << z_dot(10, 50, 2) 
+               << ")\n"; 
+        std::cout << "wdot-rk3.2(10, 50) = " 
+               << "(" << w_dot(10, 50, 0) 
+               << ", " << w_dot(10, 50, 1) 
+               << ")\n"; 
  
         // TVD RK3 Step Two - derivative at half-step position
         // derivatives
@@ -107,11 +125,20 @@ class TimeIntegrator
             }
         });
         _zm.computeDerivatives(z_tmp, w_tmp, z_dot, w_dot);
+        std::cout << "zdot-rk3.3(10, 50) = " 
+               << "(" << z_dot(10, 50, 0) 
+               << ", " << z_dot(10, 50, 1) 
+               << ", " << z_dot(10, 50, 2) 
+               << ")\n"; 
+        std::cout << "wdot-rk3.3(10, 50) = " 
+               << "(" << w_dot(10, 50, 0) 
+               << ", " << w_dot(10, 50, 1) 
+               << ")\n"; 
         
         // TVD RK3 Step Three - Combine start, forward euler, and half step
         // derivatives to take the final full step.
-        // unew = 1/3 uold + 2/3 utmp + 2/3 du_dt_tmp * deltat (classic)
-        Kokkos::parallel_for("RK3 Final Step",
+        // unew = 1/3 uold + 2/3 utmp + 2/3 du_dt_tmp * deltat
+        Kokkos::parallel_for("RK3 Full Step",
             Cajita::createExecutionPolicy(own_node_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {
             for (int d = 0; d < 3; d++) {
