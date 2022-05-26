@@ -123,7 +123,7 @@ class SiloWriter
         // portion of the mesh, potentially copying them out of device space
         // and making sure not to write ghost values.
 
-        // Mesh position values - copy owned portion from the primary
+        // Mesh vorticity values - copy owned portion from the primary
         // execution space to the host execution space
         auto w = _pm.get( Cajita::Node(), Field::Vorticity() );
 
@@ -154,7 +154,7 @@ class SiloWriter
         vars[1] = w2Host.data();
 
         const char *varnames[3] = {"w1", "w2"};
-        DBPutQuadvar( dbfile, "position", meshname, 2, (DBCAS_t)varnames,
+        DBPutQuadvar( dbfile, "vorticity", meshname, 2, (DBCAS_t)varnames,
                       vars, dims, 3, NULL, 0, DB_DOUBLE, DB_NODECENT,
                       optlist );
 
@@ -311,7 +311,7 @@ class SiloWriter
         DBfile* master_file;
         int size;
         int driver = DB_PDB;
-        const char* file_ext = "pdb";
+        const char* file_ext = "silo";
         // TODO: Make the Number of Groups a Constant or a Runtime Parameter (
         // Between 8 and 64 )
         int numGroups = 2;
@@ -345,7 +345,7 @@ class SiloWriter
         {
             master_file = DBCreate( masterfilename, DB_CLOBBER, DB_LOCAL,
                                     "Beatnik", driver );
-            writeMultiObjects( master_file, baton, size, time_step, "pdb" );
+            writeMultiObjects( master_file, baton, size, time_step, "silo" );
             DBClose( master_file );
         }
     

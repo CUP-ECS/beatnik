@@ -41,7 +41,9 @@ namespace Order
     struct High {};
 } // namespace Order
 
-// Simple vector and finite difference operators needed by the ZModel code.
+/* Simple vector and finite difference operators needed by the ZModel code.
+ * Note that we use higher-order difference operators as the highly-variable
+ * curvature of surface can make lower-order operators inaccurate */
 namespace Operator
 {
     /* Fourth order central difference calculation for derivatives along the 
@@ -60,13 +62,14 @@ namespace Operator
         return (f(i, j - 2, d) - 8.0*f(i, j - 1, d) + 8.0*f(i, j + 1, d) - f(i, j + 2, d)) / (12.0 * dx);
     }
  
-    /* XXX Should make this a 9-point laplace operator because the surface
-     * may not be that smooth in some cases */
+    /* 9-point laplace stencil operator for computing artificial viscosity */
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION
     double laplace(ViewType f, int i, int j, int d, double h) 
     {
-        return (f(i+1, j, d) + f(i-1, j, d) + f(i, j+1, d) + f(i, j-1, d) - 4*f(i, j, d))/(h*h);
+        return (0.5*f(i+1, j, d) + 0.5*f(i-1, j, d) + 0.5*f(i, j+1, d) + 0.5*f(i, j-1, d) 
+            + 0.25*f(i+1, j+1, d) + 0.25*f(i+1, j-1, d) + 0.5*f(i-1, j+1, d) + 0.5*f(i-1, j-1, d)
+            - 3*f(i, j, d))/(h*h);
     }
 
     KOKKOS_INLINE_FUNCTION
@@ -130,26 +133,27 @@ class ZModel
         auto node_scalar_layout =
             Cajita::createArrayLayout( _pm.mesh().localGrid(), 3, Cajita::Node() );
 
-        // We do lots of calculations with these derivatives, but they're only
-        // used after the velocity calculations are done so they can probably be
-        // cached in local variables.
-
-        // Reisz is the reisz transform of the vorticity. In the low and medium order models,
-        // it is used to calculate the vorticity derivative. In the low order model,
-        // it is also projected onto the surface normal to compute the interface velocity.
-        // XXX Make this conditional on the model we run.
-        _reisz = Cajita::createArray<double, MemorySpace>(
-            "reisz", node_double_layout );
-
         // Temporary used for central differencing of vorticities along the 
         // surface in calculating the vorticity derivative/
         _V = Cajita::createArray<double, MemorySpace>(
-            "ueps", node_scalar_layout );
+            "V", node_scalar_layout );
 
+        /* Storage for the reisz transform of the vorticity. In the low and medium 
+         * order models,
+         * it is used to calculate the vorticity derivative. In the low order model,
+         * it is also projected onto the surface normal to compute the interface velocity.
+         * XXX Make this conditional on the model we run. */
+        _reisz = Cajita::createArray<double, MemorySpace>( "reisz", node_double_layout );
         Cajita::ArrayOp::assign( *_reisz, 0.0, Cajita::Ghost() );
 
+        /* We need a halo for _V so that we can do fourth-order central differencing on
+         * it. This requires a depth 2 stencil with adjacent faces */
+        int halo_depth = 2;
+        _v_halo = Cajita::createHalo( Cajita::FaceHaloPattern<2>(),
+                            halo_depth, *_V );
+
         /* If we're not the hgh order model, initialize the FFT solver and the working space
-         * it will need. */
+         * it will need. XXX figure out how to make this conditional on model order. */
         Cajita::Experimental::FastFourierTransformParams params;
         _M1 = Cajita::createArray<double, MemorySpace>("M1", node_double_layout);
         _M2 = Cajita::createArray<double, MemorySpace>("M2", node_double_layout);
@@ -158,6 +162,8 @@ class ZModel
         params.setPencils(true);
         params.setReorder(false);
         _fft = Cajita::Experimental::createHeffteFastFourierTransform<double, device_type>(*node_double_layout, params);
+
+
     }
 
     double computeMinTimestep(double atwood, double g)
@@ -336,7 +342,8 @@ class ZModel
         });
         // 4. Halo V and apply boundary condtions, since we need it for central
         //    differencing of V.
-        
+        _v_halo->gather( ExecutionSpace(), *_V );
+
         // 5. Compute the final vorticity derivative
         double mu = _mu;
         Kokkos::parallel_for( "Interface Vorticity",
@@ -351,11 +358,16 @@ class ZModel
     const BoundaryCondition & _bc;
     double _g, _A, _mu;
     const pm_type & _pm;
-    std::shared_ptr<node_array> _reisz, _V; // intermediate state for calculation of derivatives
+    std::shared_ptr<node_array> _V;
+    std::shared_ptr<halo_type> _v_halo;
 
     /* XXX Make this conditional on not being the high-order model */ 
+    std::shared_ptr<node_array> _reisz;
     std::shared_ptr<node_array> _M1, _M2; 
     std::shared_ptr<Cajita::Experimental::HeffteFastFourierTransform<Cajita::Node, mesh_type, double, device_type, Cajita::Experimental::Impl::FFTBackendDefault>> _fft;
+
+    /* XXX Conditional declarations for medium/high-order models */
+
 }; // class ZModel
 
 } // namespace Beatnik
