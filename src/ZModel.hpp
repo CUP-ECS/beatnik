@@ -60,11 +60,13 @@ namespace Operator
         return (f(i, j - 2, d) - 8.0*f(i, j - 1, d) + 8.0*f(i, j + 1, d) - f(i, j + 2, d)) / (12.0 * dx);
     }
  
+    /* XXX Should make this a 9-point laplace operator because the surface
+     * may not be that smooth in some cases */
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION
     double laplace(ViewType f, int i, int j, int d, double h) 
     {
-        return (f(i+1, j, 0) + f(i-1, j, 0) + f(i, j+1, 0) + f(i, j-1, 0) - 4*f(i, j, 0))/(h*h);
+        return (f(i+1, j, d) + f(i-1, j, d) + f(i, j+1, d) + f(i, j-1, d) - 4*f(i, j, d))/(h*h);
     }
 
     KOKKOS_INLINE_FUNCTION
@@ -76,9 +78,9 @@ namespace Operator
     KOKKOS_INLINE_FUNCTION
     void cross(double N[3], double u[3], double v[3]) 
     {
-        N[0] = u[2]*v[3] - u[3]*v[2];
-        N[1] = u[3]*v[1] - u[1]*v[3];
-        N[2] = u[1]*v[2] - u[2]*v[1];
+        N[0] = u[1]*v[2] - u[2]*v[1];
+        N[1] = u[2]*v[0] - u[0]*v[2];
+        N[2] = u[0]*v[1] - u[1]*v[0];
     }
 }; // namespace operator
 
@@ -164,20 +166,20 @@ class ZModel
     }
 
     /* Compute the velocities needed by the relevant Z-Model */
-    void computeFourierVelocity()
+    void computeFourierVelocity() const
     {
         /* This is two FFTs on temporary arrays and an inverse FFT */
 
         /* Construct the temporary arrays M1 and M2 */
-        auto local_grid = _pm.mesh()->localGrid();
-        auto local_mesh = createLocalMesh( *local_grid );
+        auto local_grid = _pm.mesh().localGrid();
+        auto local_mesh = Cajita::createLocalMesh<device_type>( *local_grid );
         auto local_nodes = local_grid->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
 
         /* Get the views we'll be computing with in parallel loops */
         auto w = _pm.get( Cajita::Node(), Field::Vorticity() );
-        auto M1 = _M1.view();
-        auto M2 = _M1.view();
-        auto reisz = _reisz.view();
+        auto M1 = _M1->view();
+        auto M2 = _M1->view();
+        auto reisz = _reisz->view();
 
         /* First put w into the real parts of M1 and M2 */
         Kokkos::parallel_for("Build FFT Arrays", 
@@ -214,14 +216,14 @@ class ZModel
     }
 
     /* Compute the velocities needed by the relevant Z-Model */
-    void computeInterfaceVelocity()
+    void computeInterfaceVelocity() const
     {
     }
 
     /* For low order, we calculate the fourier velocity and then 
      * later finalize that once we have the normals into the interface
      * velocity */
-    void computeVelocities(Order::Low)
+    void computeVelocities(Order::Low) const
     {
         computeFourierVelocity();
     }
@@ -229,7 +231,7 @@ class ZModel
     /* For medium order, we calculate the fourier velocity that we later 
      * normalize for vorticity calculations and directly compute the 
      * interface velocity (zdot) using a fast multipole method. */
-    void computeVelocities(Order::Medium)
+    void computeVelocities(Order::Medium) const
     {
         computeFourierVelocity();
         computeInterfaceVelocity();
@@ -238,7 +240,7 @@ class ZModel
     /* For high order, we just directly compute the interface velocity (zdot)
      * using a fast multipole method and later normalize that for use in the
      * vorticity calculation. */
-    void computeVelocities(Order::High)
+    void computeVelocities(Order::High) const
     {
         computeInterfaceVelocity();
     }
@@ -247,9 +249,9 @@ class ZModel
     // from the previously computed Fourier and/or BR velocities and the surface
     // normal based on  the order of technique we're using.
     template <class ViewType>
-    KOKKOS_INLINE_FUNCTION
-    void finalizeVelocity(Order::Low, double &zndot, ViewType zdot, int i, int j, 
-                          double reisz, double norm[3], double deth)
+    KOKKOS_INLINE_FUNCTION 
+    static void finalizeVelocity(Order::Low, double &zndot, ViewType zdot, int i, int j, 
+                          double reisz, double norm[3], double deth) 
     {
         zndot = reisz / deth;
         for (int d = 0; d < 3; d++)
@@ -258,23 +260,25 @@ class ZModel
 
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION
-    void finalizeVelocity(Order::Medium, double &zndot, ViewType zdot, int i, int j,
-                         double reisz, double norm[3], double deth)
+    static void finalizeVelocity(Order::Medium, double &zndot, 
+        [[maybe_unused]] ViewType zdot, [[maybe_unused]] int i, [[maybe_unused]] int j,
+        double reisz, [[maybe_unused]] double norm[3], double deth) 
     {
         zndot = reisz / deth;
     }
 
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION
-    void finalizeVelocity(Order::High, double &zndot, ViewType zdot, int i, int j,
-                         double reisz, double norm[3], double deth)
+    static void finalizeVelocity(Order::High, double &zndot, ViewType zdot, int i, int j,
+                         [[maybe_unused]] double reisz, double norm[3], [[maybe_unused]] double deth)
     {
         double interface_velocity[3] = {zdot(i, j, 0), zdot(i, j, 1), zdot(i, j, 2)};
         zndot = Operator::dot(norm, interface_velocity);
     }
     
-
-    void computeDerivatives( node_array zdot_array, node_array wdot_array)
+    template <class PositionView, class VorticityView>
+    void computeDerivatives( PositionView z, VorticityView w, 
+        PositionView zdot, VorticityView wdot) const
     { 
         // 1. Compute the interface and vorticity velocities using 
         // the supplied methods in terms of the unit mesh.
@@ -289,15 +293,14 @@ class ZModel
 
         // 3. Now process those into final interface position derivatives
         //    and the information needed for calculating the vorticity derivative
-        auto z = _pm.get(Cajita::Node(), Field::Position());
-        auto w = _pm.get(Cajita::Node(), Field::Vorticity());
-        auto zdot = zdot_array.view();
-        auto reisz = _reisz.view();
-        auto V = _V.view();
+        auto reisz = _reisz->view();
+        auto V = _V->view();
 
-        auto local_grid = _pm.mesh()->localGrid();
+        auto local_grid = _pm.mesh().localGrid();
         auto own_node_space = local_grid->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
-        Kokkos::parallel_for( own_node_space, ExecutionSpace(), KOKKOS_LAMBDA(int i, int j) {
+        Kokkos::parallel_for( "Interface Velocity",  
+            createExecutionPolicy(own_node_space, ExecutionSpace()), 
+            KOKKOS_LAMBDA(int i, int j) {
             //  3.1 Compute Dx and Dy of z and w by fourth-order central 
             //      differencing. Because we're on a unit mesh, dx and dy are 1.
             double dx_z[3], dy_z[3];
@@ -321,7 +324,7 @@ class ZModel
 
             //  3.4 Compute zdot and zndot as needed using specialized helper functions
             double zndot;
-            finalizeVelocities(MethodOrder(), zndot, zdot, reisz(i, j, 0), i, j, N, deth );
+            finalizeVelocity(MethodOrder(), zndot, zdot, reisz(i, j, 0), i, j, N, deth );
 
             //  3.5 Compute V from zndot and vorticity 
 	    double w1 = w(i, j, 0); 
@@ -335,11 +338,12 @@ class ZModel
         //    differencing of V.
         
         // 5. Compute the final vorticity derivative
-        auto wdot = wdot_array.view();
         double mu = _mu;
-        Kokkos::parallel_for( own_node_space, ExecutionSpace(), KOKKOS_LAMBDA(int i, int j) {
-            wdot(i, i, 0) = Operator::Dx(V, i, j, 0, 1.0) + mu * Operator::laplace(w, i, j, 0, 1.0);
-            wdot(i, i, 1) = Operator::Dy(V, i, j, 0, 1.0) + mu * Operator::laplace(w, i, j, 1, 1.0);
+        Kokkos::parallel_for( "Interface Vorticity",
+            createExecutionPolicy(own_node_space, ExecutionSpace()), 
+            KOKKOS_LAMBDA(int i, int j) {
+            wdot(i, i, 0) = A * Operator::Dx(V, i, j, 0, 1.0) + mu * Operator::laplace(w, i, j, 0, 1.0);
+            wdot(i, i, 1) = A * Operator::Dy(V, i, j, 0, 1.0) + mu * Operator::laplace(w, i, j, 1, 1.0);
         });
     }
 

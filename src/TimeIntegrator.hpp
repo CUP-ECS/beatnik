@@ -61,27 +61,70 @@ class TimeIntegrator
                                                        node_triple_layout);
     }
 
-    void step( [[maybe_unused]] const double delta_t ) 
+    void step( const double delta_t ) 
     { 
         // Compute the derivatives of position and vorticityat our current point
         auto z_orig = _pm.get(Cajita::Node(), Field::Position());
         auto w_orig = _pm.get(Cajita::Node(), Field::Vorticity());
+        auto z_tmp = _ztmp->view();
+        auto w_tmp = _wtmp->view();
+
+        auto local_grid = _pm.mesh().localGrid();
 
         // TVD RK3 Step One - derivative at forward euler point
-        //zm.computeDerivatives(z_orig, w_orig, _zdot, _wdot);
+        auto z_dot = _zdot->view();
+        auto w_dot = _wdot->view();
+        _zm.computeDerivatives(z_orig, w_orig, z_dot, w_dot);
         //Compute derivative at forward euler point
-        //parallel_for();
-        //zm.computeDerivatives(_ztmp, _wtmp, _zdot, _wdot, _bc);
+
+        auto own_node_space = local_grid->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
+        Kokkos::parallel_for("RK3 Euler Step",
+            Cajita::createExecutionPolicy(own_node_space, ExecutionSpace()),
+            KOKKOS_LAMBDA(int i, int j) {
+            for (int d = 0; d < 3; d++) {
+	        z_tmp(i, j, d) = z_orig(i, j, d) + delta_t * z_dot(i, j, d);
+            }
+            for (int d = 0; d < 2; d++) {
+	        w_tmp(i, j, d) = w_orig(i, j, d) + delta_t * w_dot(i, j, d);
+            }
+        });
+        _zm.computeDerivatives(z_tmp, w_tmp, z_dot, w_dot);
  
         // TVD RK3 Step Two - derivative at half-step position
         // derivatives
-        //parallel_for();
-        //zm.computeDerivatives(_ztmp, _wtmp, _zdot, _wdot, _bc);
+        Kokkos::parallel_for("RK3 Half Step",
+            Cajita::createExecutionPolicy(own_node_space, ExecutionSpace()),
+            KOKKOS_LAMBDA(int i, int j) {
+            for (int d = 0; d < 3; d++) {
+	        z_tmp(i, j, d) = 0.75*z_orig(i, j, d) 
+                    + 0.25 * z_tmp(i, j, d) 
+                    + 0.25 * delta_t * z_dot(i, j, d);
+            }
+            for (int d = 0; d < 2; d++) {
+	        w_tmp(i, j, d) = 0.75*w_orig(i, j, d) 
+                    + 0.25 * w_tmp(i, j, d) 
+                    + 0.25 * delta_t * w_dot(i, j, d);
+            }
+        });
+        _zm.computeDerivatives(z_tmp, w_tmp, z_dot, w_dot);
         
         // TVD RK3 Step Three - Combine start, forward euler, and half step
         // derivatives to take the final full step.
         // unew = 1/3 uold + 2/3 utmp + 2/3 du_dt_tmp * deltat (classic)
-        //parallel_for();
+        Kokkos::parallel_for("RK3 Final Step",
+            Cajita::createExecutionPolicy(own_node_space, ExecutionSpace()),
+            KOKKOS_LAMBDA(int i, int j) {
+            for (int d = 0; d < 3; d++) {
+	        z_orig(i, j, d) = ( 1.0 / 3.0 ) * z_orig(i, j, d) 
+                    + ( 2.0 / 3.0 ) * z_tmp(i, j, d) 
+                    + ( 2.0 / 3.0 ) * delta_t * z_dot(i, j, d);
+            }
+            for (int d = 0; d < 2; d++) {
+	        w_orig(i, j, d) = ( 1.0 / 3.0 ) * w_orig(i, j, d) 
+                    + ( 2.0 / 3.0 ) * w_tmp(i, j, d) 
+                    + ( 2.0 / 3.0 ) * delta_t * w_dot(i, j, d);
+            }
+        });
     }
 
   private:

@@ -8,7 +8,7 @@ set(HEADERS
   # Routines to support the general Z-MOdel Solutio Approach
   TimeIntegrator.hpp
   BoundaryCondition.hpp
-  ArtificialViscosity.hpp
+#  ArtificialViscosity.hpp
 #  Interpolation.hpp
 
   # ZModel details here.
