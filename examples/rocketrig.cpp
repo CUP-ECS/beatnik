@@ -13,7 +13,6 @@
 
 
 // Include Statements
-//#include "ArtificialViscosity.hpp"
 #include <BoundaryCondition.hpp>
 #include <Solver.hpp>
 
@@ -281,7 +280,6 @@ void rocketrig( ClArgs& cl )
 
     Cajita::DimBlockPartitioner<2> partitioner; // Create Cajita Partitioner
     Beatnik::BoundaryCondition bc({cl.boundary, cl.boundary, cl.boundary, cl.boundary});
-    Beatnik::ArtificialViscosity av(cl.eps);
 
     MeshInitFunc initializer( cl.global_bounding_box, cl.tilt, cl.magnitude, 
                               cl.period, cl.global_num_cells);
@@ -291,17 +289,17 @@ void rocketrig( ClArgs& cl )
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD, cl.global_num_cells,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, av, Beatnik::Order::Low(), cl.eps, cl.delta_t );
+            bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t );
     } if (cl.order == 1) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD, cl.global_num_cells,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, av, Beatnik::Order::Medium(), cl.eps, cl.delta_t );
+            bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t );
     } else {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD, cl.global_num_cells,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, av, Beatnik::Order::High(), cl.eps, cl.delta_t );
+            bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t );
     } 
 
     // Solve

@@ -15,7 +15,6 @@
 #include <Cajita_Partitioner.hpp>
 #include <Cajita_Types.hpp>
 
-#include <ArtificialViscosity.hpp>
 #include <BoundaryCondition.hpp>
 #include <Mesh.hpp>
 #include <ProblemManager.hpp>
@@ -46,10 +45,10 @@ class SolverBase
 //---------------------------------------------------------------------------//
 
 /* A note on memory management:
- * 1. The BoundaryCondition and ArtificialViscosity objects are created by
- *    the calling application and passed in, so we don't control their 
- *    memory. As a result, the Solver object makes a copy of them (they're 
- *    small) and passes references of those to the objects it uses. 
+ * 1. The BoundaryCondition object is created by the calling application 
+ *    and passed in, so we don't control their memory. As a result, 
+ *    the Solver object makes a copy of it (it's small) and passes 
+ *    references of those to the objects it uses. 
  * 2. The other objects created by the solver (mesh, problem manager, 
  *    time integrator, and zmodel) are owned and managed by the solver, and 
  *    are managed as unique_ptr by the Solver object. They are passed 
@@ -72,15 +71,15 @@ class Solver : public SolverBase
     Solver( MPI_Comm comm, const std::array<int, 2>& global_num_cells,
             const Cajita::BlockPartitioner<2>& partitioner,
             const double atwood, const double g, const InitFunc& create_functor,
-            const BoundaryCondition& bc, const ArtificialViscosity& av,
+            const BoundaryCondition& bc, const double mu, 
             const double epsilon, const double delta_t)
         : _halo_min( 2 )
         , _atwood( atwood )
         , _g( g )
         , _bc( bc )
-        , _av( av )
-        , _dt( delta_t )
+        , _mu( mu )
         , _eps( epsilon )
+        , _dt( delta_t )
         , _time( 0.0 )
     {
 	std::array<bool, 2> periodic;
@@ -102,7 +101,7 @@ class Solver : public SolverBase
 
         // Create the ZModel solver
         _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder>>(
-            *_pm, _bc, _av, atwood, g);
+            *_pm, _bc, atwood, g, mu);
 
         // Make a time integrator to move the zmodel forward
         _ti = std::make_unique<TimeIntegrator<ExecutionSpace, MemorySpace, ModelOrder>>( *_pm, *_zm );
@@ -159,9 +158,9 @@ class Solver : public SolverBase
     double _atwood;
     double _g;
     BoundaryCondition _bc;
-    ArtificialViscosity _av;
-    double _dt;
+    double _mu;
     double _eps;
+    double _dt;
     double _time;
     std::unique_ptr<zmodel_type> _zm;
     std::unique_ptr<ti_type> _ti;
@@ -180,8 +179,8 @@ createSolver( const std::string& device, MPI_Comm comm,
               const double atwood, const double g, 
               const InitFunc& create_functor, 
               const BoundaryCondition& bc, 
-              const ArtificialViscosity& av,
               const ModelOrder,
+              const double mu,
               const double epsilon, 
               const double delta_t )
 {
@@ -191,7 +190,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<
             Beatnik::Solver<Kokkos::Serial, Kokkos::HostSpace, ModelOrder>>(
             comm, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, av, epsilon, delta_t);
+            create_functor, bc, mu, epsilon, delta_t);
 #else
         throw std::runtime_error( "Serial Backend Not Enabled" );
 #endif
@@ -202,7 +201,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<
             Beatnik::Solver<Kokkos::OpenMP, Kokkos::HostSpace, ModelOrder>>(
             comm, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, av, epsilon, delta_t);
+            create_functor, bc, mu, epsilon, delta_t);
 #else
         throw std::runtime_error( "OpenMP Backend Not Enabled" );
 #endif
@@ -213,7 +212,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<
             Beatnik::Solver<Kokkos::Cuda, Kokkos::CudaSpace, ModelOrder>>(
             comm, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, av, epsilon, delta_t);
+            create_functor, bc, mu, epsilon, delta_t);
 #else
         throw std::runtime_error( "CUDA Backend Not Enabled" );
 #endif
@@ -224,7 +223,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<Beatnik::Solver<Kokkos::Experimental::HIP, 
             Kokkos::Experimental::HIPSpace, ModelOrder>>(
                 comm, global_num_cell, partitioner, atwood, g, 
-                create_functor, bc, av, epsilon, delta_t);
+                create_functor, bc, mu, epsilon, delta_t);
 #else
         throw std::runtime_error( "HIP Backend Not Enabled" );
 #endif
