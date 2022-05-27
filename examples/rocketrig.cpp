@@ -207,8 +207,8 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
      * enough for the interface to evolve significantly */ 
     double tau = 1/sqrt(cl.atwood * cl.gravity);
     cl.delta_t = tau/25.0;  // This should depend on dx, dy, and num_cells?
-    cl.t_final = tau * 2.0; // Simulate for 2 characterisic periods
-    cl.t_final = cl.delta_t * 25;
+    cl.t_final = tau * 1.0; // Simulate for 2 characterisic periods, which is all
+                            // the low-order model can really handle
     cl.write_freq = 1;
 
     /* Z-Model Solver Parameters */

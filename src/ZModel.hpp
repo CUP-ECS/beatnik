@@ -299,7 +299,7 @@ class ZModel
     void computeDerivatives( PositionView z, VorticityView w, 
         PositionView zdot, VorticityView wdot) const
     {
-	double dx = 1.0, dy = 1.0; //2.0/129, dy = 2.0/129;
+	double dx = 2.0/128, dy = 2.0/128;
  
         // 1. Compute the interface and vorticity velocities using 
         // the supplied methods in terms of the unit mesh.
