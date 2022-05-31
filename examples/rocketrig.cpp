@@ -165,9 +165,10 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         case 'x':
             cl.driver = strdup( optarg );
             if ( ( cl.driver.compare( "serial" ) != 0 ) &&
-                 ( cl.driver.compare( "cuda" ) != 0 ) &&
                  ( cl.driver.compare( "openmp" ) != 0 ) &&
-                 ( cl.driver.compare( "pthreads" ) != 0 ) )
+                 ( cl.driver.compare( "threads" ) != 0 ) &&
+                 ( cl.driver.compare( "cuda" ) != 0 ) &&
+                 ( cl.driver.compare( "hip" ) != 0 ) )
             {
                 if ( rank == 0 )
                 {

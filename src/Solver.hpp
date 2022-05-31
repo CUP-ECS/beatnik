@@ -75,7 +75,7 @@ class Solver : public SolverBase
             const double atwood, const double g, const InitFunc& create_functor,
             const BoundaryCondition& bc, const double mu, 
             const double epsilon, const double delta_t)
-        : _halo_min( 3 )
+        : _halo_min( 2 )
         , _atwood( atwood )
         , _g( g )
         , _bc( bc )
@@ -171,13 +171,13 @@ class Solver : public SolverBase
     double _g;
     BoundaryCondition _bc;
     double _mu, _eps;
-    double _dt, _dx, _dy;
+    double _dt;
     double _time;
     
-    std::unique_ptr<zmodel_type> _zm;
-    std::unique_ptr<ti_type> _ti;
     std::unique_ptr<Mesh<ExecutionSpace, MemorySpace>> _mesh;
     std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace>> _pm;
+    std::unique_ptr<zmodel_type> _zm;
+    std::unique_ptr<ti_type> _ti;
     std::unique_ptr<SiloWriter<ExecutionSpace, MemorySpace>> _silo;
 };
 
@@ -206,6 +206,17 @@ createSolver( const std::string& device, MPI_Comm comm,
             create_functor, bc, mu, epsilon, delta_t);
 #else
         throw std::runtime_error( "Serial Backend Not Enabled" );
+#endif
+    }
+    else if ( 0 == device.compare( "threads" ) )
+    {
+#if defined( KOKKOS_ENABLE_THREADS )
+        return std::make_shared<
+            Beatnik::Solver<Kokkos::Threads, Kokkos::HostSpace, ModelOrder>>(
+            comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
+            create_functor, bc, mu, epsilon, delta_t);
+#else
+        throw std::runtime_error( "Threads Backend Not Enabled" );
 #endif
     }
     else if ( 0 == device.compare( "openmp" ) )

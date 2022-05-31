@@ -141,8 +141,8 @@ class TimeIntegrator
 
   private:
     //const BoundaryCondition &_bc;
-    const ZModel<ExecutionSpace, MemorySpace, ModelOrder> & _zm;
     const ProblemManager<ExecutionSpace, MemorySpace> & _pm;
+    const ZModel<ExecutionSpace, MemorySpace, ModelOrder> & _zm;
     std::shared_ptr<node_array> _zdot, _wdot, _wtmp, _ztmp;
 };
 

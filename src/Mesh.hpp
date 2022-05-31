@@ -88,7 +88,7 @@ class Mesh
         auto global_grid = Cajita::createGlobalGrid( comm, global_mesh,
                                                      periodic, partitioner );
         // Build the local grid.
-        int halo_width = min(2, min_halo_width);
+        int halo_width = fmin(2, min_halo_width);
         _local_grid = Cajita::createLocalGrid( global_grid, halo_width );
 
     }

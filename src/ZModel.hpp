@@ -108,14 +108,14 @@ class ZModel
     using exec_space = ExecutionSpace;
     using memory_space = MemorySpace;
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
-    using device_type = typename pm_type::device_type; // Kokkos::Device<ExecutionSpace, MemorySpace>;
+    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cajita::UniformMesh<double, 2>; 
 
     using Node = Cajita::Node;
 
     using node_array =
         Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>,
-                      MemorySpace>;
+                      device_type>;
 
     using halo_type = Cajita::Halo<MemorySpace>;
 
@@ -141,7 +141,7 @@ class ZModel
 
         // Temporary used for central differencing of vorticities along the 
         // surface in calculating the vorticity derivative/
-        _V = Cajita::createArray<double, MemorySpace>(
+        _V = Cajita::createArray<double, device_type>(
             "V", node_scalar_layout );
 
         /* Storage for the reisz transform of the vorticity. In the low and medium 
@@ -149,20 +149,20 @@ class ZModel
          * it is used to calculate the vorticity derivative. In the low order model,
          * it is also projected onto the surface normal to compute the interface velocity.
          * XXX Make this conditional on the model we run. */
-        _reisz = Cajita::createArray<double, MemorySpace>( "reisz", node_double_layout );
+        _reisz = Cajita::createArray<double, device_type>( "reisz", node_double_layout );
         Cajita::ArrayOp::assign( *_reisz, 0.0, Cajita::Ghost() );
 
         /* We need a halo for _V so that we can do fourth-order central differencing on
          * it. This requires a depth 2 stencil with adjacent faces */
-        int halo_depth = 2;
+        int halo_depth = 2; 
         _v_halo = Cajita::createHalo( Cajita::FaceHaloPattern<2>(),
                             halo_depth, *_V );
 
         /* If we're not the hgh order model, initialize the FFT solver and the working space
          * it will need. XXX figure out how to make this conditional on model order. */
         Cajita::Experimental::FastFourierTransformParams params;
-        _C1 = Cajita::createArray<double, MemorySpace>("C1", node_double_layout);
-        _C2 = Cajita::createArray<double, MemorySpace>("C2", node_double_layout);
+        _C1 = Cajita::createArray<double, device_type>("C1", node_double_layout);
+        _C2 = Cajita::createArray<double, device_type>("C2", node_double_layout);
 
         params.setAllToAll(true);
         params.setPencils(true);
@@ -204,6 +204,8 @@ class ZModel
             C2(i, j, 1) = 0;
         });
 
+        /* Do we need to halo C1 and C2 now? XXX */
+
         /* Now do the FFTs of vorticity */
         _fft->forward(*_C1, Cajita::Experimental::FFTScaleNone());
         _fft->forward(*_C2, Cajita::Experimental::FFTScaleNone());
@@ -226,6 +228,9 @@ class ZModel
                 reisz(i, j, 1) = 0.0;
             }
         });
+
+        /* XXX Do we need to halo reisz here? */
+
         /* Finally do the reverse transform to finish the reisz transform.
          * We'll drop the imaginary part and project the real part onto the 
          * interface velocity and divide it by 2 later. */
@@ -378,10 +383,10 @@ class ZModel
     }
 
   private:
+    const pm_type & _pm;
     const BoundaryCondition & _bc;
     double _dx, _dy;
-    double _g, _A, _mu;
-    const pm_type & _pm;
+    double _A, _g, _mu;
     std::shared_ptr<node_array> _V;
     std::shared_ptr<halo_type> _v_halo;
 
