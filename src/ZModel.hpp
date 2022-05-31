@@ -52,16 +52,16 @@ namespace Operator
     KOKKOS_INLINE_FUNCTION
     double Dx(ViewType f, int i, int j, int d, double dx) 
     {
-        //return (f(i - 2, j, d) - 8.0*f(i - 1, j, d) + 8.0*f(i + 1, j, d) - f(i + 2, j, d)) / (12.0 * dx);
-        return (f(i + 1, j, d) - f(i - 1, j, d)) / (2 * dx);
+        return (f(i - 2, j, d) - 8.0*f(i - 1, j, d) + 8.0*f(i + 1, j, d) - f(i + 2, j, d)) / (12.0 * dx);
+        //return (f(i + 1, j, d) - f(i - 1, j, d)) / (2 * dx);
     } 
 
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION
     double Dy(ViewType f, int i, int j, int d, double dy)
     {
-        //return (f(i, j - 2, d) - 8.0*f(i, j - 1, d) + 8.0*f(i, j + 1, d) - f(i, j + 2, d)) / (12.0 * dy);
-        return (f(i, j + 1, d) - f(i, j - 1, d)) / (2 * dy);
+        return (f(i, j - 2, d) - 8.0*f(i, j - 1, d) + 8.0*f(i, j + 1, d) - f(i, j + 2, d)) / (12.0 * dy);
+        //return (f(i, j + 1, d) - f(i, j - 1, d)) / (2 * dy);
     }
  
     /* 9-point laplace stencil operator for computing artificial viscosity */
@@ -69,10 +69,10 @@ namespace Operator
     KOKKOS_INLINE_FUNCTION
     double laplace(ViewType f, int i, int j, int d, double dx, double dy) 
     {
-        //return (0.5*f(i+1, j, d) + 0.5*f(i-1, j, d) + 0.5*f(i, j+1, d) + 0.5*f(i, j-1, d) 
-        //    + 0.25*f(i+1, j+1, d) + 0.25*f(i+1, j-1, d) + 0.25*f(i-1, j+1, d) + 0.25*f(i-1, j-1, d)
-        //    - 3*f(i, j, d))/(dx*dy);
-        return (f(i + 1, j, d) + f(i -1, j, d) + f(i, j+1, d) + f(i, j-1,d) - 4.0 * f(i, j, d)) / (dx * dy);
+        return (0.5*f(i+1, j, d) + 0.5*f(i-1, j, d) + 0.5*f(i, j+1, d) + 0.5*f(i, j-1, d) 
+            + 0.25*f(i+1, j+1, d) + 0.25*f(i+1, j-1, d) + 0.25*f(i-1, j+1, d) + 0.25*f(i-1, j-1, d)
+            - 3*f(i, j, d))/(dx*dy);
+        //return (f(i + 1, j, d) + f(i -1, j, d) + f(i, j+1, d) + f(i, j-1,d) - 4.0 * f(i, j, d)) / (dx * dy);
     }
 
     KOKKOS_INLINE_FUNCTION
@@ -120,9 +120,12 @@ class ZModel
     using halo_type = Cajita::Halo<MemorySpace>;
 
     ZModel( const pm_type & pm, const BoundaryCondition &bc,
-            double A, double g, double mu)
+            const double dx, const double dy, 
+            const double A, const double g, const double mu)
         : _pm( pm )
         , _bc( bc )
+        , _dx( dx )
+        , _dy( dy )
         , _A( A )
         , _g( g )
         , _mu( mu )
@@ -294,12 +297,15 @@ class ZModel
         double interface_velocity[3] = {zdot(i, j, 0), zdot(i, j, 1), zdot(i, j, 2)};
         zndot = Operator::dot(norm, interface_velocity);
     }
-    
+ 
+    /* This method requires that the caller halo the correct position and vorticity
+     * views so that central differences and laplacians can be correctly computed
+     * on them. */
     template <class PositionView, class VorticityView>
     void computeDerivatives( PositionView z, VorticityView w, 
         PositionView zdot, VorticityView wdot) const
     {
-	double dx = 2.0/128, dy = 2.0/128;
+	double dx = _dx, dy = _dy;
  
         // 1. Compute the interface and vorticity velocities using 
         // the supplied methods in terms of the unit mesh.
@@ -307,14 +313,10 @@ class ZModel
 
         auto reisz = _reisz->view();
 
-        // 2. Halo the positions and vorticity so we can compute surface normals
-        // and vorticity laplacians.
-        _pm.gather();
-
         double g = _g;
         double A = _A;
 
-        // 3. Now process those into final interface position derivatives
+        // 2. Now process those into final interface position derivatives
         //    and the information needed for calculating the vorticity derivative
         auto V = _V->view();
 
@@ -323,7 +325,7 @@ class ZModel
         Kokkos::parallel_for( "Interface Velocity",  
             createExecutionPolicy(own_node_space, ExecutionSpace()), 
             KOKKOS_LAMBDA(int i, int j) {
-            //  3.1 Compute Dx and Dy of z and w by fourth-order central 
+            //  2.1 Compute Dx and Dy of z and w by fourth-order central 
             //      differencing. Because we're on a unit mesh, dx and dy are 1.
             double dx_z[3], dy_z[3];
 
@@ -332,23 +334,23 @@ class ZModel
                dy_z[n] = Operator::Dy(z, i, j, n, dy);
             }
 
-            //  3.2 Compute h11, h12, h22, and det_h from Dx and Dy
+            //  2.2 Compute h11, h12, h22, and det_h from Dx and Dy
             double h11 = Operator::dot(dx_z, dx_z);
             double h12 = Operator::dot(dx_z, dy_z);
             double h22 = Operator::dot(dy_z, dy_z);
             double deth = h11*h22 - h12*h12;
 
-            //  3.3 Compute the surface normal as (Dx \cross Dy)/sqrt(deth)
+            //  2.3 Compute the surface normal as (Dx \cross Dy)/sqrt(deth)
             double N[3];
             Operator::cross(N, dx_z, dy_z);
             for (int n = 0; n < 3; n++)
 		N[n] /= sqrt(deth);
 
-            //  3.4 Compute zdot and zndot as needed using specialized helper functions
+            //  2.4 Compute zdot and zndot as needed using specialized helper functions
             double zndot;
             finalizeVelocity(MethodOrder(), zndot, zdot, i, j, reisz(i, j, 0), N, deth );
 
-            //  3.5 Compute V from zndot and vorticity 
+            //  2.5 Compute V from zndot and vorticity 
 	    double w1 = w(i, j, 0); 
             double w2 = w(i, j, 1);
 
@@ -357,7 +359,7 @@ class ZModel
                          - 2*g*z(i, j, 2);   
         });
 
-        // 4. Halo V and apply boundary condtions, since we need it for central
+        // 3. Halo V and apply boundary condtions, since we need it for central
         //    differencing of V.
         _v_halo->gather( ExecutionSpace(), *_V );
 
@@ -370,8 +372,6 @@ class ZModel
             double dy_v = Operator::Dy(V, i, j, 0, dy);
             double lap_w0 = Operator::laplace(w, i, j, 0, dx, dy);
             double lap_w1 = Operator::laplace(w, i, j, 1, dx, dy);
-            //wdot(i, j, 0) = A * Operator::Dx(V, i, j, 0, dx) + mu * Operator::laplace(w, i, j, 0, dx, dy);
-            //wdot(i, j, 1) = A * Operator::Dy(V, i, j, 0, dy) + mu * Operator::laplace(w, i, j, 1, dx, dy);
             wdot(i, j, 0) = A * dx_v + mu * lap_w0;
             wdot(i, j, 1) = A * dy_v + mu * lap_w1;
         });
@@ -379,6 +379,7 @@ class ZModel
 
   private:
     const BoundaryCondition & _bc;
+    double _dx, _dy;
     double _g, _A, _mu;
     const pm_type & _pm;
     std::shared_ptr<node_array> _V;

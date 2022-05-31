@@ -185,12 +185,20 @@ class ProblemManager
 
     /**
      * Gather State Data from Neighbors
-     * @param Version
      **/
     void gather( ) const
     {
         _surface_halo->gather( ExecutionSpace(), *_position, *_vorticity );
     };
+
+    /**
+     * Provide halo pattern used for position and vorticity for classes that
+     * needto manage temporary global versions of that state themselves 
+     **/
+    halo_type & halo( ) const
+    {
+        return *_surface_halo;
+    }
 
   private:
     // The mesh on which our data items are stored

@@ -41,30 +41,31 @@ class Mesh
     Mesh( const std::array<int, 2>& global_num_cells,
 	  const std::array<bool, 2>& periodic,
           const Cajita::BlockPartitioner<2>& partitioner,
-          const int halo_cell_width, MPI_Comm comm )
+          const int min_halo_width, MPI_Comm comm )
     {
         MPI_Comm_rank( comm, &_rank );
 
         // Make a copy of the global number of cells so we can modify it.
         std::array<int, 2> num_cells = global_num_cells;
 
-        /* Create global mesh bounds. This is tricky because we want to make sure we have
-         * the same number of nodes above and below 0, but how the mesh sets this up depends 
-         * on the boundary conditions.
-         * 1) If we're periodic in a dimension, we want an odd number of cells so we have 
-         *    an odd number of nodes. That means we want one more node above 0 than below 0;
-         * 2) If we're not periodic in a dimension, we have an even number of cells so we
-         *    have an odd number of nodes. That means we want the same number of nodes above
-         *    and below 0.
-         * Start by adjusting the number of cells we request appropriately */
+        /* Create global mesh bounds. There are a few caveats here that are important to 
+         * understand:
+         * 1. Each mesh point has multiple locations - it's i/j location [0...n), [0...m), 
+         *    it's location in node coordinate space [n/2, n/2), [m/2, n/2), its initial 
+         *    spatial location in x/y space, and the x/y/z location of its points at any
+         *    given time.
+         * 2. Of these, the first and last are used often in calculations, no matter the 
+         *    the order of the model, and the second is used for every derivative calculation
+         *    in models that use the Reisz transform. As a result, we don't store the initial
+         *    x/y spatial location.
+         * 3. Low and medium order models need to have the same number of mesh point
+         *    the same number of nodes above and below 0, but how the mesh sets this up depends 
+         *    on the boundary conditions. We basically always want an even number of cells.
+         *    When the mesh isn't periodic, this results in the same number of nodes above 
+         *    and below zero. QWhen the mesh *is* periodic, the last mesh node above 0 
+         *    is implicit from the wrap-around of the mesh. */
         for (int i = 0; i < 2; i++) {
-            if (((num_cells[i] % 2 == 0) && periodic[i])
-                || ((num_cells[i] % 2 == 1) && !periodic[i])) {
-                if (_rank == 0) {
-                    std::cout << "Increasing number of cells in direction " << i
-                        << " by one to match boundary condition and fourier transform"
-                        << " requirements.\n";
-                }
+            if (num_cells[i] % 2 == 0) {
                 num_cells[i]++;
             }
         }
@@ -75,8 +76,8 @@ class Mesh
         { 
             /* periodic -> ncells = 3 -> global low == -1, global high = 2 -> nodes = 3.
              * non-periodic -> ncells = 4 -> global low = -2, global high = 2 -> nodes = 4*/
-            global_low_corner[d] = -1 * (num_cells[d]/2);
-            global_high_corner[d] = num_cells[d] / 2 + num_cells[d] % 2; 
+            global_low_corner[d] = -1 * num_cells[d]/2;
+            global_high_corner[d] = num_cells[d] / 2;
         }
 
         // Finally, create the global mesh, global grid, and local grid.
@@ -86,14 +87,8 @@ class Mesh
 
         auto global_grid = Cajita::createGlobalGrid( comm, global_mesh,
                                                      periodic, partitioner );
-        for ( int d = 0; d < 2; ++d )
-        {
-            _min_domain_global_node_index[d] = 0;
-            _max_domain_global_node_index[d] = global_grid->globalNumEntity(Cajita::Node(), d) - 1;
-        }
-
         // Build the local grid.
-        int halo_width = halo_cell_width;
+        int halo_width = min(2, min_halo_width);
         _local_grid = Cajita::createLocalGrid( global_grid, halo_width );
 
     }
@@ -104,31 +99,10 @@ class Mesh
         return _local_grid;
     }
 
-    // Get the cell size.
-    double cellSize() const
-    {
-        return 1;
-    }
-
-    // Get the minimum node index in the domain.
-    Kokkos::Array<int, 2> minDomainGlobalNodeIndex() const
-    {
-        return _min_domain_global_node_index;
-    }
-
-    // Get the maximum node index in the domain.
-    Kokkos::Array<int, 2> maxDomainGlobalNodeIndex() const
-    {
-        return _max_domain_global_node_index;
-    }
-
     int rank() const { return _rank; }
 
   public:
     std::shared_ptr<Cajita::LocalGrid<mesh_type>> _local_grid;
-
-    Kokkos::Array<int, 2> _min_domain_global_node_index;
-    Kokkos::Array<int, 2> _max_domain_global_node_index;
     int _rank;
 };
 

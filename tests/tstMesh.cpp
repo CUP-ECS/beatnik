@@ -16,14 +16,6 @@ TYPED_TEST_SUITE( MeshTest, MeshDeviceTypes );
 TYPED_TEST( MeshTest, BasicParameters )
 {
     int r;
-    EXPECT_EQ( this->testMesh_->cellSize(), 1.0 );
-
-    auto mins = this->testMesh_->minDomainGlobalNodeIndex();
-    EXPECT_EQ( mins[0], 0 );
-    EXPECT_EQ( mins[1], 0 );
-    auto maxs = this->testMesh_->maxDomainGlobalNodeIndex();
-    EXPECT_EQ( maxs[0], this->boxCells_ - 1);
-    EXPECT_EQ( maxs[1], this->boxCells_ - 1 );
 
     MPI_Comm_rank( MPI_COMM_WORLD, &r );
     EXPECT_EQ( this->testMesh_->rank(), r );

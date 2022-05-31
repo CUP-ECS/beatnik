@@ -64,10 +64,11 @@ class TimeIntegrator
     void step( const double delta_t ) 
     { 
         // Compute the derivatives of position and vorticityat our current point
-        auto z_orig = _pm.get(Cajita::Node(), Field::Position());
-        auto w_orig = _pm.get(Cajita::Node(), Field::Vorticity());
+        auto z_orig = _pm.get( Cajita::Node(), Field::Position() );
+        auto w_orig = _pm.get( Cajita::Node(), Field::Vorticity() );
         auto z_tmp = _ztmp->view();
         auto w_tmp = _wtmp->view();
+        auto & halo = _pm.halo(); 
 
         auto local_grid = _pm.mesh().localGrid();
 
@@ -75,8 +76,11 @@ class TimeIntegrator
         auto z_dot = _zdot->view();
         auto w_dot = _wdot->view();
 
-        // Find foward euler point using initial derivative
+        // Find foward euler point using initial derivative. This requires up-to-date
+        // Halos in the current position and vorticity.
+        _pm.gather();
         _zm.computeDerivatives(z_orig, w_orig, z_dot, w_dot);
+
         auto own_node_space = local_grid->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
         Kokkos::parallel_for("RK3 Euler Step",
             Cajita::createExecutionPolicy(own_node_space, ExecutionSpace()),
@@ -88,7 +92,10 @@ class TimeIntegrator
 	        w_tmp(i, j, d) = w_orig(i, j, d) + delta_t * w_dot(i, j, d);
             }
         });
-        //Compute derivative at forward euler point
+
+        // Compute derivative at forward euler point, which requires having its halos
+        // (and periodic boundary ghosts) up-to-date
+        halo.gather( ExecutionSpace(), *_ztmp, *_wtmp );
         _zm.computeDerivatives(z_tmp, w_tmp, z_dot, w_dot);
  
         // TVD RK3 Step Two - derivative at half-step position
@@ -110,6 +117,7 @@ class TimeIntegrator
             }
         });
         // Get the derivatives there
+        halo.gather( ExecutionSpace(), *_ztmp, *_wtmp );
         _zm.computeDerivatives(z_tmp, w_tmp, z_dot, w_dot);
         
         // TVD RK3 Step Three - Combine start, forward euler, and half step

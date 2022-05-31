@@ -68,12 +68,14 @@ class Solver : public SolverBase
     using Node = Cajita::Node;
 
     template <class InitFunc>
-    Solver( MPI_Comm comm, const std::array<int, 2>& global_num_cells,
+    Solver( MPI_Comm comm,
+            const std::array<double, 6>& global_bounding_box,
+            const std::array<int, 2>& global_num_cells,
             const Cajita::BlockPartitioner<2>& partitioner,
             const double atwood, const double g, const InitFunc& create_functor,
             const BoundaryCondition& bc, const double mu, 
             const double epsilon, const double delta_t)
-        : _halo_min( 2 )
+        : _halo_min( 3 )
         , _atwood( atwood )
         , _g( g )
         , _bc( bc )
@@ -86,6 +88,12 @@ class Solver : public SolverBase
         periodic[0] =  (bc.boundary_type[0] == PERIODIC);
         periodic[1] =  (bc.boundary_type[1] == PERIODIC);
 
+#if 0
+        // We need an extra halo cell to pick up the boundaries if the 
+        // mesh is periodic
+        if (periodic[0] || periodic[1]) _halo_min++;
+#endif
+
         // Create a mesh one which to do the solve and a problem manager to
         // handle state
         _mesh = std::make_unique<Mesh<ExecutionSpace, MemorySpace>>(
@@ -95,20 +103,24 @@ class Solver : public SolverBase
         // atwood number and acceleration, and solution method. 
 	// XXXX
 
+        // Compute dx and dy in the initial problem state XXX What should this
+        // be when the mesh doesn't span the bounding box, e.g. rising bubbles?
+        double dx = (global_bounding_box[4] - global_bounding_box[0]) / global_num_cells[1];
+        double dy = (global_bounding_box[5] - global_bounding_box[1]) / global_num_cells[1];
+
         // Create a problem manager to manage mesh state
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
             *_mesh, create_functor );
 
         // Create the ZModel solver
         _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder>>(
-            *_pm, _bc, atwood, g, mu);
+            *_pm, _bc, dx, dy, atwood, g, mu);
 
         // Make a time integrator to move the zmodel forward
         _ti = std::make_unique<TimeIntegrator<ExecutionSpace, MemorySpace, ModelOrder>>( *_pm, *_zm );
 
         // Set up Silo for I/O
-        _silo =
-            std::make_unique<SiloWriter<ExecutionSpace, MemorySpace>>( *_pm );
+        _silo = std::make_unique<SiloWriter<ExecutionSpace, MemorySpace>>( *_pm );
     }
 
     void setup() override
@@ -158,10 +170,10 @@ class Solver : public SolverBase
     double _atwood;
     double _g;
     BoundaryCondition _bc;
-    double _mu;
-    double _eps;
-    double _dt;
+    double _mu, _eps;
+    double _dt, _dx, _dy;
     double _time;
+    
     std::unique_ptr<zmodel_type> _zm;
     std::unique_ptr<ti_type> _ti;
     std::unique_ptr<Mesh<ExecutionSpace, MemorySpace>> _mesh;
@@ -174,6 +186,7 @@ class Solver : public SolverBase
 template <class InitFunc, class ModelOrder>
 std::shared_ptr<SolverBase>
 createSolver( const std::string& device, MPI_Comm comm,
+              const std::array<double, 6>& global_bounding_box,
               const std::array<int, 2>& global_num_cell,
               const Cajita::BlockPartitioner<2> & partitioner,
               const double atwood, const double g, 
@@ -189,7 +202,7 @@ createSolver( const std::string& device, MPI_Comm comm,
 #if defined( KOKKOS_ENABLE_SERIAL )
         return std::make_shared<
             Beatnik::Solver<Kokkos::Serial, Kokkos::HostSpace, ModelOrder>>(
-            comm, global_num_cell, partitioner, atwood, g, 
+            comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t);
 #else
         throw std::runtime_error( "Serial Backend Not Enabled" );
@@ -200,7 +213,7 @@ createSolver( const std::string& device, MPI_Comm comm,
 #if defined( KOKKOS_ENABLE_OPENMP )
         return std::make_shared<
             Beatnik::Solver<Kokkos::OpenMP, Kokkos::HostSpace, ModelOrder>>(
-            comm, global_num_cell, partitioner, atwood, g, 
+            comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t);
 #else
         throw std::runtime_error( "OpenMP Backend Not Enabled" );
@@ -211,7 +224,7 @@ createSolver( const std::string& device, MPI_Comm comm,
 #if defined(KOKKOS_ENABLE_CUDA)
         return std::make_shared<
             Beatnik::Solver<Kokkos::Cuda, Kokkos::CudaSpace, ModelOrder>>(
-            comm, global_num_cell, partitioner, atwood, g, 
+            comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t);
 #else
         throw std::runtime_error( "CUDA Backend Not Enabled" );
@@ -222,7 +235,7 @@ createSolver( const std::string& device, MPI_Comm comm,
 #ifdef KOKKOS_ENABLE_HIP
         return std::make_shared<Beatnik::Solver<Kokkos::Experimental::HIP, 
             Kokkos::Experimental::HIPSpace, ModelOrder>>(
-                comm, global_num_cell, partitioner, atwood, g, 
+                comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
                 create_functor, bc, mu, epsilon, delta_t);
 #else
         throw std::runtime_error( "HIP Backend Not Enabled" );
