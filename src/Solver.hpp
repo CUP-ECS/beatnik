@@ -155,7 +155,6 @@ class Solver : public SolverBase
 
         Kokkos::Profiling::pushRegion( "Solve" );
 
-        _pm->gather();
         _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
         Kokkos::Profiling::popRegion();
 
@@ -172,7 +171,6 @@ class Solver : public SolverBase
             // 4. Output mesh state periodically
             if ( 0 == t % write_freq )
             {
-                _pm->gather();
                 _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
             }
         } while ( ( _time < t_final ) );
