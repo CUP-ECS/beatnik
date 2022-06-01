@@ -53,7 +53,6 @@ namespace Operator
     double Dx(ViewType f, int i, int j, int d, double dx) 
     {
         return (f(i - 2, j, d) - 8.0*f(i - 1, j, d) + 8.0*f(i + 1, j, d) - f(i + 2, j, d)) / (12.0 * dx);
-        //return (f(i + 1, j, d) - f(i - 1, j, d)) / (2 * dx);
     } 
 
     template <class ViewType>
@@ -61,7 +60,6 @@ namespace Operator
     double Dy(ViewType f, int i, int j, int d, double dy)
     {
         return (f(i, j - 2, d) - 8.0*f(i, j - 1, d) + 8.0*f(i, j + 1, d) - f(i, j + 2, d)) / (12.0 * dy);
-        //return (f(i, j + 1, d) - f(i, j - 1, d)) / (2 * dy);
     }
  
     /* 9-point laplace stencil operator for computing artificial viscosity */
@@ -69,7 +67,7 @@ namespace Operator
     KOKKOS_INLINE_FUNCTION
     double laplace(ViewType f, int i, int j, int d, double dx, double dy) 
     {
-        return (0.5*f(i+1, j, d) + 0.5*f(i-1, j, d) + 0.5*f(i, j+1, d) + 0.5*f(i, j-1, d) 
+        return (0.5*f(i+1, j, d) + 0.5*f(i-1, j, d) + 0.5*f(i, j+1, d) + 0.5*f(i, j-1, d)
             + 0.25*f(i+1, j+1, d) + 0.25*f(i+1, j-1, d) + 0.25*f(i-1, j+1, d) + 0.25*f(i-1, j-1, d)
             - 3*f(i, j, d))/(dx*dy);
         //return (f(i + 1, j, d) + f(i -1, j, d) + f(i, j+1, d) + f(i, j-1,d) - 4.0 * f(i, j, d)) / (dx * dy);

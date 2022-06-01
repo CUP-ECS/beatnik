@@ -84,9 +84,19 @@ class Solver : public SolverBase
         , _dt( delta_t )
         , _time( 0.0 )
     {
+        // So we can modify the number of cells to meet the 
+        // mesh's requirement for an even numnber of cells
+        std::array<int, 2> num_cells = global_num_cells;
+
 	std::array<bool, 2> periodic;
         periodic[0] =  (bc.boundary_type[0] == PERIODIC);
         periodic[1] =  (bc.boundary_type[1] == PERIODIC);
+
+        for (int i = 0; i < 2; i++) {
+            if (num_cells[i] % 2 == 0) {
+                num_cells[i]++;
+            }
+        }
 
 #if 0
         // We need an extra halo cell to pick up the boundaries if the 
@@ -97,7 +107,7 @@ class Solver : public SolverBase
         // Create a mesh one which to do the solve and a problem manager to
         // handle state
         _mesh = std::make_unique<Mesh<ExecutionSpace, MemorySpace>>(
-            global_num_cells, periodic, partitioner, _halo_min, comm );
+            num_cells, periodic, partitioner, _halo_min, comm );
 
         // Check that our timestep is small enough to handle the mesh size,
         // atwood number and acceleration, and solution method. 
@@ -105,19 +115,21 @@ class Solver : public SolverBase
 
         // Compute dx and dy in the initial problem state XXX What should this
         // be when the mesh doesn't span the bounding box, e.g. rising bubbles?
-        double dx = (global_bounding_box[4] - global_bounding_box[0]) / global_num_cells[1];
-        double dy = (global_bounding_box[5] - global_bounding_box[1]) / global_num_cells[1];
+        double dx = (global_bounding_box[4] - global_bounding_box[0]) 
+            / num_cells[0];
+        double dy = (global_bounding_box[5] - global_bounding_box[1]) 
+            / num_cells[1];
 
         // Create a problem manager to manage mesh state
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
-            *_mesh, create_functor );
+            *_mesh, _bc, create_functor );
 
         // Create the ZModel solver
         _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder>>(
             *_pm, _bc, dx, dy, atwood, g, mu);
 
         // Make a time integrator to move the zmodel forward
-        _ti = std::make_unique<TimeIntegrator<ExecutionSpace, MemorySpace, ModelOrder>>( *_pm, *_zm );
+        _ti = std::make_unique<TimeIntegrator<ExecutionSpace, MemorySpace, ModelOrder>>( *_pm, _bc, *_zm );
 
         // Set up Silo for I/O
         _silo = std::make_unique<SiloWriter<ExecutionSpace, MemorySpace>>( *_pm );
@@ -143,6 +155,7 @@ class Solver : public SolverBase
 
         Kokkos::Profiling::pushRegion( "Solve" );
 
+        _pm->gather();
         _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
         Kokkos::Profiling::popRegion();
 
@@ -159,6 +172,7 @@ class Solver : public SolverBase
             // 4. Output mesh state periodically
             if ( 0 == t % write_freq )
             {
+                _pm->gather();
                 _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
             }
         } while ( ( _time < t_final ) );

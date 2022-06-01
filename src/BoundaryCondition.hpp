@@ -16,7 +16,6 @@
 // Include Statements
 
 #include <Mesh.hpp>
-#include <ProblemManager.hpp>
 
 #include <Kokkos_Core.hpp>
 
@@ -31,8 +30,7 @@ namespace Beatnik
 enum BoundaryType
 {
     PERIODIC = 0,
-    FREE_SLIP = 1,
-    NO_SLIP = 2, 
+    FREE = 1,
 };
 
 /**
@@ -43,20 +41,82 @@ enum BoundaryType
 
 struct BoundaryCondition
 {
-    using Node = Cajita::Node;
-    using Position = Field::Position;
-
-    // The functor operator applies position boundary conditions. Note that the
-    // maxes in the bounding box are in terms of global node indexes.
-    template <class PType>
-    KOKKOS_INLINE_FUNCTION void operator()( Node, Position, PType& p, 
-                                            const int gi, const int gj,
-                                            const int i, const int j ) const
+    bool isPeriodicBoundary(std::array<int, 2> dir) const
     {
+        if ((dir[0] == -1) && (boundary_type[0] == PERIODIC))
+            return true;
+        if ((dir[0] == 1) && (boundary_type[2] == PERIODIC))
+            return true;
+        if ((dir[1] == -1) && (boundary_type[1] == PERIODIC))
+            return true;
+        if ((dir[1] == 1) && (boundary_type[3] == PERIODIC))
+            return true;
+        return false;
     }
 
-    Kokkos::Array<int, 4>
-        boundary_type; /**< Boundary condition type on all surface edges  */
+    bool isFreeBoundary(std::array<int, 2> dir) const
+    {
+        if ((dir[0] == -1) && (boundary_type[0] == FREE))
+            return true;
+        if ((dir[0] == 1) && (boundary_type[2] == FREE))
+            return true;
+        if ((dir[1] == -1) && (boundary_type[1] == FREE))
+            return true;
+        if ((dir[1] == 1) && (boundary_type[3] == FREE))
+            return true;
+        return false;
+    }
+
+    /* Because we store a position field in the mesh, the position has to
+     * be corrected after haloing */
+    template <class MeshType, class ArrayType> 
+    void apply(const MeshType &mesh, ArrayType position, 
+               [[maybe_unused]] ArrayType vorticity) const
+    {
+        using exec_space = typename ArrayType::execution_space;
+
+        auto local_grid = *(mesh.localGrid());
+
+        /* Loop through the directions. If it's periodic, we get the periodic index
+         * space. If its not periodic, we get the boundary index space */
+        for (int i = -1; i < 2; i++) {
+            for (int j = -1; j < 2; j++) {
+
+                if (i == 0 && j == 0) continue;
+
+                std::array<int, 2> dir = {i, j};
+                if (isPeriodicBoundary(dir)) {
+                    auto periodic_space = mesh.periodicIndexSpace(Cajita::Ghost(), 
+                        Cajita::Node(), dir);
+                    auto z = position.view();
+
+                    /* The halo takes care of vorticity. We have to correct 
+                     * the position */
+                    int xoff = dir[0], yoff = dir[1];
+                    Kokkos::parallel_for("Position halo correction", 
+                                     Cajita::createExecutionPolicy(periodic_space, exec_space()),
+                                     KOKKOS_LAMBDA(int i, int j) {
+                        /* This subtracts when we're on the low boundary and adds when we're on 
+                         * the high boundary, which is what we want. */
+                        z(i, j, 0) += xoff * (bounding_box[3] - bounding_box[0]);
+                        z(i, j, 1) += yoff * (bounding_box[4] - bounding_box[1]);
+                    });
+                } else if (isFreeBoundary(dir)) {
+                    auto boundary_space = local_grid.boundaryIndexSpace(Cajita::Ghost(), 
+                        Cajita::Node(), dir);
+                    Kokkos::parallel_for("Position halo correction", 
+                                         Cajita::createExecutionPolicy(boundary_space, exec_space()),
+                                         KOKKOS_LAMBDA([[maybe_unused]] int i, [[maybe_unused]] int j) {
+                    });
+                } else {
+                    /* XXX Throw an exception */
+                }
+            }
+        }
+    }
+
+    Kokkos::Array<double, 6> bounding_box;
+    Kokkos::Array<int, 4> boundary_type; /**< Boundary condition type on all surface edges  */
 };
 
 } // namespace Beatnik

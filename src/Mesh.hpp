@@ -50,20 +50,22 @@ class Mesh
 
         /* Create global mesh bounds. There are a few caveats here that are important to 
          * understand:
-         * 1. Each mesh point has multiple locations - it's i/j location [0...n), [0...m), 
-         *    it's location in node coordinate space [n/2, n/2), [m/2, n/2), its initial 
-         *    spatial location in x/y space, and the x/y/z location of its points at any
-         *    given time.
-         * 2. Of these, the first and last are used often in calculations, no matter the 
-         *    the order of the model, and the second is used for every derivative calculation
-         *    in models that use the Reisz transform. As a result, we don't store the initial
-         *    x/y spatial location.
-         * 3. Low and medium order models need to have the same number of mesh point
-         *    the same number of nodes above and below 0, but how the mesh sets this up depends 
-         *    on the boundary conditions. We basically always want an even number of cells.
-         *    When the mesh isn't periodic, this results in the same number of nodes above 
-         *    and below zero. QWhen the mesh *is* periodic, the last mesh node above 0 
-         *    is implicit from the wrap-around of the mesh. */
+         * 1. Each mesh point has multiple locations - it's i/j location [0...n),
+         *    [0...m), it's location in node coordinate space [n/2, n/2), 
+         *    [m/2, n/2), its initial spatial location in x/y space, and the 
+         *    x/y/z location of its points at any given time.
+         * 2. Of these, the first and last are used often in calculations, no 
+         *    matter the the order of the model, and the second is used for every
+         *    derivative calculation in models that use the Reisz transform. As a
+         *    result, we don't store the initial x/y spatial location.
+         * 3. Low and medium order models need to have the same number of mesh 
+         *    point the same number of nodes above and below 0, but how the mesh 
+         *    sets this up depends on the boundary conditions. We basically 
+         *    always want an even number of cells. When the mesh isn't periodic, 
+         *    this results in the same number of nodes above and below zero. 
+         *    When the mesh *is* periodic, the last mesh node above 0 is implicit
+         * from the wrap-around of the mesh. 
+         */
         for (int i = 0; i < 2; i++) {
             if (num_cells[i] % 2 == 0) {
                 num_cells[i]++;
@@ -88,7 +90,7 @@ class Mesh
         auto global_grid = Cajita::createGlobalGrid( comm, global_mesh,
                                                      periodic, partitioner );
         // Build the local grid.
-        int halo_width = fmin(2, min_halo_width);
+        int halo_width = fmax(2, min_halo_width);
         _local_grid = Cajita::createLocalGrid( global_grid, halo_width );
 
     }
@@ -97,6 +99,27 @@ class Mesh
     const std::shared_ptr<Cajita::LocalGrid<mesh_type>> localGrid() const
     {
         return _local_grid;
+    }
+
+    // Get the boundary indexes on the periodic boundary. local_grid.boundaryIndexSpace()
+    // doesn't work on periodic boundaries.
+    // XXX Needs more error checking to make sure the boundary is in fact periodic
+    template <class DecompositionType, class EntityType>
+    Cajita::IndexSpace<2>
+    periodicIndexSpace(DecompositionType dt, EntityType et, std::array<int, 2> dir) const
+    {
+        auto & global_grid = _local_grid->globalGrid();
+        for ( int d = 0; d < 2; d++ ) {
+            if ((dir[d] == -1 && global_grid.onLowBoundary(d))
+                || (dir[d] == 1 && global_grid.onHighBoundary(d))) {
+                return _local_grid->sharedIndexSpace(dt, et, dir);
+            }
+        }
+
+        std::array<long, 2> zero_size;
+        for ( std::size_t d = 0; d < 2; ++d )
+            zero_size[d] = 0;
+        return Cajita::IndexSpace<2>( zero_size, zero_size );
     }
 
     int rank() const { return _rank; }

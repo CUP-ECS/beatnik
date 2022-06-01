@@ -141,7 +141,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     /// Set default values
 
     cl.driver = "serial"; // Default Thread Setting
-    cl.global_num_cells = { 129, 129 };
+    cl.global_num_cells = { 128, 128 };
 
     // Now parse any arguments
     while ( ( ch = getopt_long( argc, argv, shortargs, longargs, NULL ) ) !=
@@ -285,7 +285,10 @@ void rocketrig( ClArgs& cl )
     MPI_Comm_rank( MPI_COMM_WORLD, &rank );      // Get My Rank
 
     Cajita::DimBlockPartitioner<2> partitioner; // Create Cajita Partitioner
-    Beatnik::BoundaryCondition bc({cl.boundary, cl.boundary, cl.boundary, cl.boundary});
+    Beatnik::BoundaryCondition bc;
+    for (int i = 0; i < 6; i++)
+        bc.bounding_box[i] = cl.global_bounding_box[i];
+    bc.boundary_type = {cl.boundary, cl.boundary, cl.boundary, cl.boundary};
 
     MeshInitFunc initializer( cl.global_bounding_box, cl.tilt, cl.magnitude, 
                               cl.period, cl.global_num_cells);

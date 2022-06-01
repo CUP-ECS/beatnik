@@ -68,7 +68,6 @@ class SiloWriter
 
         // Rertrieve the Local Grid and Local Mesh
         const auto & local_grid = _pm.mesh().localGrid();
-        const auto & local_mesh = Cajita::createLocalMesh<device_type>(*local_grid);
 
         // Set DB Options: Time Step, Time Stamp and Delta Time
         optlist = DBMakeOptlist( 10 );
