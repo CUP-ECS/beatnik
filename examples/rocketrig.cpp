@@ -13,7 +13,6 @@
 
 
 // Include Statements
-//#include "ArtificialViscosity.hpp"
 #include <BoundaryCondition.hpp>
 #include <Solver.hpp>
 
@@ -152,7 +151,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         {
         case 'n':
             cl.global_num_cells[0] = atoi( optarg );
-            if ( cl.global_num_cells[0] <= 0 )
+            if ( cl.global_num_cells[0] < 1 )
             {
                 if ( rank == 0 )
                 {
@@ -166,9 +165,10 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         case 'x':
             cl.driver = strdup( optarg );
             if ( ( cl.driver.compare( "serial" ) != 0 ) &&
-                 ( cl.driver.compare( "cuda" ) != 0 ) &&
                  ( cl.driver.compare( "openmp" ) != 0 ) &&
-                 ( cl.driver.compare( "pthreads" ) != 0 ) )
+                 ( cl.driver.compare( "threads" ) != 0 ) &&
+                 ( cl.driver.compare( "cuda" ) != 0 ) &&
+                 ( cl.driver.compare( "hip" ) != 0 ) )
             {
                 if ( rank == 0 )
                 {
@@ -208,14 +208,16 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
      * enough for the interface to evolve significantly */ 
     double tau = 1/sqrt(cl.atwood * cl.gravity);
     cl.delta_t = tau/25.0;  // This should depend on dx, dy, and num_cells?
-    cl.t_final = tau * 10.0; // Simulate for 10 characterisic periods
+    cl.t_final = tau * 2.0; // Simulate for 2 characterisic periods, which is all
+                            // the low-order model can really handle
     cl.write_freq = 1;
 
     /* Z-Model Solver Parameters */
-    double dx = (cl.global_bounding_box[3] - cl.global_bounding_box[0]) 
-                    / cl.global_num_cells[0];
-    double dy = (cl.global_bounding_box[4] - cl.global_bounding_box[1]) 
-                    / cl.global_num_cells[1];
+    double dx = (cl.global_bounding_box[4] - cl.global_bounding_box[0])
+                    / (cl.global_num_cells[0]);
+    double dy = (cl.global_bounding_box[5] - cl.global_bounding_box[1])
+                    / (cl.global_num_cells[1]);
+
     cl.mu = 1.0*sqrt(dx * dy);
     cl.eps = 0.25*sqrt(dx * dy);
     cl.order = 0; // Start with the low order model
@@ -230,27 +232,31 @@ struct MeshInitFunc
     // Initialize Variables
 
     MeshInitFunc( std::array<double, 6> box, double t, double m, double p, 
-                  std::array<int, 2> cells )
+                  const std::array<int, 2> cells )
         : _t( t )
         , _m( m )
         , _p( p )
     {
+        double xcells = (cells[0] % 2) ? cells[0] + 1 : cells[0];
+        double ycells = (cells[1] % 2) ? cells[1] + 1 : cells[1];
+
         x[0] = box[0];
         x[1] = box[1];
         x[2] = (box[2] + box[5]) / 2;
-        _dx = (box[3] - box[0]) / cells[0];
-        _dy = (box[4] - box[1]) / cells[1];
+        _dx = (box[3] - box[0]) / xcells;
+        _dy = (box[4] - box[1]) / ycells;
     };
 
     KOKKOS_INLINE_FUNCTION
     bool operator()( Cajita::Node, Beatnik::Field::Position,
-                     const int index[2], const double coord[2], 
+                     [[maybe_unused]] const int index[2], 
+                     const double coord[2], 
                      double &z1, double &z2, double &z3) const
     {
         /* Compute the physical position of the interface from its global
          * coordinate in mesh space */
-        z1 = x[0] + _dx * coord[0];
-        z2 = x[1] + _dy * coord[1];
+        z1 = _dx * coord[0];
+        z2 = _dy * coord[1];
         // We don't currently tilt the interface
         z3 = _m * cos(z1 * (2 * M_PI / _p)) * cos(z2 * (2 * M_PI / _p));
         return true;
@@ -258,7 +264,8 @@ struct MeshInitFunc
 
     KOKKOS_INLINE_FUNCTION
     bool operator()( Cajita::Node, Beatnik::Field::Vorticity,
-                     const int index[2], const double coord[2],
+                     [[maybe_unused]] const int index[2], 
+                     [[maybe_unused]] const double coord[2],
                      double& w1, double &w2 ) const
     {
         // Initial vorticity along the interface is 0.
@@ -278,8 +285,10 @@ void rocketrig( ClArgs& cl )
     MPI_Comm_rank( MPI_COMM_WORLD, &rank );      // Get My Rank
 
     Cajita::DimBlockPartitioner<2> partitioner; // Create Cajita Partitioner
-    Beatnik::BoundaryCondition bc({cl.boundary, cl.boundary, cl.boundary, cl.boundary});
-    Beatnik::ArtificialViscosity av(cl.eps);
+    Beatnik::BoundaryCondition bc;
+    for (int i = 0; i < 6; i++)
+        bc.bounding_box[i] = cl.global_bounding_box[i];
+    bc.boundary_type = {cl.boundary, cl.boundary, cl.boundary, cl.boundary};
 
     MeshInitFunc initializer( cl.global_bounding_box, cl.tilt, cl.magnitude, 
                               cl.period, cl.global_num_cells);
@@ -287,19 +296,22 @@ void rocketrig( ClArgs& cl )
     std::shared_ptr<Beatnik::SolverBase> solver;
     if (cl.order == 0) {
         solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD, cl.global_num_cells,
+            cl.driver, MPI_COMM_WORLD, 
+            cl.global_bounding_box, cl.global_num_cells,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, av, Beatnik::Order::Low(), cl.eps, cl.delta_t );
-    } if (cl.order == 1) {
+            bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t );
+    } else if (cl.order == 1) {
         solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD, cl.global_num_cells,
+            cl.driver, MPI_COMM_WORLD,
+            cl.global_bounding_box, cl.global_num_cells,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, av, Beatnik::Order::Medium(), cl.eps, cl.delta_t );
+            bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t );
     } else {
         solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD, cl.global_num_cells,
+            cl.driver, MPI_COMM_WORLD,
+            cl.global_bounding_box, cl.global_num_cells,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, av, Beatnik::Order::High(), cl.eps, cl.delta_t );
+            bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t );
     } 
 
     // Solve
@@ -325,12 +337,12 @@ int main( int argc, char* argv[] )
     if ( rank == 0 )
     {
         // Print Command Line Options
-        std::cout << "CajitaFluids\n";
+        std::cout << "RocketRig\n";
         std::cout << "=======Command line arguments=======\n";
         std::cout << std::left << std::setw( 20 ) << "Thread Setting"
                   << ": " << std::setw( 8 ) << cl.driver
                   << "\n"; // Threading Setting
-        std::cout << std::left << std::setw( 20 ) << "Cells"
+        std::cout << std::left << std::setw( 20 ) << "Nodes"
                   << ": " << std::setw( 8 ) << cl.global_num_cells[0]
                   << std::setw( 8 ) << cl.global_num_cells[1]
                   << "\n"; // Number of Cells

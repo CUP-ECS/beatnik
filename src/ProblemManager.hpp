@@ -24,6 +24,7 @@
 #include <memory>
 
 #include <Mesh.hpp>
+#include <BoundaryCondition.hpp>
 
 namespace Beatnik
 {
@@ -79,18 +80,20 @@ class ProblemManager
     using mesh_type = Mesh<exec_space, mem_space>;
 
     template <class InitFunc>
-    ProblemManager( const std::unique_ptr<mesh_type>& mesh,
+    ProblemManager( const mesh_type & mesh,
+                    const BoundaryCondition & bc, 
                     const InitFunc& create_functor )
         : _mesh( mesh )
+        , _bc( bc )
     // , other initializers
     {
         // The layouts of our various arrays for values on the staggered mesh
         // and other associated data strutures. Do there need to be version with
         // halos associuated with them?
         auto node_triple_layout =
-            Cajita::createArrayLayout( _mesh->localGrid(), 3, Cajita::Node() );
+            Cajita::createArrayLayout( _mesh.localGrid(), 3, Cajita::Node() );
         auto node_pair_layout =
-            Cajita::createArrayLayout( _mesh->localGrid(), 2, Cajita::Node() );
+            Cajita::createArrayLayout( _mesh.localGrid(), 2, Cajita::Node() );
 
         // The actual arrays storing mesh quantities
         // 1. The spatial positions of the interface
@@ -103,11 +106,11 @@ class ProblemManager
             "vorticity", node_pair_layout );
         Cajita::ArrayOp::assign( *_vorticity, 0.0, Cajita::Ghost() );
 
-        /* Halo pattern for the position. The halo is two cells deep so that 
-         * to be able to do fourth-order central differencing to compute 
-         * surface normals. The laplacian we compute for vorticity only 
-         * requires one deep halos, but we reuse this halo anyway. */
-        int halo_depth = _mesh->localGrid()->haloCellWidth();
+        /* Halo pattern for the position and vorticity. The halo is two cells deep 
+         * so that * to be able to do fourth-order central differencing to compute 
+         * surface normals accurately. It's a Node (8 point) pattern as opposed to 
+         * a Face (4 point) pattern so the vorticity laplacian can use a 9-point stencil. */
+        int halo_depth = _mesh.localGrid()->haloCellWidth();
         _surface_halo = Cajita::createHalo( Cajita::NodeHaloPattern<2>(), 
                             halo_depth, *_position, *_vorticity);
 
@@ -123,11 +126,11 @@ class ProblemManager
     void initialize( const InitFunctor& create_functor )
     {
         // DEBUG: Trace State Initialization
-        if ( _mesh->rank() == 0 && DEBUG )
+        if ( _mesh.rank() == 0 && DEBUG )
             std::cout << "Initializing Mesh State\n";
 
         // Get Local Grid and Local Mesh
-        auto local_grid = *( _mesh->localGrid() );
+        auto local_grid = *( _mesh.localGrid() );
         auto local_mesh = Cajita::createLocalMesh<device_type>( local_grid );
 
 	// Get State Arrays
@@ -156,7 +159,7 @@ class ProblemManager
      * Return mesh
      * @return Returns Mesh object
      **/
-    const std::unique_ptr<Mesh<exec_space, mem_space>>& mesh() const
+    const mesh_type & mesh() const
     {
         return _mesh;
     };
@@ -185,16 +188,26 @@ class ProblemManager
 
     /**
      * Gather State Data from Neighbors
-     * @param Version
      **/
     void gather( ) const
     {
         _surface_halo->gather( ExecutionSpace(), *_position, *_vorticity );
+        _bc.apply(_mesh, *_position, *_vorticity);
     };
+
+    /**
+     * Provide halo pattern used for position and vorticity for classes that
+     * needto manage temporary global versions of that state themselves 
+     **/
+    halo_type & halo( ) const
+    {
+        return *_surface_halo;
+    }
 
   private:
     // The mesh on which our data items are stored
-    const std::unique_ptr<mesh_type> &_mesh;
+    const mesh_type &_mesh;
+    const BoundaryCondition &_bc;
 
     // Basic long-term quantities stored in the mesh and periodically written
     // to storage (specific computiontional methods may store additional state)
