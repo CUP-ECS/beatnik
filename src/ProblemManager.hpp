@@ -74,7 +74,7 @@ class ProblemManager
 
     using node_array =
         Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>,
-                      mem_space>;
+                      device_type>;
 
     using halo_type = Cajita::Halo<MemorySpace>;
     using mesh_type = Mesh<exec_space, mem_space>;
@@ -97,12 +97,12 @@ class ProblemManager
 
         // The actual arrays storing mesh quantities
         // 1. The spatial positions of the interface
-        _position = Cajita::createArray<double, MemorySpace>(
+        _position = Cajita::createArray<double, device_type>(
             "position", node_triple_layout );
         Cajita::ArrayOp::assign( *_position, 0.0, Cajita::Ghost() );
 
         // 2. The magnitude of vorticity at the interface 
-        _vorticity = Cajita::createArray<double, MemorySpace>(
+        _vorticity = Cajita::createArray<double, device_type>(
             "vorticity", node_pair_layout );
         Cajita::ArrayOp::assign( *_vorticity, 0.0, Cajita::Ghost() );
 

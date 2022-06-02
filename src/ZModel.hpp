@@ -175,6 +175,20 @@ class ZModel
         return 1.0/(25.0*sqrt(atwood * g));
     }
 
+    /* SHould rework this to a better ordering that takes into account the
+       parity of numnodes */
+    KOKKOS_INLINE_FUNCTION
+    static double reiszWeight(double i, int numnodes)
+    {
+	if (i < 0) {
+            return numnodes/2 + i;
+        } else if (i > 0)  {
+            return i - numnodes/2;
+        } else {
+            return i;
+        }
+    }
+
     /* Compute the velocities needed by the relevant Z-Model */
     template <class VorticityView>
     void computeReiszTransform(VorticityView w) const
@@ -183,6 +197,7 @@ class ZModel
 
         /* Construct the temporary arrays C1 and C2 */
         auto local_grid = _pm.mesh().localGrid();
+        auto & global_grid = local_grid->globalGrid();
         auto local_mesh = Cajita::createLocalMesh<device_type>( *local_grid );
         auto local_nodes = local_grid->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
 
@@ -208,6 +223,9 @@ class ZModel
         _fft->forward(*_C1, Cajita::Experimental::FFTScaleNone());
         _fft->forward(*_C2, Cajita::Experimental::FFTScaleNone());
 
+        int nx = global_grid.globalNumEntity(Cajita::Node(), 0);
+        int ny = global_grid.globalNumEntity(Cajita::Node(), 1);
+
         /* Now construct reisz from the weighted sum of those FFTs to take the inverse FFT. */
         parallel_for("Combine FFTs", 
                      Cajita::createExecutionPolicy(local_nodes, ExecutionSpace()), 
@@ -215,10 +233,25 @@ class ZModel
             int indicies[2] = {i, j};
             double location[2];
             local_mesh.coordinates( Cajita::Node(), indicies, location );
+#if 0
             double len = sqrt(location[0] * location[0] + location[1] * location[1]);
             double M1 = location[0] / len;
             double M2 = location[1] / len;
-            if ((location[0] != 0) || (location[1]  != 0)) {
+#endif
+#if 1
+            double k1 = reiszWeight(location[0], nx);
+            double k2 = reiszWeight(location[1], ny);
+#endif
+            if ((k1 != 0) || (k2 != 0)) {
+                /* real part = -i * M1 * imag(C1) + -i * M2 * imag(C2)
+                 *           = M1 * imag(C1) + M2 * imag(C2)
+                 * imag part = -i * M1 * real(C1) - i * M2 * real(C2)
+                 *           = -M1 * real(C1) - M2 * real(C2)
+                 */
+                double len = sqrt(k1 * k1 + k2 * k2);
+                double M1 = k1 / len;
+                double M2 = k2 / len;
+
                 reisz(i, j, 0) = (M1 * C1(i, j, 1) + M2 * C2(i, j, 1));
                 reisz(i, j, 1) = (-M1 * C1(i, j, 0) - M2 * C2(i, j, 0));
             } else {
@@ -278,7 +311,7 @@ class ZModel
     static void finalizeVelocity(Order::Low, double &zndot, ViewType zdot, int i, int j, 
                           double reisz, double norm[3], double deth) 
     {
-        zndot = reisz / (2.0 * deth);
+        zndot = -0.5 * reisz / deth;
         for (int d = 0; d < 3; d++)
             zdot(i, j, d) = zndot * norm[d];
     }
@@ -289,7 +322,7 @@ class ZModel
         [[maybe_unused]] ViewType zdot, [[maybe_unused]] int i, [[maybe_unused]] int j,
         double reisz, [[maybe_unused]] double norm[3], double deth) 
     {
-        zndot = reisz / (2 * deth);
+        zndot = -0.5 * reisz / deth;
     }
 
     template <class ViewType>
