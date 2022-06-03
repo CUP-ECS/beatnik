@@ -193,8 +193,6 @@ class ZModel
     template <class VorticityView>
     void computeReiszTransform(VorticityView w) const
     {
-        /* This is two FFTs on temporary arrays and an inverse FFT */
-
         /* Construct the temporary arrays C1 and C2 */
         auto local_grid = _pm.mesh().localGrid();
         auto & global_grid = local_grid->globalGrid();
@@ -233,15 +231,10 @@ class ZModel
             int indicies[2] = {i, j};
             double location[2];
             local_mesh.coordinates( Cajita::Node(), indicies, location );
-#if 0
-            double len = sqrt(location[0] * location[0] + location[1] * location[1]);
-            double M1 = location[0] / len;
-            double M2 = location[1] / len;
-#endif
-#if 1
+
             double k1 = reiszWeight(location[0], nx);
             double k2 = reiszWeight(location[1], ny);
-#endif
+
             if ((k1 != 0) || (k2 != 0)) {
                 /* real part = -i * M1 * imag(C1) + -i * M2 * imag(C2)
                  *           = M1 * imag(C1) + M2 * imag(C2)
@@ -252,32 +245,38 @@ class ZModel
                 double M1 = k1 / len;
                 double M2 = k2 / len;
 
-                reisz(i, j, 0) = (M1 * C1(i, j, 1) + M2 * C2(i, j, 1));
-                reisz(i, j, 1) = (-M1 * C1(i, j, 0) - M2 * C2(i, j, 0));
+                reisz(i, j, 0) = M1 * C1(i, j, 1) + M2 * C2(i, j, 1);
+                reisz(i, j, 1) = -M1 * C1(i, j, 0) - M2 * C2(i, j, 0);
             } else {
                 reisz(i, j, 0) = 0.0; 
                 reisz(i, j, 1) = 0.0;
             }
         });
 
-        /* XXX Do we need to halo reisz here? */
-
-        /* Finally do the reverse transform to finish the reisz transform.
-         * We'll drop the imaginary part and project the real part onto the 
-         * interface velocity and divide it by 2 later. */
+        /* We then do the reverse transform to finish the reisz transform,
+         * which is used later to calculate final interface velocity */
         _fft->reverse(*_reisz, Cajita::Experimental::FFTScaleFull());
     }
 
     /* Compute the velocities needed by the relevant Z-Model */
+
+    /* Directly compute the interface velocity by integrating the vorticity 
+     * across the surface. Uses a fast multipole method for computing the 
+     * these integrals */
     template <class PositionView, class VorticityView>
     void computeInterfaceVelocity([[maybe_unused]]PositionView z,
                                   [[maybe_unused]]VorticityView w) const
     {
+        /* Create a fast multipole object */
+        /* Copy the interface position and vorticity into the working arrays */
+        /* COnstruct the FMM tree */
+        /* Evaluate the FMM */
+        /* Copy results to zdot */
     }
 
-    /* For low order, we calculate the fourier velocity and then 
-     * later finalize that once we have the normals into the interface
-     * velocity */
+    /* For low order, we calculate the reisz transform used to compute the magnitude
+     * of the interface velocity. This will be projected onto surface normals later 
+     * once we have the normals */
     template <class PositionView, class VorticityView>
     void computeVelocities(Order::Low, [[maybe_unused]] PositionView z, VorticityView w) const
     {
@@ -309,9 +308,9 @@ class ZModel
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION 
     static void finalizeVelocity(Order::Low, double &zndot, ViewType zdot, int i, int j, 
-                          double reisz, double norm[3], double deth) 
+                          ViewType reisz, double norm[3], double deth) 
     {
-        zndot = -0.5 * reisz / deth;
+        zndot = -0.5 * reisz(i, j, 0) / deth;
         for (int d = 0; d < 3; d++)
             zdot(i, j, d) = zndot * norm[d];
     }
@@ -320,15 +319,15 @@ class ZModel
     KOKKOS_INLINE_FUNCTION
     static void finalizeVelocity(Order::Medium, double &zndot, 
         [[maybe_unused]] ViewType zdot, [[maybe_unused]] int i, [[maybe_unused]] int j,
-        double reisz, [[maybe_unused]] double norm[3], double deth) 
+        ViewType reisz, [[maybe_unused]] double norm[3], double deth) 
     {
-        zndot = -0.5 * reisz / deth;
+        zndot = -0.5 * reisz(i, j, 0) / deth;
     }
 
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION
     static void finalizeVelocity(Order::High, double &zndot, ViewType zdot, int i, int j,
-                         [[maybe_unused]] double reisz, double norm[3], [[maybe_unused]] double deth)
+                         [[maybe_unused]] ViewType reisz, double norm[3], [[maybe_unused]] double deth)
     {
         double interface_velocity[3] = {zdot(i, j, 0), zdot(i, j, 1), zdot(i, j, 2)};
         zndot = Operator::dot(norm, interface_velocity);
@@ -384,7 +383,7 @@ class ZModel
 
             //  2.4 Compute zdot and zndot as needed using specialized helper functions
             double zndot;
-            finalizeVelocity(MethodOrder(), zndot, zdot, i, j, reisz(i, j, 0), N, deth );
+            finalizeVelocity(MethodOrder(), zndot, zdot, i, j, reisz, N, deth );
 
             //  2.5 Compute V from zndot and vorticity 
 	    double w1 = w(i, j, 0); 
