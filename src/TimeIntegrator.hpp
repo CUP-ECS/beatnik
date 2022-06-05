@@ -99,7 +99,7 @@ class TimeIntegrator
         // Compute derivative at forward euler point, which requires having its halos
         // (and periodic boundary ghosts) up-to-date
         halo.gather( ExecutionSpace(), *_ztmp, *_wtmp );
-        _bc.apply(_pm.mesh(), *_ztmp, *_wtmp);
+        _bc.correctHalo(_pm.mesh(), *_ztmp, *_wtmp);
         _zm.computeDerivatives(z_tmp, w_tmp, z_dot, w_dot);
  
         // TVD RK3 Step Two - derivative at half-step position
@@ -122,7 +122,7 @@ class TimeIntegrator
         });
         // Get the derivatives there
         halo.gather( ExecutionSpace(), *_ztmp, *_wtmp );
-        _bc.apply(_pm.mesh(), *_ztmp, *_wtmp);
+        _bc.correctHalo(_pm.mesh(), *_ztmp, *_wtmp);
         _zm.computeDerivatives(z_tmp, w_tmp, z_dot, w_dot);
         
         // TVD RK3 Step Three - Combine start, forward euler, and half step

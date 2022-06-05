@@ -220,7 +220,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 
     cl.mu = 1.0*sqrt(dx * dy);
     cl.eps = 0.25*sqrt(dx * dy);
-    cl.order = 0; // Start with the low order model
+    cl.order = 2; // Start with the low order model
 
     // Return Successfully
     return 0;

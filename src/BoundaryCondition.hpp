@@ -68,9 +68,9 @@ struct BoundaryCondition
     }
 
     /* Because we store a position field in the mesh, the position has to
-     * be corrected after haloing */
+     * be corrected after haloing if it's a periodic boundary */
     template <class MeshType, class ArrayType> 
-    void apply(const MeshType &mesh, ArrayType position, 
+    void correctHalo(const MeshType &mesh, ArrayType position, 
                [[maybe_unused]] ArrayType vorticity) const
     {
         using exec_space = typename ArrayType::execution_space;
@@ -101,16 +101,35 @@ struct BoundaryCondition
                         z(i, j, 0) += xoff * (bounding_box[3] - bounding_box[0]);
                         z(i, j, 1) += yoff * (bounding_box[4] - bounding_box[1]);
                     });
-                } else if (isFreeBoundary(dir)) {
+                }
+            }
+        }
+    }  
+
+    /* For non-periodic boundaries, we linearly project vorticity and position into
+     * the boundary area. */
+    template <class MeshType, class ArrayType> 
+    void apply(const MeshType &mesh, ArrayType position, 
+               [[maybe_unused]] ArrayType vorticity) const
+    {
+        using exec_space = typename ArrayType::execution_space;
+
+        auto local_grid = *(mesh.localGrid());
+
+        /* Loop through the directions. If it's periodic, we get the periodic index
+         * space. If its not periodic, we get the boundary index space */
+        for (int i = -1; i < 2; i++) {
+            for (int j = -1; j < 2; j++) {
+                if (i == 0 && j == 0) continue;
+                std::array<int, 2> dir = {i, j};
+                if (isFreeBoundary(dir)) {
                     auto boundary_space = local_grid.boundaryIndexSpace(Cajita::Ghost(), 
                         Cajita::Node(), dir);
                     Kokkos::parallel_for("Position halo correction", 
                                          Cajita::createExecutionPolicy(boundary_space, exec_space()),
                                          KOKKOS_LAMBDA([[maybe_unused]] int i, [[maybe_unused]] int j) {
                     });
-                } else {
-                    /* XXX Throw an exception */
-                }
+                } 
             }
         }
     }

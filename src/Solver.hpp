@@ -107,7 +107,8 @@ class Solver : public SolverBase
         // Create a mesh one which to do the solve and a problem manager to
         // handle state
         _mesh = std::make_unique<Mesh<ExecutionSpace, MemorySpace>>(
-            num_cells, periodic, partitioner, _halo_min, comm );
+            global_bounding_box, num_cells, periodic, partitioner,
+	    _halo_min, comm );
 
         // Check that our timestep is small enough to handle the mesh size,
         // atwood number and acceleration, and solution method. 

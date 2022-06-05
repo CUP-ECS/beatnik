@@ -38,12 +38,18 @@ class Mesh
     using mesh_type = Cajita::UniformMesh<double, 2>;
 
     // Construct a mesh.
-    Mesh( const std::array<int, 2>& global_num_cells,
+    Mesh( const std::array<double, 6>& global_bounding_box,
+          const std::array<int, 2>& global_num_cells,
 	  const std::array<bool, 2>& periodic,
           const Cajita::BlockPartitioner<2>& partitioner,
           const int min_halo_width, MPI_Comm comm )
     {
         MPI_Comm_rank( comm, &_rank );
+
+        for (int i = 0; i < 3; i++) {
+            _low_point[i] = global_bounding_box[i];
+            _high_point[i] = global_bounding_box[i+3];
+        } 
 
         // Make a copy of the global number of cells so we can modify it.
         std::array<int, 2> num_cells = global_num_cells;
@@ -101,6 +107,15 @@ class Mesh
         return _local_grid;
     }
 
+    const std::array<double, 3> & boundingBoxMin() const
+    {
+        return _low_point;
+    }
+    const std::array<double, 3> & boundingBoxMax() const
+    {
+        return _high_point;
+    }
+
     // Get the boundary indexes on the periodic boundary. local_grid.boundaryIndexSpace()
     // doesn't work on periodic boundaries.
     // XXX Needs more error checking to make sure the boundary is in fact periodic
@@ -125,6 +140,7 @@ class Mesh
     int rank() const { return _rank; }
 
   public:
+    std::array<double, 3> _low_point, _high_point;
     std::shared_ptr<Cajita::LocalGrid<mesh_type>> _local_grid;
     int _rank;
 };

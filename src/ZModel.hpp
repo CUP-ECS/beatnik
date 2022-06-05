@@ -27,6 +27,8 @@
 
 #include <BoundaryCondition.hpp>
 
+#include <pvfmm.hpp>
+
 namespace Beatnik
 {
 
@@ -127,6 +129,7 @@ class ZModel
         , _A( A )
         , _g( g )
         , _mu( mu )
+        , _pvfmm_kernel_fn( pvfmm::BiotSavartKernel<double>::potential() )
     {
         // Need the node triple layout for storing vector normals and the 
         // node double layout for storing x and y surface derivative
@@ -142,19 +145,18 @@ class ZModel
         _V = Cajita::createArray<double, device_type>(
             "V", node_scalar_layout );
 
-        /* Storage for the reisz transform of the vorticity. In the low and medium 
-         * order models,
-         * it is used to calculate the vorticity derivative. In the low order model,
-         * it is also projected onto the surface normal to compute the interface velocity.
-         * XXX Make this conditional on the model we run. */
-        _reisz = Cajita::createArray<double, device_type>( "reisz", node_double_layout );
-        Cajita::ArrayOp::assign( *_reisz, 0.0, Cajita::Ghost() );
-
         /* We need a halo for _V so that we can do fourth-order central differencing on
          * it. This requires a depth 2 stencil with adjacent faces */
         int halo_depth = 2; 
         _v_halo = Cajita::createHalo( Cajita::FaceHaloPattern<2>(),
                             halo_depth, *_V );
+
+        /* Storage for the reisz transform of the vorticity. In the low and medium 
+         * order models, it is used to calculate the vorticity derivative. In the low 
+         * order model,it is also projected onto the surface normal to compute the 
+         * interface velocity.  * XXX Make this conditional on the model we run. */
+        _reisz = Cajita::createArray<double, device_type>( "reisz", node_double_layout );
+        Cajita::ArrayOp::assign( *_reisz, 0.0, Cajita::Ghost() );
 
         /* If we're not the hgh order model, initialize the FFT solver and the working space
          * it will need. XXX figure out how to make this conditional on model order. */
@@ -167,7 +169,12 @@ class ZModel
         params.setReorder(false);
         _fft = Cajita::Experimental::createHeffteFastFourierTransform<double, device_type>(*node_double_layout, params);
 
-
+        /* If we're not low order, initialize the fast multipole solver. This is used to 
+         * directly calculate teh interface velocity via a global far-field force calculation.
+         * In the high-order model, it's also used to calculate the vorticity derivative.
+         */
+        _pvfmm_mem_mgr = std::make_unique<pvfmm::mem::MemoryManager>(10000000);
+        _pvfmm_matricies = std::make_unique<pvfmm::PtFMM<double>>(_pvfmm_mem_mgr.get());
     }
 
     double computeMinTimestep(double atwood, double g)
@@ -264,21 +271,106 @@ class ZModel
      * across the surface. Uses a fast multipole method for computing the 
      * these integrals */
     template <class PositionView, class VorticityView>
-    void computeInterfaceVelocity([[maybe_unused]]PositionView z,
-                                  [[maybe_unused]]VorticityView w) const
+    void computeInterfaceVelocity(PositionView zdot, PositionView z,
+                                  VorticityView w) const
     {
-        /* Create a fast multipole object */
-        /* Copy the interface position and vorticity into the working arrays */
-        /* COnstruct the FMM tree */
-        /* Evaluate the FMM */
-        /* Copy results to zdot */
-    }
+        auto node_space = _pm.mesh().localGrid()->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
+        std::size_t nnodes = node_space.size();
+
+
+        /* Create C-Order (LayoutRight) views on the device for the coordinates 
+         * and densities */
+        Kokkos::View<typename node_array::value_type***,
+                     Kokkos::LayoutRight,
+                     typename node_array::device_type>
+            coord( "node coords", node_space.extent( 0 ), node_space.extent( 1 ),
+                    3 );
+        Kokkos::View<typename node_array::value_type***,
+                     Kokkos::LayoutRight,
+                     typename node_array::device_type>
+            vortex( "node vortex", node_space.extent( 0 ), node_space.extent( 1 ),
+                    3 );
+
+        /* Figure out how we need to translate and scale down coordinates 
+         * and scale down the vorticities to map the problem tothe unit cube */
+        auto low_point = _pm.mesh().boundingBoxMin();
+        auto high_point = _pm.mesh().boundingBoxMax();
+        Kokkos::Array<double, 3> translation;
+        double coord_scale = 1;
+        for (int i = 0; i < 3; i++) {
+            translation[i] = -low_point[i];
+            low_point[i] += translation[i];
+            high_point[i] += translation[i];
+            if (high_point[i] > coord_scale) coord_scale = high_point[i];
+        }
+        /* Biot-Savart has a cross product in the numerator (squaring the 
+         * scaling and a cubic in the denominator, resulting in a 1/s scale
+         * factor */
+        double value_scale = coord_scale;
+
+        /* Iterate through the mesh filling out the coordinate and weighted
+         * vorticity magnitude device arrays */
+        int xmin = node_space.min(0), ymin = node_space.min(1);
+	double dx = _dx, dy = _dy;
+
+        Kokkos::parallel_for("FMM Coordinate/Point Calculation",
+            Cajita::createExecutionPolicy(node_space, ExecutionSpace()),
+            KOKKOS_LAMBDA(int i, int j) {
+            for (int n = 0; n < 3; n++) {
+                double dx_z = Operator::Dx(z, i, j, n, dx);
+                double dy_z = Operator::Dy(z, i, j, n, dy);
+                coord(i - xmin, j - ymin, n) = (z(i, j, n) + translation[n]) / coord_scale;
+                vortex(i - xmin, j - ymin, n) = (w(i, j, 1) * dx_z - w(i, j, 0) * dy_z) / value_scale;
+	    } 
+        });
+
+        auto coordHost = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), coord );
+        auto vortexHost = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), vortex );
+
+        /* Create vectors to store coordinates and densities */
+        double *data = coordHost.data();
+        std::vector<double> coordVector(data, data + 3 * nnodes);
+
+        data = vortexHost.data();
+        std::vector<double> vortexVector(data, data + 3 * nnodes);
+
+        /* Initialize the PvFMM tree with the coordinates provided */
+        size_t max_pts = 500;
+        auto comm = _pm.mesh().localGrid()->globalGrid().comm();
+        auto * tree = PtFMM_CreateTree(coordVector, vortexVector, coordVector, comm, max_pts, pvfmm::FreeSpace);
+
+        // FMM Setup
+        _pvfmm_matricies->Initialize(10, comm, &_pvfmm_kernel_fn);
+        tree->SetupFMM(_pvfmm_matricies.get());
+
+        /* Evaluate the FMM to compute forces */
+        std::vector<double> results;
+        PtFMM_Evaluate(tree, results, nnodes);
+       
+
+        /* Copy the force array back to the device. Reuse vortexHost for this. */
+        std::memcpy(vortexHost.data(), vortexVector.data(), nnodes * sizeof(double) * 3);
+        
+        /* Copy the computed forces into the zwdot view */
+        Kokkos::deep_copy(vortex, vortexHost);
+        Kokkos::parallel_for("Copy back FMM Results",
+            Cajita::createExecutionPolicy(node_space, ExecutionSpace()),
+            KOKKOS_LAMBDA(int i, int j) {
+            for (int n = 0; n < 3; n++) {
+                zdot(i + xmin, j + ymin, n) = vortex(i, j, n);
+	    } 
+        });
+
+        /* Clean up and destroy FMM solver state */
+        delete tree;
+    } 
 
     /* For low order, we calculate the reisz transform used to compute the magnitude
      * of the interface velocity. This will be projected onto surface normals later 
      * once we have the normals */
     template <class PositionView, class VorticityView>
-    void computeVelocities(Order::Low, [[maybe_unused]] PositionView z, VorticityView w) const
+    void computeVelocities(Order::Low, [[maybe_unused]] PositionView zdot,
+                           [[maybe_unused]] PositionView z, VorticityView w) const
     {
         computeReiszTransform(w);
     }
@@ -287,19 +379,19 @@ class ZModel
      * normalize for vorticity calculations and directly compute the 
      * interface velocity (zdot) using a fast multipole method. */
     template <class PositionView, class VorticityView>
-    void computeVelocities(Order::Medium, PositionView z, VorticityView w) const
+    void computeVelocities(Order::Medium, PositionView zdot, PositionView z, VorticityView w) const
     {
         computeReiszTransform(w);
-        computeInterfaceVelocity(z, w);
+        computeInterfaceVelocity(zdot, z, w);
     }
 
     /* For high order, we just directly compute the interface velocity (zdot)
      * using a fast multipole method and later normalize that for use in the
      * vorticity calculation. */
     template <class PositionView, class VorticityView>
-    void computeVelocities(Order::High, PositionView z, VorticityView w) const
+    void computeVelocities(Order::High, PositionView zdot, PositionView z, VorticityView w) const
     {
-        computeInterfaceVelocity(z, w);
+        computeInterfaceVelocity(zdot, z, w);
     }
 
     // Compute the final interface velocities and normalized BR velocities
@@ -344,7 +436,7 @@ class ZModel
  
         // 1. Compute the interface and vorticity velocities using 
         // the supplied methods in terms of the unit mesh.
-        computeVelocities(MethodOrder(), z, w);
+        computeVelocities(MethodOrder(), zdot, z, w);
 
         auto reisz = _reisz->view();
 
@@ -426,7 +518,9 @@ class ZModel
     std::shared_ptr<Cajita::Experimental::HeffteFastFourierTransform<Cajita::Node, mesh_type, double, device_type, Cajita::Experimental::Impl::FFTBackendDefault>> _fft;
 
     /* XXX Conditional declarations for medium/high-order models */
-
+    std::unique_ptr<pvfmm::mem::MemoryManager> _pvfmm_mem_mgr;
+    std::unique_ptr<pvfmm::PtFMM<double>> _pvfmm_matricies;
+    const pvfmm::Kernel<double>& _pvfmm_kernel_fn;
 }; // class ZModel
 
 } // namespace Beatnik
