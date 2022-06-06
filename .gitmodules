@@ -1,3 +1,6 @@
 [submodule "thirdparty/blt"]
 	path = thirdparty/blt
 	url = https://github.com/LLNL/blt
+[submodule "thirdparty/pvfmm"]
+	path = thirdparty/pvfmm
+	url = git@github.com:dmalhotra/pvfmm.git
