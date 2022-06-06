@@ -1,6 +1,7 @@
 set(HEADERS
   # General problem/mesh/time integration files
   Mesh.hpp
+  Operators.hpp
   ProblemManager.hpp
   Solver.hpp
   SiloWriter.hpp
@@ -8,13 +9,11 @@ set(HEADERS
   # Routines to support the general Z-MOdel Solutio Approach
   TimeIntegrator.hpp
   BoundaryCondition.hpp
-#  ArtificialViscosity.hpp
-#  Interpolation.hpp
 
   # ZModel details here.
   ZModel.hpp
+  PvfmmBRSolver.hpp
   # DirectBRVelocity.hpp
-  # FMMBRVelocity.hpp
   # VerletBRVelocity.hpp
   )
 

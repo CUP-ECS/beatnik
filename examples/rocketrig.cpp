@@ -35,12 +35,14 @@
 
 using namespace Beatnik;
 
-// Short Args: n - Cell Count, p - On-node Parallelism ( Serial/OpenMP/CUDA/etc ),
-// t - Time Steps, w - Write Frequency, i - delta_t
+// Short Args: n - Cell Count,  t - Time Steps, w - Write Frequency, d - delta_t
+// w - Write Frequency, x - On-node Parallelism ( Serial/OpenMP/CUDA/etc ),
 // g - Gravity, a - atwood number, T - tilt of rocket rig,
-// v - magnitude of variation in interface
-//   
-static char* shortargs = (char*)"n:t:d:w:x:o:g:a:T:v:p:m:h";
+// v - magnitude of variation in interface, p - interface periods per unit space 
+// b - boundary condition (periodic, free, freeslip), 
+// o - model order (low, medium, high), m - mu, the articificial viscosity constant
+// e - epsilon, the desingularization constant
+static char* shortargs = (char*)"n:t:d:w:x:g:a:T:v:p:b:o:m:e:h";
 
 static option longargs[] = {
     // Basic simulation parameters
@@ -55,12 +57,12 @@ static option longargs[] = {
     { "atwood", required_argument, NULL, 'a' },
     { "tilt", required_argument, NULL, 'T' },
     { "variation", required_argument, NULL, 'v' },
+    { "period", required_argument, NULL, 'p' },
     { "boundary", required_argument, NULL, 'b' },
 
     { "order", required_argument, NULL, 'o' },
     { "mu", required_argument, NULL, 'm' },
     { "epsilon", required_argument, NULL, 'e' },
-
 
     { "help", no_argument, NULL, 'h' },
     { 0, 0, 0, 0 } };
@@ -139,9 +141,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     char ch;
 
     /// Set default values
-
     cl.driver = "serial"; // Default Thread Setting
     cl.global_num_cells = { 128, 128 };
+    cl.order = 0;
 
     // Now parse any arguments
     while ( ( ch = getopt_long( argc, argv, shortargs, longargs, NULL ) ) !=
@@ -178,6 +180,25 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 exit( -1 );
             }
             break;
+        case 'o':
+        { 
+            std::string order(optarg);
+            if (order.compare("low") == 0 ) {
+                cl.order = 0;
+            } else if (order.compare("medium") == 0 ) {
+                cl.order = 1;
+            } else if (order.compare("high") == 0 ) {
+                cl.order = 2;
+            } else {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid model order argument.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
+            break;
+        }
         case 'h':
             help( rank, argv[0] );
             exit( 0 );
@@ -220,7 +241,6 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 
     cl.mu = 1.0*sqrt(dx * dy);
     cl.eps = 0.25*sqrt(dx * dy);
-    cl.order = 2; // Start with the low order model
 
     // Return Successfully
     return 0;

@@ -25,7 +25,7 @@ namespace Beatnik
 
 // The time integrator requires temporary state for runge kutta interpolation
 // which are stored as part of this object 
-template <class ExecutionSpace, class MemorySpace, class ModelOrder>
+template <class ExecutionSpace, class MemorySpace, class ZModelType>
 class TimeIntegrator
 {
     using Node = Cajita::Cell;
@@ -41,7 +41,7 @@ class TimeIntegrator
   public:
     TimeIntegrator( const ProblemManager<exec_space, mem_space> & pm,
                     const BoundaryCondition & bc,
-                    const ZModel<exec_space, mem_space, ModelOrder> & zm )
+                    const ZModelType & zm )
     : _pm(pm)
     , _bc(bc)
     , _zm(zm)
@@ -147,7 +147,7 @@ class TimeIntegrator
   private:
     const ProblemManager<ExecutionSpace, MemorySpace> & _pm;
     const BoundaryCondition &_bc;
-    const ZModel<ExecutionSpace, MemorySpace, ModelOrder> & _zm;
+    const ZModelType & _zm;
     std::shared_ptr<node_array> _zdot, _wdot, _wtmp, _ztmp;
 };
 

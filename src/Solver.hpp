@@ -20,6 +20,8 @@
 #include <ProblemManager.hpp>
 #include <SiloWriter.hpp>
 #include <TimeIntegrator.hpp>
+#include <PvfmmBRSolver.hpp>
+#include <ZModel.hpp>
 
 #include <Kokkos_Core.hpp>
 #include <memory>
@@ -63,8 +65,9 @@ class Solver : public SolverBase
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using node_array =
         Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>, MemorySpace>;
-    using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder>;
-    using ti_type = TimeIntegrator<ExecutionSpace, MemorySpace, ModelOrder>;
+    using brsolver_type = PvfmmBRSolver<ExecutionSpace, MemorySpace>; // The only one we have right now.
+    using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>;
+    using ti_type = TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>;
     using Node = Cajita::Node;
 
     template <class InitFunc>
@@ -125,12 +128,16 @@ class Solver : public SolverBase
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
             *_mesh, _bc, create_functor );
 
+        // Create teh BirchoffRott solver (XXX make this conditional on non-low 
+        // order solve
+        _br = std::make_unique<PvfmmBRSolver<ExecutionSpace, MemorySpace>>(*_pm, _bc, dx, dy);
+
         // Create the ZModel solver
-        _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder>>(
-            *_pm, _bc, dx, dy, atwood, g, mu);
+        _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>>(
+            *_pm, _bc, _br.get(), dx, dy, atwood, g, mu);
 
         // Make a time integrator to move the zmodel forward
-        _ti = std::make_unique<TimeIntegrator<ExecutionSpace, MemorySpace, ModelOrder>>( *_pm, _bc, *_zm );
+        _ti = std::make_unique<TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>>( *_pm, _bc, *_zm );
 
         // Set up Silo for I/O
         _silo = std::make_unique<SiloWriter<ExecutionSpace, MemorySpace>>( *_pm );
@@ -189,6 +196,7 @@ class Solver : public SolverBase
     
     std::unique_ptr<Mesh<ExecutionSpace, MemorySpace>> _mesh;
     std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace>> _pm;
+    std::unique_ptr<PvfmmBRSolver<ExecutionSpace, MemorySpace>> _br;
     std::unique_ptr<zmodel_type> _zm;
     std::unique_ptr<ti_type> _ti;
     std::unique_ptr<SiloWriter<ExecutionSpace, MemorySpace>> _silo;
