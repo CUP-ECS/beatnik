@@ -20,7 +20,8 @@
 #include <ProblemManager.hpp>
 #include <SiloWriter.hpp>
 #include <TimeIntegrator.hpp>
-#include <PvfmmBRSolver.hpp>
+#include <ExactBRSolver.hpp>
+//#include <PvfmmBRSolver.hpp>
 #include <ZModel.hpp>
 
 #include <Kokkos_Core.hpp>
@@ -65,7 +66,12 @@ class Solver : public SolverBase
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using node_array =
         Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>, MemorySpace>;
-    using brsolver_type = PvfmmBRSolver<ExecutionSpace, MemorySpace>; // The only one we have right now.
+
+    // At some point we'll specify this when making the solver
+    using brsolver_type = ExactBRSolver<ExecutionSpace, MemorySpace>; // The only one we have right now.
+
+//     using brsolver_type = PvfmmBRSolver<ExecutionSpace, MemorySpace>; // Not yet working
+
     using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>;
     using ti_type = TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>;
     using Node = Cajita::Node;
@@ -128,9 +134,9 @@ class Solver : public SolverBase
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
             *_mesh, _bc, create_functor );
 
-        // Create teh BirchoffRott solver (XXX make this conditional on non-low 
+        // Create the BirchoffRott solver (XXX make this conditional on non-low 
         // order solve
-        _br = std::make_unique<PvfmmBRSolver<ExecutionSpace, MemorySpace>>(*_pm, _bc, dx, dy);
+        _br = std::make_unique<ExactBRSolver<ExecutionSpace, MemorySpace>>(*_pm, _bc, _eps, dx, dy);
 
         // Create the ZModel solver
         _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>>(
@@ -196,7 +202,7 @@ class Solver : public SolverBase
     
     std::unique_ptr<Mesh<ExecutionSpace, MemorySpace>> _mesh;
     std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace>> _pm;
-    std::unique_ptr<PvfmmBRSolver<ExecutionSpace, MemorySpace>> _br;
+    std::unique_ptr<brsolver_type> _br;
     std::unique_ptr<zmodel_type> _zm;
     std::unique_ptr<ti_type> _ti;
     std::unique_ptr<SiloWriter<ExecutionSpace, MemorySpace>> _silo;

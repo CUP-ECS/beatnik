@@ -12,9 +12,9 @@ set(HEADERS
 
   # ZModel details here.
   ZModel.hpp
-  PvfmmBRSolver.hpp
-  # DirectBRVelocity.hpp
-  # VerletBRVelocity.hpp
+  ExactBRSolver.hpp
+#  PvfmmBRSolver.hpp
+#  VerletBRVelocity.hpp
   )
 
 #set(SOURCES
@@ -26,7 +26,7 @@ set(DEPENDS_ON
   Cabana::cabanacore
   Cabana::Cajita
   Silo::silo 
-  pvfmm
+#  pvfmm
   mpi
   )
  

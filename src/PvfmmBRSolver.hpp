@@ -66,6 +66,10 @@ class PvfmmBRSolver
     {
         _pvfmm_mem_mgr = std::make_unique<pvfmm::mem::MemoryManager>(10000000);
         _pvfmm_matricies = std::make_unique<pvfmm::PtFMM<double>>(_pvfmm_mem_mgr.get());
+
+        // FMM Setup
+	auto comm = _pm.mesh().localGrid()->globalGrid().comm();
+        _pvfmm_matricies->Initialize(10, comm, &_pvfmm_kernel_fn);
     }
 
     /* Directly compute the interface velocity by integrating the vorticity 
@@ -138,9 +142,6 @@ class PvfmmBRSolver
         size_t max_pts = 500;
         auto comm = _pm.mesh().localGrid()->globalGrid().comm();
         auto * tree = PtFMM_CreateTree(coordVector, vortexVector, coordVector, comm, max_pts, pvfmm::PXY);
-
-        // FMM Setup
-        _pvfmm_matricies->Initialize(10, comm, &_pvfmm_kernel_fn);
         tree->SetupFMM(_pvfmm_matricies.get());
 
         /* Evaluate the FMM to compute forces */
