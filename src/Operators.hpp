@@ -42,7 +42,7 @@ namespace Operators
 
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION
-    double Dx(double out[3], ViewType f, int i, int j, double dx) 
+    void Dx(double out[3], ViewType f, int i, int j, double dx) 
     {
         for (int d = 0; d < 3; d++) {
             out[d] = Dx(f, i, j, d, dx);
@@ -58,7 +58,7 @@ namespace Operators
  
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION
-    double Dy(double out[3], ViewType f, int i, int j, double dy) 
+    void Dy(double out[3], ViewType f, int i, int j, double dy) 
     {
         for (int d = 0; d < 3; d++) {
             out[d] = Dy(f, i, j, d, dy);

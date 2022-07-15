@@ -93,13 +93,15 @@ struct BoundaryCondition
                     /* The halo takes care of vorticity. We have to correct 
                      * the position */
                     int xoff = dir[0], yoff = dir[1];
+                    double xdiff = (bounding_box[3] - bounding_box[0]),
+                           ydiff = (bounding_box[4] - bounding_box[1]);
                     Kokkos::parallel_for("Position halo correction", 
                                      Cajita::createExecutionPolicy(periodic_space, exec_space()),
                                      KOKKOS_LAMBDA(int i, int j) {
                         /* This subtracts when we're on the low boundary and adds when we're on 
                          * the high boundary, which is what we want. */
-                        z(i, j, 0) += xoff * (bounding_box[3] - bounding_box[0]);
-                        z(i, j, 1) += yoff * (bounding_box[4] - bounding_box[1]);
+                        z(i, j, 0) += xoff * xdiff;
+                        z(i, j, 1) += yoff * ydiff;
                     });
                 }
             }

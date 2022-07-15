@@ -311,8 +311,7 @@ class ZModel
         Kokkos::parallel_for( "Interface Velocity",  
             createExecutionPolicy(own_node_space, ExecutionSpace()), 
             KOKKOS_LAMBDA(int i, int j) {
-            //  2.1 Compute Dx and Dy of z and w by fourth-order central 
-            //      differencing. Because we're on a unit mesh, dx and dy are 1.
+            //  2.1 Compute Dx and Dy of z and w by fourth-order central differencing. 
             double dx_z[3], dy_z[3];
 
             for (int n = 0; n < 3; n++) {

@@ -81,6 +81,7 @@ class ExactBRSolver
         
         /* Get an atomic view of the interface velocity */
         Kokkos::View<double ***,
+             typename PositionView::device_type,
              Kokkos::MemoryTraits<Kokkos::Atomic>> atomic_zdot = zdot;
     
         /* Parallel loop over each point of the interface
@@ -99,15 +100,24 @@ class ExactBRSolver
         Kokkos::parallel_for("Exact BR Force Loop",
             Cajita::createExecutionPolicy(node_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {
+            for (int n = 0; n < 3; n++)
+                atomic_zdot(i, j, n) = 0.0;
+
             for (int k = istart; k < iend; k++) {
                 for (int l = jstart; l < jend; l++) {
                     double br[3];
-                    Operators::BR(br, z, w, epsilon, dx, dy, i, j, k, l);
+                    if (i == k && j == l) continue;
+                    Operators::BR(br, w, z, epsilon, dx, dy, i, j, k, l);
                     for (int n = 0; n < 3; n++)
                         atomic_zdot(i, j, n) += br[n];
                 }
             }
-        });    
+        }); 
+        //std::cout << "zdot of 5, 5 is"
+         //             << " (" << zdot(5, 5, 0) 
+          //            << ", " << zdot(5, 5, 1) 
+           //           << ", " << zdot(5, 5, 2) 
+            //          << ")\n";
     } 
 
     const pm_type & _pm;
