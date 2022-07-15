@@ -77,8 +77,8 @@ add_subdirectory(examples)
 # tests
 add_subdirectory(tests)
 
-# pvfmm
-add_subdirectory(thirdparty/pvfmm)
+# pvfmm - Commented out until PVFMM actually works and is even basically fast
+# add_subdirectory(thirdparty/pvfmm)
 
 # Add a target for formatting the code using Clang
 if(CLANG_FORMAT_FOUND)

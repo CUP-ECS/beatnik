@@ -76,6 +76,38 @@ class ExactBRSolver
     {
         auto node_space = _pm.mesh().localGrid()->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
         std::size_t nnodes = node_space.size();
+
+        /* Start by zeroing the interface velocity */
+        
+        /* Get an atomic view of the interface velocity */
+        Kokkos::View<double ***,
+             Kokkos::MemoryTraits<Kokkos::Atomic>> atomic_zdot = zdot;
+    
+        /* Parallel loop over each point of the interface
+         * For each point on the interface
+         *   Loop over each of interface higher in layout order than we are
+         *   For each pair of this point and target point
+         *      1. Compute the BR force between this point and the target point
+         *      2. The point with the computed force
+         *      3. Use atomics to update the destinate point with the inverse target force
+         *    points we've been working on */
+        double epsilon = _epsilon;
+        int istart = node_space.min(0), jstart = node_space.min(1);
+        int iend = node_space.max(0), jend = node_space.max(1);
+        double dx = _dx, dy = _dy;
+
+        Kokkos::parallel_for("Exact BR Force Loop",
+            Cajita::createExecutionPolicy(node_space, ExecutionSpace()),
+            KOKKOS_LAMBDA(int i, int j) {
+            for (int k = istart; k < iend; k++) {
+                for (int l = jstart; l < jend; l++) {
+                    double br[3];
+                    Operators::BR(br, z, w, epsilon, dx, dy, i, j, k, l);
+                    for (int n = 0; n < 3; n++)
+                        atomic_zdot(i, j, n) += br[n];
+                }
+            }
+        });    
     } 
 
     const pm_type & _pm;
