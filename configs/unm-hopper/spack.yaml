@@ -1,0 +1,14 @@
+spack:
+  specs:
+  - blt
+  - cmake
+  - hdf5+mpi
+  - cuda@11.6
+  - openmpi@4.1.4 +cuda
+  - silo@4.11 +mpi
+  - heffte +fftw +cuda cuda_arch=80
+  - kokkos std=17 +hwloc +cuda +cuda_lambda +wrapper cuda_arch=80
+  - cabana @master +cajita +heffte +mpi
+  view: true
+  concretizer:
+    unify: true
