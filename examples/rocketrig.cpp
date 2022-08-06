@@ -42,7 +42,9 @@ using namespace Beatnik;
 // b - boundary condition (periodic, free, freeslip), 
 // o - model order (low, medium, high), m - mu, the articificial viscosity constant
 // e - epsilon, the desingularization constant
-static char* shortargs = (char*)"n:t:d:w:x:g:a:T:v:p:b:o:m:e:h";
+// w - weak scaling factor - modify cell count and domain to scale up problem by
+//     specified integer factor
+static char* shortargs = (char*)"n:t:d:w:x:g:a:T:v:p:b:o:m:e:w:h";
 
 static option longargs[] = {
     // Basic simulation parameters
@@ -63,6 +65,7 @@ static option longargs[] = {
     { "order", required_argument, NULL, 'o' },
     { "mu", required_argument, NULL, 'm' },
     { "epsilon", required_argument, NULL, 'e' },
+    { "weak-scale", required_argument, NULL, 'w'},
 
     { "help", no_argument, NULL, 'h' },
     { 0, 0, 0, 0 } };
@@ -89,6 +92,7 @@ struct ClArgs
     double delta_t;     /**< Timestep */
     int write_freq;     /**< Write frequency */
     std::string driver; /**< ( Serial, Threads, OpenMP, CUDA ) */
+    int weak_scale;     /**< Amount to scale up resulting problem */
 
     /* Solution method constants */
     int order;      /**< Order of z-model solver to use */
@@ -144,6 +148,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.driver = "serial"; // Default Thread Setting
     cl.global_num_cells = { 128, 128 };
     cl.order = 0;
+    cl.weak_scale = 1;
 
     // Now parse any arguments
     while ( ( ch = getopt_long( argc, argv, shortargs, longargs, NULL ) ) !=
@@ -199,6 +204,16 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             }
             break;
         }
+        case 'w':
+            cl.weak_scale = atoi(optarg);
+            if (cl.weak_scale < 1) {
+                if ( rank == 0 ) {
+                    std::cerr << "Invalid weak scaling factor order argument.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
+            break;
         case 'h':
             help( rank, argv[0] );
             exit( 0 );
@@ -222,6 +237,14 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.gravity = 25.0 * 9.8;
     cl.atwood = 0.5;
     cl.boundary =  Beatnik::BoundaryType::PERIODIC;
+
+    /* Scale up global bounding box and number of cells by weak scaling factor */
+    for (int i = 0; i < 6; i++) {
+        cl.global_bounding_box[i] *= sqrt(cl.weak_scale);
+    }
+    for (int i = 0; i < 2; i++) {
+        cl.global_num_cells[i] *= sqrt(cl.weak_scale);
+    }
 
     /* Simulation Parameters */
 
