@@ -17,7 +17,7 @@ the mesh stored as a separate vector in the nodes of the mesh. This is efficient
 for the low-order z-model, as the computation of surface normals, artificial viscosity, 
 and Fourier transforms for estimating interface velocities are straightforward in 
 this representation. Higher-order models, howqever, require more accurate calculation
-of far-field forces and this representation may dramatically increase communication 
+of far-field forces and the initial representation may dramatically increase communication 
 requirements. 
 
 In the future, we plan to use Beatnik to directly implement a fast multipole method in
@@ -27,10 +27,11 @@ surface-local calculations, reducing fast multipole communicaiton overheads.
  
 Beatnik is being implemented in multiple distinct steps, with associated planned releases:
 
-  * Version 1.0 Expected Features
+  * Version 1.0 Features
+
     1. A low-order model implementation that relies on Cajita/HeFFTe Fourier transforms for estimating velocity interface at mesh points.
 
-    2. A high-order model implementation based on PVFMM for computing long-range forces
+    2. A high-order model implementation based on either exact or PVFMM for computing long-range forces
 
     3. A medium-order model that uses the Fourier transform for estimating interface velocity and the fast multipole method for estimating how the vorticity changes at each interface point. 
 
@@ -38,16 +39,17 @@ Beatnik is being implemented in multiple distinct steps, with associated planned
 
     5. Multiple Benchmark examples, including a single-mode gaussian roll-up test, the rocket rig experiment, and a rising bubble test
 
+    6. Direct support for weak scaling of benchmarks through command line arguments
+
   * Version 1.1 Expected Features
+
     1. A cutoff-based approach for calculating far-field forces using the Cabana particle framework that accelerates far-field force calculations by avoiding the complex hierarchical communications and calculations in the fast multipole solver.
 
     2. Improved timestep handling to make sure that the timestep is always appropriate for the parameters given
- 
-    3. Direct support for weak scaling of benchmarks through command line arguments
 
-    4. Support for coupling with other applications through either I/O (e.g. ADIOS) or Communication (e.g. Portage) approaches
+    3. Support for coupling with other applications through either I/O (e.g. ADIOS) or Communication (e.g. Portage) approaches
 
   * Version 2.0 Expected Features
   
-    1. Direct fast multipole implementqtion and a mesh decomposition based on space-filling curves to optimize high-order model 
+    1. Direct fast multipole implementation and a mesh decomposition based on space-filling curves to optimize high-order model 
        performance
