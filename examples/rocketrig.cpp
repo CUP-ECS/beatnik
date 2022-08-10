@@ -35,7 +35,7 @@
 
 using namespace Beatnik;
 
-// Short Args: n - Cell Count,  t - Time Steps, w - Write Frequency, d - delta_t
+// Short Args: n - Cell Count,  t - Time Steps, f - Write Frequency, d - delta_t
 // w - Write Frequency, x - On-node Parallelism ( Serial/OpenMP/CUDA/etc ),
 // g - Gravity, a - atwood number, T - tilt of rocket rig,
 // v - magnitude of variation in interface, p - interface periods per unit space 
@@ -44,14 +44,14 @@ using namespace Beatnik;
 // e - epsilon, the desingularization constant
 // w - weak scaling factor - modify cell count and domain to scale up problem by
 //     specified integer factor
-static char* shortargs = (char*)"n:t:d:w:x:g:a:T:v:p:b:o:m:e:w:h";
+static char* shortargs = (char*)"n:t:d:f:x:g:a:T:v:p:b:o:m:e:w:h";
 
 static option longargs[] = {
     // Basic simulation parameters
     { "cells", required_argument, NULL, 'n' },
     { "timesteps", required_argument, NULL, 't' },
     { "deltat", required_argument, NULL, 'd' },
-    { "write-freq", required_argument, NULL, 'w' },
+    { "write-frequency", required_argument, NULL, 'f' },
     { "driver", required_argument, NULL, 'x' },
 
     // Z-model simulation parameters
