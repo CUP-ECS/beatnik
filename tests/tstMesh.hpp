@@ -39,12 +39,14 @@ class MeshTest : public ::testing::Test
     {
         // Allocate and initialize the Cajita mesh
         globalNumCells_ = { boxCells_ , boxCells_ };
-        testMesh_ = std::make_unique<mesh_type>( globalNumCells_, periodic_, partitioner_,
-						 haloWidth_, MPI_COMM_WORLD );
+        globalBoundingBox_ = {-1, -1, -1, 1, 1, 1};
+        testMesh_ = std::make_unique<mesh_type>( globalBoundingBox_, globalNumCells_, periodic_, 
+                        partitioner_, haloWidth_, MPI_COMM_WORLD );
     }
 
     virtual void TearDown() override { testMesh_ = NULL; }
 
+    std::array<double, 6> globalBoundingBox_;
     std::array<int, 2> globalNumCells_;
     const std::array<bool, 2> periodic_ = {true, true};
     const double boxWidth_ = 1.0;

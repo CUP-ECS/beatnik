@@ -35,19 +35,23 @@
 
 using namespace Beatnik;
 
-// Short Args: n - Cell Count, p - On-node Parallelism ( Serial/OpenMP/CUDA/etc ),
-// t - Time Steps, w - Write Frequency, i - delta_t
+// Short Args: n - Cell Count,  t - Time Steps, f - Write Frequency, d - delta_t
+// w - Write Frequency, x - On-node Parallelism ( Serial/OpenMP/CUDA/etc ),
 // g - Gravity, a - atwood number, T - tilt of rocket rig,
-// v - magnitude of variation in interface
-//   
-static char* shortargs = (char*)"n:t:d:w:x:o:g:a:T:v:p:m:h";
+// v - magnitude of variation in interface, p - interface periods per unit space 
+// b - boundary condition (periodic, free, freeslip), 
+// o - model order (low, medium, high), m - mu, the articificial viscosity constant
+// e - epsilon, the desingularization constant
+// w - weak scaling factor - modify cell count and domain to scale up problem by
+//     specified integer factor
+static char* shortargs = (char*)"n:t:d:f:x:g:a:T:v:p:b:o:m:e:w:h";
 
 static option longargs[] = {
     // Basic simulation parameters
     { "cells", required_argument, NULL, 'n' },
     { "timesteps", required_argument, NULL, 't' },
     { "deltat", required_argument, NULL, 'd' },
-    { "write-freq", required_argument, NULL, 'w' },
+    { "write-frequency", required_argument, NULL, 'f' },
     { "driver", required_argument, NULL, 'x' },
 
     // Z-model simulation parameters
@@ -55,12 +59,13 @@ static option longargs[] = {
     { "atwood", required_argument, NULL, 'a' },
     { "tilt", required_argument, NULL, 'T' },
     { "variation", required_argument, NULL, 'v' },
+    { "period", required_argument, NULL, 'p' },
     { "boundary", required_argument, NULL, 'b' },
 
     { "order", required_argument, NULL, 'o' },
     { "mu", required_argument, NULL, 'm' },
     { "epsilon", required_argument, NULL, 'e' },
-
+    { "weak-scale", required_argument, NULL, 'w'},
 
     { "help", no_argument, NULL, 'h' },
     { 0, 0, 0, 0 } };
@@ -87,6 +92,7 @@ struct ClArgs
     double delta_t;     /**< Timestep */
     int write_freq;     /**< Write frequency */
     std::string driver; /**< ( Serial, Threads, OpenMP, CUDA ) */
+    int weak_scale;     /**< Amount to scale up resulting problem */
 
     /* Solution method constants */
     int order;      /**< Order of z-model solver to use */
@@ -139,9 +145,10 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     char ch;
 
     /// Set default values
-
     cl.driver = "serial"; // Default Thread Setting
     cl.global_num_cells = { 128, 128 };
+    cl.order = 0;
+    cl.weak_scale = 1;
 
     // Now parse any arguments
     while ( ( ch = getopt_long( argc, argv, shortargs, longargs, NULL ) ) !=
@@ -178,6 +185,35 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 exit( -1 );
             }
             break;
+        case 'o':
+        { 
+            std::string order(optarg);
+            if (order.compare("low") == 0 ) {
+                cl.order = 0;
+            } else if (order.compare("medium") == 0 ) {
+                cl.order = 1;
+            } else if (order.compare("high") == 0 ) {
+                cl.order = 2;
+            } else {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid model order argument.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
+            break;
+        }
+        case 'w':
+            cl.weak_scale = atoi(optarg);
+            if (cl.weak_scale < 1) {
+                if ( rank == 0 ) {
+                    std::cerr << "Invalid weak scaling factor order argument.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
+            break;
         case 'h':
             help( rank, argv[0] );
             exit( 0 );
@@ -202,6 +238,14 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.atwood = 0.5;
     cl.boundary =  Beatnik::BoundaryType::PERIODIC;
 
+    /* Scale up global bounding box and number of cells by weak scaling factor */
+    for (int i = 0; i < 6; i++) {
+        cl.global_bounding_box[i] *= sqrt(cl.weak_scale);
+    }
+    for (int i = 0; i < 2; i++) {
+        cl.global_num_cells[i] *= sqrt(cl.weak_scale);
+    }
+
     /* Simulation Parameters */
 
     /* Figure out parameters we need for the timestep and such. Simulate long 
@@ -220,7 +264,6 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 
     cl.mu = 1.0*sqrt(dx * dy);
     cl.eps = 0.25*sqrt(dx * dy);
-    cl.order = 0; // Start with the low order model
 
     // Return Successfully
     return 0;

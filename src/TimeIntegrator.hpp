@@ -25,22 +25,23 @@ namespace Beatnik
 
 // The time integrator requires temporary state for runge kutta interpolation
 // which are stored as part of this object 
-template <class ExecutionSpace, class MemorySpace, class ModelOrder>
+template <class ExecutionSpace, class MemorySpace, class ZModelType>
 class TimeIntegrator
 {
     using Node = Cajita::Cell;
     using exec_space = ExecutionSpace;
     using mem_space = MemorySpace;
+    using device_type = Kokkos::Device<exec_space, mem_space>;
     using node_array =
         Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>,
-                      MemorySpace>;
+                      device_type>;
 
     using halo_type = Cajita::Halo<MemorySpace>;
 
   public:
     TimeIntegrator( const ProblemManager<exec_space, mem_space> & pm,
                     const BoundaryCondition & bc,
-                    const ZModel<exec_space, mem_space, ModelOrder> & zm )
+                    const ZModelType & zm )
     : _pm(pm)
     , _bc(bc)
     , _zm(zm)
@@ -53,13 +54,13 @@ class TimeIntegrator
         auto node_double_layout =
             Cajita::createArrayLayout( pm.mesh().localGrid(), 2, Cajita::Node() );
 
-        _zdot = Cajita::createArray<double, mem_space>("velocity", 
+        _zdot = Cajita::createArray<double, device_type>("velocity", 
                                                        node_triple_layout);
-        _wdot = Cajita::createArray<double, mem_space>("vorticity derivative",
+        _wdot = Cajita::createArray<double, device_type>("vorticity derivative",
                                                        node_triple_layout);
-        _ztmp = Cajita::createArray<double, mem_space>("position temporary", 
+        _ztmp = Cajita::createArray<double, device_type>("position temporary", 
                                                        node_triple_layout);
-        _wtmp = Cajita::createArray<double, mem_space>("vorticity temporary", 
+        _wtmp = Cajita::createArray<double, device_type>("vorticity temporary", 
                                                        node_triple_layout);
     }
 
@@ -98,7 +99,7 @@ class TimeIntegrator
         // Compute derivative at forward euler point, which requires having its halos
         // (and periodic boundary ghosts) up-to-date
         halo.gather( ExecutionSpace(), *_ztmp, *_wtmp );
-        _bc.apply(_pm.mesh(), *_ztmp, *_wtmp);
+        _bc.correctHalo(_pm.mesh(), *_ztmp, *_wtmp);
         _zm.computeDerivatives(z_tmp, w_tmp, z_dot, w_dot);
  
         // TVD RK3 Step Two - derivative at half-step position
@@ -121,7 +122,7 @@ class TimeIntegrator
         });
         // Get the derivatives there
         halo.gather( ExecutionSpace(), *_ztmp, *_wtmp );
-        _bc.apply(_pm.mesh(), *_ztmp, *_wtmp);
+        _bc.correctHalo(_pm.mesh(), *_ztmp, *_wtmp);
         _zm.computeDerivatives(z_tmp, w_tmp, z_dot, w_dot);
         
         // TVD RK3 Step Three - Combine start, forward euler, and half step
@@ -146,7 +147,7 @@ class TimeIntegrator
   private:
     const ProblemManager<ExecutionSpace, MemorySpace> & _pm;
     const BoundaryCondition &_bc;
-    const ZModel<ExecutionSpace, MemorySpace, ModelOrder> & _zm;
+    const ZModelType & _zm;
     std::shared_ptr<node_array> _zdot, _wdot, _wtmp, _ztmp;
 };
 

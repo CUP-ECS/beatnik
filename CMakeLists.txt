@@ -36,7 +36,7 @@ if (DEFINED BLT_SOURCE_DIR)
     endif()
 else()
     # Use internal BLT if no BLT_SOURCE_DIR is given
-    set(BLT_SOURCE_DIR "${PROJECT_SOURCE_DIR}/cmake/blt" CACHE PATH "")
+    set(BLT_SOURCE_DIR "${PROJECT_SOURCE_DIR}/thirdparty/blt" CACHE PATH "")
     if (NOT EXISTS ${BLT_SOURCE_DIR}/SetupBLT.cmake)
         message(FATAL_ERROR
             "The BLT git submodule is not present. "
@@ -76,6 +76,9 @@ add_subdirectory(examples)
 
 # tests
 add_subdirectory(tests)
+
+# pvfmm - Commented out until PVFMM actually works and is even basically fast
+# add_subdirectory(thirdparty/pvfmm)
 
 # Add a target for formatting the code using Clang
 if(CLANG_FORMAT_FOUND)
