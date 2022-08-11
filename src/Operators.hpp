@@ -108,7 +108,7 @@ namespace Operators
         }
         cross(out, omega, zdiff);
         for (int d = 0; d < 3; d++) {  
-            out[d] /= (4.0 * Kokkos::Experimental::pi_v<double>);
+            out[d] /= (-4.0 * Kokkos::Experimental::pi_v<double>);
         }
     }
 

@@ -113,11 +113,13 @@ class ExactBRSolver
                 }
             }
         }); 
-        //std::cout << "zdot of 5, 5 is"
-         //             << " (" << zdot(5, 5, 0) 
-          //            << ", " << zdot(5, 5, 1) 
-           //           << ", " << zdot(5, 5, 2) 
-            //          << ")\n";
+#if 0
+        std::cout << "zdot of 5, 5 is"
+                      << " (" << zdot(5, 5, 0) 
+                      << ", " << zdot(5, 5, 1) 
+                      << ", " << zdot(5, 5, 2) 
+                      << ")\n";
+#endif
     } 
 
     const pm_type & _pm;

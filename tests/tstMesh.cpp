@@ -54,8 +54,8 @@ TYPED_TEST( MeshTest, LocalGridSetup )
         Cajita::Ghost(), Cajita::Node(), Cajita::Local() );
     for ( int i = 0; i < 2; i++ ) {
         EXPECT_EQ( ghost_local_node_space.extent( i ),
-                   this->boxCells_ / global_grid.dimNumBlock( 0 ) +
-                   2 * this->haloWidth_ );
+                   this->boxCells_ / global_grid.dimNumBlock( i ) +
+                   2 * this->haloWidth_ + 1 );
     }
 
 };

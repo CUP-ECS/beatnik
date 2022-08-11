@@ -149,6 +149,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.global_num_cells = { 128, 128 };
     cl.order = 0;
     cl.weak_scale = 1;
+    cl.write_freq = 1;
 
     // Now parse any arguments
     while ( ( ch = getopt_long( argc, argv, shortargs, longargs, NULL ) ) !=
@@ -180,6 +181,18 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 if ( rank == 0 )
                 {
                     std::cerr << "Invalid  parallel driver argument.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
+            break;
+        case 'f':
+            cl.write_freq = atoi( optarg) ;
+            if ( cl.write_freq < 1 )
+            {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid write frequency argument.\n";
                     help( rank, argv[0] );
                 }
                 exit( -1 );
@@ -246,15 +259,17 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         cl.global_num_cells[i] *= sqrt(cl.weak_scale);
     }
 
-    /* Simulation Parameters */
-
     /* Figure out parameters we need for the timestep and such. Simulate long 
      * enough for the interface to evolve significantly */ 
     double tau = 1/sqrt(cl.atwood * cl.gravity);
     cl.delta_t = tau/25.0;  // This should depend on dx, dy, and num_cells?
     cl.t_final = tau * 2.0; // Simulate for 2 characterisic periods, which is all
                             // the low-order model can really handle
-    cl.write_freq = 1;
+    
+    /* Reduce the timestep if we're running the high-order model */
+    if (cl.order == 2) {
+        cl.delta_t /= 10.0;
+    }
 
     /* Z-Model Solver Parameters */
     double dx = (cl.global_bounding_box[4] - cl.global_bounding_box[0])
