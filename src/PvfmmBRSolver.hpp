@@ -149,7 +149,7 @@ class PvfmmBRSolver
         PtFMM_Evaluate(tree, results, nnodes);
 
         /* Copy the force array back to the device. Reuse vortexHost for this */
-        std::memcpy(vortexHost.data(), status.data(), nnodes * sizeof(double) * 3);
+        std::memcpy(vortexHost.data(), results.data(), nnodes * sizeof(double) * 3);
         
         /* Copy the computed forces into the zwdot view, also changing the sign of the results
          * to account for the difference between the scale factor in the PvFmm BiotSavart kernel and
