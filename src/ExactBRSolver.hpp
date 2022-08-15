@@ -61,21 +61,20 @@ class ExactBRSolver
         , _dx( dx )
         , _dy( dy )
     {
-	auto comm = _pm.mesh().localGrid()->globalGrid().comm();
+	// auto comm = _pm.mesh().localGrid()->globalGrid().comm();
 
         /* Create a 1D MPI communicator for the ring-pass on this
          * algorithm */
     }
 
     /* Directly compute the interface velocity by integrating the vorticity 
-     * across the surface. Uses a fast multipole method for computing the 
-     * these integrals */
+     * across the surface. */
     template <class PositionView, class VorticityView>
     void computeInterfaceVelocity(PositionView zdot, PositionView z,
                                   VorticityView w) const
     {
         auto node_space = _pm.mesh().localGrid()->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
-        std::size_t nnodes = node_space.size();
+        //std::size_t nnodes = node_space.size();
 
         /* Start by zeroing the interface velocity */
         
@@ -90,13 +89,15 @@ class ExactBRSolver
          *   For each pair of this point and target point
          *      1. Compute the BR force between this point and the target point
          *      2. The point with the computed force
-         *      3. Use atomics to update the destinate point with the inverse target force
+         *      3. Use atomics to update the destination point with the inverse target force
          *    points we've been working on */
         double epsilon = _epsilon;
         int istart = node_space.min(0), jstart = node_space.min(1);
         int iend = node_space.max(0), jend = node_space.max(1);
         double dx = _dx, dy = _dy;
 
+        /* XXX Right now we brute fore all of the points with no tiling to improve
+         * memory access or optimizations to remove duplicate calculations. XXX */
         Kokkos::parallel_for("Exact BR Force Loop",
             Cajita::createExecutionPolicy(node_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {
@@ -113,13 +114,6 @@ class ExactBRSolver
                 }
             }
         }); 
-#if 0
-        std::cout << "zdot of 5, 5 is"
-                      << " (" << zdot(5, 5, 0) 
-                      << ", " << zdot(5, 5, 1) 
-                      << ", " << zdot(5, 5, 2) 
-                      << ")\n";
-#endif
     } 
 
     const pm_type & _pm;
