@@ -107,8 +107,23 @@ class ExactBRSolver
             for (int k = istart; k < iend; k++) {
                 for (int l = jstart; l < jend; l++) {
                     double br[3];
+                    double kweight, lweight;
+
                     if (i == k && j == l) continue;
-                    Operators::BR(br, w, z, epsilon, dx, dy, i, j, k, l);
+
+		    /* Compute simpson's 3/8 quadrature weight for this index */
+                    if ((k == istart) || (k == iend - 1)) kweight = 3.0/8.0;
+                    else if (k % 3 == 0) kweight = 3.0/4.0;
+                    else kweight = 9.0/8.0;
+
+                    if ((l == jstart) || (l == jend - 1)) lweight = 3.0/8.0;
+                    else if (l % 3 == 0) lweight = 3.0/4.0;
+                    else lweight = 9.0/8.0;
+
+		    /* Do the birchoff rott evaluation for this point */
+                    Operators::BR(br, w, z, epsilon, dx, dy, kweight * lweight, i, j, k, l);
+
+                    /* Add it its contribution to the integral */
                     for (int n = 0; n < 3; n++)
                         atomic_zdot(i, j, n) += br[n];
                 }

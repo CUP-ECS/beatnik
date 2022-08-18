@@ -93,7 +93,7 @@ namespace Operators
     template <class VorticityView, class PositionView>
     KOKKOS_INLINE_FUNCTION
     void BR(double out[3], VorticityView w, PositionView z, double epsilon,
-            double dx, double dy, int i, int j, int k, int l)
+            double dx, double dy, double weight, int i, int j, int k, int l)
     {
         double omega[3], zdiff[3], zsize;
         zsize = 0.0;
@@ -108,7 +108,7 @@ namespace Operators
         }
         cross(out, omega, zdiff);
         for (int d = 0; d < 3; d++) {  
-            out[d] /= (-4.0 * Kokkos::Experimental::pi_v<double>);
+            out[d] *= (dx * dy * weight) / (-4.0 * Kokkos::Experimental::pi_v<double>);
         }
     }
 

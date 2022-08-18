@@ -1,4 +1,4 @@
-/**
+/*
  * @file
  * @author Patrick Bridges <pbridges@unm.edu>
  *
@@ -41,13 +41,13 @@ static option longargs[] = {
     // Basic simulation parameters
     { "cells", required_argument, NULL, 'n' },
     { "timesteps", required_argument, NULL, 't' },
-    { "deltat", required_argument, NULL, 'd' },
+    { "delta_t", required_argument, NULL, 'd' },
     { "driver", required_argument, NULL, 'x' },
-    { "write-frequency", required_argument, NULL, 'F' },
-    { "outdir", required_argument, NULL, 'O' },
+    { "write_frequency", required_argument, NULL, 'F' },
+    { "outdir", required_argument, NULL, 'o' },
 
     // Z-model simulation parameters
-    { "initial-condition", required_argument, NULL, 'I' },
+    { "initial_condition", required_argument, NULL, 'I' },
     { "boundary", required_argument, NULL, 'b' },
     { "gravity", required_argument, NULL, 'g' },
     { "atwood", required_argument, NULL, 'a' },
@@ -67,7 +67,7 @@ static option longargs[] = {
     { "help", no_argument, NULL, 'h' },
     { 0, 0, 0, 0 } };
 
-enum InitialConditionModel {IC_COS = 0, IC_GAUSSIAN, IC_RANDOM, IC_FILE};
+enum InitialConditionModel {IC_COS = 0, IC_SECH2, IC_GAUSSIAN, IC_RANDOM, IC_FILE};
 enum SolverOrder {ORDER_LOW = 0, ORDER_MEDIUM, ORDER_HIGH};
 /**
  * @struct ClArgs
@@ -121,17 +121,32 @@ void help( const int rank, char* progname )
                   << "On-node Parallelism Model (default serial)" << std::left
                   << "\n";
         std::cout << std::left << std::setw( 10 ) << "-n" << std::setw( 40 )
-                  << "Number of Cells (default 200)" << std::left << "\n";
-        std::cout << std::left << std::setw( 10 ) << "-t" << std::setw( 40 )
-                  << "Amount of time to simulate (default 4.0)" << std::left
-                  << "\n";
-        std::cout << std::left << std::setw( 10 ) << "-t" << std::setw( 40 )
-                  << "Timestep increment (default 0.005)" << std::left << "\n";
+                  << "Number of point in each dimension (default 128)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-w" << std::setw( 40 )
-                  << "Write Frequency (default 20)" << std::left << "\n";
+                  << "Weak Scaling Factor (default 1)" << std::left << "\n";
+     //   std::cout << std::left << std::setw( 10 ) << "-t" << std::setw( 40 )
+     //             << "Amount of time to simulate" << std::left
+     //             << "\n";
+     //   std::cout << std::left << std::setw( 10 ) << "-d" << std::setw( 40 )
+     //             << "Timestep increment" << std::left << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-F" << std::setw( 40 )
+                  << "Write Frequency (default 10)" << std::left << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-O" << std::setw( 40 )
+                  << "Solver Order (default \"low\")" << std::left << "\n";
+
+        std::cout << std::left << std::setw( 10 ) << "-I" << std::setw( 40 )
+                  << "Initial Condition Model (default \"cos\")" << std::left << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-m" << std::setw( 40 )
+                  << "Initial Condition Magnitude (default 0.05)" << std::left << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-v" << std::setw( 40 )
+                  << "Initial Condition Variation (default 0.0)" << std::left << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-p" << std::setw( 40 )
+                  << "Initial Condition Period (default 1.0)" << std::left << "\n";
 
         std::cout << std::left << std::setw( 10 ) << "-g" << std::setw( 40 )
                   << "Gravity in Gs (default 25.0)" << std::left << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-a" << std::setw( 40 )
+                  << "Atwood number (default 0.5)" << std::left << "\n";
 
         std::cout << std::left << std::setw( 10 ) << "-h" << std::setw( 40 )
                   << "Print Help Message" << std::left << "\n";
@@ -155,7 +170,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.driver = "serial"; // Default Thread Setting
     cl.order = SolverOrder::ORDER_LOW;;
     cl.weak_scale = 1;
-    cl.write_freq = 1;
+    cl.write_freq = 10;
 
     /* Default problem is the cosine rocket rig */
     cl.global_num_cells = { 128, 128 };
@@ -164,7 +179,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.magnitude = 0.05;
     cl.variation = 0.00;
     cl.period = 1.0;
-    cl.gravity = 25.0 * 9.8;
+    cl.gravity = 25.0;
     cl.atwood = 0.5;
 
     /* Defaults computed once other arguments known */
@@ -218,7 +233,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 exit( -1 );
             }
             break;
-        case 'o':
+        case 'O':
         { 
             std::string order(optarg);
             if (order.compare("low") == 0 ) {
@@ -247,6 +262,83 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 exit( -1 );
             }
             break;
+        case 'I':
+        { 
+            std::string model(optarg);
+            if (model.compare("cos") == 0 ) {
+                cl.initial_condition = InitialConditionModel::IC_COS;
+            } else if (model.compare("sech2") == 0 ) {
+                cl.initial_condition =  InitialConditionModel::IC_SECH2;
+            } else {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid initial condition model argument.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
+            break;
+        }
+        case 'm':
+            cl.magnitude = atof( optarg );
+            if ( cl.magnitude <= 0.0 )
+            {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid initial condition magnitude.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
+            break;
+        case 'v':
+            cl.variation = atof( optarg );
+            if ( cl.variation < 0.0 )
+            {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid initial condition variation.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
+            break;
+        case 'p':
+            cl.period = atof( optarg );
+            if ( cl.period <= 0.0 )
+            {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid initial condition period.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
+            break;
+        case 'a':
+            cl.atwood = atof( optarg );
+            if ( cl.atwood <= 0.0 )
+            {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid atwood number.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
+            break;
+        case 'g':
+            cl.gravity = atof( optarg );
+            if ( cl.gravity <= 0.0 )
+            {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid gravity.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
+            break;
         case 'h':
             help( rank, argv[0] );
             exit( 0 );
@@ -264,11 +356,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 
     /* Physical setup of problem */
     cl.global_bounding_box = {-1.0, -1.0, -1.0, 1.0, 1.0, 1.0};
-    cl.tilt = 0.0;
-    cl.magnitude = 0.05;
-    cl.period = 1.0;
-    cl.gravity = 25.0 * 9.8;
-    cl.atwood = 0.5;
+    cl.gravity = cl.gravity * 9.8;
     cl.boundary = Beatnik::BoundaryType::PERIODIC;
 
     /* Scale up global bounding box and number of cells by weak scaling factor */
@@ -284,11 +372,11 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     double tau = 1/sqrt(cl.atwood * cl.gravity);
 
     if (cl.delta_t <= 0.0) {
-        if (cl.order == SolverOrder::ORDER_HIGH) {
-            cl.delta_t = tau/250.0;  // Should this depend on dx and dy? XXX
-        } else {
+        //if (cl.order == SolverOrder::ORDER_HIGH) {
+        //    cl.delta_t = tau/250.0;  // Should this depend on dx and dy? XXX
+        //} else {
             cl.delta_t = tau/25.0;
-        }
+        //}
     }
 
     if (cl.t_final <= 0.0) {
@@ -303,8 +391,8 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     double dy = (cl.global_bounding_box[5] - cl.global_bounding_box[1])
                     / (cl.global_num_cells[1]);
 
-    cl.mu = 1.0*sqrt(dx * dy);
-    cl.eps = 0.25*sqrt(dx * dy);
+    cl.mu = 2.0*sqrt(dx * dy);
+    cl.eps = 2.0*sqrt(dx * dy);
 
     // Return Successfully
     return 0;
@@ -315,9 +403,10 @@ struct MeshInitFunc
 {
     // Initialize Variables
 
-    MeshInitFunc( std::array<double, 6> box, double t, double m, double v,
-                  double p, const std::array<int, 2> cells )
-        : _t( t )
+    MeshInitFunc( std::array<double, 6> box, enum InitialConditionModel i, 
+                  double t, double m, double v, double p, const std::array<int, 2> cells )
+        : _i(i)
+        , _t( t )
         , _m( m )
         , _v( v)
         , _p( p )
@@ -343,7 +432,18 @@ struct MeshInitFunc
         z1 = _dx * coord[0];
         z2 = _dy * coord[1];
         // We don't currently tilt the interface
-        z3 = _m * cos(z1 * (2 * M_PI / _p)) * cos(z2 * (2 * M_PI / _p));
+        switch (_i) {
+        case IC_COS:
+            z3 = _m * cos(z1 * (2 * M_PI / _p)) * cos(z2 * (2 * M_PI / _p));
+            break;
+        case IC_SECH2:
+            z3 = _m * pow(1.0 / cosh(_p * (z1 * z1 + z2 * z2)), 2);
+            break; 
+        case IC_GAUSSIAN:
+        case IC_RANDOM: 
+        case IC_FILE:
+            break;
+        }
         return true;
     };
 
@@ -357,6 +457,7 @@ struct MeshInitFunc
         w1 = 0; w2 = 0;
         return true;
     };
+    enum InitialConditionModel _i;
     double _t, _m, _v, _p;
     Kokkos::Array<double, 3> x;
     double _dx, _dy;
@@ -375,8 +476,9 @@ void rocketrig( ClArgs& cl )
         bc.bounding_box[i] = cl.global_bounding_box[i];
     bc.boundary_type = {cl.boundary, cl.boundary, cl.boundary, cl.boundary};
 
-    MeshInitFunc initializer( cl.global_bounding_box, cl.tilt, cl.magnitude, 
-                              cl.variation, cl.period, cl.global_num_cells);
+    MeshInitFunc initializer( cl.global_bounding_box, cl.initial_condition,
+                              cl.tilt, cl.magnitude, cl.variation, cl.period, 
+                              cl.global_num_cells);
 
     std::shared_ptr<Beatnik::SolverBase> solver;
     if (cl.order == SolverOrder::ORDER_LOW) {
