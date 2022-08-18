@@ -149,15 +149,17 @@ class PvfmmBRSolver
         PtFMM_Evaluate(tree, results, nnodes);
 
         /* Copy the force array back to the device. Reuse vortexHost for this */
-        std::memcpy(vortexHost.data(), vortexVector.data(), nnodes * sizeof(double) * 3);
+        std::memcpy(vortexHost.data(), results.data(), nnodes * sizeof(double) * 3);
         
-        /* Copy the computed forces into the zwdot view */
+        /* Copy the computed forces into the zwdot view, also changing the sign of the results
+         * to account for the difference between the scale factor in the PvFmm BiotSavart kernel and
+         * computes and the scale factor in the high-order model. */
         Kokkos::deep_copy(vortex, vortexHost);
         Kokkos::parallel_for("Copy back FMM Results",
             Cajita::createExecutionPolicy(node_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {
             for (int n = 0; n < 3; n++) {
-                zdot(i + xmin, j + ymin, n) = vortex(i, j, n);
+                zdot(i + xmin, j + ymin, n) = -1.0 * vortex(i, j, n);
 	    } 
         });
 

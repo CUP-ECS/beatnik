@@ -111,7 +111,7 @@ struct BoundaryCondition
     /* For non-periodic boundaries, we linearly project vorticity and position into
      * the boundary area. */
     template <class MeshType, class ArrayType> 
-    void apply(const MeshType &mesh, ArrayType position, 
+    void apply(const MeshType &mesh, [[maybe_unused]] ArrayType position, 
                [[maybe_unused]] ArrayType vorticity) const
     {
         using exec_space = typename ArrayType::execution_space;
