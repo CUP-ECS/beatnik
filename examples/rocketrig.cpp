@@ -121,7 +121,7 @@ void help( const int rank, char* progname )
                   << "On-node Parallelism Model (default serial)" << std::left
                   << "\n";
         std::cout << std::left << std::setw( 10 ) << "-n" << std::setw( 40 )
-                  << "Number of point in each dimension (default 128)" << std::left << "\n";
+                  << "Number of points in each dimension (default 128)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-w" << std::setw( 40 )
                   << "Weak Scaling Factor (default 1)" << std::left << "\n";
      //   std::cout << std::left << std::setw( 10 ) << "-t" << std::setw( 40 )
@@ -147,6 +147,11 @@ void help( const int rank, char* progname )
                   << "Gravity in Gs (default 25.0)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-a" << std::setw( 40 )
                   << "Atwood number (default 0.5)" << std::left << "\n";
+
+        std::cout << std::left << std::setw( 10 ) << "-M" << std::setw( 40 )
+                  << "Artificial Viscosity Constant (default 1.0)" << std::left << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-e" << std::setw( 40 )
+                  << "Desingularization Constant (defailt 0.25)" << std::left << "\n";
 
         std::cout << std::left << std::setw( 10 ) << "-h" << std::setw( 40 )
                   << "Print Help Message" << std::left << "\n";
@@ -181,6 +186,10 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.period = 1.0;
     cl.gravity = 25.0;
     cl.atwood = 0.5;
+
+    /* Defaults for Z-Model method, later translated to be relative to dx*dy */
+    cl.mu = 1.0;
+    cl.eps = 0.25;
 
     /* Defaults computed once other arguments known */
     cl.delta_t = -1.0;
@@ -339,6 +348,30 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 exit( -1 );
             }
             break;
+        case 'M':
+            cl.mu = atof( optarg );
+            if ( cl.mu <= 0.0 )
+            {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid artificial viscosity.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
+            break;
+        case 'e':
+            cl.eps = atof( optarg );
+            if ( cl.eps <= 0.0 )
+            {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid desingularization constant.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
+            break;
         case 'h':
             help( rank, argv[0] );
             exit( 0 );
@@ -391,8 +424,8 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     double dy = (cl.global_bounding_box[5] - cl.global_bounding_box[1])
                     / (cl.global_num_cells[1]);
 
-    cl.mu = 2.0*sqrt(dx * dy);
-    cl.eps = 2.0*sqrt(dx * dy);
+    cl.mu = cl.mu * sqrt(dx * dy);
+    cl.eps = cl.eps * sqrt(dx * dy);
 
     // Return Successfully
     return 0;
