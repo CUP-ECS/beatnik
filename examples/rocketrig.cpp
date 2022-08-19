@@ -35,7 +35,7 @@
 
 using namespace Beatnik;
 
-static char* shortargs = (char*)"n:t:d:x:F:o:I:b:g:a:T:m:v:p:i:w:O:m:e:h";
+static char* shortargs = (char*)"n:t:d:x:F:o:I:b:g:a:T:m:v:p:i:w:O:M:e:h";
 
 static option longargs[] = {
     // Basic simulation parameters
@@ -405,11 +405,11 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     double tau = 1/sqrt(cl.atwood * cl.gravity);
 
     if (cl.delta_t <= 0.0) {
-        //if (cl.order == SolverOrder::ORDER_HIGH) {
-        //    cl.delta_t = tau/250.0;  // Should this depend on dx and dy? XXX
-        //} else {
+        if (cl.order == SolverOrder::ORDER_HIGH) {
+            cl.delta_t = tau/50.0;  // Should this depend on dx and dy? XXX
+        } else {
             cl.delta_t = tau/25.0;
-        //}
+        }
     }
 
     if (cl.t_final <= 0.0) {

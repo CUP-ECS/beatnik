@@ -12,6 +12,8 @@
 #ifndef BEATNIK_SOLVER_HPP
 #define BEATNIK_SOLVER_HPP
 
+#include <Beatnik_Config.hpp>
+
 #include <Cajita_Partitioner.hpp>
 #include <Cajita_Types.hpp>
 
@@ -21,7 +23,11 @@
 #include <SiloWriter.hpp>
 #include <TimeIntegrator.hpp>
 #include <ExactBRSolver.hpp>
-//#include <PvfmmBRSolver.hpp>
+
+#ifdef Beatnik_ENABLE_PVFMM
+#include <PvfmmBRSolver.hpp>
+#endif
+
 #include <ZModel.hpp>
 
 #include <Kokkos_Core.hpp>
@@ -67,10 +73,13 @@ class Solver : public SolverBase
     using node_array =
         Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>, MemorySpace>;
 
-    // At some point we'll specify this when making the solver
-    using brsolver_type = ExactBRSolver<ExecutionSpace, MemorySpace>; // The only one we have right now.
-
-//     using brsolver_type = PvfmmBRSolver<ExecutionSpace, MemorySpace>; // Not yet working
+    // At some point we'll specify this when making the solver through a template argument.
+    // Still need to design that out XXX
+#ifdef Beatnik_ENABLE_PVFMM
+    using brsolver_type = PvfmmBRSolver<ExecutionSpace, MemorySpace>; // Not working properly
+#else
+   using brsolver_type = ExactBRSolver<ExecutionSpace, MemorySpace>;  // Single node currently
+#endif
 
     using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>;
     using ti_type = TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>;
@@ -136,7 +145,7 @@ class Solver : public SolverBase
 
         // Create the BirchoffRott solver (XXX make this conditional on non-low 
         // order solve
-        _br = std::make_unique<ExactBRSolver<ExecutionSpace, MemorySpace>>(*_pm, _bc, _eps, dx, dy);
+        _br = std::make_unique<brsolver_type>(*_pm, _bc, _eps, dx, dy);
 
         // Create the ZModel solver
         _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>>(

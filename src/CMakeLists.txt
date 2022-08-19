@@ -1,3 +1,6 @@
+
+configure_file(Beatnik_Config.hpp.in Beatnik_Config.hpp)
+
 set(HEADERS
   # General problem/mesh/time integration files
   Mesh.hpp
@@ -30,6 +33,15 @@ set(DEPENDS_ON
   mpi
   )
  
+if(Beatnik_ENABLE_PVFMM)
+  list(APPEND HEADERS
+    PvfmmBRSolver.hpp
+    )
+  list(APPEND DEPENDS_ON
+    pvfmm
+  )
+endif(Beatnik_ENABLE_PVFMM)
+
 set(INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
@@ -41,3 +53,5 @@ blt_add_library( NAME beatnik
                  INCLUDES ${INCLUDES}
                  DEPENDS_ON ${DEPENDS_ON} 
   )
+
+# Need to set up a proper install target XXX
