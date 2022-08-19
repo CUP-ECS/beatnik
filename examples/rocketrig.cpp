@@ -35,7 +35,7 @@
 
 using namespace Beatnik;
 
-static char* shortargs = (char*)"n:t:d:x:F:o:I:b:g:a:T:m:v:p:i:w:O:m:e:h";
+static char* shortargs = (char*)"n:t:d:x:F:o:I:b:g:a:T:m:v:p:i:w:O:M:e:h";
 
 static option longargs[] = {
     // Basic simulation parameters

@@ -32,6 +32,38 @@
 namespace Beatnik
 {
 
+#if 0
+// XXX Attempt at a custom desingularized kernel for PvFMM. Resulted in long
+// setup times and large setup files, no easy way to define epsilon at runtime, 
+// and still didn't fix correctness problems.
+
+struct birchoff_rott_ {
+  static const int FLOPS = 24;
+  static constexpr double _eps = 2.0/128.0;
+  template <class Real> static Real ScaleFactor() { return 1 / (4 * sctl::const_pi<Real>()); }
+  template <class VecType, int digits> static void uKerEval(VecType (&u)[3], const VecType (&r)[3], const VecType (&f)[3], const void* ctx_ptr) {
+      VecType r2 = r[0]*r[0]+r[1]*r[1]+r[2]*r[2] + _eps*_eps;
+      VecType rinv = sctl::approx_rsqrt<digits>(r2, r2 > VecType::Zero());
+      VecType rinv3 = rinv*rinv*rinv;
+
+      u[0] = FMA(rinv3, f[1]*r[2] - f[2]*r[1], u[0]);
+      u[1] = FMA(rinv3, f[2]*r[0] - f[0]*r[2], u[1]);
+      u[2] = FMA(rinv3, f[0]*r[1] - f[1]*r[0], u[2]);
+  }
+};
+
+struct birchoff_rott : public pvfmm::GenericKernel<birchoff_rott_> {};
+
+template<class T>
+struct BirchoffRottKernel{
+    inline static const pvfmm::Kernel<T>& potential() 
+    {
+        static pvfmm::Kernel<T> ker = pvfmm::BuildKernel<T, birchoff_rott::Eval<T>>("birchoff_rott", 3, std::pair<int, int>(3, 3));
+        return ker;
+    }
+};
+#endif
+
 /**
  * The PvfmmBRSolver Class
  * @class PvfmmBRSolver
@@ -57,7 +89,7 @@ class PvfmmBRSolver
     using halo_type = Cajita::Halo<MemorySpace>;
 
     PvfmmBRSolver( const pm_type & pm, const BoundaryCondition &bc,
-                   const double dx, const double dy)
+                   const double epsilon, const double dx, const double dy)
         : _pm( pm )
         , _bc( bc )
         , _dx( dx )
@@ -69,7 +101,9 @@ class PvfmmBRSolver
 
         // FMM Setup
 	auto comm = _pm.mesh().localGrid()->globalGrid().comm();
+        std::cout << "Initializing PVFMM Matricies.\n";
         _pvfmm_matricies->Initialize(10, comm, &_pvfmm_kernel_fn);
+        std::cout << "Initialized PVFMM Matricies.\n";
     }
 
     /* Directly compute the interface velocity by integrating the vorticity 
@@ -107,14 +141,15 @@ class PvfmmBRSolver
             high_point[i] += translation[i];
             if (high_point[i] > coord_scale) coord_scale = high_point[i];
         }
-        /* Biot-Savart has a cross product in the numerator (squaring the 
-         * scaling and a cubic in the denominator, resulting in a 1/s scale
-         * factor */
-        double value_scale = coord_scale;
-
+        /* Biot-Savart is a 1/s^2 kernel. The denominator goes down by s^2, so the 
+         * numerator needs to as well. */
+        double value_scale = (coord_scale * coord_scale);
+        std::cout << "Scaling down coordinates by factor of " << coord_scale << "\n";
+        std::cout << "Scaling down omega by factor of " << value_scale << "\n";
         /* Iterate through the mesh filling out the coordinate and weighted
          * vorticity magnitude device arrays */
         int xmin = node_space.min(0), ymin = node_space.min(1);
+        int xmax = node_space.max(0), ymax = node_space.max(1);
 	double dx = _dx, dy = _dy;
 
         Kokkos::parallel_for("FMM Coordinate/Point Calculation",
@@ -123,8 +158,19 @@ class PvfmmBRSolver
             for (int n = 0; n < 3; n++) {
                 double dx_z = Operators::Dx(z, i, j, n, dx);
                 double dy_z = Operators::Dy(z, i, j, n, dy);
+                double kweight, lweight;
+
+                /* Compute simpson's 3/8 quadrature weight for this index */
+                if ((i == xmin) || (i == xmax - 1)) kweight = 3.0/8.0;
+                else if ((i - xmin) % 3 == 0) kweight = 3.0/4.0;
+                else kweight = 9.0/8.0;
+
+                if ((j == ymin) || (j == ymax - 1)) lweight = 3.0/8.0;
+                else if (j - ymin % 3 == 0) lweight = 3.0/4.0;
+                else lweight = 9.0/8.0;
+
                 coord(i - xmin, j - ymin, n) = (z(i, j, n) + translation[n]) / coord_scale;
-                vortex(i - xmin, j - ymin, n) = (w(i, j, 1) * dx_z - w(i, j, 0) * dy_z) / value_scale;
+                vortex(i - xmin, j - ymin, n) = kweight * lweight * (w(i, j, 1) * dx_z - w(i, j, 0) * dy_z) / value_scale;
 	    } 
         });
 
@@ -141,19 +187,23 @@ class PvfmmBRSolver
         /* Initialize the PvFMM tree with the coordinates provided */
         size_t max_pts = 500;
         auto comm = _pm.mesh().localGrid()->globalGrid().comm();
+        std::cout << "Creating PVFMM tree.\n";
         auto * tree = PtFMM_CreateTree(coordVector, vortexVector, coordVector, comm, max_pts, pvfmm::PXY);
         tree->SetupFMM(_pvfmm_matricies.get());
+        std::cout << "Created PVFMM tree.\n";
 
         /* Evaluate the FMM to compute forces */
         std::vector<double> results;
+        std::cout << "Evaluating PVFMM tree.\n";
         PtFMM_Evaluate(tree, results, nnodes);
+        std::cout << "Evaluated PVFMM tree.\n";
 
         /* Copy the force array back to the device. Reuse vortexHost for this */
         std::memcpy(vortexHost.data(), results.data(), nnodes * sizeof(double) * 3);
         
         /* Copy the computed forces into the zwdot view, also changing the sign of the results
-         * to account for the difference between the scale factor in the PvFmm BiotSavart kernel and
-         * computes and the scale factor in the high-order model. */
+         * to account for the difference between the scale factor in the PvFmm BiotSavart kernel 
+         * and computes and the scale factor in the high-order model. */
         Kokkos::deep_copy(vortex, vortexHost);
         Kokkos::parallel_for("Copy back FMM Results",
             Cajita::createExecutionPolicy(node_space, ExecutionSpace()),
