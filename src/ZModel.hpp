@@ -102,12 +102,14 @@ class ZModel
         /* Storage for the reisz transform of the vorticity. In the low and medium 
          * order models, it is used to calculate the vorticity derivative. In the low 
          * order model,it is also projected onto the surface normal to compute the 
-         * interface velocity.  * XXX Make this conditional on the model we run. */
+         * interface velocity.  
+         * XXX Make this conditional on the model we run. */
         _reisz = Cajita::createArray<double, device_type>( "reisz", node_double_layout );
         Cajita::ArrayOp::assign( *_reisz, 0.0, Cajita::Ghost() );
 
         /* If we're not the hgh order model, initialize the FFT solver and the working space
-         * it will need. XXX figure out how to make this conditional on model order. */
+         * it will need. 
+         * XXX figure out how to make this conditional on model order. */
         Cajita::Experimental::FastFourierTransformParams params;
         _C1 = Cajita::createArray<double, device_type>("C1", node_double_layout);
         _C2 = Cajita::createArray<double, device_type>("C2", node_double_layout);
@@ -181,7 +183,8 @@ class ZModel
             C2(i, j, 1) = 0;
         });
 
-        /* Do we need to halo C1 and C2 now? XXX */
+        /* Do we need to halo C1 and C2 now? We shouldn't, since the FFT should take
+         * care of that. */
 
         /* Now do the FFTs of vorticity */
         _fft->forward(*_C1, Cajita::Experimental::FFTScaleNone());
@@ -236,7 +239,7 @@ class ZModel
 
     /* For medium order, we calculate the fourier velocity that we later 
      * normalize for vorticity calculations and directly compute the 
-     * interface velocity (zdot) using a fast multipole method. */
+     * interface velocity (zdot) using a far field method. */
     template <class PositionView, class VorticityView>
     void prepareVelocities(Order::Medium, PositionView zdot, PositionView z, VorticityView w) const
     {
@@ -245,8 +248,8 @@ class ZModel
     }
 
     /* For high order, we just directly compute the interface velocity (zdot)
-     * using a fast multipole method and later normalize that for use in the
-     * vorticity calculation. */
+     * using a far field method and later normalize that for use in the vorticity 
+     * calculation. */
     template <class PositionView, class VorticityView>
     void prepareVelocities(Order::High, PositionView zdot, PositionView z, VorticityView w) const
     {
@@ -258,8 +261,8 @@ class ZModel
     // normal based on  the order of technique we're using.
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION 
-    static void finalizeVelocity(Order::Low, double &zndot, ViewType zdot, int i, int j, 
-                          ViewType reisz, double norm[3], double deth) 
+    static void finalizeVelocity(Order::Low, double &zndot, ViewType zdot, 
+        int i, int j, ViewType reisz, double norm[3], double deth) 
     {
         zndot = -0.5 * reisz(i, j, 0) / deth;
         for (int d = 0; d < 3; d++)
@@ -269,7 +272,8 @@ class ZModel
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION
     static void finalizeVelocity(Order::Medium, double &zndot, 
-        [[maybe_unused]] ViewType zdot, [[maybe_unused]] int i, [[maybe_unused]] int j,
+        [[maybe_unused]] ViewType zdot, 
+        [[maybe_unused]] int i, [[maybe_unused]] int j,
         ViewType reisz, [[maybe_unused]] double norm[3], double deth) 
     {
         zndot = -0.5 * reisz(i, j, 0) / deth;
@@ -277,16 +281,17 @@ class ZModel
 
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION
-    static void finalizeVelocity(Order::High, double &zndot, ViewType zdot, int i, int j,
-                         [[maybe_unused]] ViewType reisz, double norm[3], [[maybe_unused]] double deth)
+    static void finalizeVelocity(Order::High, double &zndot, ViewType zdot, 
+        int i, int j, [[maybe_unused]] ViewType reisz, 
+        [[maybe_unused]] double norm[3], [[maybe_unused]] double deth)
     {
         double interface_velocity[3] = {zdot(i, j, 0), zdot(i, j, 1), zdot(i, j, 2)};
-        zndot = Operators::dot(norm, interface_velocity);
+        zndot = sqrt(Operators::dot(interface_velocity, interface_velocity));
     }
  
-    /* This method requires that the caller halo the correct position and vorticity
-     * views so that central differences and laplacians can be correctly computed
-     * on them. */
+    /* This method requires that the caller halo the correct position and 
+     * vorticity views so that central differences and laplacians can be 
+     * correctly computed on them. */
     template <class PositionView, class VorticityView>
     void computeDerivatives( PositionView z, VorticityView w, 
         PositionView zdot, VorticityView wdot) const
@@ -341,7 +346,7 @@ class ZModel
 
 	    V(i, j, 0) = zndot * zndot 
                          - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
-                         - 2*g*z(i, j, 2);   
+                         - 2*g*z(i, j, 2);
         });
 
         // 3. Halo V and apply boundary condtions, since we need it for central
