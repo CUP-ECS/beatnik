@@ -233,7 +233,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             break;
         case 'F':
             cl.write_freq = atoi( optarg) ;
-            if ( cl.write_freq < 1 )
+            if ( cl.write_freq < 0 )
             {
                 if ( rank == 0 )
                 {

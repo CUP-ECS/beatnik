@@ -186,13 +186,13 @@ class Solver : public SolverBase
         // Start advancing time.
         do
         {
-            if ( 0 == _mesh->rank() && 0 == t % write_freq )
+            if ( 0 == _mesh->rank() )
                 printf( "Step %d / %d at time = %f\n", t, num_step, _time );
 
             step();
             t++;
             // 4. Output mesh state periodically
-            if ( 0 == t % write_freq )
+            if ( write_freq && (0 == t % write_freq ))
             {
                 _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
             }
