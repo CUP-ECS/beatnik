@@ -196,6 +196,17 @@ class ProblemManager
     };
 
     /**
+     * Gather state data from neighbors for temporary position and vorticity 
+     * arrays managed by other modules 
+     */
+    void gather( node_array &position, node_array &vorticity) const
+    {
+        _surface_halo->gather( ExecutionSpace(), position, vorticity );
+        _bc.correctHalo(_mesh, position, vorticity);
+    }
+
+#if 0
+    /**
      * Provide halo pattern used for position and vorticity for classes that
      * needto manage temporary global versions of that state themselves 
      **/
@@ -203,6 +214,7 @@ class ProblemManager
     {
         return *_surface_halo;
     }
+#endif
 
   private:
     // The mesh on which our data items are stored

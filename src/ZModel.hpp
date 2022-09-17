@@ -99,16 +99,16 @@ class ZModel
         _v_halo = Cajita::createHalo( Cajita::FaceHaloPattern<2>(),
                             halo_depth, *_V );
 
-        /* Storage for the reisz transform of the vorticity. In the low and medium 
-         * order models, it is used to calculate the vorticity derivative. In the low 
-         * order model,it is also projected onto the surface normal to compute the 
-         * interface velocity.  
+        /* Storage for the reisz transform of the vorticity. In the low and 
+         * medium order models, it is used to calculate the vorticity 
+         * derivative. In the low order model,it is also projected onto the 
+         * surface normal to compute the interface velocity.  
          * XXX Make this conditional on the model we run. */
         _reisz = Cajita::createArray<double, device_type>( "reisz", node_double_layout );
         Cajita::ArrayOp::assign( *_reisz, 0.0, Cajita::Ghost() );
 
-        /* If we're not the hgh order model, initialize the FFT solver and the working space
-         * it will need. 
+        /* If we're not the hgh order model, initialize the FFT solver and 
+         * the working space it will need. 
          * XXX figure out how to make this conditional on model order. */
         Cajita::Experimental::FastFourierTransformParams params;
         _C1 = Cajita::createArray<double, device_type>("C1", node_double_layout);
@@ -125,23 +125,31 @@ class ZModel
         return 1.0/(25.0*sqrt(atwood * g));
     }
 
-    /* Compute the velocities needed by the relevant Z-Model. Both the full velocity
-     * vector and the magnitude of the normal velocity to the surface. A reisz transform 
-     * can be used to directly compute the the the magnitude of the normal velocity of 
-     * the interface, and a full field method for solving Birchoff-Rott integral can be 
-     * used to compute the full interface velocity. Based on this, we end up with three 
-     * models: a low-order model that uses only the reisz transform but would need many more 
-     * points to accurately resolve the interface, a high-order model that directly solves
-     * the BR integral to compute both the full velocity and normal magnitude but needs 
-     * smaller timesteps, and a mixed method that uses the reisz transform for the normal
-     * magnitude of the normal and the BR solver for the fine-grain velocity. 
+    /* Compute the velocities needed by the relevant Z-Model. Both the full 
+     * velocity vector and the magnitude of the normal velocity to the surface. 
+     * A reisz transform can be used to directly compute the the the magnitude 
+     * of the normal velocity of the interface, and a full field method for 
+     * solving Birchoff-Rott integral can be used to compute the full interface
+     * velocity. Based on this, we end up with three models: a low-order model 
+     * that uses only the reisz transform but would need many more points to 
+     * accurately resolve the interface, a high-order model that directly 
+     * calculated the BR integral to compute both the full velocity and normal 
+     * magnitude but needs smaller timesteps, and a mixed method that uses the 
+     * reisz transform for the magnitude of the velocity to calculate vorticity
+     * and the BR solver for the fine-grain velocity. 
      *
-     * This process is done in two passes - 
-     * 1. An initial pass that can make  multiple kernel calls to and complex calculations
-     *    to compute velocity information
-     * 2. A separate pass over each mesh point that computes normals and determinants, 
-     *    then calls a method-specific routine to get the finalize full velocity and 
-     *    normal velocity magnitude.
+     * This process is done in three passes - 
+     * 1. An initial bulk-sychronous pass to calculate to calculate global 
+     *    information such as the reisz transform and/or far-field solve
+     * 2. A separate pass over each mesh point that computes normals and 
+     *    determinants, call method-specific routine to finish calculation 
+     *    of the full velocity and normal velocity magnitude, and then 
+     *    calculate "V", an intermediate per-point value needed in calculating
+     *    the vorticity derivative. 
+     * 3. A final pass that central differences V and combines it with a 
+     *    a laplacian-based artificial viscosity to calculate the final
+     *    vorticity derivative. Note that this requires haloing V prior
+     *    to the parallel loop that performs this calculation. 
      */
 
     /* SHould rework this to a better ordering that takes into account the
@@ -289,27 +297,53 @@ class ZModel
         zndot = sqrt(Operators::dot(interface_velocity, interface_velocity));
     }
  
-    /* This method requires that the caller halo the correct position and 
-     * vorticity views so that central differences and laplacians can be 
-     * correctly computed on them. */
+    // External entry point from the TimeIntegration object that uses the
+    // peroblem manager state.
     template <class PositionView, class VorticityView>
-    void computeDerivatives( PositionView z, VorticityView w, 
-        PositionView zdot, VorticityView wdot) const
+    void computeDerivatives( PositionView zdot, VorticityView wdot ) const
     {
+       _pm.gather();
+       auto z_orig = _pm.get( Cajita::Node(), Field::Position() );
+       auto w_orig = _pm.get( Cajita::Node(), Field::Vorticity() );
+       computeHaloedDerivatives( z_orig, w_orig, zdot, wdot );
+    } 
+
+    // External entry point from the TimeIntegration object that uses the
+    // passed-in state/
+    template <class PositionView, class VorticityView>
+    void computeDerivatives( node_array &z, node_array &w,
+                             PositionView zdot, VorticityView wdot ) const
+    {
+        _pm.gather( z, w );
+	computeHaloedDerivatives( z.view(), w.view(), zdot, wdot );
+    }
+
+    // Shared internal entry point from the external points from the
+    // TimeIntegration object
+    template <class PositionView, class VorticityView>
+    void computeHaloedDerivatives( PositionView z_view, VorticityView w_view,
+                                   PositionView zdot, VorticityView wdot ) const
+    {
+        // External calls to this object work on Cajita arrays, but internal
+        // methods mostly work on the views, with the entry points responsible
+        // for handling the halos.
 	double dx = _dx, dy = _dy;
  
-        // 1. Do initial steps to Compute the interface velocity and interface 
-        // velocity normal magnitudes using the supplied methods in terms of the unit mesh.
-        prepareVelocities(MethodOrder(), zdot, z, w);
+        // Phase 1: Globally-dependent bulk synchronous calculations that 
+        // namely the reisz transform and/or far-field force solve to calculate
+        // interface velocity and velocity normal magnitudes, using the
+        // appropriate method. We do not attempt to overlap this with the 
+        // mostly-local parallel calculations in phase 2
+        prepareVelocities(MethodOrder(), zdot, z_view, w_view);
 
         auto reisz = _reisz->view();
-
         double g = _g;
         double A = _A;
 
-        // 2. Now process those into final interface position derivatives
-        //    and the information needed for calculating the vorticity derivative
-        auto V = _V->view();
+        // Phase 2: Process the globally-dependent velocity information into 
+        // into final interface position derivatives and the information 
+        // needed for calculating the vorticity derivative
+        auto V_view = _V->view();
 
         auto local_grid = _pm.mesh().localGrid();
         auto own_node_space = local_grid->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
@@ -320,8 +354,8 @@ class ZModel
             double dx_z[3], dy_z[3];
 
             for (int n = 0; n < 3; n++) {
-               dx_z[n] = Operators::Dx(z, i, j, n, dx);
-               dy_z[n] = Operators::Dy(z, i, j, n, dy);
+               dx_z[n] = Operators::Dx(z_view, i, j, n, dx);
+               dy_z[n] = Operators::Dy(z_view, i, j, n, dy);
             }
 
             //  2.2 Compute h11, h12, h22, and det_h from Dx and Dy
@@ -338,33 +372,35 @@ class ZModel
 
             //  2.4 Compute zdot and zndot as needed using specialized helper functions
             double zndot;
-            finalizeVelocity(MethodOrder(), zndot, zdot, i, j, reisz, N, deth );
+            finalizeVelocity(MethodOrder(), zndot, zdot, i, j, 
+                             reisz, N, deth );
 
             //  2.5 Compute V from zndot and vorticity 
-	    double w1 = w(i, j, 0); 
-            double w2 = w(i, j, 1);
+	    double w1 = w_view(i, j, 0); 
+            double w2 = w_view(i, j, 1);
 
-	    V(i, j, 0) = zndot * zndot 
+	    V_view(i, j, 0) = zndot * zndot 
                          - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
-                         - 2*g*z(i, j, 2);
+                         - 2*g*z_view(i, j, 2);
         });
 
-        // 3. Halo V and apply boundary condtions, since we need it for central
-        //    differencing of V.
+        // 3. Phase 3: Halo V and apply boundary condtions on it, then calculate
+        // central differences of V, laplacians for artificial viscosituy, and
+        // put it all together to calcualte the final vorticity derivative.
+
         _v_halo->gather( ExecutionSpace(), *_V );
 
-        // We need to project V into the boundary here for non-periodic boundaries
-        // XXX
+        // XXX We need to project V into the boundary here for non-periodic 
+        // boundary conditions XXX
 
-        // 4. Compute the final vorticity derivative
         double mu = _mu;
         Kokkos::parallel_for( "Interface Vorticity",
             createExecutionPolicy(own_node_space, ExecutionSpace()), 
             KOKKOS_LAMBDA(int i, int j) {
-            double dx_v = Operators::Dx(V, i, j, 0, dx);
-            double dy_v = Operators::Dy(V, i, j, 0, dy);
-            double lap_w0 = Operators::laplace(w, i, j, 0, dx, dy);
-            double lap_w1 = Operators::laplace(w, i, j, 1, dx, dy);
+            double dx_v = Operators::Dx(V_view, i, j, 0, dx);
+            double dy_v = Operators::Dy(V_view, i, j, 0, dy);
+            double lap_w0 = Operators::laplace(w_view, i, j, 0, dx, dy);
+            double lap_w1 = Operators::laplace(w_view, i, j, 1, dx, dy);
             wdot(i, j, 0) = A * dx_v + mu * lap_w0;
             wdot(i, j, 1) = A * dy_v + mu * lap_w1;
         });
