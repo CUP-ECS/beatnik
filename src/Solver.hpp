@@ -1,8 +1,8 @@
 /****************************************************************************
- * Copyright (c) 2018-2020 by the Beatnik authors                      *
+ * Copyright (c) 2020-2022 by the Beatnik authors                           *
  * All rights reserved.                                                     *
  *                                                                          *
- * This file is part of the Beatnik library. Beatnik is           *
+ * This file is part of the Beatnik library. Beatnik is                     *
  * distributed under a BSD 3-clause license. For the licensing terms see    *
  * the LICENSE file in the top-level directory.                             *
  *                                                                          *

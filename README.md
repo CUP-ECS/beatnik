@@ -126,10 +126,16 @@ Beatnik is being implemented in multiple distinct steps, with associated planned
 Beatnik is primarily availble as open source under a 3-Clause BSD License. It is being developed at the University of New Mexico, University of Tennessee at Chatanooga, and the University of Alabama under funding the U.S. Department of Energy's Predictive Science Academic Alliance Partnership III (PSAAP-III) program. Contributors to Beatnik development include the following:
 
   * Patrick G. Bridges (patrickb@unm.edu)
-  * Thomas Hines (XXX)
+  * Thomas Hines (thomas-hines-01@utc.edu)
+  * Jered Dominguez-Trujillo (jereddt@unm.edu)
 
-In addition, the general structure of Beatnik and the rocketrig examples were taken from the ExaMPM proxy application (XXX) developed by the CoPA team, which was also available under a 3-Clause BSD License when used for creating application structure (GitHub.com commit XXXX).
+The general structure of Beatnik and the rocketrig examples were taken from the ExaMPM proxy application (https://github.com/ECP-copa/ExaMPM) developed by the ECP Center for Particle Applications (CoPA), which was also available under a 3-Clause BSD License when used for creating application structure. 
 
 ## References
 
 [1] Gavin Pandya and Steve Shkoller. "3d Interface Models for Raleigh-Taylor Instability." Published as arxiv.org preprint https://arxiv.org/abs/2201.04538, 2022.
+[2] https://github.com/LLNL/blt
+[3] https://github.com/ECP-copa/Cabana/
+[4] Innovative Computing Laboratory. "heFFTe." URL: https://icl.utk.edu/fft/
+[5] Matteo Frigo. "A Fast Fourier Transform Compiler," In the Proceedings of the 1999 ACM SIGPLAN Conference on Programming Language Design and Implementation (PLDI '99), Atlanta, Georgia, May 1999
+[6] https://pvfmm.org

@@ -1,11 +1,22 @@
+/****************************************************************************
+ * Copyright (c) 2021, 2022 by the Beatnik authors                          *
+ * All rights reserved.                                                     *
+ *                                                                          *
+ * This file is part of the Beatnik benchmark. Beatnik is                   *
+ * distributed under a BSD 3-clause license. For the licensing terms see    *
+ * the LICENSE file in the top-level directory.                             *
+ *                                                                          *
+ * SPDX-License-Identifier: BSD-3-Clause                                    *
+ ****************************************************************************/
 /*
  * @file
  * @author Patrick Bridges <pbridges@unm.edu>
  *
  * @section DESCRIPTION
- * Rocket rig example, including support for tilt, using z-model fluid interface 
- * solver on a unit 1x1 square
+ * General rocket rig fluid interface example using the Beatnik z-model 
+ * fluid interface solver.
  */
+
 
 #ifndef DEBUG
 #define DEBUG 0
@@ -465,13 +476,13 @@ struct MeshInitFunc
          * coordinate in mesh space */
         z1 = _dx * coord[0];
         z2 = _dy * coord[1];
-        // We don't currently tilt the interface
+        // We don't currently support tilting the initial interface
         switch (_i) {
         case IC_COS:
             z3 = _m * cos(z1 * (2 * M_PI / _p)) * cos(z2 * (2 * M_PI / _p));
             break;
         case IC_SECH2:
-            z3 = _m * pow(1.0 / cosh(_p * (z1 * z1 + z2 * z2)), 2);
+            z3 = _m * pow(1.0 / cosh((2 * M_PI / _p) * (z1 * z1 + z2 * z2)), 2);
             break; 
         case IC_GAUSSIAN:
         case IC_RANDOM: 
