@@ -43,7 +43,11 @@ Assuming that you have Spack already installed on your HPC systems (as described
   
 ### Building Beatnik directly using a Spack package description
 
+XXX 
+
 ### Developing Beatnik using a Spack package description
+
+XXX 
 
 ### Beatnik Build-Time Configuration Options
 
@@ -117,6 +121,15 @@ Beatnik is being implemented in multiple distinct steps, with associated planned
     1. Spatial partitioning of the mesh using a space-filling curve to better optimize the high-order model
     1. Direct fast multipole or P3M solver for scalable, high precision high-order model solves.
 
-# References
+## Acknowledgement, Contributors, and Copyright Information
+
+Beatnik is primarily availble as open source under a 3-Clause BSD License. It is being developed at the University of New Mexico, University of Tennessee at Chatanooga, and the University of Alabama under funding the U.S. Department of Energy's Predictive Science Academic Alliance Partnership III (PSAAP-III) program. Contributors to Beatnik development include the following:
+
+  * Patrick G. Bridges (patrickb@unm.edu)
+  * Thomas Hines (XXX)
+
+In addition, the general structure of Beatnik and the rocketrig examples were taken from the ExaMPM proxy application (XXX) developed by the CoPA team, which was also available under a 3-Clause BSD License when used for creating application structure (GitHub.com commit XXXX).
+
+## References
 
 [1] Gavin Pandya and Steve Shkoller. "3d Interface Models for Raleigh-Taylor Instability." Published as arxiv.org preprint https://arxiv.org/abs/2201.04538, 2022.
