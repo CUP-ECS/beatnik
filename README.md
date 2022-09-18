@@ -1,5 +1,7 @@
 # Beatnik - A  prototype High Performance Parallel Interface Benchmark
 
+## Description
+
 Beatnik is a benchmark for global communication based on Pandya and Shkoller's 
 3D fluid interace "Z-Model" in the Cabana/Cajita mesh framework. The goals of 
 Beatnik are to:
@@ -25,6 +27,27 @@ Beatnik built on top of a mesh decomposition based on space-filling curves. This
 the mesh to be decomposed based on spatial location but still be indexed logically for 
 surface-local calculations, reducing fast multipole communicaiton overheads.
  
+## Building Beatnik
+
+TBA
+
+## Running Beatnik
+
+The simplest test case is a simple rocket-rig experiment with an initial interface 
+distributed according to a cosine function:
+  1. Serial execution: `bin/rocketrig -x serial`
+  1. Cuda execution (on systems with GPUs) with a 512x512 mesh: `bin/rocketrig -x cuda -n 512`
+
+Another test case is a single-mode rollup test where the intitial interface is 
+set according to a hyperbolic secant function. This testcase recreates the 
+XXX experiment and the results in Raag and Shkoller's paper from section XXX.  To run this
+testcase with a high-order model, use the following command line parameters. Note that we 
+assume a GPU accelerator, as the exact high-order far field force solver is very compute intensive:
+
+`bin/rocketrig -x cuda -O high -n 64 -I sech2 -m 0.1 -p 9.0 -F 1 -a 0.15 -M 2 -e 2`
+
+## Planned Development Steps
+
 Beatnik is being implemented in multiple distinct steps, with associated planned releases:
 
   * Version 1.0 Features

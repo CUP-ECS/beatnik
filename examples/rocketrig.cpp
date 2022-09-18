@@ -187,7 +187,8 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.gravity = 25.0;
     cl.atwood = 0.5;
 
-    /* Defaults for Z-Model method, later translated to be relative to dx*dy */
+    /* Defaults for Z-Model method, later translated to be relative 
+     * to dx*dy */
     cl.mu = 1.0;
     cl.eps = 0.25;
 
@@ -232,7 +233,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             break;
         case 'F':
             cl.write_freq = atoi( optarg) ;
-            if ( cl.write_freq < 1 )
+            if ( cl.write_freq < 0 )
             {
                 if ( rank == 0 )
                 {
@@ -559,24 +560,40 @@ int main( int argc, char* argv[] )
     // Only Rank 0 Prints Command Line Options
     if ( rank == 0 )
     {
+
+        double dx = (cl.global_bounding_box[4] - cl.global_bounding_box[0])
+                        / (cl.global_num_cells[0]);
+        double dy = (cl.global_bounding_box[5] - cl.global_bounding_box[1])
+                        / (cl.global_num_cells[1]);
+
         // Print Command Line Options
         std::cout << "RocketRig\n";
-        std::cout << "=======Command line arguments=======\n";
-        std::cout << std::left << std::setw( 20 ) << "Thread Setting"
+        std::cout << "============Command line arguments============\n";
+        std::cout << std::left << std::setw( 30 ) << "Thread Setting"
                   << ": " << std::setw( 8 ) << cl.driver
                   << "\n"; // Threading Setting
-        std::cout << std::left << std::setw( 20 ) << "Nodes"
+        std::cout << std::left << std::setw( 30 ) << "Mesh Dimension"
                   << ": " << std::setw( 8 ) << cl.global_num_cells[0]
                   << std::setw( 8 ) << cl.global_num_cells[1]
                   << "\n"; // Number of Cells
-        std::cout << std::left << std::setw( 20 ) << "Total Simulation Time"
+        std::cout <<  std::left << std::setw( 30 ) << "Solver Order"
+                  << ": " << std::setw( 8 ) << cl.order << "\n"; 
+        std::cout << std::left << std::setw( 30 ) << "Total Simulation Time"
                   << ": " << std::setw( 8 ) << cl.t_final << "\n";
-        std::cout << std::left << std::setw( 20 ) << "Timestep Size"
+        std::cout << std::left << std::setw( 30 ) << "Timestep Size"
                   << ": " << std::setw( 8 ) << cl.delta_t << "\n";
-        std::cout << std::left << std::setw( 20 ) << "Write Frequency"
+        std::cout << std::left << std::setw( 30 ) << "Write Frequency"
                   << ": " << std::setw( 8 ) << cl.write_freq
                   << "\n"; // Steps between write
-        std::cout << "====================================\n";
+        std::cout << std::left << std::setw( 30 ) << "Atwood Constant"
+                  << ": " << std::setw( 8 ) << cl.atwood << "\n";
+        std::cout << std::left << std::setw( 30 ) << "Gravity"
+                  << ": " << std::setw( 8 ) << (cl.gravity/9.8) << "\n";
+        std::cout << std::left << std::setw( 30 ) << "Artificial Viscosity"
+                  << ": " << std::setw( 8 ) << (cl.mu / sqrt(dx*dy)) << "\n";
+        std::cout << std::left << std::setw( 30 ) << "Desingularization"
+                  << ": " << std::setw( 8 ) << (cl.eps /sqrt(dx*dy))  << "\n";
+        std::cout << "==============================================\n";
     }
 
     // Call advection solver

@@ -1,0 +1,24 @@
+/****************************************************************************
+ * Copyright (c) 2022 by the Beatnik authors                                *
+ * Copyright (c) 2018-2022 by the Cabana authors                            *
+ * All rights reserved.                                                     *
+ *                                                                          *
+ * Derived in part from CabanaCore_config.hpp.in in the Cabana source code. *
+ *                                                                          *
+ * This file is part of the Beatnik benchmark. Beatnik is distributed under *
+ * a BSD 3-clause license. For the licensing terms see the LICENSE file in  *
+ * the top-level directory.                                                 *
+ *                                                                          *
+ * SPDX-License-Identifier: BSD-3-Clause                                    *
+ ****************************************************************************/
+
+#ifndef BEATNIK_CORE_CONFIG_HPP
+#define BEATNIK_CORE_CONFIG_HPP
+
+#define Beatnik_VERSION_STRING "@PROJECT_VERSION@"
+
+#define Beatnik_GIT_COMMIT_HASH "@Beatnik_GIT_COMMIT_HASH@"
+
+#cmakedefine Beatnik_ENABLE_PVFMM
+
+#endif // BEATNIK_CORE_CONFIG_HPP
