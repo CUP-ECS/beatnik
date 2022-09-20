@@ -1,3 +1,13 @@
+/****************************************************************************
+ * Copyright (c) 2021, 2022 by the Beatnik authors                          *
+ * All rights reserved.                                                     *
+ *                                                                          *
+ * This file is part of the Beatnik benchmark. Beatnik is                   *
+ * distributed under a BSD 3-clause license. For the licensing terms see    *
+ * the LICENSE file in the top-level directory.                             *
+ *                                                                          *
+ * SPDX-License-Identifier: BSD-3-Clause                                    *
+ ****************************************************************************/
 /**
  * @file
  * @author Patrick Bridges <patrickb@unm.edu>
@@ -106,10 +116,11 @@ class ProblemManager
             "vorticity", node_pair_layout );
         Cajita::ArrayOp::assign( *_vorticity, 0.0, Cajita::Ghost() );
 
-        /* Halo pattern for the position and vorticity. The halo is two cells deep 
-         * so that * to be able to do fourth-order central differencing to compute 
-         * surface normals accurately. It's a Node (8 point) pattern as opposed to 
-         * a Face (4 point) pattern so the vorticity laplacian can use a 9-point stencil. */
+        /* Halo pattern for the position and vorticity. The halo is two cells 
+         * deep so that to be able to do fourth-order central differencing to 
+         * compute surface normals accurately. It's a Node (8 point) pattern 
+         * as opposed to a Face (4 point) pattern so the vorticity laplacian 
+         * can use a 9-point stencil. */
         int halo_depth = _mesh.localGrid()->haloCellWidth();
         _surface_halo = Cajita::createHalo( Cajita::NodeHaloPattern<2>(), 
                             halo_depth, *_position, *_vorticity);

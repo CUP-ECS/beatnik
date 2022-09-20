@@ -1,11 +1,22 @@
+/****************************************************************************
+ * Copyright (c) 2021, 2022 by the Beatnik authors                          *
+ * All rights reserved.                                                     *
+ *                                                                          *
+ * This file is part of the Beatnik benchmark. Beatnik is                   *
+ * distributed under a BSD 3-clause license. For the licensing terms see    *
+ * the LICENSE file in the top-level directory.                             *
+ *                                                                          *
+ * SPDX-License-Identifier: BSD-3-Clause                                    *
+ ****************************************************************************/
 /**
- * @file
+ * @file ExactBRSolver.hpp
  * @author Patrick Bridges <patrickb@unm.edu>
  * @author Thomas Hines <thomas-hines-01@utc.edu>
  *
  * @section DESCRIPTION
- * ZModel class that directly computes derivatives of interface position and
- * velocity, using a all-pairs approach with ring-pass communication
+ * Class that uses a brute force approach to calculating the Birchoff-Rott 
+ * velocity intergral by using a all-pairs approach. Future communication
+ * approach will be a standard ring-pass communication algorithm.
  */
 
 #ifndef BEATNIK_EXACTBRSOLVER_HPP

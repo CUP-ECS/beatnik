@@ -1,5 +1,5 @@
 /****************************************************************************
- * Copyright (c) 2021 by the Beatnik authors                                *
+ * Copyright (c) 2021, 2022 by the Beatnik author                           *
  * All rights reserved.                                                     *
  *                                                                          *
  * This file is part of the Beatnik benchmark. Beatnik is                   *

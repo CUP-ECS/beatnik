@@ -1,12 +1,21 @@
+/****************************************************************************
+ * Copyright (c) 2021, 2022 by the Beatnik authors                          *
+ * All rights reserved.                                                     *
+ *                                                                          *
+ * This file is part of the Beatnik benchmark. Beatnik is                   *
+ * distributed under a BSD 3-clause license. For the licensing terms see    *
+ * the LICENSE file in the top-level directory.                             *
+ *                                                                          *
+ * SPDX-License-Identifier: BSD-3-Clause                                    *
+ ****************************************************************************/
 /**
  * @file
  * @author Patrick Bridges <patrickb@unm.edu>
  * @author Thomas Hines <thomas-hines-01@utc.edu>
  *
  * @section DESCRIPTION
- * ZModel class that handles computing derivatives of ionterface position and
- * velocity, using external classses for different velocity calculation
- * strategies
+ * Simple differential and other operators for supporting the Z-Model 
+ * calculations. 
  */
 
 #ifndef BEATNIK_OPERATORS_HPP
