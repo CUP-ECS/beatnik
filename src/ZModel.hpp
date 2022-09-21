@@ -1,3 +1,13 @@
+/****************************************************************************
+ * Copyright (c) 2021-2022 by the Beatnik authors                           *
+ * All rights reserved.                                                     *
+ *                                                                          *
+ * This file is part of the Beatnik benchmark. Beatnik is                   *
+ * distributed under a BSD 3-clause license. For the licensing terms see    *
+ * the LICENSE file in the top-level directory.                             *
+ *                                                                          *
+ * SPDX-License-Identifier: BSD-3-Clause                                    *
+ ****************************************************************************/
 /**
  * @file
  * @author Patrick Bridges <patrickb@unm.edu>
