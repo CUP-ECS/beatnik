@@ -133,9 +133,14 @@ The general structure of Beatnik and the rocketrig examples were taken from the 
 
 ## References
 
-[1] Gavin Pandya and Steve Shkoller. "3d Interface Models for Raleigh-Taylor Instability." Published as arxiv.org preprint https://arxiv.org/abs/2201.04538, 2022.
-[2] https://github.com/LLNL/blt
-[3] https://github.com/ECP-copa/Cabana/
-[4] Innovative Computing Laboratory. "heFFTe." URL: https://icl.utk.edu/fft/
-[5] Matteo Frigo. "A Fast Fourier Transform Compiler," In the Proceedings of the 1999 ACM SIGPLAN Conference on Programming Language Design and Implementation (PLDI '99), Atlanta, Georgia, May 1999
-[6] https://pvfmm.org
+1. Gavin Pandya and Steve Shkoller. "3d Interface Models for Raleigh-Taylor Instability." Published as arxiv.org preprint https://arxiv.org/abs/2201.04538, 2022.
+
+1. https://github.com/LLNL/blt
+
+1. https://github.com/ECP-copa/Cabana/
+
+1. Innovative Computing Laboratory. "heFFTe." URL: https://icl.utk.edu/fft/
+
+1. Matteo Frigo. "A Fast Fourier Transform Compiler," In the Proceedings of the 1999 ACM SIGPLAN Conference on Programming Language Design and Implementation (PLDI '99), Atlanta, Georgia, May 1999
+
+1. https://pvfmm.org
