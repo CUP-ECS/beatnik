@@ -14,8 +14,9 @@
  * @author Thomas Hines <thomas-hines-01@utc.edu>
  *
  * @section DESCRIPTION
- * Simple differential and other operators for supporting the Z-Model 
- * calculations. 
+ * Supporting functions for Z-Model calculations, primarily Simple differential 
+ * and other mathematical operators but also some itility functions that 
+ * we may want to later contribute back to Cajita or other supporting libraries.
  */
 
 #ifndef BEATNIK_OPERATORS_HPP
@@ -121,7 +122,25 @@ namespace Operators
         }
     }
 
-    
+    template <long M, long N>
+        Cajita::IndexSpace<M + N> crossIndexSpace(
+            const Cajita::IndexSpace<M>& index_space1,
+            const Cajita::IndexSpace<N>& index_space2)
+    {
+        std::array<long, M + N> range_min;
+        std::array<long, M + N> range_max;
+        for ( int d = 0; d < M; ++d ) {
+            range_min[d] = index_space1.min( d );
+            range_max[d] = index_space1.max( d );
+        }
+
+        for ( int d = M; d < M + N; ++d ) {
+            range_min[d] = index_space2.min( d - M );
+            range_max[d] = index_space2.max( d - M );
+        }
+
+        return Cajita::IndexSpace<M + N>( range_min, range_max );
+    }
 }; // namespace operator
 
 }; // namespace beatnik

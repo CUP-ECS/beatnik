@@ -107,12 +107,10 @@ class ExactBRSolver
         int iend = node_space.max(0), jend = node_space.max(1);
         double dx = _dx, dy = _dy;
 
-	Kokkos::MDRangePolicy<ExecutionSpace, Kokkos::Rank<4>> pair_policy({node_space.min(0), node_space.min(1), 
-									      node_space.min(0), node_space.min(1)}, 
-							                     {node_space.max(0), node_space.max(1), 
-									      node_space.max(0), node_space.max(1)});
-        /* XXX Right now we brute fore all of the points with no tiling to improve
-         * memory access or optimizations to remove duplicate calculations. XXX */
+        auto pair_space = Operators::crossIndexSpace(node_space, node_space);
+
+        /* Right now we brute fore all of the points with no tiling to improve
+         * memory access or optimizations to remove duplicate calculations. */
 	Kokkos::parallel_for("Exact BR Zero Loop",
 	    Cajita::createExecutionPolicy(node_space, ExecutionSpace()),
 	    KOKKOS_LAMBDA(int i, int j) {
@@ -121,7 +119,7 @@ class ExactBRSolver
 	});
 
         Kokkos::parallel_for("Exact BR Force Loop",
-            pair_policy, 
+            Cajita::createExecutionPolicy(pair_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j, int k, int l) {
                 double br[3];
                 double kweight, lweight;
@@ -129,18 +127,19 @@ class ExactBRSolver
 		/* Compute Simpson's 3/8 quadrature weight for this index */
                 if ((k == istart) || (k == iend - 1)) kweight = 3.0/8.0;
                 else if (k - (istart % 3) == 0) kweight = 3.0/4.0;
-                //else if (k % 3 == 0) kweight = 3.0/4.0;
                 else kweight = 9.0/8.0;
 
                 if ((l == jstart) || (l == jend - 1)) lweight = 3.0/8.0;
                 else if (l - (jstart % 3) == 0) lweight = 3.0/4.0;
-                //else if (l % 3 == 0) lweight = 3.0/4.0;
                 else lweight = 9.0/8.0;
 
-		    /* Do the birchoff rott evaluation for this point */
+		/* Do the birchoff rott evaluation for this point */
                 Operators::BR(br, w, z, epsilon, dx, dy, kweight * lweight, i, j, k, l);
 
-                    /* Add it its contribution to the integral */
+		/* XXX If we're periodic in a dimension, do the calculation 
+                 * for the periodic images of the target point, too XXX */
+
+                /* Add it its contribution to the integral */
                 for (int n = 0; n < 3; n++)
                     atomic_zdot(i, j, n) += br[n];
         }); 
