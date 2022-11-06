@@ -482,7 +482,7 @@ struct MeshInitFunc
             z3 = _m * cos(z1 * (2 * M_PI / _p)) * cos(z2 * (2 * M_PI / _p));
             break;
         case IC_SECH2:
-            z3 = _m * pow(1.0 / cosh((2 * M_PI / _p) * (z1 * z1 + z2 * z2)), 2);
+            z3 = _m * pow(1.0 / cosh(_p * (z1 * z1 + z2 * z2)), 2);
             break; 
         case IC_GAUSSIAN:
         case IC_RANDOM: 
