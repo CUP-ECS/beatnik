@@ -13,7 +13,7 @@
  * @author Patrick Bridges <pbridges@unm.edu>
  *
  * @section DESCRIPTION
- * General rocket rig fluid interface example using the Beatnik z-model 
+ * General rocket rig fluid interface example using the Beatnik z-model
  * fluid interface solver.
  */
 
@@ -92,7 +92,7 @@ struct ClArgs
     enum InitialConditionModel initial_condition; /**< Model used to set initial conditions */
     double tilt;    /**< Initial tilt of interface */
     double magnitude;/**< Magnitude of scale of initial interface */
-    double variation; /**< Variation in scale of initial interface */ 
+    double variation; /**< Variation in scale of initial interface */
     double period;   /**< Period of initial variation in interface */
     enum Beatnik::BoundaryType boundary;  /**< Type of boundary conditions */
     double gravity; /**< Gravitational accelaration in -Z direction in Gs */
@@ -114,7 +114,7 @@ struct ClArgs
     /* Solution method constants */
     enum SolverOrder order;  /**< Order of z-model solver to use */
     double mu;      /**< Artificial viscosity constant */
-    double eps;     /**< Desingularization constant */ 
+    double eps;     /**< Desingularization constant */
 };
 
 /**
@@ -198,7 +198,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.gravity = 25.0;
     cl.atwood = 0.5;
 
-    /* Defaults for Z-Model method, later translated to be relative 
+    /* Defaults for Z-Model method, later translated to be relative
      * to dx*dy */
     cl.mu = 1.0;
     cl.eps = 0.25;
@@ -255,7 +255,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             }
             break;
         case 'O':
-        { 
+        {
             std::string order(optarg);
             if (order.compare("low") == 0 ) {
                 cl.order = SolverOrder::ORDER_LOW;
@@ -284,7 +284,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             }
             break;
         case 'I':
-        { 
+        {
             std::string model(optarg);
             if (model.compare("cos") == 0 ) {
                 cl.initial_condition = InitialConditionModel::IC_COS;
@@ -388,6 +388,18 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             help( rank, argv[0] );
             exit( 0 );
             break;
+        case 't':
+          cl.t_final = atof( optarg );
+          if ( cl.t_final <= 0.0 )
+          {
+              if ( rank == 0 )
+              {
+                  std::cerr << "Invalid number of timesteps.\n";
+                  help( rank, argv[0] );
+              }
+              exit( -1 );
+          }
+          break;
         default:
             if ( rank == 0 )
             {
@@ -412,8 +424,8 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         cl.global_num_cells[i] *= sqrt(cl.weak_scale);
     }
 
-    /* Figure out parameters we need for the timestep and such. Simulate long 
-     * enough for the interface to evolve significantly */ 
+    /* Figure out parameters we need for the timestep and such. Simulate long
+     * enough for the interface to evolve significantly */
     double tau = 1/sqrt(cl.atwood * cl.gravity);
 
     if (cl.delta_t <= 0.0) {
@@ -428,7 +440,11 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         cl.t_final = tau * 2.0; // Simulate for 2 characterisic periods, which is all
                                 // the low-order model can really handle
     }
-    
+    else {
+        cl.t_final = cl.t_final * cl.delta_t;
+    }
+
+
 
     /* Z-Model Solver Parameters */
     double dx = (cl.global_bounding_box[4] - cl.global_bounding_box[0])
@@ -448,7 +464,7 @@ struct MeshInitFunc
 {
     // Initialize Variables
 
-    MeshInitFunc( std::array<double, 6> box, enum InitialConditionModel i, 
+    MeshInitFunc( std::array<double, 6> box, enum InitialConditionModel i,
                   double t, double m, double v, double p, const std::array<int, 2> cells )
         : _i(i)
         , _t( t )
@@ -468,8 +484,8 @@ struct MeshInitFunc
 
     KOKKOS_INLINE_FUNCTION
     bool operator()( Cajita::Node, Beatnik::Field::Position,
-                     [[maybe_unused]] const int index[2], 
-                     const double coord[2], 
+                     [[maybe_unused]] const int index[2],
+                     const double coord[2],
                      double &z1, double &z2, double &z3) const
     {
         /* Compute the physical position of the interface from its global
@@ -483,9 +499,9 @@ struct MeshInitFunc
             break;
         case IC_SECH2:
             z3 = _m * pow(1.0 / cosh(_p * (z1 * z1 + z2 * z2)), 2);
-            break; 
+            break;
         case IC_GAUSSIAN:
-        case IC_RANDOM: 
+        case IC_RANDOM:
         case IC_FILE:
             break;
         }
@@ -494,7 +510,7 @@ struct MeshInitFunc
 
     KOKKOS_INLINE_FUNCTION
     bool operator()( Cajita::Node, Beatnik::Field::Vorticity,
-                     [[maybe_unused]] const int index[2], 
+                     [[maybe_unused]] const int index[2],
                      [[maybe_unused]] const double coord[2],
                      double& w1, double &w2 ) const
     {
@@ -508,7 +524,7 @@ struct MeshInitFunc
     double _dx, _dy;
 };
 
-// Create Solver and Run 
+// Create Solver and Run
 void rocketrig( ClArgs& cl )
 {
     int comm_size, rank;                         // Initialize Variables
@@ -522,13 +538,13 @@ void rocketrig( ClArgs& cl )
     bc.boundary_type = {cl.boundary, cl.boundary, cl.boundary, cl.boundary};
 
     MeshInitFunc initializer( cl.global_bounding_box, cl.initial_condition,
-                              cl.tilt, cl.magnitude, cl.variation, cl.period, 
+                              cl.tilt, cl.magnitude, cl.variation, cl.period,
                               cl.global_num_cells);
 
     std::shared_ptr<Beatnik::SolverBase> solver;
     if (cl.order == SolverOrder::ORDER_LOW) {
         solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD, 
+            cl.driver, MPI_COMM_WORLD,
             cl.global_bounding_box, cl.global_num_cells,
             partitioner, cl.atwood, cl.gravity, initializer,
             bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t );
@@ -588,7 +604,7 @@ int main( int argc, char* argv[] )
                   << std::setw( 8 ) << cl.global_num_cells[1]
                   << "\n"; // Number of Cells
         std::cout <<  std::left << std::setw( 30 ) << "Solver Order"
-                  << ": " << std::setw( 8 ) << cl.order << "\n"; 
+                  << ": " << std::setw( 8 ) << cl.order << "\n";
         std::cout << std::left << std::setw( 30 ) << "Total Simulation Time"
                   << ": " << std::setw( 8 ) << cl.t_final << "\n";
         std::cout << std::left << std::setw( 30 ) << "Timestep Size"
