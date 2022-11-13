@@ -126,11 +126,11 @@ class ExactBRSolver
 
 		/* Compute Simpson's 3/8 quadrature weight for this index */
                 if ((k == istart) || (k == iend - 1)) kweight = 3.0/8.0;
-                else if (k - (istart % 3) == 0) kweight = 3.0/4.0;
+                else if ((k - istart) % 3 == 0) kweight = 3.0/4.0;
                 else kweight = 9.0/8.0;
 
                 if ((l == jstart) || (l == jend - 1)) lweight = 3.0/8.0;
-                else if (l - (jstart % 3) == 0) lweight = 3.0/4.0;
+                else if ((l - jstart) % 3 == 0) lweight = 3.0/4.0;
                 else lweight = 9.0/8.0;
 
 		/* Do the birchoff rott evaluation for this point */
