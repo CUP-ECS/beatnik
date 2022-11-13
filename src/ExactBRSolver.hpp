@@ -12,6 +12,7 @@
  * @file ExactBRSolver.hpp
  * @author Patrick Bridges <patrickb@unm.edu>
  * @author Thomas Hines <thomas-hines-01@utc.edu>
+ * @author Jacob McCullough <jmccullough12@unm.edu>
  *
  * @section DESCRIPTION
  * Class that uses a brute force approach to calculating the Birchoff-Rott 
