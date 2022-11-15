@@ -85,7 +85,7 @@ The simplest test case and the one to which the rocketrig example program defaul
 
 ### Example 2: Non-periodic Single-mode Gaussian Rollup
 Another test case is a single-mode rollup test where the intitial interface is set according to a hyperbolic secant function. This testcase recreates the the gaussian perturbation results in Panda and Shkoller's paper from sections 2.3 and 2.4.  To run this testcase with a high-order model, use the following command line parameters. Note that this works best with a GPU accelerator, as the exact high-order far field force solver is very compute intensive and is generally impractical for non-trivial mesh sizes without GPU acceleration:
-`bin/rocketrig -x cuda -O high -n 64 -I sech2 -m 0.1 -p 9.0 -F 1 -a 0.15 -M 2 -e 2`
+`bin/rocketrig -x cuda -O high -n 64 -I sech2 -m 0.1 -p 9.0 -b free -F 1 -a 0.15 -M 2 -e 2`
 
 ## Planned Development Steps
 

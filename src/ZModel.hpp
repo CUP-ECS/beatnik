@@ -162,17 +162,23 @@ class ZModel
      *    to the parallel loop that performs this calculation. 
      */
 
-    /* SHould rework this to a better ordering that takes into account the
-       parity of numnodes */
     KOKKOS_INLINE_FUNCTION
     static double reiszWeight(double i, int numnodes)
     {
-	if (i < 0) {
-            return numnodes/2 + i;
-        } else if (i > 0)  {
-            return i - numnodes/2;
+        if (numnodes % 2 == 0) {
+	    if (i < 0) {
+                return numnodes/2 + i;
+            } else if (i > 0)  {
+                return i - numnodes/2;
+            } else {
+                return i;
+            }
         } else {
-            return i;
+	    if (i <= 0) {
+                return (numnodes - 1)/2 + i;
+            } else {
+                return i - (numnodes - 1)/2 - 1;
+            }
         }
     }
 
@@ -222,6 +228,10 @@ class ZModel
             double k1 = reiszWeight(location[0], nx);
             double k2 = reiszWeight(location[1], ny);
 
+#if 0
+            std::cout << "Weight for location " << location[0] << ", " << location[1] << " is " 
+                      << "( " << k1 << ", " << k2 << ")\n";
+#endif
             if ((k1 != 0) || (k2 != 0)) {
                 /* real part = -i * M1 * imag(C1) + -i * M2 * imag(C2)
                  *           = M1 * imag(C1) + M2 * imag(C2)
@@ -272,6 +282,15 @@ class ZModel
     void prepareVelocities(Order::High, PositionView zdot, PositionView z, VorticityView w) const
     {
         _br->computeInterfaceVelocity(zdot, z, w);
+#if 0
+       std::cout << "Computed BR:\n";
+       for (int i = 2; i < zdot.extent_int(0) - 2; i++) {
+           for (int j = 2; j < zdot.extent_int(1) - 2; j++) {
+               std::cout << zdot(i, j, 0) << ", ";
+           }
+           std::cout << "\n";
+       }
+#endif
     }
 
     // Compute the final interface velocities and normalized BR velocities
@@ -308,7 +327,7 @@ class ZModel
     }
  
     // External entry point from the TimeIntegration object that uses the
-    // peroblem manager state.
+    // problem manager state.
     template <class PositionView, class VorticityView>
     void computeDerivatives( PositionView zdot, VorticityView wdot ) const
     {
@@ -394,6 +413,16 @@ class ZModel
                          - 2*g*z_view(i, j, 2);
         });
 
+#if 0
+       std::cout << "Computed V:\n";
+       for (int i = 2; i < V_view.extent_int(0) - 2; i++) {
+           for (int j = 2; j < V_view.extent_int(1) - 2; j++) {
+               std::cout << V_view(i, j, 0) << ", ";
+           }
+           std::cout << "\n";
+       }
+#endif
+
         // 3. Phase 3: Halo V and apply boundary condtions on it, then calculate
         // central differences of V, laplacians for artificial viscosituy, and
         // put it all together to calcualte the final vorticity derivative.
@@ -414,6 +443,14 @@ class ZModel
             wdot(i, j, 0) = A * dx_v + mu * lap_w0;
             wdot(i, j, 1) = A * dy_v + mu * lap_w1;
         });
+
+//       std::cout << "Computed derivative:\n";
+//       for (int i = 2; i < zdot.extent_int(0) - 2; i++) {
+//           for (int j = 2; j < zdot.extent_int(1) - 2; j++) {
+//               std::cout << zdot(i, j, 0) << ", ";
+//           }
+//           std::cout << "\n";
+//       }
     }
 
   private:

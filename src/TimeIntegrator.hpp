@@ -28,7 +28,6 @@ namespace Beatnik
 template <class ExecutionSpace, class MemorySpace, class ZModelType>
 class TimeIntegrator
 {
-    using Node = Cajita::Cell;
     using exec_space = ExecutionSpace;
     using mem_space = MemorySpace;
     using device_type = Kokkos::Device<exec_space, mem_space>;
