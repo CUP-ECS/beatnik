@@ -88,7 +88,7 @@ class Solver : public SolverBase
     template <class InitFunc>
     Solver( MPI_Comm comm,
             const std::array<double, 6>& global_bounding_box,
-            const std::array<int, 2>& global_num_cells,
+            const std::array<int, 2>& num_nodes,
             const Cajita::BlockPartitioner<2>& partitioner,
             const double atwood, const double g, const InitFunc& create_functor,
             const BoundaryCondition& bc, const double mu, 
@@ -102,30 +102,15 @@ class Solver : public SolverBase
         , _dt( delta_t )
         , _time( 0.0 )
     {
-        // So we can modify the number of cells to meet the 
-        // mesh's requirement for an even numnber of cells
-        std::array<int, 2> num_cells = global_num_cells;
-
 	std::array<bool, 2> periodic;
-        periodic[0] =  (bc.boundary_type[0] == PERIODIC);
-        periodic[1] =  (bc.boundary_type[1] == PERIODIC);
 
-        for (int i = 0; i < 2; i++) {
-            if (num_cells[i] % 2 == 0) {
-                num_cells[i]++;
-            }
-        }
-
-#if 0
-        // We need an extra halo cell to pick up the boundaries if the 
-        // mesh is periodic
-        if (periodic[0] || periodic[1]) _halo_min++;
-#endif
+        periodic[0] = (bc.boundary_type[0] == PERIODIC);
+        periodic[1] = (bc.boundary_type[1] == PERIODIC);
 
         // Create a mesh one which to do the solve and a problem manager to
         // handle state
         _mesh = std::make_unique<Mesh<ExecutionSpace, MemorySpace>>(
-            global_bounding_box, num_cells, periodic, partitioner,
+            global_bounding_box, num_nodes, periodic, partitioner,
 	    _halo_min, comm );
 
         // Check that our timestep is small enough to handle the mesh size,
@@ -134,11 +119,32 @@ class Solver : public SolverBase
 
         // Compute dx and dy in the initial problem state XXX What should this
         // be when the mesh doesn't span the bounding box, e.g. rising bubbles?
-        double dx = (global_bounding_box[4] - global_bounding_box[0]) 
-            / num_cells[0];
-        double dy = (global_bounding_box[5] - global_bounding_box[1]) 
-            / num_cells[1];
 
+        // If we're non-periodic, there's one fewer cells than nodes (we don't have
+        // the cell which wraps around
+        std::array<int, 2> num_cells = num_nodes;
+        for (int i = 0; i < 2; i++)
+            if (!periodic[i]) num_cells[i]--;
+
+        double dx = (global_bounding_box[4] - global_bounding_box[0]) 
+            / (num_cells[0]);
+        double dy = (global_bounding_box[5] - global_bounding_box[1]) 
+            / (num_cells[1]);
+
+        // Adjust down mu and epsilon by sqrt(dx * dy)
+        _mu = _mu * sqrt(dx * dy);
+        _eps = _eps * sqrt(dx * dy);
+
+        std::cout << "===== Solver Parameters =====\n"
+                  << "num_nodes = " << num_nodes[0] << ", " << num_nodes[1] << "\n"
+                  << "num_cells = " << num_cells[0] << ", " << num_cells[1] << "\n"
+                  << "dx = " << dx << ", " << "dy = " << dy << "\n"
+                  << "dt = " << delta_t << "\n"
+                  << "g = " << _g << "\n"
+                  << "atwood = " << _atwood << "\n"
+                  << "mu = " << _mu << "\n"
+                  << "eps = " << _eps << "\n"
+                  << "=============================\n";
         // Create a problem manager to manage mesh state
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
             *_mesh, _bc, create_functor );
@@ -149,7 +155,7 @@ class Solver : public SolverBase
 
         // Create the ZModel solver
         _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>>(
-            *_pm, _bc, _br.get(), dx, dy, atwood, g, mu);
+            *_pm, _bc, _br.get(), dx, dy, _atwood, _g, _mu);
 
         // Make a time integrator to move the zmodel forward
         _ti = std::make_unique<TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>>( *_pm, _bc, *_zm );

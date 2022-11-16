@@ -51,7 +51,7 @@ static char* shortargs = (char*)"n:t:d:x:F:o:I:b:g:a:T:m:v:p:i:w:O:M:e:h";
 
 static option longargs[] = {
     // Basic simulation parameters
-    { "cells", required_argument, NULL, 'n' },
+    { "nodes", required_argument, NULL, 'n' },
     { "timesteps", required_argument, NULL, 't' },
     { "delta_t", required_argument, NULL, 'd' },
     { "driver", required_argument, NULL, 'x' },
@@ -101,7 +101,7 @@ struct ClArgs
     int model;      /**< Model used to set initial conditions */
 
     /* Problem simulation parameters */
-    std::array<int, 2> global_num_cells;          /**< Number of cells */
+    std::array<int, 2> num_nodes;          /**< Number of cells */
     double t_final;     /**< Ending time */
     double delta_t;     /**< Timestep */
     std::string driver; /**< ( Serial, Threads, OpenMP, CUDA ) */
@@ -163,7 +163,7 @@ void help( const int rank, char* progname )
         std::cout << std::left << std::setw( 10 ) << "-M" << std::setw( 40 )
                   << "Artificial Viscosity Constant (default 1.0)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-e" << std::setw( 40 )
-                  << "Desingularization Constant (defailt 0.25)" << std::left << "\n";
+		<< "Desingularization Constant (defailt 0.25)" << std::left << "\n";
 
         std::cout << std::left << std::setw( 10 ) << "-h" << std::setw( 40 )
                   << "Print Help Message" << std::left << "\n";
@@ -190,8 +190,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.write_freq = 10;
 
     /* Default problem is the cosine rocket rig */
-    cl.global_num_cells = { 128, 128 };
+    cl.num_nodes = { 128, 128 };
     cl.initial_condition = IC_COS;
+    cl.boundary = Beatnik::BoundaryType::PERIODIC;
     cl.tilt = 0.0;
     cl.magnitude = 0.05;
     cl.variation = 0.00;
@@ -199,8 +200,8 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.gravity = 25.0;
     cl.atwood = 0.5;
 
-    /* Defaults for Z-Model method, later translated to be relative
-     * to dx*dy */
+    /* Defaults for Z-Model method, translated by the soler  to be relative
+     * to sqrt(dx*dy) */
     cl.mu = 1.0;
     cl.eps = 0.25;
 
@@ -215,17 +216,19 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         switch ( ch )
         {
         case 'n':
-            cl.global_num_cells[0] = atoi( optarg );
-            if ( cl.global_num_cells[0] < 1 )
+            cl.num_nodes[0] = atoi( optarg );
+
+            if ( cl.num_nodes[0] < 1 )
             {
                 if ( rank == 0 )
                 {
-                    std::cerr << "Invalid cell number argument.\n";
+                    std::cerr << "Invalid number of nodes argument.\n";
                     help( rank, argv[0] );
                 }
                 exit( -1 );
             }
-            cl.global_num_cells[1] = cl.global_num_cells[0];
+            cl.num_nodes[1] = cl.num_nodes[0];
+
             break;
         case 'x':
             cl.driver = strdup( optarg );
@@ -268,6 +271,23 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 if ( rank == 0 )
                 {
                     std::cerr << "Invalid model order argument.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
+            break;
+        }
+        case 'b':
+        {
+            std::string order(optarg);
+            if (order.compare("periodic") == 0) {
+                cl.boundary = Beatnik::BoundaryType::PERIODIC;
+            } else if (order.compare("free") == 0) {
+                cl.boundary = Beatnik::BoundaryType::FREE;
+            } else {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid boundary condition type.\n";
                     help( rank, argv[0] );
                 }
                 exit( -1 );
@@ -414,15 +434,14 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 
     /* Physical setup of problem */
     cl.global_bounding_box = {-1.0, -1.0, -1.0, 1.0, 1.0, 1.0};
-    cl.gravity = cl.gravity * 9.8;
-    cl.boundary = Beatnik::BoundaryType::PERIODIC;
+    cl.gravity = cl.gravity * 9.81;
 
     /* Scale up global bounding box and number of cells by weak scaling factor */
     for (int i = 0; i < 6; i++) {
         cl.global_bounding_box[i] *= sqrt(cl.weak_scale);
     }
     for (int i = 0; i < 2; i++) {
-        cl.global_num_cells[i] *= sqrt(cl.weak_scale);
+        cl.num_nodes[i] *= sqrt(cl.weak_scale);
     }
 
     /* Figure out parameters we need for the timestep and such. Simulate long
@@ -445,17 +464,6 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         cl.t_final = cl.t_final * cl.delta_t;
     }
 
-
-
-    /* Z-Model Solver Parameters */
-    double dx = (cl.global_bounding_box[4] - cl.global_bounding_box[0])
-                    / (cl.global_num_cells[0]);
-    double dy = (cl.global_bounding_box[5] - cl.global_bounding_box[1])
-                    / (cl.global_num_cells[1]);
-
-    cl.mu = cl.mu * sqrt(dx * dy);
-    cl.eps = cl.eps * sqrt(dx * dy);
-
     // Return Successfully
     return 0;
 }
@@ -466,21 +474,25 @@ struct MeshInitFunc
     // Initialize Variables
 
     MeshInitFunc( std::array<double, 6> box, enum InitialConditionModel i,
-                  double t, double m, double v, double p, const std::array<int, 2> cells )
+                  double t, double m, double v, double p, 
+                  const std::array<int, 2> nodes, enum Beatnik::BoundaryType boundary )
         : _i(i)
         , _t( t )
         , _m( m )
         , _v( v)
         , _p( p )
+        , _b( boundary )
     {
-        double xcells = (cells[0] % 2) ? cells[0] + 1 : cells[0];
-        double ycells = (cells[1] % 2) ? cells[1] + 1 : cells[1];
+        if (boundary == Beatnik::BoundaryType::PERIODIC) {
+	    _ncells[0] = nodes[0];
+            _ncells[1] = nodes[1];
+        } else {
+	    _ncells[0] = nodes[0] - 1;
+            _ncells[1] = nodes[1] - 1;
+        }
 
-        x[0] = box[0];
-        x[1] = box[1];
-        x[2] = (box[2] + box[5]) / 2;
-        _dx = (box[3] - box[0]) / xcells;
-        _dy = (box[4] - box[1]) / ycells;
+        _dx = (box[3] - box[0]) / _ncells[0];
+        _dy = (box[4] - box[1]) / _ncells[1];
     };
 
     KOKKOS_INLINE_FUNCTION
@@ -489,10 +501,18 @@ struct MeshInitFunc
                      const double coord[2],
                      double &z1, double &z2, double &z3) const
     {
+        double lcoord[2];
         /* Compute the physical position of the interface from its global
          * coordinate in mesh space */
-        z1 = _dx * coord[0];
-        z2 = _dy * coord[1];
+        for (int i = 0; i < 2; i++) {
+            lcoord[i] = coord[i];
+            if (_b == BoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
+                lcoord[i] += 0.5;
+            }
+        }
+        z1 = _dx * lcoord[0];
+        z2 = _dy * lcoord[1];
+
         // We don't currently support tilting the initial interface
         switch (_i) {
         case IC_COS:
@@ -501,8 +521,11 @@ struct MeshInitFunc
         case IC_SECH2:
             z3 = _m * pow(1.0 / cosh(_p * (z1 * z1 + z2 * z2)), 2);
             break;
-        case IC_GAUSSIAN:
         case IC_RANDOM:
+            /* XXX Use p to seed the random number generator XXX */
+            z3 = _m * (2*drand48() - 1.0);
+            break;
+        case IC_GAUSSIAN:
         case IC_FILE:
             break;
         }
@@ -521,8 +544,9 @@ struct MeshInitFunc
     };
     enum InitialConditionModel _i;
     double _t, _m, _v, _p;
-    Kokkos::Array<double, 3> x;
+    Kokkos::Array<int, 3> _ncells;
     double _dx, _dy;
+    enum Beatnik::BoundaryType _b;
 };
 
 // Create Solver and Run
@@ -540,25 +564,25 @@ void rocketrig( ClArgs& cl )
 
     MeshInitFunc initializer( cl.global_bounding_box, cl.initial_condition,
                               cl.tilt, cl.magnitude, cl.variation, cl.period,
-                              cl.global_num_cells);
+                              cl.num_nodes, cl.boundary );
 
     std::shared_ptr<Beatnik::SolverBase> solver;
     if (cl.order == SolverOrder::ORDER_LOW) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD,
-            cl.global_bounding_box, cl.global_num_cells,
+            cl.global_bounding_box, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
             bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t );
     } else if (cl.order == SolverOrder::ORDER_MEDIUM) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD,
-            cl.global_bounding_box, cl.global_num_cells,
+            cl.global_bounding_box, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
             bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t );
     } else if (cl.order == SolverOrder::ORDER_HIGH) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD,
-            cl.global_bounding_box, cl.global_num_cells,
+            cl.global_bounding_box, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
             bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t );
     } else {
@@ -588,12 +612,6 @@ int main( int argc, char* argv[] )
     // Only Rank 0 Prints Command Line Options
     if ( rank == 0 )
     {
-
-        double dx = (cl.global_bounding_box[4] - cl.global_bounding_box[0])
-                        / (cl.global_num_cells[0]);
-        double dy = (cl.global_bounding_box[5] - cl.global_bounding_box[1])
-                        / (cl.global_num_cells[1]);
-
         // Print Command Line Options
         std::cout << "RocketRig\n";
         std::cout << "============Command line arguments============\n";
@@ -601,8 +619,8 @@ int main( int argc, char* argv[] )
                   << ": " << std::setw( 8 ) << cl.driver
                   << "\n"; // Threading Setting
         std::cout << std::left << std::setw( 30 ) << "Mesh Dimension"
-                  << ": " << std::setw( 8 ) << cl.global_num_cells[0]
-                  << std::setw( 8 ) << cl.global_num_cells[1]
+                  << ": " << std::setw( 8 ) << cl.num_nodes[0]
+                  << std::setw( 8 ) << cl.num_nodes[1] 
                   << "\n"; // Number of Cells
         std::cout <<  std::left << std::setw( 30 ) << "Solver Order"
                   << ": " << std::setw( 8 ) << cl.order << "\n";
@@ -616,11 +634,11 @@ int main( int argc, char* argv[] )
         std::cout << std::left << std::setw( 30 ) << "Atwood Constant"
                   << ": " << std::setw( 8 ) << cl.atwood << "\n";
         std::cout << std::left << std::setw( 30 ) << "Gravity"
-                  << ": " << std::setw( 8 ) << (cl.gravity/9.8) << "\n";
+                  << ": " << std::setw( 8 ) << (cl.gravity/9.81) << "\n";
         std::cout << std::left << std::setw( 30 ) << "Artificial Viscosity"
-                  << ": " << std::setw( 8 ) << (cl.mu / sqrt(dx*dy)) << "\n";
+                  << ": " << std::setw( 8 ) << cl.mu << "\n";
         std::cout << std::left << std::setw( 30 ) << "Desingularization"
-                  << ": " << std::setw( 8 ) << (cl.eps /sqrt(dx*dy))  << "\n";
+                  << ": " << std::setw( 8 ) << cl.eps  << "\n";
         std::cout << "==============================================\n";
     }
 

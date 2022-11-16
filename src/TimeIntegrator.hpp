@@ -28,7 +28,6 @@ namespace Beatnik
 template <class ExecutionSpace, class MemorySpace, class ZModelType>
 class TimeIntegrator
 {
-    using Node = Cajita::Cell;
     using exec_space = ExecutionSpace;
     using mem_space = MemorySpace;
     using device_type = Kokkos::Device<exec_space, mem_space>;
@@ -83,6 +82,9 @@ class TimeIntegrator
 	// uses the problem manager position and derivative by default.
         _zm.computeDerivatives(z_dot, w_dot);
 
+        std::cout << "Initial position for node 6,6 is " 
+                  << z_orig(8, 8, 0) << ", " << z_orig(8, 8, 1) << "\n";
+        std::cout << "Initial derivative for node 6,6,0 is " << z_dot(8, 8, 0) << "\n";
         auto own_node_space = local_grid->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
         Kokkos::parallel_for("RK3 Euler Step",
             Cajita::createExecutionPolicy(own_node_space, ExecutionSpace()),
@@ -96,7 +98,9 @@ class TimeIntegrator
         });
 
         // Compute derivative at forward euler point from the temporaries
+        std::cout << "Euler position for node 6,6,0 is " << z_tmp(8, 8, 0) << "\n";
         _zm.computeDerivatives( *_ztmp, *_wtmp, z_dot, w_dot);
+        std::cout << "Euler derivative for node 6,6,0 is " << z_dot(8, 8, 0) << "\n";
  
         // TVD RK3 Step Two - derivative at half-step position
         // derivatives
@@ -117,7 +121,9 @@ class TimeIntegrator
             }
         });
         // Get the derivatives at the half-setp
+        std::cout << "Half-step position for node 6,6,0 is " << z_tmp(8, 8, 0) << "\n";
         _zm.computeDerivatives( *_ztmp, *_wtmp, z_dot, w_dot);
+        std::cout << "Half-step derivative for node 6,6,0 is " << z_dot(8, 8, 0) << "\n";
         
         // TVD RK3 Step Three - Combine start, forward euler, and half step
         // derivatives to take the final full step.
@@ -136,6 +142,7 @@ class TimeIntegrator
                     + ( 2.0 / 3.0 ) * delta_t * w_dot(i, j, d);
             }
         });
+        std::cout << "Final position for node 6,6,0 is " << z_orig(8, 8, 0) << "\n";
     }
 
   private:
