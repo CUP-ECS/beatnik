@@ -74,9 +74,6 @@ class ExactBRSolver
         , _dy( dy )
     {
 	// auto comm = _pm.mesh().localGrid()->globalGrid().comm();
-        std::cout << "ExactBRSolver epsilon = " << _epsilon << "\n"
-                  << "ExactBRSolver dx = " << _dx << "\n"
-                  << "ExactBRSolver dy = " << _dy << "\n";
         /* Create a 1D MPI communicator for the ring-pass on this
          * algorithm */
     }

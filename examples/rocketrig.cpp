@@ -523,7 +523,9 @@ struct MeshInitFunc
             break;
         case IC_RANDOM:
             /* XXX Use p to seed the random number generator XXX */
-            z3 = _m * (2*drand48() - 1.0);
+            /* Also need to use the Kokkos random number generator, not
+             * drand48 */
+            // z3 = _m * (2*drand48() - 1.0);
             break;
         case IC_GAUSSIAN:
         case IC_FILE:

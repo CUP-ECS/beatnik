@@ -83,11 +83,6 @@ class Mesh
              */
             global_low_corner[d] = -1 * num_nodes[d]/2;
             global_high_corner[d] = (num_nodes[d] / 2) + (num_nodes[d] % 2);
-#if 1
-	    std::cout << "Dim " << d << ": " << num_nodes[d] << " cells from "
-                      << "[ " << global_low_corner[d] << ", "
-                      << global_high_corner[d] << " )\n";
-#endif
         }
 
         // Finally, create the global mesh, global grid, and local grid.
