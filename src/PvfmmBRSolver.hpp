@@ -166,8 +166,8 @@ class PvfmmBRSolver
             Cajita::createExecutionPolicy(node_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {
             for (int n = 0; n < 3; n++) {
-                double dx_z = Operators::Dx(z, i, j, n, dx);
-                double dy_z = Operators::Dy(z, i, j, n, dy);
+                double dx_z = Operators::Dx<4>(z, i, j, n, dx);
+                double dy_z = Operators::Dy<4>(z, i, j, n, dy);
                 double kweight, lweight;
 
                 /* Compute simpson's 3/8 quadrature weight for this index */

@@ -282,15 +282,7 @@ class ZModel
     void prepareVelocities(Order::High, PositionView zdot, PositionView z, VorticityView w) const
     {
         _br->computeInterfaceVelocity(zdot, z, w);
-#if 0
-       std::cout << "Computed BR:\n";
-       for (int i = 2; i < zdot.extent_int(0) - 2; i++) {
-           for (int j = 2; j < zdot.extent_int(1) - 2; j++) {
-               std::cout << zdot(i, j, 0) << ", ";
-           }
-           std::cout << "\n";
-       }
-#endif
+       std::cout << "BR(6, 6) = " << zdot(8,8,0) << "\n";
     }
 
     // Compute the final interface velocities and normalized BR velocities
@@ -358,12 +350,15 @@ class ZModel
         // for handling the halos.
 	double dx = _dx, dy = _dy;
  
+        std::cout << "=== Derivative Calculation ===\n";
         // Phase 1: Globally-dependent bulk synchronous calculations that 
         // namely the reisz transform and/or far-field force solve to calculate
         // interface velocity and velocity normal magnitudes, using the
         // appropriate method. We do not attempt to overlap this with the 
         // mostly-local parallel calculations in phase 2
         prepareVelocities(MethodOrder(), zdot, z_view, w_view);
+
+        std::cout << "zdot(6,6,0) = " << zdot(8,8,0) << "\n";
 
         auto reisz = _reisz->view();
         double g = _g;
@@ -412,16 +407,7 @@ class ZModel
                          - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
                          - 2*g*z_view(i, j, 2);
         });
-
-#if 0
-       std::cout << "Computed V:\n";
-       for (int i = 2; i < V_view.extent_int(0) - 2; i++) {
-           for (int j = 2; j < V_view.extent_int(1) - 2; j++) {
-               std::cout << V_view(i, j, 0) << ", ";
-           }
-           std::cout << "\n";
-       }
-#endif
+        std::cout << "V(6,6) = " << V_view(8,8,0) << "\n";
 
         // 3. Phase 3: Halo V and apply boundary condtions on it, then calculate
         // central differences of V, laplacians for artificial viscosituy, and

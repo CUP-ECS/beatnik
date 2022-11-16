@@ -74,9 +74,18 @@ class ExactBRSolver
         , _dy( dy )
     {
 	// auto comm = _pm.mesh().localGrid()->globalGrid().comm();
-
+        std::cout << "ExactBRSolver epsilon = " << _epsilon << "\n"
+                  << "ExactBRSolver dx = " << _dx << "\n"
+                  << "ExactBRSolver dy = " << _dy << "\n";
         /* Create a 1D MPI communicator for the ring-pass on this
          * algorithm */
+    }
+
+    static KOKKOS_INLINE_FUNCTION double simpsonWeight(int index, int len)
+    {
+        if (index == (len - 1) || index == 0) return 3.0/8.0;
+        else if (index % 3 == 0) return 3.0/4.0;
+        else return 9.0/8.0;
     }
 
     /* Directly compute the interface velocity by integrating the vorticity 
@@ -123,19 +132,12 @@ class ExactBRSolver
             Cajita::createExecutionPolicy(pair_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j, int k, int l) {
                 double br[3];
-                double kweight, lweight;
-
 		/* Compute Simpson's 3/8 quadrature weight for this index */
-                if ((k == istart) || (k == iend - 1)) kweight = 3.0/8.0;
-                else if ((k - istart) % 3 == 0) kweight = 3.0/4.0;
-                else kweight = 9.0/8.0;
-
-                if ((l == jstart) || (l == jend - 1)) lweight = 3.0/8.0;
-                else if ((l - jstart) % 3 == 0) lweight = 3.0/4.0;
-                else lweight = 9.0/8.0;
+		double weight = simpsonWeight(k - istart, iend - istart)
+			        * simpsonWeight(l - jstart, jend - jstart);
 
 		/* Do the birchoff rott evaluation for this point */
-                Operators::BR(br, w, z, epsilon, dx, dy, kweight * lweight, i, j, k, l);
+                Operators::BR(br, w, z, epsilon, dx, dy, weight, i, j, k, l);
 
 		/* XXX If we're periodic in a dimension, do the calculation 
                  * for the periodic images of the target point, too XXX */

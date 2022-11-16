@@ -107,8 +107,6 @@ class Solver : public SolverBase
         periodic[0] = (bc.boundary_type[0] == PERIODIC);
         periodic[1] = (bc.boundary_type[1] == PERIODIC);
 
-        std::cout << "Solver num_nodes[0] = " << num_nodes[0] << ", "
-                  << "Solver num_nodes[1] = " << num_nodes[1] << "\n";
         // Create a mesh one which to do the solve and a problem manager to
         // handle state
         _mesh = std::make_unique<Mesh<ExecutionSpace, MemorySpace>>(
@@ -122,20 +120,31 @@ class Solver : public SolverBase
         // Compute dx and dy in the initial problem state XXX What should this
         // be when the mesh doesn't span the bounding box, e.g. rising bubbles?
 
+        // If we're non-periodic, there's one fewer cells than nodes (we don't have
+        // the cell which wraps around
         std::array<int, 2> num_cells = num_nodes;
         for (int i = 0; i < 2; i++)
             if (!periodic[i]) num_cells[i]--;
+
         double dx = (global_bounding_box[4] - global_bounding_box[0]) 
             / (num_cells[0]);
         double dy = (global_bounding_box[5] - global_bounding_box[1]) 
             / (num_cells[1]);
 
-        // Now adjust down mu and epsilon by sqrt(dx * dy)
+        // Adjust down mu and epsilon by sqrt(dx * dy)
         _mu = _mu * sqrt(dx * dy);
         _eps = _eps * sqrt(dx * dy);
 
-        std::cout << "Solver dx = " << dx << ", "
-                  << "Solver dy = " << dy << "\n";
+        std::cout << "===== Solver Parameters =====\n"
+                  << "num_nodes = " << num_nodes[0] << ", " << num_nodes[1] << "\n"
+                  << "num_cells = " << num_cells[0] << ", " << num_cells[1] << "\n"
+                  << "dx = " << dx << ", " << "dy = " << dy << "\n"
+                  << "dt = " << delta_t << "\n"
+                  << "g = " << _g << "\n"
+                  << "atwood = " << _atwood << "\n"
+                  << "mu = " << _mu << "\n"
+                  << "eps = " << _eps << "\n"
+                  << "=============================\n";
         // Create a problem manager to manage mesh state
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
             *_mesh, _bc, create_functor );

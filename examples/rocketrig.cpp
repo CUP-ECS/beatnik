@@ -481,21 +481,18 @@ struct MeshInitFunc
         , _m( m )
         , _v( v)
         , _p( p )
+        , _b( boundary )
     {
-        double xcells, ycells;
         if (boundary == Beatnik::BoundaryType::PERIODIC) {
-	    xcells = nodes[0];
-            ycells = nodes[1];
+	    _ncells[0] = nodes[0];
+            _ncells[1] = nodes[1];
         } else {
-	    xcells = nodes[0] - 1;
-            ycells = nodes[1] - 1;
+	    _ncells[0] = nodes[0] - 1;
+            _ncells[1] = nodes[1] - 1;
         }
 
-        x[0] = box[0];
-        x[1] = box[1];
-        x[2] = (box[2] + box[5]) / 2;
-        _dx = (box[3] - box[0]) / xcells;
-        _dy = (box[4] - box[1]) / ycells;
+        _dx = (box[3] - box[0]) / _ncells[0];
+        _dy = (box[4] - box[1]) / _ncells[1];
     };
 
     KOKKOS_INLINE_FUNCTION
@@ -504,10 +501,18 @@ struct MeshInitFunc
                      const double coord[2],
                      double &z1, double &z2, double &z3) const
     {
+        double lcoord[2];
         /* Compute the physical position of the interface from its global
          * coordinate in mesh space */
-        z1 = _dx * coord[0];
-        z2 = _dy * coord[1];
+        for (int i = 0; i < 2; i++) {
+            lcoord[i] = coord[i];
+            if (_b == BoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
+                lcoord[i] += 0.5;
+            }
+        }
+        z1 = _dx * lcoord[0];
+        z2 = _dy * lcoord[1];
+
         // We don't currently support tilting the initial interface
         switch (_i) {
         case IC_COS:
@@ -516,8 +521,11 @@ struct MeshInitFunc
         case IC_SECH2:
             z3 = _m * pow(1.0 / cosh(_p * (z1 * z1 + z2 * z2)), 2);
             break;
-        case IC_GAUSSIAN:
         case IC_RANDOM:
+            /* XXX Use p to seed the random number generator XXX */
+            z3 = _m * (2*drand48() - 1.0);
+            break;
+        case IC_GAUSSIAN:
         case IC_FILE:
             break;
         }
@@ -536,8 +544,9 @@ struct MeshInitFunc
     };
     enum InitialConditionModel _i;
     double _t, _m, _v, _p;
-    Kokkos::Array<double, 3> x;
+    Kokkos::Array<int, 3> _ncells;
     double _dx, _dy;
+    enum Beatnik::BoundaryType _b;
 };
 
 // Create Solver and Run

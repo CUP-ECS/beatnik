@@ -158,11 +158,7 @@ class ProblemManager
                 int index[2] = { i, j };
                 double coords[2];
                 local_mesh.coordinates( Cajita::Node(), index, coords);
-                /* Coordinates are set up to facilitate the reisz transform
-                 * and are integers. We adjust the coordinates before calling
-                 * the create functor so that each x/y position is just
-                 * (dx*coordinate) */
-                
+
                 create_functor( Cajita::Node(), Field::Position(), index, 
                                 coords, z(i, j, 0), z(i, j, 1), z(i, j, 2) );
                 create_functor( Cajita::Node(), Field::Vorticity(), index, 
