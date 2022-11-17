@@ -18,22 +18,38 @@ TYPED_TEST( MeshTest, BasicParameters )
     int r;
 
     MPI_Comm_rank( MPI_COMM_WORLD, &r );
-    EXPECT_EQ( this->testMesh_->rank(), r );
+    EXPECT_EQ( this->testMeshPeriodic_->rank(), r );
+    EXPECT_EQ( this->testMeshNonperiodic_->rank(), r );
 };
 
-TYPED_TEST( MeshTest, LocalGridSetup )
+TYPED_TEST( MeshTest, PeriodicGridSetup )
 {
     /* Here we check that the local grid is decomposed like
      * we think it should be. That is, the number of ghosts cells
      * is right, the index spaces for owned, ghost, and boundary
      * cells are right, and so on. */
-    auto local_grid = this->testMesh_->localGrid();
+    auto local_grid = this->testMeshPeriodic_->localGrid();
+    auto & global_grid = local_grid->globalGrid();
+    int cabana_nodes = this->boxNodes_ - 1;
+
+    for ( int i = 0; i < 2; i++ )
+    {
+        EXPECT_EQ( cabana_nodes,
+                   global_grid.globalNumEntity( Cajita::Node(), i ) );
+    }
+};
+TYPED_TEST( MeshTest, NonperiodicGridSetup )
+{
+    /* Here we check that the local grid is decomposed like
+     * we think it should be. That is, the number of ghosts cells
+     * is right, the index spaces for owned, ghost, and boundary
+     * cells are right, and so on. */
+    auto local_grid = this->testMeshNonperiodic_->localGrid();
     auto & global_grid = local_grid->globalGrid();
 
     for ( int i = 0; i < 2; i++ )
     {
-        // We're periodic, so Cells == Nodes
-        EXPECT_EQ( this->boxCells_,
+        EXPECT_EQ( this->boxNodes_,
                    global_grid.globalNumEntity( Cajita::Node(), i ) );
     }
 
@@ -43,7 +59,7 @@ TYPED_TEST( MeshTest, LocalGridSetup )
     for ( int i = 0; i < 2; i++ )
     {
         EXPECT_EQ( own_local_node_space.extent( i ),
-                   this->boxCells_ / global_grid.dimNumBlock( i ) );
+                   this->boxNodes_/ global_grid.dimNumBlock( i ) );
     }
 
     /*
@@ -54,8 +70,8 @@ TYPED_TEST( MeshTest, LocalGridSetup )
         Cajita::Ghost(), Cajita::Node(), Cajita::Local() );
     for ( int i = 0; i < 2; i++ ) {
         EXPECT_EQ( ghost_local_node_space.extent( i ),
-                   this->boxCells_ / global_grid.dimNumBlock( i ) +
-                   2 * this->haloWidth_ + 1 );
+                   this->boxNodes_ / global_grid.dimNumBlock( i ) +
+                   2 * this->haloWidth_ );
     }
 
 };

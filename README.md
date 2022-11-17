@@ -68,6 +68,7 @@ weak-scale scale up the initial problem to larger number of processes.
 ### Problem-specific command line parameters
 
   * `-n [i/j mesh dimension ]` - Number of points on the interface manifold in the I and J dimensions
+  * `-t [timesteps] - number of timesteps to simulate
   * `-I [interface initialization]` - Function to use for interface initial condition. Currently only 'cos' and 'sech2' are supported.
   * `-m [magnitude]` - The maximum magnitude of the initialization function. 
   * `-p [period]` - The number of periods of the interface in the initial bounding box
@@ -81,11 +82,11 @@ weak-scale scale up the initial problem to larger number of processes.
 The simplest test case and the one to which the rocketrig example program defaults is an initial interface distributed according to a cosine function. Simple usage examples:
   1. Serial execution: `bin/rocketrig -x serial`
   1. Cuda execution (on systems with GPUs) with a 512x512 mesh: `bin/rocketrig -x cuda -n 512`
-  1. Cuda execution with a 1024x1024 problem scaled up to be sixteen times as large in terms of bounding box and number of total points: bin/rocketrig -x cuda -n 1024 -F 0 -w 16`
+  1. Cuda execution with a 1024x1024 problem scaled up to be sixteen times as large in terms of bounding box and number of total points with no I/O: bin/rocketrig -x cuda -n 1024 -F 0 -w 16`
 
 ### Example 2: Non-periodic Single-mode Gaussian Rollup
 Another test case is a single-mode rollup test where the intitial interface is set according to a hyperbolic secant function. This testcase recreates the the gaussian perturbation results in Panda and Shkoller's paper from sections 2.3 and 2.4.  To run this testcase with a high-order model, use the following command line parameters. Note that this works best with a GPU accelerator, as the exact high-order far field force solver is very compute intensive and is generally impractical for non-trivial mesh sizes without GPU acceleration:
-`bin/rocketrig -x cuda -O high -n 64 -I sech2 -m 0.1 -p 9.0 -b free -F 1 -a 0.15 -M 2 -e 2`
+`bin/rocketrig -x cuda -O high -n 64 -I sech2 -m 0.1 -p 9.0 -b free -a 0.15 -M 2 -e 2`
 
 ## Planned Development Steps
 
