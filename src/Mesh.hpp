@@ -62,27 +62,47 @@ class Mesh
          *    matter the the order of the model, and the second is used to 
          *    calculate Reisz weights in every derivative calculation in 
          *    the low and medium order model. 
-         * 3. For a non-periodic model, the number of cells is one less thn the 
+         * 3. In periodic meshes, the last point is implicit in the Cabana
+         *    representation because it actually mirrors the first point.
+         * 4. For a non-periodic model, the number of cells is one less thn the 
          *    the number of nodes. For a periodic model, the number of cells is the 
          *    same as the number of nodes; the extra cell connects the two ends.
          */
        
-        /* Split those cells above and below 0 appropriately in to coordinates that
+        /* Split those cells above and below 0 appropriately into coordinates that
          * are used to construct reisz weights. This mainly matters for low and medium
          * order calculations and so mainly with peiodic boundary conditions */
         std::array<double, 2> global_low_corner, global_high_corner;
         for ( int d = 0; d < 2; ++d )
-        { 
+        {
             /* Even number of nodes
-             * periodic -> nnodes = 4 -> ncells = 4
-	     *             global low == -2, global high = 1 
-             *                   -> nodes = 4 (-2,-1,0,1).
-             * non-periodic -> nnodes = 4 -> ncells = 3
+             * periodic -> nnodes = 4, 3 cabana nodes - 3 cells
+	     *             global low == -1, global high = 2 
+             *                   -> nodes = (-1,-0,1).
+             * non-periodic -> nnodes = 4, 4 cabana nodes - 3 cells
              *              -> global low == -2, global high = 1 
-             *                             -> nodes = 4 (-2,-1,0,1).
-             */
-            global_low_corner[d] = -1 * num_nodes[d]/2;
-            global_high_corner[d] = (num_nodes[d] / 2) + (num_nodes[d] % 2);
+             *                             -> nodes = (-2,-1,0,1).
+             * Odd number of nodes
+             * periodic -> nnodes = 5, 4 cabana nodes - 4 cells
+	     *             global low == -2, global high = 2 
+             *                   -> nodes = (-2,-1,0,1).
+             * non-periodic -> nnodes = 5, 5 cabana nodes - 4 cells
+             *              -> global low == -2, global high = 2 
+             *                             -> nodes = (-2,-1,0,1,2).
+	     * So we always have (nnodes - 1 cells) */
+
+	    int cabana_nodes = num_nodes[d] - (periodic[d] ? 1 : 0);
+
+            global_low_corner[d] = -cabana_nodes/2;
+            global_high_corner[d] = global_low_corner[d] + num_nodes[d] - 1;
+#ifdef DEBUG
+            std::cout << "Dim " << d << ": " 
+                      << num_nodes[d] << " nodes, "
+                      << cabana_nodes << " cabana nodes, "
+                      << " [ " << global_low_corner[d]
+                      << ", " << global_high_corner[d] << " ]"
+                      << "\n";
+#endif
         }
 
         // Finally, create the global mesh, global grid, and local grid.

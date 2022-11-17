@@ -483,13 +483,8 @@ struct MeshInitFunc
         , _p( p )
         , _b( boundary )
     {
-        if (boundary == Beatnik::BoundaryType::PERIODIC) {
-	    _ncells[0] = nodes[0];
-            _ncells[1] = nodes[1];
-        } else {
-	    _ncells[0] = nodes[0] - 1;
-            _ncells[1] = nodes[1] - 1;
-        }
+	_ncells[0] = nodes[0] - 1;
+        _ncells[1] = nodes[1] - 1;
 
         _dx = (box[3] - box[0]) / _ncells[0];
         _dy = (box[4] - box[1]) / _ncells[1];
