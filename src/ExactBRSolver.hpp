@@ -96,28 +96,13 @@ class ExactBRSolver
 
         /* Start by zeroing the interface velocity */
         
-        /* Get an atomic view of the interface velocity */
+        /* Get an atomic view of the interface velocity, since each k/l point
+         * is going to be updating it in parallel */
         Kokkos::View<double ***,
              typename PositionView::device_type,
              Kokkos::MemoryTraits<Kokkos::Atomic>> atomic_zdot = zdot;
     
-        /* Parallel loop over each point of the interface
-         * For each point on the interface
-         *   Loop over each of interface higher in layout order than we are
-         *   For each pair of this point and target point
-         *      1. Compute the BR force between this point and the target point
-         *      2. The point with the computed force
-         *      3. Use atomics to update the destination point with the inverse target force
-         *    points we've been working on */
-        double epsilon = _epsilon;
-        int istart = node_space.min(0), jstart = node_space.min(1);
-        int iend = node_space.max(0), jend = node_space.max(1);
-        double dx = _dx, dy = _dy;
-
-        auto pair_space = Operators::crossIndexSpace(node_space, node_space);
-
-        /* Right now we brute fore all of the points with no tiling to improve
-         * memory access or optimizations to remove duplicate calculations. */
+        /* Zero out all of the i/j points - XXX Is this needed are is this already zeroed somewhere else? */
 	Kokkos::parallel_for("Exact BR Zero Loop",
 	    Cajita::createExecutionPolicy(node_space, ExecutionSpace()),
 	    KOKKOS_LAMBDA(int i, int j) {
@@ -125,23 +110,69 @@ class ExactBRSolver
 	        atomic_zdot(i, j, n) = 0.0;
 	});
 
+        /* Project the birchoff rott calculation between all pairs of points on the 
+         * interface, including accounting for any periodic boundary conditions.
+         * Right now we brute fore all of the points with no tiling to improve
+         * memory access or optimizations to remove duplicate calculations. */
+
+        /* Figure out which directions we need to project the k/l point to
+         * for any periodic boundary conditions */
+        int kstart, lstart, kend, lend;
+        if (_bc.isPeriodicBoundary({0, 1})) {
+            kstart = -1; kend = 1;
+        } else {
+            kstart = kend = 0;
+        }
+        if (_bc.isPeriodicBoundary({1, 1})) {
+            lstart = -1; lend = 1;
+        } else {
+            lstart = lend = 0;
+        }
+
+        /* Figure out how wide the bounding box is in each direction */
+        auto low = _pm.mesh().boundingBoxMin();
+        auto high = _pm.mesh().boundingBoxMax();;
+        double width[3];
+        for (int d = 0; d < 3; d++) {
+            width[d] = high[d] - low[d];
+        }
+
+        /* Local temporaries for any instance variables we need so that we
+         * don't have to lambda-capture "this" */
+        double epsilon = _epsilon;
+        int istart = node_space.min(0), jstart = node_space.min(1);
+        int iend = node_space.max(0), jend = node_space.max(1);
+        double dx = _dx, dy = _dy;
+
+        /* Now loop over the cross product of all the node on the interface */
+        auto pair_space = Operators::crossIndexSpace(node_space, node_space);
         Kokkos::parallel_for("Exact BR Force Loop",
             Cajita::createExecutionPolicy(pair_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j, int k, int l) {
-                double br[3];
+                double brsum[3] = {0.0, 0.0, 0.0};;
 		/* Compute Simpson's 3/8 quadrature weight for this index */
 		double weight = simpsonWeight(k - istart, iend - istart)
 			        * simpsonWeight(l - jstart, jend - jstart);
 
-		/* Do the birchoff rott evaluation for this point */
-                Operators::BR(br, w, z, epsilon, dx, dy, weight, i, j, k, l);
-
-		/* XXX If we're periodic in a dimension, do the calculation 
-                 * for the periodic images of the target point, too XXX */
+                /* We already have N^4 parallelism, so no need to parallelize on 
+                 * the BR periodic points. Instead we serialize this in each thread
+                 * and reuse the fetch of the i/j and k/l points */
+                for (int kdir = kstart; kdir <= kend; kdir++) {
+                    for (int ldir = lstart; ldir <= lend; ldir++) {
+                        double offset[3] = {0.0, 0.0, 0.0}, br[3];
+                        offset[0] = kdir * width[0];
+                        offset[1] = ldir * width[1];
+		        /* Do the birchoff rott evaluation for this point */
+                        Operators::BR(br, w, z, epsilon, dx, dy, weight, i, j, k, l, offset);
+                        for (int d = 0; d < 3; d++) {
+                            brsum[d] += br[d];
+                        }
+                    }
+                }
 
                 /* Add it its contribution to the integral */
                 for (int n = 0; n < 3; n++)
-                    atomic_zdot(i, j, n) += br[n];
+                    atomic_zdot(i, j, n) += brsum[n];
         }); 
     } 
 
