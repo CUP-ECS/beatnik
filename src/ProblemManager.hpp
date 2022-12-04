@@ -203,7 +203,7 @@ class ProblemManager
     void gather( ) const
     {
         _surface_halo->gather( ExecutionSpace(), *_position, *_vorticity );
-        _bc.correctHalo(_mesh, *_position, *_vorticity);
+        _bc.applyPositionVorticity(_mesh, *_position, *_vorticity);
     };
 
     /**
@@ -213,7 +213,7 @@ class ProblemManager
     void gather( node_array &position, node_array &vorticity) const
     {
         _surface_halo->gather( ExecutionSpace(), position, vorticity );
-        _bc.correctHalo(_mesh, position, vorticity);
+        _bc.applyPositionVorticity(_mesh, position, vorticity);
     }
 
 #if 0
