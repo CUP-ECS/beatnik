@@ -401,13 +401,13 @@ class ZModel
         });
 
         // 3. Phase 3: Halo V and apply boundary condtions on it, then calculate
-        // central differences of V, laplacians for artificial viscosituy, and
+        // central differences of V, laplacians for artificial viscosity, and
         // put it all together to calcualte the final vorticity derivative.
 
-        _v_halo->gather( ExecutionSpace(), *_V );
-
-        // XXX We need to project V into the boundary here for non-periodic 
-        // boundary conditions XXX
+        // Halo V and correct any boundary condition corrections so that we can compute
+        // finite differences correctly.
+        _v_halo->gather( ExecutionSpace(), *_V);
+        _bc.applyScalar( _pm.mesh(), *_V );
 
         double mu = _mu;
         Kokkos::parallel_for( "Interface Vorticity",
