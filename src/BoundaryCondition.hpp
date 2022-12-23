@@ -20,7 +20,7 @@
 #define BEATNIK_BOUNDARYCONDITIONS_HPP
 
 #ifndef DEBUG
-#define DEBUG 0
+#define DEBUG 1
 #endif
 
 // Include Statements
@@ -96,8 +96,9 @@ struct BoundaryCondition
 
                 std::array<int, 2> dir = {i, j};
                 if (isPeriodicBoundary(dir)) {
-                    /* For periodic boundaries, the halo exchange takes care of most
-                     * everything *except* the position, which we correct here */
+                    /* For periodic boundaries, the halo exchange takes care of 
+                     * most everything *except* the position, which we correct 
+                     * here */
                     auto periodic_space = mesh.periodicIndexSpace(Cajita::Ghost(), 
                         Cajita::Node(), dir);
                     auto z = position.view();
@@ -117,9 +118,8 @@ struct BoundaryCondition
                     });
                 } else if (isFreeBoundary(dir)) {
                     /* For free boundaries, we have to extrapolate from the mesh
-                     * into the boundary to support finite diffrencing and laplacian
-                     * calculations near the boundary. We use Cajita's spline functionality
-                     * to do this. */
+                     * into the boundary to support finite diffrencing and 
+                     * laplacian calculations near the boundary. */
 		    
                     auto boundary_space = local_grid.boundaryIndexSpace(Cajita::Ghost(), 
                         Cajita::Node(), dir);
@@ -134,18 +134,30 @@ struct BoundaryCondition
 
 			/* Find the two points in the interior we want to 
 			 * extrapolate from based on the direction and how far 
-                         * we are from the interior */
+                         * we are from the interior.  
+                         * 
+                         * XXX Right now we always go two points aways since
+                         * we have a 2-deep halo. This guarantees to get us out
+                         * of the boundary, but may take us further into the the
+                         * mesh than we want. We should instead Figuring out dist 
+                         * to go just to the edge of the boundary and linearly 
+                         * extrapolate from that. XXX */
 			int p1[2], p2[2];
-                        p1[0] = k - kdir[0]*2; 
-                        p1[1] = l - kdir[1]*2; 
-                        p2[0] = k - kdir[0]*3; 
-                        p2[1] = l - kdir[1]*3; 
-
-			z(k, l, 0) = 2*z(p2[0], p2[1], 0) - z(p1[0], p1[1], 0);
-			z(k, l, 1) = 2*z(p2[0], p2[1], 1) - z(p1[0], p1[1], 1);
-			z(k, l, 2) = 2*z(p2[0], p2[1], 2) - z(p1[0], p1[1], 2);
-			w(k, l, 0) = 2*w(p2[0], p2[1], 0) - w(p1[0], p1[1], 0);
-			w(k, l, 1) = 2*w(p2[0], p2[1], 1) - w(p1[0], p1[1], 1);
+                        int dist = 2; 
+                        p1[0] = k - kdir[0]*(dist); 
+                        p1[1] = l - kdir[1]*(dist); 
+                        p2[0] = k - kdir[0]*(dist + 1); 
+                        p2[1] = l - kdir[1]*(dist + 1); 
+                        for (int d = 0; d < 3; d++) {
+			    z(k, l, d) = z(p1[0], p1[1], d) 
+                                         + dist*(z(p2[0], p2[1], d) 
+                                                 - z(p1[0], p1[1], d));
+                        }
+                        for (int d = 0; d < 2; d++) {
+			    w(k, l, d) = w(p1[0], p1[1], d) 
+                                         + dist*(w(p2[0], p2[1], d) 
+                                                 - w(p1[0], p1[1], d));
+                        }
                     });
                 }
             }
@@ -166,12 +178,12 @@ struct BoundaryCondition
                 if (i == 0 && j == 0) continue;
 
                 std::array<int, 2> dir = {i, j};
-		/* For periodic boundaries, nothing needs doing for general scalar values */
+		/* For periodic boundaries, nothing needs doing for general 
+                 * scalar values */
                 if (isFreeBoundary(dir)) {
                     /* For free boundaries, we have to extrapolate from the mesh
                      * into the boundary to support finite diffrencing and laplacian
-                     * calculations near the boundary. We use Cajita's spline functionality
-                     * to do this. */
+                     * calculations near the boundary. */
 		    
                     auto boundary_space = local_grid.boundaryIndexSpace(Cajita::Ghost(), 
                         Cajita::Node(), dir);
@@ -181,16 +193,25 @@ struct BoundaryCondition
                                          Cajita::createExecutionPolicy(boundary_space, 
                                          exec_space()),
                                          KOKKOS_LAMBDA(int k, int l) {
-                        /* Get the global i/j location of the point we're working on */
-                        /* Find the two points in the interior we want to
-                         * extrapolate from based on the direction and how far
-                         * we are from the interior */
+			/* Find the two points in the interior we want to 
+			 * extrapolate from based on the direction and how far 
+                         * we are from the interior.  
+                         * 
+                         * XXX Right now we always go two points aways since
+                         * we have a 2-deep halo. This guarantees to get us out
+                         * of the boundary, but may take us further into the the
+                         * mesh than we want. We should instead Figuring out dist 
+                         * to go just to the edge of the boundary and linearly 
+                         * extrapolate from that. XXX */
                         int p1[2], p2[2];
-                        p1[0] = k - kdir[0]*2;
-                        p2[0] = k - kdir[0]*3;
-                        p1[1] = l - kdir[1]*2;
-                        p2[1] = l - kdir[1]*3;
-			s(k, l, 0) = 2*s(p2[0], p2[1], 0) - s(p1[0], p1[1], 0);
+                        int dist = 2; 
+                        p1[0] = k - kdir[0]*(dist); 
+                        p1[1] = l - kdir[1]*(dist); 
+                        p2[0] = k - kdir[0]*(dist + 1); 
+                        p2[1] = l - kdir[1]*(dist + 1); 
+			s(k, l, 0) = s(p1[0], p1[1], 0) 
+                                     + dist*(s(p2[0], p2[1], 0) 
+                                                 - s(p1[0], p1[1], 0));
                     });
                 }
             }

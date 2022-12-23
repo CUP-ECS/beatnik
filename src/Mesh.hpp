@@ -95,7 +95,7 @@ class Mesh
 
             global_low_corner[d] = -cabana_nodes/2;
             global_high_corner[d] = global_low_corner[d] + num_nodes[d] - 1;
-#ifdef DEBUG
+#if 0
             std::cout << "Dim " << d << ": " 
                       << num_nodes[d] << " nodes, "
                       << cabana_nodes << " cabana nodes, "

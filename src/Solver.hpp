@@ -120,8 +120,8 @@ class Solver : public SolverBase
         // Compute dx and dy in the initial problem state XXX What should this
         // be when the mesh doesn't span the bounding box, e.g. rising bubbles?
 
-        // If we're non-periodic, there's one fewer cells than nodes (we don't have
-        // the cell which wraps around
+        // If we're non-periodic, there's one fewer cells than nodes (we don't 
+        // have the cell which wraps around
         std::array<int, 2> num_cells = num_nodes;
         for (int i = 0; i < 2; i++)
             if (!periodic[i]) num_cells[i]--;
@@ -135,9 +135,8 @@ class Solver : public SolverBase
         _mu = _mu * sqrt(dx * dy);
         _eps = _eps * sqrt(dx * dy);
 
+#if 0
         std::cout << "===== Solver Parameters =====\n"
-                  << "num_nodes = " << num_nodes[0] << ", " << num_nodes[1] << "\n"
-                  << "num_cells = " << num_cells[0] << ", " << num_cells[1] << "\n"
                   << "dx = " << dx << ", " << "dy = " << dy << "\n"
                   << "dt = " << delta_t << "\n"
                   << "g = " << _g << "\n"
@@ -145,6 +144,7 @@ class Solver : public SolverBase
                   << "mu = " << _mu << "\n"
                   << "eps = " << _eps << "\n"
                   << "=============================\n";
+#endif
         // Create a problem manager to manage mesh state
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
             *_mesh, _bc, create_functor );
