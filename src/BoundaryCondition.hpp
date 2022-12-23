@@ -81,8 +81,7 @@ struct BoundaryCondition
     /* Because we store a position field in the mesh, the position has to
      * be corrected after haloing if it's a periodic boundary */
     template <class MeshType, class ArrayType> 
-    void applyPositionVorticity(const MeshType &mesh, ArrayType position, 
-                                ArrayType vorticity) const
+    void applyPosition(const MeshType &mesh, ArrayType position) const
     {
         using exec_space = typename ArrayType::execution_space;
 
@@ -125,9 +124,8 @@ struct BoundaryCondition
                         Cajita::Node(), dir);
 
                     auto z = position.view();
-                    auto w = vorticity.view();
                     Kokkos::Array<int, 2> kdir = {i, j};
-                    Kokkos::parallel_for("Position/vorticity boundary extrapolation", 
+                    Kokkos::parallel_for("Position boundary extrapolation", 
                                          Cajita::createExecutionPolicy(boundary_space, 
                                          exec_space()),
                                          KOKKOS_LAMBDA(int k, int l) {
@@ -153,19 +151,16 @@ struct BoundaryCondition
                                          + dist*(z(p2[0], p2[1], d) 
                                                  - z(p1[0], p1[1], d));
                         }
-                        for (int d = 0; d < 2; d++) {
-			    w(k, l, d) = w(p1[0], p1[1], d) 
-                                         + dist*(w(p2[0], p2[1], d) 
-                                                 - w(p1[0], p1[1], d));
-                        }
                     });
                 }
             }
         }
     }  
 
+    /* Apply boundary conditions to a generic field with DOF elements that doesn't
+     * require special handling */
     template <class MeshType, class ArrayType> 
-    void applyScalar(const MeshType &mesh, ArrayType scalar) const
+    void applyField(const MeshType &mesh, ArrayType field, int dof) const
     {
         using exec_space = typename ArrayType::execution_space;
 
@@ -178,8 +173,10 @@ struct BoundaryCondition
                 if (i == 0 && j == 0) continue;
 
                 std::array<int, 2> dir = {i, j};
-		/* For periodic boundaries, nothing needs doing for general 
-                 * scalar values */
+		/* For periodic boundaries, nothing needs doing for general fields */
+
+                /* For free boundaries, we linearl extrapolate the field into the 
+                 * boundary */
                 if (isFreeBoundary(dir)) {
                     /* For free boundaries, we have to extrapolate from the mesh
                      * into the boundary to support finite diffrencing and laplacian
@@ -187,9 +184,9 @@ struct BoundaryCondition
 		    
                     auto boundary_space = local_grid.boundaryIndexSpace(Cajita::Ghost(), 
                         Cajita::Node(), dir);
-                    auto s = scalar.view();
+                    auto f = field.view();
                     Kokkos::Array<int, 2> kdir = {i, j};
-                    Kokkos::parallel_for("Scalar boundary extrapolation", 
+                    Kokkos::parallel_for("Field boundary extrapolation", 
                                          Cajita::createExecutionPolicy(boundary_space, 
                                          exec_space()),
                                          KOKKOS_LAMBDA(int k, int l) {
@@ -209,9 +206,11 @@ struct BoundaryCondition
                         p1[1] = l - kdir[1]*(dist); 
                         p2[0] = k - kdir[0]*(dist + 1); 
                         p2[1] = l - kdir[1]*(dist + 1); 
-			s(k, l, 0) = s(p1[0], p1[1], 0) 
-                                     + dist*(s(p2[0], p2[1], 0) 
-                                                 - s(p1[0], p1[1], 0));
+                        for (int d = 0; d < dof; d++) {
+			    f(k, l, 0) = f(p1[0], p1[1], d) 
+                                         + dist*(f(p2[0], p2[1], d) 
+                                                     - f(p1[0], p1[1], d));
+                        }
                     });
                 }
             }
