@@ -96,7 +96,7 @@ class ZModel
         auto node_triple_layout =
             Cajita::createArrayLayout( _pm.mesh().localGrid(), 3, Cajita::Node() );
         auto node_scalar_layout =
-            Cajita::createArrayLayout( _pm.mesh().localGrid(), 3, Cajita::Node() );
+            Cajita::createArrayLayout( _pm.mesh().localGrid(), 1, Cajita::Node() );
 
         // Temporary used for central differencing of vorticities along the 
         // surface in calculating the vorticity derivative/
