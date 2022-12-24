@@ -29,6 +29,7 @@
 
 #include <pmpio.h>
 #include <silo.h>
+#include <sys/stat.h>
 
 namespace Beatnik
 {
@@ -325,8 +326,8 @@ class SiloWriter
         int size;
         int driver = DB_PDB;
         const char* file_ext = "silo";
-        // TODO: Make the Number of Groups a Constant or a Runtime Parameter (
-        // Between 8 and 64 )
+        // TODO: XXX Make the Number of Groups a Constant or a Runtime Parameter (
+        // Between 8 and 64 ) XXX
         int numGroups = 2;
         char masterfilename[256], filename[256], nsname[256];
         PMPIO_baton_t* baton;
@@ -339,6 +340,24 @@ class SiloWriter
         baton =
             PMPIO_Init( numGroups, PMPIO_WRITE, MPI_COMM_WORLD, 1,
                         createSiloFile, openSiloFile, closeSiloFile, &driver );
+
+        // Make sure directories for output exist
+        if (mkdir("data", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) {
+            if( errno != EEXIST ) {
+                // something else
+                std::cerr << "cannot create data directory. error:" 
+                          << strerror(errno) << std::endl;
+                throw std::runtime_error( strerror(errno) );
+            }
+        }
+        if (mkdir("data/raw", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) {
+            if( errno != EEXIST ) {
+                // something else
+                std::cerr << "cannot create raw data directory. Error:" 
+                          << strerror(errno) << std::endl;
+                throw std::runtime_error( strerror(errno) );
+            }
+        }
 
         // Set Filename to Reflect TimeStep
         sprintf( masterfilename, "data/Beatnik%05d.%s", time_step,
