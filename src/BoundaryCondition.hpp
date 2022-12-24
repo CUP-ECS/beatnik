@@ -78,18 +78,90 @@ struct BoundaryCondition
         return false;
     }
 
-    /* Because we store a position field in the mesh, the position has to
-     * be corrected after haloing if it's a periodic boundary */
+    /* Apply boundary conditions to a generic field with DOF elements that 
+     * doesn't require special handling */
     template <class MeshType, class ArrayType> 
-    void applyPositionVorticity(const MeshType &mesh, ArrayType position, 
-                                ArrayType vorticity) const
+    void applyField(const MeshType &mesh, ArrayType field, int dof) const
     {
         using exec_space = typename ArrayType::execution_space;
 
         auto local_grid = *(mesh.localGrid());
 
-        /* Loop through the directions. If it's periodic, we get the periodic index
-         * space. If its not periodic, we get the boundary index space */
+        /* Loop through the directions to correct boundary index spaces when
+         * needed. */
+        for (int i = -1; i < 2; i++) {
+            for (int j = -1; j < 2; j++) {
+                if (i == 0 && j == 0) continue;
+
+                std::array<int, 2> dir = {i, j};
+		// In general, halo exchange takes care of periodic boundaries
+
+                /* For free boundaries, we linearly extrapolate the field into 
+                 * the boundary */
+                if (isFreeBoundary(dir)) {
+                    /* For free boundaries, we have to extrapolate from the mesh
+                     * into the boundary to support finite diffrencing and 
+                     * laplacian calculations near the boundary. */
+		    
+                    // Variables we'll want in the parallel for loop.
+                    auto f = field.view();
+                    Kokkos::Array<int, 2> kdir = {i, j};
+
+                    /* We want the boundaryIndexSpace of ghosts to loop over. 
+                     * However, it can give bounds that cause us to walk off 
+                     * the top end of the view, so adjust appropriately until 
+                     * we figure out why and how to fix this. XXX */
+                    auto boundary_space 
+                        = local_grid.boundaryIndexSpace(Cajita::Ghost(), 
+                              Cajita::Node(), dir);
+                    std::array<long,2> min, max;
+                    for (int d = 0; d < 2; d++) {
+                        int fext = f.extent(d);
+                        min[d] = boundary_space.min(d);
+                        max[d] = (boundary_space.max(d) > fext) 
+                                     ? fext : boundary_space.max(d);
+                    }
+                    boundary_space = Cajita::IndexSpace<2>(min, max);
+                    Kokkos::parallel_for("Field boundary extrapolation", 
+                                         Cajita::createExecutionPolicy(boundary_space, 
+                                         exec_space()),
+                                         KOKKOS_LAMBDA(int k, int l) {
+			/* Find the two points in the interior we want to 
+			 * extrapolate from based on the direction and how far 
+                         * we are from the interior.  
+                         * 
+                         * XXX Right now we always go two points aways since
+                         * we have a 2-deep halo. This guarantees to get us out
+                         * of the boundary, but may take us further into the the
+                         * mesh than we want. We should instead Figuring out dist 
+                         * to go just to the edge of the boundary and linearly 
+                         * extrapolate from that. XXX */
+                        int p1[2], p2[2];
+                        int dist = 2; 
+                        p1[0] = k - kdir[0]*(dist); 
+                        p1[1] = l - kdir[1]*(dist); 
+                        p2[0] = k - kdir[0]*(dist + 1); 
+                        p2[1] = l - kdir[1]*(dist + 1); 
+                        for (int d = 0; d < dof; d++) {
+			    f(k, l, 0) = f(p1[0], p1[1], d) 
+                                         + dist*(f(p2[0], p2[1], d) 
+                                                     - f(p1[0], p1[1], d));
+                        }
+                    });
+                }
+            }
+        }
+    } 
+    /* Because we store a position field in the mesh, the position has to
+     * be corrected after haloing if it's a periodic boundary */
+    template <class MeshType, class ArrayType> 
+    void applyPosition(const MeshType &mesh, ArrayType position) const
+    {
+        using exec_space = typename ArrayType::execution_space;
+
+        auto local_grid = *(mesh.localGrid());
+
+        /* Loop through the directions to correct periodic boundaries */
         for (int i = -1; i < 2; i++) {
             for (int j = -1; j < 2; j++) {
                 if (i == 0 && j == 0) continue;
@@ -116,107 +188,13 @@ struct BoundaryCondition
                             z(k, l, d) += kdir[d] * diff[d];
                         }
                     });
-                } else if (isFreeBoundary(dir)) {
-                    /* For free boundaries, we have to extrapolate from the mesh
-                     * into the boundary to support finite diffrencing and 
-                     * laplacian calculations near the boundary. */
-		    
-                    auto boundary_space = local_grid.boundaryIndexSpace(Cajita::Ghost(), 
-                        Cajita::Node(), dir);
-
-                    auto z = position.view();
-                    auto w = vorticity.view();
-                    Kokkos::Array<int, 2> kdir = {i, j};
-                    Kokkos::parallel_for("Position/vorticity boundary extrapolation", 
-                                         Cajita::createExecutionPolicy(boundary_space, 
-                                         exec_space()),
-                                         KOKKOS_LAMBDA(int k, int l) {
-
-			/* Find the two points in the interior we want to 
-			 * extrapolate from based on the direction and how far 
-                         * we are from the interior.  
-                         * 
-                         * XXX Right now we always go two points aways since
-                         * we have a 2-deep halo. This guarantees to get us out
-                         * of the boundary, but may take us further into the the
-                         * mesh than we want. We should instead Figuring out dist 
-                         * to go just to the edge of the boundary and linearly 
-                         * extrapolate from that. XXX */
-			int p1[2], p2[2];
-                        int dist = 2; 
-                        p1[0] = k - kdir[0]*(dist); 
-                        p1[1] = l - kdir[1]*(dist); 
-                        p2[0] = k - kdir[0]*(dist + 1); 
-                        p2[1] = l - kdir[1]*(dist + 1); 
-                        for (int d = 0; d < 3; d++) {
-			    z(k, l, d) = z(p1[0], p1[1], d) 
-                                         + dist*(z(p2[0], p2[1], d) 
-                                                 - z(p1[0], p1[1], d));
-                        }
-                        for (int d = 0; d < 2; d++) {
-			    w(k, l, d) = w(p1[0], p1[1], d) 
-                                         + dist*(w(p2[0], p2[1], d) 
-                                                 - w(p1[0], p1[1], d));
-                        }
-                    });
                 }
             }
         }
+        /* Use applyField to correct free boundaries */
+        applyField(mesh, position, 3);
     }  
 
-    template <class MeshType, class ArrayType> 
-    void applyScalar(const MeshType &mesh, ArrayType scalar) const
-    {
-        using exec_space = typename ArrayType::execution_space;
-
-        auto local_grid = *(mesh.localGrid());
-
-        /* Loop through the directions. If it's periodic, we get the periodic index
-         * space. If its not periodic, we get the boundary index space */
-        for (int i = -1; i < 2; i++) {
-            for (int j = -1; j < 2; j++) {
-                if (i == 0 && j == 0) continue;
-
-                std::array<int, 2> dir = {i, j};
-		/* For periodic boundaries, nothing needs doing for general 
-                 * scalar values */
-                if (isFreeBoundary(dir)) {
-                    /* For free boundaries, we have to extrapolate from the mesh
-                     * into the boundary to support finite diffrencing and laplacian
-                     * calculations near the boundary. */
-		    
-                    auto boundary_space = local_grid.boundaryIndexSpace(Cajita::Ghost(), 
-                        Cajita::Node(), dir);
-                    auto s = scalar.view();
-                    Kokkos::Array<int, 2> kdir = {i, j};
-                    Kokkos::parallel_for("Scalar boundary extrapolation", 
-                                         Cajita::createExecutionPolicy(boundary_space, 
-                                         exec_space()),
-                                         KOKKOS_LAMBDA(int k, int l) {
-			/* Find the two points in the interior we want to 
-			 * extrapolate from based on the direction and how far 
-                         * we are from the interior.  
-                         * 
-                         * XXX Right now we always go two points aways since
-                         * we have a 2-deep halo. This guarantees to get us out
-                         * of the boundary, but may take us further into the the
-                         * mesh than we want. We should instead Figuring out dist 
-                         * to go just to the edge of the boundary and linearly 
-                         * extrapolate from that. XXX */
-                        int p1[2], p2[2];
-                        int dist = 2; 
-                        p1[0] = k - kdir[0]*(dist); 
-                        p1[1] = l - kdir[1]*(dist); 
-                        p2[0] = k - kdir[0]*(dist + 1); 
-                        p2[1] = l - kdir[1]*(dist + 1); 
-			s(k, l, 0) = s(p1[0], p1[1], 0) 
-                                     + dist*(s(p2[0], p2[1], 0) 
-                                                 - s(p1[0], p1[1], 0));
-                    });
-                }
-            }
-        }
-    } 
 
     Kokkos::Array<double, 6> bounding_box;
     Kokkos::Array<int, 4> boundary_type; /**< Boundary condition type on all surface edges  */

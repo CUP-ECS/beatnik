@@ -96,7 +96,7 @@ class ZModel
         auto node_triple_layout =
             Cajita::createArrayLayout( _pm.mesh().localGrid(), 3, Cajita::Node() );
         auto node_scalar_layout =
-            Cajita::createArrayLayout( _pm.mesh().localGrid(), 3, Cajita::Node() );
+            Cajita::createArrayLayout( _pm.mesh().localGrid(), 1, Cajita::Node() );
 
         // Temporary used for central differencing of vorticities along the 
         // surface in calculating the vorticity derivative/
@@ -404,10 +404,10 @@ class ZModel
         // central differences of V, laplacians for artificial viscosity, and
         // put it all together to calcualte the final vorticity derivative.
 
-        // Halo V and correct any boundary condition corrections so that we can compute
-        // finite differences correctly.
+        // Halo V and correct any boundary condition corrections so that we can 
+        // compute finite differences correctly.
         _v_halo->gather( ExecutionSpace(), *_V);
-        _bc.applyScalar( _pm.mesh(), *_V );
+        _bc.applyField( _pm.mesh(), *_V, 1 );
 
         double mu = _mu;
         Kokkos::parallel_for( "Interface Vorticity",
