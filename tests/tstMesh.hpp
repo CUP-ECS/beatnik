@@ -38,23 +38,29 @@ class MeshTest : public ::testing::Test
     virtual void SetUp() override
     {
         // Allocate and initialize the Cajita mesh
-        globalNumCells_ = { boxCells_ , boxCells_ };
+        globalNumNodes_ = { boxNodes_, boxNodes_ };
         globalBoundingBox_ = {-1, -1, -1, 1, 1, 1};
-        testMesh_ = std::make_unique<mesh_type>( globalBoundingBox_, globalNumCells_, periodic_, 
-                        partitioner_, haloWidth_, MPI_COMM_WORLD );
+
+        std::array<bool, 2> periodic_ = {true, true};
+        testMeshPeriodic_ = std::make_unique<mesh_type>( globalBoundingBox_, globalNumNodes_, periodic_, 
+                                partitioner_, haloWidth_, MPI_COMM_WORLD );
+
+        periodic_ = {false, false};
+        testMeshNonperiodic_ = std::make_unique<mesh_type>( globalBoundingBox_, globalNumNodes_, periodic_, 
+                                partitioner_, haloWidth_, MPI_COMM_WORLD );
     }
 
-    virtual void TearDown() override { testMesh_ = NULL; }
+    virtual void TearDown() override { testMeshPeriodic_ = NULL; testMeshNonperiodic_ = NULL; }
 
     std::array<double, 6> globalBoundingBox_;
-    std::array<int, 2> globalNumCells_;
-    const std::array<bool, 2> periodic_ = {true, true};
+    std::array<int, 2> globalNumNodes_;
     const double boxWidth_ = 1.0;
     const int haloWidth_ = 2;
-    const int boxCells_ = 512;
+    const int boxNodes_ = 512;
     Cajita::DimBlockPartitioner<2> partitioner_;
 
-    std::unique_ptr<mesh_type> testMesh_;
+    std::unique_ptr<mesh_type> testMeshPeriodic_;
+    std::unique_ptr<mesh_type> testMeshNonperiodic_;
 };
 
 #endif // _TSTMESH_HPP_

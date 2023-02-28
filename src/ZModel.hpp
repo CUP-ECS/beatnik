@@ -96,7 +96,7 @@ class ZModel
         auto node_triple_layout =
             Cajita::createArrayLayout( _pm.mesh().localGrid(), 3, Cajita::Node() );
         auto node_scalar_layout =
-            Cajita::createArrayLayout( _pm.mesh().localGrid(), 3, Cajita::Node() );
+            Cajita::createArrayLayout( _pm.mesh().localGrid(), 1, Cajita::Node() );
 
         // Temporary used for central differencing of vorticities along the 
         // surface in calculating the vorticity derivative/
@@ -162,17 +162,23 @@ class ZModel
      *    to the parallel loop that performs this calculation. 
      */
 
-    /* SHould rework this to a better ordering that takes into account the
-       parity of numnodes */
     KOKKOS_INLINE_FUNCTION
     static double reiszWeight(double i, int numnodes)
     {
-	if (i < 0) {
-            return numnodes/2 + i;
-        } else if (i > 0)  {
-            return i - numnodes/2;
+        if (numnodes % 2 == 0) {
+	    if (i < 0) {
+                return numnodes/2 + i;
+            } else if (i > 0)  {
+                return i - numnodes/2;
+            } else {
+                return i;
+            }
         } else {
-            return i;
+	    if (i <= 0) {
+                return (numnodes - 1)/2 + i;
+            } else {
+                return i - (numnodes - 1)/2 - 1;
+            }
         }
     }
 
@@ -308,7 +314,7 @@ class ZModel
     }
  
     // External entry point from the TimeIntegration object that uses the
-    // peroblem manager state.
+    // problem manager state.
     template <class PositionView, class VorticityView>
     void computeDerivatives( PositionView zdot, VorticityView wdot ) const
     {
@@ -395,13 +401,13 @@ class ZModel
         });
 
         // 3. Phase 3: Halo V and apply boundary condtions on it, then calculate
-        // central differences of V, laplacians for artificial viscosituy, and
+        // central differences of V, laplacians for artificial viscosity, and
         // put it all together to calcualte the final vorticity derivative.
 
-        _v_halo->gather( ExecutionSpace(), *_V );
-
-        // XXX We need to project V into the boundary here for non-periodic 
-        // boundary conditions XXX
+        // Halo V and correct any boundary condition corrections so that we can 
+        // compute finite differences correctly.
+        _v_halo->gather( ExecutionSpace(), *_V);
+        _bc.applyField( _pm.mesh(), *_V, 1 );
 
         double mu = _mu;
         Kokkos::parallel_for( "Interface Vorticity",
@@ -414,6 +420,7 @@ class ZModel
             wdot(i, j, 0) = A * dx_v + mu * lap_w0;
             wdot(i, j, 1) = A * dy_v + mu * lap_w1;
         });
+
     }
 
   private:

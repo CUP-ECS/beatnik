@@ -125,8 +125,10 @@ class ProblemManager
         _surface_halo = Cajita::createHalo( Cajita::NodeHaloPattern<2>(), 
                             halo_depth, *_position, *_vorticity);
 
-        // Initialize State Values ( quantity and velocity )
+        // Initialize State Values ( position and vorticity ) and 
+        // then do a halo to make sure the ghosts and boundaries are correct.
         initialize( create_functor );
+        gather();
     }
 
     /**
@@ -158,7 +160,7 @@ class ProblemManager
                 int index[2] = { i, j };
                 double coords[2];
                 local_mesh.coordinates( Cajita::Node(), index, coords);
-                // Initialization Function
+
                 create_functor( Cajita::Node(), Field::Position(), index, 
                                 coords, z(i, j, 0), z(i, j, 1), z(i, j, 2) );
                 create_functor( Cajita::Node(), Field::Vorticity(), index, 
@@ -203,7 +205,8 @@ class ProblemManager
     void gather( ) const
     {
         _surface_halo->gather( ExecutionSpace(), *_position, *_vorticity );
-        _bc.correctHalo(_mesh, *_position, *_vorticity);
+        _bc.applyPosition(_mesh, *_position);
+        _bc.applyField(_mesh, *_vorticity, 2);
     };
 
     /**
@@ -213,7 +216,8 @@ class ProblemManager
     void gather( node_array &position, node_array &vorticity) const
     {
         _surface_halo->gather( ExecutionSpace(), position, vorticity );
-        _bc.correctHalo(_mesh, position, vorticity);
+        _bc.applyPosition(_mesh, position);
+        _bc.applyField(_mesh, vorticity, 2);
     }
 
 #if 0

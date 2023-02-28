@@ -10,11 +10,9 @@ of Beatnik are to:
 
 The initial Beatnik implementation of the Z-Model uses a simple mesh-based representation of the surface manifold with a regular decomposition as a Cajita 2D mesh in I/J space and the physical position of each element in the mesh stored as a separate vector in the nodes of the mesh. This is efficient for the low-order z-model, as the computation of surface normals, artificial viscosity, and Fourier transforms for estimating interface velocities are straightforward in this representation. 
 
-Because Beatnik does not yet include a mesh decomposition on with spatial decomppsotion of the manifold, its support for scalable far-field solvers in the higher-order interface solution models (e.g. the fast multipole method, P3M, or distance-sorting cutoff-based methods) is limited. In particular, Beatnik 1.0 currently only supports either O(N^2) brute-force calculation of far-field forces or the use of an external far-field force solver that re-sorts the mesh at each
-derivative calculation. 
+Because Beatnik does not yet include a spatial mesh decomposition, its support for scalable far-field solvers in the higher-order interface solution models (e.g. the fast multipole method, P3M, or distance-sorting cutoff-based methods) is limited. In particular, Beatnik 1.0 currently only supports either O(N^2) brute-force calculation of far-field forces or the use of an external far-field force solver that re-sorts the mesh at each derivative calculation.
 
-In the future, we plan to add the ability to decompose the Beatnik mesh spatially but adding a ParticleMesh abstraction that implements Cajita meshes using 
-Cabana particle abstractions. This will in turn enable the direct implementation of scalable far-field force methods. This work is planned for Beatnik 2.0.
+In the future, we plan to add the ability to decompose the Beatnik mesh spatially by adding a ParticleMesh abstraction that the implements the portions of Cajita meshes Beatnik requires using Cabana particle abstractions. This will in turn enable the direct implementation of scalable far-field force methods. This work is planned for Beatnik 2.0.
  
 ## Building Beatnik
 
@@ -24,14 +22,13 @@ Beatnik relies on multiple external packages to build, including:
   * UT-Knoxville's HeFFTe fast fourier transform library [4]
   * The FFTW fast fourier transform library [5]
   * A high-performance MPI implementation such as OpenMPI, MPICH, or MVAPICH
-As such, building Beatnik can be somewhat complicated.
   * [Optional] UT-Austin's PVFMM fast multipole solver [6]
 
-To ease building Beatnik, the configs/ directory includes Spack configuration files for building it in spack environments on multiple systems and test case run scripts for those systems, as well as a spack package description for directly building Beatnik. This spack package will be contributed back to the mainline Spack repository following the first public Beatnik release.
+To ease building Beatnik, the configs/ directory includes Spack configuration files for building in spack environments on multiple systems and test case run scripts for those systems, as well as a spack package description for directly building Beatnik. This spack package will be contributed back to the mainline Spack repository following the first public Beatnik release.
 
 ### Building Beatnik in a Spack Environment
 
-Assuming that you have Spack already installed on your HPC systems (as described at XXX), you may use spack to create an environment for building and developing spack as follows:
+Assuming that you have Spack already installed on your HPC systems (as described in https://spack.readthedocs.io), you can use spack to create an environment for building and developing spack as follows:
 
   1. If not checked out from git recursively, checkout all needed Beatnik submodules, e.g. `git submodule init && git submodule update --recursive`
   1. Create a build directory for housing the Spack environment and housing the out-of-source build, e.g. `mkdir build-hopper` on the UNM hopper compute cluster.
@@ -51,7 +48,8 @@ XXX
 
 ### Beatnik Build-Time Configuration Options
 
- * `ENABLE_PVFMM=ON` - Enables the PVFMM fast multipole solver for direct calculation of the Birchoff-Rott integral far-field forces. Activated at runtime through the option '-b pvfmm'
+ * `ENABLE_PVFMM=ON` - Enables the PVFMM fast multipole solver for direct calculation of the Birchoff-Rott integral far-field forces. Activated at runtime through the option '-b pvfmm'. Note that PVFMM support is both highly experimental and is not 
+necessarily faster than brute force solutions for many problem sizes due to its lack of GPU support for particle fast multipole problems.
 
 ## Running Beatnik
 
@@ -70,6 +68,7 @@ weak-scale scale up the initial problem to larger number of processes.
 ### Problem-specific command line parameters
 
   * `-n [i/j mesh dimension ]` - Number of points on the interface manifold in the I and J dimensions
+  * `-t [timesteps] - number of timesteps to simulate
   * `-I [interface initialization]` - Function to use for interface initial condition. Currently only 'cos' and 'sech2' are supported.
   * `-m [magnitude]` - The maximum magnitude of the initialization function. 
   * `-p [period]` - The number of periods of the interface in the initial bounding box
@@ -83,17 +82,11 @@ weak-scale scale up the initial problem to larger number of processes.
 The simplest test case and the one to which the rocketrig example program defaults is an initial interface distributed according to a cosine function. Simple usage examples:
   1. Serial execution: `bin/rocketrig -x serial`
   1. Cuda execution (on systems with GPUs) with a 512x512 mesh: `bin/rocketrig -x cuda -n 512`
-  1. Cuda execution with a 1024x1024 problem scaled up to be sixteen times as large in terms of bounding box and number of total points: bin/rocketrig -x cuda -n 1024 -F 0 -w 16`
+  1. Cuda execution with a 1024x1024 problem scaled up to be sixteen times as large in terms of bounding box and number of total points with no I/O: bin/rocketrig -x cuda -n 1024 -F 0 -w 16`
 
-### Example 1: Periodic Multi-mode Rocket Rig
-Another test case is a single-mode rollup test where the intitial interface is 
-set according to a hyperbolic secant function. This testcase recreates the 
-XXX experiment and the results in Panda and Shkoller's paper from section XXX.  
-To run this testcase with a high-order model, use the following command line 
-parameters. Note that we assume a GPU accelerator, as the exact high-order far 
-field force solver is very compute intensive and is generally impractical for non-trivial mesh sizes without GPU acceleration:
-
-`bin/rocketrig -x cuda -O high -n 64 -I sech2 -m 0.1 -p 9.0 -F 1 -a 0.15 -M 2 -e 2`
+### Example 2: Non-periodic Single-mode Gaussian Rollup
+Another test case is a single-mode rollup test where the intitial interface is set according to a hyperbolic secant function. This testcase recreates the the gaussian perturbation results in Panda and Shkoller's paper from sections 2.3 and 2.4.  To run this testcase with a high-order model, use the following command line parameters. Note that this works best with a GPU accelerator, as the exact high-order far field force solver is very compute intensive and is generally impractical for non-trivial mesh sizes without GPU acceleration:
+`bin/rocketrig -x cuda -O high -n 64 -I sech2 -m 0.1 -p 9.0 -b free -a 0.15 -M 2 -e 2`
 
 ## Planned Development Steps
 
@@ -105,18 +98,18 @@ Beatnik is being implemented in multiple distinct steps, with associated planned
     1. A high-order model implementation based on either exact or PVFMM for computing long-range forces
     1. A medium-order model that uses the Fourier transform for estimating interface velocity and the fast multipole method for estimating how the vorticity changes at each interface point. 
     1. Support for periodic boundary conditions and free boundary conditions
-    1. Multiple Benchmark examples, including a single-mode gaussian roll-up test and the rocket rig experiment.
+    1. A few simple benchmark examples, including a single-mode gaussian roll-up test and the multi-mode rocket rig experiment.
     1. Direct support for weak scaling of benchmarks through command line arguments
 
-  * Version 1.1 Expected Features
+  * Version 1.X Planned Features
 
     1. A cutoff-based approach for calculating far-field forces using the Cabana particle framework that accelerates far-field force calculations by avoiding the complex hierarchical communications and calculations in the fast multipole solver.
     1. Improved timestep, desingularization, and artificial viscosity handling to provide good defaults for the input parameters given
-    1. Additional interface initializatin options, including gaussian random and file-based interface initialization (also used for checkpointing)
+    1. Additional interface initialization options, including gaussian random and file-based interface initialization (also useful for checkpointing)
     1. Support for coupling with other applications through either I/O (e.g. ADIOS) or Communication (e.g. Portage) approaches
-    1. Additional test cases 
+    1. Additional test cases definitions
 
-  * Version 2.0 Expected Features
+  * Version 2.0 Planned Features
 
     1. Spatial partitioning of the mesh using a space-filling curve to better optimize the high-order model
     1. Direct fast multipole or P3M solver for scalable, high precision high-order model solves.
@@ -128,19 +121,20 @@ Beatnik is primarily availble as open source under a 3-Clause BSD License. It is
   * Patrick G. Bridges (patrickb@unm.edu)
   * Thomas Hines (thomas-hines-01@utc.edu)
   * Jered Dominguez-Trujillo (jereddt@unm.edu)
+  * Jacob McCullough (jmccullough12@unm.edu)
 
 The general structure of Beatnik and the rocketrig examples were taken from the ExaMPM proxy application (https://github.com/ECP-copa/ExaMPM) developed by the ECP Center for Particle Applications (CoPA), which was also available under a 3-Clause BSD License when used for creating application structure. 
 
 ## References
 
-[1] Gavin Pandya and Steve Shkoller. "3d Interface Models for Raleigh-Taylor Instability." Published as arxiv.org preprint https://arxiv.org/abs/2201.04538, 2022.
+1. Gavin Pandya and Steve Shkoller. "3d Interface Models for Raleigh-Taylor Instability." Published as arxiv.org preprint https://arxiv.org/abs/2201.04538, 2022.
 
-[2] https://github.com/LLNL/blt
+1. https://github.com/LLNL/blt
 
-[3] https://github.com/ECP-copa/Cabana/
+1. https://github.com/ECP-copa/Cabana/
 
-[4] Innovative Computing Laboratory. "heFFTe." URL: https://icl.utk.edu/fft/
+1. Innovative Computing Laboratory. "heFFTe." URL: https://icl.utk.edu/fft/
 
-[5] Matteo Frigo. "A Fast Fourier Transform Compiler," In the Proceedings of the 1999 ACM SIGPLAN Conference on Programming Language Design and Implementation (PLDI '99), Atlanta, Georgia, May 1999
+1. Matteo Frigo. "A Fast Fourier Transform Compiler," In the Proceedings of the 1999 ACM SIGPLAN Conference on Programming Language Design and Implementation (PLDI '99), Atlanta, Georgia, May 1999
 
-[6] https://pvfmm.org
+1. https://pvfmm.org
