@@ -74,8 +74,8 @@ class ExactBRSolver
         , _dy( dy )
     {
 	// auto comm = _pm.mesh().localGrid()->globalGrid().comm();
-        /* Create a 1D MPI communicator for the ring-pass on this
-         * algorithm */
+        /* XXX Create a 1D MPI communicator for the ring-pass on this
+         * algorithm XXX */
     }
 
     static KOKKOS_INLINE_FUNCTION double simpsonWeight(int index, int len)
@@ -110,10 +110,35 @@ class ExactBRSolver
 	        atomic_zdot(i, j, n) = 0.0;
 	});
 
+	/* Data we need for hte ring pass:
+         * Our points on the mesh (our z/w values)
+         * The points from remote nodes we're currently considering (external z/w)
+         * The indexes on the global mesh of the data we're processing 
+         * Step in the ring pass
+         * Total number of processes (call MPI_Comm_rank to get that) */
+        PositionView remotez = z;
+        VorticityView remotew = w;
+
+        /* XXX For loop for each step in the ring pass */
+        for (int ring_step = 0; ring_step < numprocs; ringstep++)
+        {
+            // Calculate the local and global indexes of the remote data
+
+            // Call a function to the do the local
+            void computeInterfaceVelocityPiece(atomic_zdot, z, w, zremote, wremote, indexinfo);
+            
+            // Do the communication for hte next step of the ring pass if needed.
+            if (ring_step < numprocs - 1) {
+            }
+        } 
+
+
         /* Project the birchoff rott calculation between all pairs of points on the 
          * interface, including accounting for any periodic boundary conditions.
          * Right now we brute fore all of the points with no tiling to improve
          * memory access or optimizations to remove duplicate calculations. */
+
+        /* XXXX Put all of this into computeInterfaceVelocityPiece */
 
         /* Figure out which directions we need to project the k/l point to
          * for any periodic boundary conditions */
@@ -137,23 +162,33 @@ class ExactBRSolver
             width[d] = high[d] - low[d];
         }
 
+
+        /* XXX Convert to iterate over appropriate global indexes; node_space is 
+         * local indexes. */
+
         /* Local temporaries for any instance variables we need so that we
          * don't have to lambda-capture "this" */
         double epsilon = _epsilon;
-        int istart = node_space.min(0), jstart = node_space.min(1);
-        int iend = node_space.max(0), jend = node_space.max(1);
         double dx = _dx, dy = _dy;
+        int ilen, jlen; // XXX
 
-        /* Now loop over the cross product of all the node on the interface */
-        auto pair_space = Operators::crossIndexSpace(node_space, node_space);
+        /* Now loop over the cross product of all the node on the interface, 
+	 * XXX again, this needs to be in global space */
+        auto pair_space = Operators::crossIndexSpace(local_nodes, remote_nodes);
         Kokkos::parallel_for("Exact BR Force Loop",
             Cajita::createExecutionPolicy(pair_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j, int k, int l) {
+
                 double brsum[3] = {0.0, 0.0, 0.0};;
 		/* Compute Simpson's 3/8 quadrature weight for this index */
-		double weight = simpsonWeight(k - istart, iend - istart)
-			        * simpsonWeight(l - jstart, jend - jstart);
+                /* XXX This needs to work in global indexes for the k/l point,
+                   it currently assumes local indexes = global indexes */
+		double weight = simpsonWeight(k, ilen) * simpsonWeight(l, jlen);
 
+                /* XXX Convert i, j, k, and l to local indexes to index into the 
+                 * w, z, wremote, zremote views. */
+                int ilocal, jlocal, klocal, llocal;
+             
                 /* We already have N^4 parallelism, so no need to parallelize on 
                  * the BR periodic points. Instead we serialize this in each thread
                  * and reuse the fetch of the i/j and k/l points */
@@ -163,7 +198,12 @@ class ExactBRSolver
                         offset[0] = kdir * width[0];
                         offset[1] = ldir * width[1];
 		        /* Do the birchoff rott evaluation for this point */
-                        Operators::BR(br, w, z, epsilon, dx, dy, weight, i, j, k, l, offset);
+
+			/* XXX Operators::BR is going to have to change to take two position and
+			 * vorticity fields, the locdal one and the remote one. Right now it only
+                         * takes the local vorticity/position */
+                        Operators::BR(br, w, z, wremote, zremote, epsilon, dx, dy, weight, 
+                                      ilocal, jlocal, klocal, llocal, offset);
                         for (int d = 0; d < 3; d++) {
                             brsum[d] += br[d];
                         }
