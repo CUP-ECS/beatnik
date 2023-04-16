@@ -200,7 +200,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.gravity = 25.0;
     cl.atwood = 0.5;
 
-    /* Defaults for Z-Model method, translated by the soler  to be relative
+    /* Defaults for Z-Model method, translated by the solver to be relative
      * to sqrt(dx*dy) */
     cl.mu = 1.0;
     cl.eps = 0.25;

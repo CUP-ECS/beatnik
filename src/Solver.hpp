@@ -184,7 +184,9 @@ class Solver : public SolverBase
 
         Kokkos::Profiling::pushRegion( "Solve" );
 
-        _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
+        if (write_freq > 0) {
+            _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
+        }
 
         num_step = t_final / _dt;
 
