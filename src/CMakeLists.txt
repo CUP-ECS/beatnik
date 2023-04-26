@@ -28,19 +28,9 @@ set(DEPENDS_ON
   Cabana::cabanacore
   Cabana::Cajita
   Silo::silo 
-#  pvfmm
   mpi
   )
  
-if(Beatnik_ENABLE_PVFMM)
-  list(APPEND HEADERS
-    PvfmmBRSolver.hpp
-    )
-  list(APPEND DEPENDS_ON
-    pvfmm
-  )
-endif(Beatnik_ENABLE_PVFMM)
-
 set(INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}

@@ -75,8 +75,7 @@ endif()
 include(${BLT_SOURCE_DIR}/SetupBLT.cmake)
 
 ##---------------------------------------------------------------------------##
-## Get the dependent packages we need, primarily Cabana, Silo, ClangFormat,  ##
-## and perhaps PvFMM                                                         ##
+## Get the dependent packages we need: Cabana, Silo, and ClangFormat         ##
 ##---------------------------------------------------------------------------##
 find_package(Cabana REQUIRED COMPONENTS Cabana::Cajita Cabana::cabanacore)
 if( NOT Cabana_ENABLE_MPI )
