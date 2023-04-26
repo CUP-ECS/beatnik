@@ -16,7 +16,6 @@ set(HEADERS
   # ZModel details here.
   ZModel.hpp
   ExactBRSolver.hpp
-#  PvfmmBRSolver.hpp
 #  VerletBRVelocity.hpp
   )
 

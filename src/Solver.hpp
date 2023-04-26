@@ -24,10 +24,6 @@
 #include <TimeIntegrator.hpp>
 #include <ExactBRSolver.hpp>
 
-#ifdef Beatnik_ENABLE_PVFMM
-#include <PvfmmBRSolver.hpp>
-#endif
-
 #include <ZModel.hpp>
 
 #include <Kokkos_Core.hpp>
@@ -75,11 +71,7 @@ class Solver : public SolverBase
 
     // At some point we'll specify this when making the solver through a template argument.
     // Still need to design that out XXX
-#ifdef Beatnik_ENABLE_PVFMM
-    using brsolver_type = PvfmmBRSolver<ExecutionSpace, MemorySpace>; // Not working properly
-#else
    using brsolver_type = ExactBRSolver<ExecutionSpace, MemorySpace>;  // Single node currently
-#endif
 
     using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>;
     using ti_type = TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>;
