@@ -50,7 +50,7 @@ class TimeIntegrator
         // intermediate positions, and change in vorticity
         auto node_triple_layout =
             Cajita::createArrayLayout( pm.mesh().localGrid(), 3, Cajita::Node() );
-        auto node_double_layout =
+        auto node_pair_layout =
             Cajita::createArrayLayout( pm.mesh().localGrid(), 2, Cajita::Node() );
 
         _zdot = Cajita::createArray<double, device_type>("velocity", 

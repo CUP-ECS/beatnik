@@ -268,12 +268,12 @@ class SiloWriter
             mesh_block_names[i] = (char*)malloc( 1024 );
             w_block_names[i] = (char*)malloc( 1024 );
 
-            sprintf( mesh_block_names[i],
-                     "raw/BeatnikOutput%05d%05d.%s:/domain_%05d/Mesh",
-                     group_rank, time_step, file_ext, i );
-            sprintf( w_block_names[i],
-                     "raw/BeatnikOutput%05d%05d.%s:/domain_%05d/vorticity",
-                     group_rank, time_step, file_ext, i );
+            snprintf( mesh_block_names[i], 1024, 
+                      "raw/BeatnikOutput%05d%05d.%s:/domain_%05d/Mesh",
+                      group_rank, time_step, file_ext, i );
+            snprintf( w_block_names[i], 1024,
+                      "raw/BeatnikOutput%05d%05d.%s:/domain_%05d/vorticity",
+                      group_rank, time_step, file_ext, i );
             block_types[i] = DB_QUADMESH;
             var_types[i] = DB_QUADVAR;
         }
@@ -360,12 +360,12 @@ class SiloWriter
         }
 
         // Set Filename to Reflect TimeStep
-        sprintf( masterfilename, "data/Beatnik%05d.%s", time_step,
-                 file_ext );
-        sprintf( filename, "data/raw/BeatnikOutput%05d%05d.%s",
-                 PMPIO_GroupRank( baton, _pm.mesh().rank() ), time_step,
-                 file_ext );
-        sprintf( nsname, "domain_%05d", _pm.mesh().rank() );
+        snprintf( masterfilename, 256, "data/Beatnik%05d.%s", time_step,
+                  file_ext );
+        snprintf( filename, 256, "data/raw/BeatnikOutput%05d%05d.%s",
+                  PMPIO_GroupRank( baton, _pm.mesh().rank() ), time_step,
+                  file_ext );
+        snprintf( nsname, 256, "domain_%05d", _pm.mesh().rank() );
 
         // Show Errors and Force FLoating Point
         DBShowErrors( DB_ALL, NULL );

@@ -123,7 +123,7 @@ namespace Operators
         }
         cross(out, omega, zdiff);
         for (int d = 0; d < 3; d++) {  
-            out[d] *= (dx * dy * weight) / (-4.0 * Kokkos::Experimental::pi_v<double>);
+            out[d] *= (dx * dy * weight) / (-4.0 * Kokkos::numbers::pi_v<double>);
         }
     }
 
