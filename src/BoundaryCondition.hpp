@@ -143,7 +143,7 @@ struct BoundaryCondition
                         p2[0] = k - kdir[0]*(dist + 1); 
                         p2[1] = l - kdir[1]*(dist + 1); 
                         for (int d = 0; d < dof; d++) {
-			    f(k, l, 0) = f(p1[0], p1[1], d) 
+			    f(k, l, d) = f(p1[0], p1[1], d) 
                                          + dist*(f(p2[0], p2[1], d) 
                                                      - f(p1[0], p1[1], d));
                         }
