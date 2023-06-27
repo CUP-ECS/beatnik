@@ -181,7 +181,7 @@ void help( const int rank, char* progname )
  */
 int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 {
-    char ch;
+    signed char ch;
 
     /// Set default values
     cl.driver = "serial"; // Default Thread Setting
