@@ -39,10 +39,6 @@
 #include <ProblemManager.hpp>
 #include <Operators.hpp>
 
-#include <unistd.h>
-#include <iostream>
-#include <cmath>
-
 namespace Beatnik
 {
 
