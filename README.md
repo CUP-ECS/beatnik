@@ -22,7 +22,6 @@ Beatnik relies on multiple external packages to build, including:
   * UT-Knoxville's HeFFTe fast fourier transform library [4]
   * The FFTW fast fourier transform library [5]
   * A high-performance MPI implementation such as OpenMPI, MPICH, or MVAPICH
-  * [Optional] UT-Austin's PVFMM fast multipole solver [6]
 
 To ease building Beatnik, the configs/ directory includes Spack configuration files for building in spack environments on multiple systems and test case run scripts for those systems, as well as a spack package description for directly building Beatnik. This spack package will be contributed back to the mainline Spack repository following the first public Beatnik release.
 
@@ -47,9 +46,6 @@ XXX
 XXX 
 
 ### Beatnik Build-Time Configuration Options
-
- * `ENABLE_PVFMM=ON` - Enables the PVFMM fast multipole solver for direct calculation of the Birchoff-Rott integral far-field forces. Activated at runtime through the option '-b pvfmm'. Note that PVFMM support is both highly experimental and is not 
-necessarily faster than brute force solutions for many problem sizes due to its lack of GPU support for particle fast multipole problems.
 
 ## Running Beatnik
 
@@ -95,15 +91,15 @@ Beatnik is being implemented in multiple distinct steps, with associated planned
   * Version 1.0 Features
 
     1. A low-order model implementation that relies on Cajita/HeFFTe Fourier transforms for estimating velocity interface at mesh points.
-    1. A high-order model implementation based on either exact or PVFMM for computing long-range forces
-    1. A medium-order model that uses the Fourier transform for estimating interface velocity and the fast multipole method for estimating how the vorticity changes at each interface point. 
+    1. A high-order model implementation based on brute-force exact computation of long-range forces
+    1. A medium-order model that uses the Fourier transform for estimating interface velocity and the far-field force solver for estimating how the vorticity changes at each interface point. 
     1. Support for periodic boundary conditions and free boundary conditions
     1. A few simple benchmark examples, including a single-mode gaussian roll-up test and the multi-mode rocket rig experiment.
     1. Direct support for weak scaling of benchmarks through command line arguments
 
   * Version 1.X Planned Features
 
-    1. A cutoff-based approach for calculating far-field forces using the Cabana particle framework that accelerates far-field force calculations by avoiding the complex hierarchical communications and calculations in the fast multipole solver.
+    1. A cutoff-based approach for calculating far-field forces using the Cabana particle framework that accelerates far-field force calculations.
     1. Improved timestep, desingularization, and artificial viscosity handling to provide good defaults for the input parameters given
     1. Additional interface initialization options, including gaussian random and file-based interface initialization (also useful for checkpointing)
     1. Support for coupling with other applications through either I/O (e.g. ADIOS) or Communication (e.g. Portage) approaches
@@ -136,5 +132,3 @@ The general structure of Beatnik and the rocketrig examples were taken from the 
 1. Innovative Computing Laboratory. "heFFTe." URL: https://icl.utk.edu/fft/
 
 1. Matteo Frigo. "A Fast Fourier Transform Compiler," In the Proceedings of the 1999 ACM SIGPLAN Conference on Programming Language Design and Implementation (PLDI '99), Atlanta, Georgia, May 1999
-
-1. https://pvfmm.org

@@ -50,17 +50,17 @@ class TimeIntegrator
         // intermediate positions, and change in vorticity
         auto node_triple_layout =
             Cajita::createArrayLayout( pm.mesh().localGrid(), 3, Cajita::Node() );
-        auto node_double_layout =
+        auto node_pair_layout =
             Cajita::createArrayLayout( pm.mesh().localGrid(), 2, Cajita::Node() );
 
         _zdot = Cajita::createArray<double, device_type>("velocity", 
                                                        node_triple_layout);
         _wdot = Cajita::createArray<double, device_type>("vorticity derivative",
-                                                       node_triple_layout);
+                                                       node_pair_layout);
         _ztmp = Cajita::createArray<double, device_type>("position temporary", 
                                                        node_triple_layout);
         _wtmp = Cajita::createArray<double, device_type>("vorticity temporary", 
-                                                       node_triple_layout);
+                                                       node_pair_layout);
     }
 
     void step( const double delta_t ) 

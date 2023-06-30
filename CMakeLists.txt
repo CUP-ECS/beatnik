@@ -75,8 +75,7 @@ endif()
 include(${BLT_SOURCE_DIR}/SetupBLT.cmake)
 
 ##---------------------------------------------------------------------------##
-## Get the dependent packages we need, primarily Cabana, Silo, ClangFormat,  ##
-## and perhaps PvFMM                                                         ##
+## Get the dependent packages we need: Cabana, Silo, and ClangFormat         ##
 ##---------------------------------------------------------------------------##
 find_package(Cabana REQUIRED COMPONENTS Cabana::Cajita Cabana::cabanacore)
 if( NOT Cabana_ENABLE_MPI )
@@ -85,7 +84,7 @@ endif()
 if( NOT Cabana_ENABLE_CAJITA )
   message( FATAL_ERROR "Cabana must be compiled with Cajita" )
 endif()
-find_package(Silo REQUIRED)
+find_package(SILO REQUIRED)
 
 # Get Clang Format to use for making sure the resulting code is
 # properly formatted
@@ -99,11 +98,6 @@ add_subdirectory(examples)
 
 # tests
 add_subdirectory(tests)
-
-# Add PvFMM if enabled
-if(Beatnik_ENABLE_PVFMM)
-  add_subdirectory(thirdparty/pvfmm)
-endif(Beatnik_ENABLE_PVFMM)
 
 # Add a target for formatting the code using Clang
 if(CLANG_FORMAT_FOUND)

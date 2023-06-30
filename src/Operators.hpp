@@ -63,7 +63,7 @@ namespace Operators
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION
     double Dy(ViewType f, int i, int j, int d, double dy)
-    {  
+    {
         return (f(i, j - 2, d) - 8.0*f(i, j - 1, d) + 8.0*f(i, j + 1, d) - f(i, j + 2, d)) / (12.0 * dy);
         //return (f(i, j+1, d) - f(i, j-1, d)) / (2.0 * dy);
     }
@@ -117,34 +117,6 @@ namespace Operators
             zdiff[d] = z(i, j, d) - (z(k, l, d) + offset[d]);
             zsize += zdiff[d] * zdiff[d];
         }  
-        zsize = pow(zsize + epsilon, 1.5); // matlab code doesn't square epsilon
-        for (int d = 0; d < 3; d++) {
-            zdiff[d] /= zsize;
-        }
-        cross(out, omega, zdiff);
-        for (int d = 0; d < 3; d++) {  
-            out[d] *= (dx * dy * weight) / (-4.0 * Kokkos::numbers::pi_v<double>);
-        }
-    }
-
-    /* Compute the Birchorff Rott force between a k/l point (potentially offset to 
-     * take care of periodic boundary contitions) exerts on an i/j point */
-    template <class VorticityView, class PositionView>
-    KOKKOS_INLINE_FUNCTION
-    void BR_with_remote(double out[3], 
-            [[maybe_unused]] VorticityView w, VorticityView wremote,
-            PositionView z, PositionView zremote,
-            double epsilon,
-            double dx, double dy, double weight, int i, int j, int k, int l,
-            double offset[3])
-    {
-        double omega[3], zdiff[3], zsize;
-        zsize = 0.0;
-        for (int d = 0; d < 3; d++) {
-            omega[d] = wremote(k, l, 1) * Dx(zremote, k, l, d, dx) - wremote(k, l, 0) * Dy(zremote, k, l, d, dy);            
-            zdiff[d] = z(i, j, d) - (zremote(k, l, d) + offset[d]);
-            zsize += zdiff[d] * zdiff[d];
-        } 
         zsize = pow(zsize + epsilon, 1.5); // matlab code doesn't square epsilon
         for (int d = 0; d < 3; d++) {
             zdiff[d] /= zsize;
