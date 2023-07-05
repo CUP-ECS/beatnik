@@ -151,4 +151,3 @@ namespace Operators
 }; // namespace beatnik
 
 #endif // BEATNIK_OPERATORS_HPP
-

@@ -43,6 +43,7 @@ class Mesh
 	  const std::array<bool, 2>& periodic,
           const Cajita::BlockPartitioner<2>& partitioner,
           const int min_halo_width, MPI_Comm comm )
+		  : _num_nodes( num_nodes )
     {
         MPI_Comm_rank( comm, &_rank );
 
@@ -131,6 +132,12 @@ class Mesh
     {
         return _high_point;
     }
+	
+	// Get the mesh size
+    int get_mesh_size() const
+    {
+        return _num_nodes[0];
+    }
 
     // Get the boundary indexes on the periodic boundary. local_grid.boundaryIndexSpace()
     // doesn't work on periodic boundaries.
@@ -155,10 +162,11 @@ class Mesh
 
     int rank() const { return _rank; }
 
-  public:
+  private:
     std::array<double, 3> _low_point, _high_point;
     std::shared_ptr<Cajita::LocalGrid<mesh_type>> _local_grid;
     int _rank;
+	std::array<int, 2> _num_nodes;
 };
 
 //---------------------------------------------------------------------------//
