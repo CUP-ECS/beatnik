@@ -55,8 +55,8 @@ class Mesh
         /* Create global mesh bounds. There are a few caveats here that are
          * important to understand:
          * 1. Each mesh point has multiple locations:
-         *    1.1 It's i/j location [0..n), [0...m), 
-         *    1.2 It's location in node coordinate space [-n/2, n/2) based on
+         *    1.1 Its i/j location [0..n), [0...m), 
+         *    1.2 Its location in node coordinate space [-n/2, n/2) based on
                   its initial spatial location in x/y space, and
          *    1.3 the x/y/z location of its points at any given time.
          * 2. Of these, the first and last are used often in calculations, no 
