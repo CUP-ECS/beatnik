@@ -65,7 +65,7 @@ class Mesh
          *    the low and medium order model. 
          * 3. In periodic meshes, the last point is implicit in the Cabana
          *    representation because it actually mirrors the first point.
-         * 4. For a non-periodic model, the number of cells is one less thn the 
+         * 4. For a non-periodic model, the number of cells is one less than the 
          *    the number of nodes. For a periodic model, the number of cells is 
          *    the same as the number of nodes, with the last node being
          *    implicitly the same as the first.
@@ -133,7 +133,7 @@ class Mesh
         return _high_point;
     }
 	
-	// Get the mesh size
+    // Get the mesh size
     int get_mesh_size() const
     {
         return _num_nodes[0];
