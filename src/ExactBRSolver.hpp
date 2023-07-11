@@ -292,7 +292,7 @@ class ExactBRSolver
                 // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
                 MPI_Sendrecv(&L2G_remote2, int(sizeof(L2G_remote2)), MPI_BYTE, next_rank, 4, &L2G_remote1, int(sizeof(L2G_remote1)), MPI_BYTE, prev_rank, 4, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-                // Do computations XXX - Add remote_node_space
+                // Do computations
                 computeInterfaceVelocityPiece(atomic_zdot, z, w, local_L2G, zremote1, wremote1, L2G_remote1);
             }   
         }
