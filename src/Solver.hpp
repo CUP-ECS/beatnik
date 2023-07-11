@@ -141,7 +141,7 @@ class Solver : public SolverBase
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
             *_mesh, _bc, create_functor );
 
-        // Create the BirchoffRott solver (XXX make this conditional on non-low 
+        // Create the Birkhoff-Rott solver (XXX make this conditional on non-low 
         // order solve
         _br = std::make_unique<brsolver_type>(*_pm, _bc, _eps, dx, dy);
 
