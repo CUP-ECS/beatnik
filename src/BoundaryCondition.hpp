@@ -100,7 +100,7 @@ struct BoundaryCondition
                  * the boundary */
                 if (isFreeBoundary(dir)) {
                     /* For free boundaries, we have to extrapolate from the mesh
-                     * into the boundary to support finite diffrencing and 
+                     * into the boundary to support finite differencing and 
                      * laplacian calculations near the boundary. */
 		    
                     // Variables we'll want in the parallel for loop.
@@ -133,7 +133,7 @@ struct BoundaryCondition
                          * XXX Right now we always go two points aways since
                          * we have a 2-deep halo. This guarantees to get us out
                          * of the boundary, but may take us further into the the
-                         * mesh than we want. We should instead Figuring out dist 
+                         * mesh than we want. We should instead figure out distance 
                          * to go just to the edge of the boundary and linearly 
                          * extrapolate from that. XXX */
                         int p1[2], p2[2];
@@ -197,7 +197,7 @@ struct BoundaryCondition
 
 
     Kokkos::Array<double, 6> bounding_box;
-    Kokkos::Array<int, 4> boundary_type; /**< Boundary condition type on all surface edges  */
+    Kokkos::Array<int, 4> boundary_type; /* Boundary condition type on all surface edges  */
 };
 
 } // namespace Beatnik
