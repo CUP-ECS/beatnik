@@ -102,7 +102,7 @@ namespace Operators
         N[2] = u[0]*v[1] - u[1]*v[0];
     }
 
-    /* Compute the Birchorff Rott force between a k/l point (potentially offset to 
+    /* Compute the Birkhoff-Rott force between a k/l point (potentially offset to 
      * take care of periodic boundary contitions) exerts on an i/j point */
     template <class VorticityView, class PositionView>
     KOKKOS_INLINE_FUNCTION
