@@ -163,7 +163,8 @@ class ExactBRSolver
                     offset[1] = ldir * width[1];
 
                     /* Do the Birkhoff-Rott evaluation for this point */
-                    Operators::BR_with_remote(br, w, wremote, z, zremote, epsilon, dx, dy, weight,
+    
+                Operators::BR_with_remote(br, w, wremote, z, zremote, epsilon, dx, dy, weight,
                                             i, j, k, l, offset);
                     for (int d = 0; d < 3; d++) {
                         brsum[d] += br[d];

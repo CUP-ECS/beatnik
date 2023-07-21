@@ -25,12 +25,11 @@
 #ifndef DEBUG
 #define DEBUG 0
 #endif
+#include <Kokkos_Core.hpp>
 
 // Include Statements
 #include <Cabana_Core.hpp>
 #include <Cajita.hpp>
-#include <Kokkos_Core.hpp>
-
 #include <memory>
 
 namespace Beatnik
@@ -49,7 +48,18 @@ namespace Operators
     {
         return (f(i - 2, j, d) - 8.0*f(i - 1, j, d) + 8.0*f(i + 1, j, d) - f(i + 2, j, d)) / (12.0 * dx);
         //return (f(i + 1, j, d) - f(i - 1, j, d)) / (2.0 * dx);
-    } 
+    }
+ /*   
+    template <class ViewType>
+    KOKKOS_INLINE_FUNCTION
+
+     void BR_with_remote(br, w, wremote, z, zremote, epsilon, dx, dy, weight,
+                                            i, j, k, l, offset)
+      {
+
+
+      }*/
+ 
 
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION

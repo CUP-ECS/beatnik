@@ -23,11 +23,19 @@ set(HEADERS
 #  Mesh.cpp
 #  ProblemManager.cpp
 #  )
+#the 6 original lines including SILO::silo 
+# set(DEPENDS_ON
+#  Cabana::cabanacore
+#  Cabana::Cajita
+#  SILO::silo
+#  mpi
+# )
 
+
+find_package(SILO REQUIRED)
 set(DEPENDS_ON
   Cabana::cabanacore
   Cabana::Cajita
-  SILO::silo 
   mpi
   )
  

@@ -29,7 +29,7 @@ MESSAGE(STATUS "Beatnik Revision = '${Beatnik_GIT_COMMIT_HASH}'")
 # Build options that will be picked up by the LLNL BLT tools to help with building 
 # and testing
 set(ENABLE_MPI ON CACHE BOOL "Build MPI support")
-set(ENABLE_CLANG_CUDA "Use Clang's native CUDA support" ON)
+###set(ENABLE_CLANG_CUDA "Use Clang's native CUDA support" ON)
 
 # Build options for libraries, disable extras
 set(ENABLE_TESTS "Build tests" On)
@@ -37,10 +37,11 @@ set(ENABLE_TESTS "Build tests" On)
 if (ENABLE_CUDA)
   # Separable compilation is required by Beatnik, set before load BLT
   set(CUDA_SEPARABLE_COMPILATION ON CACHE BOOL "")
-  if (NOT DEFINED CUDA_ARCH)
-    message(STATUS "CUDA compute architecture set to Beatnik default sm_35 since it was not specified")
-    set(CUDA_ARCH "sm_35" CACHE STRING "Set CUDA_ARCH to Beatnik minimum supported" FORCE)
-  endif()
+  #if (NOT DEFINED CUDA_ARCH)
+    #message(STATUS "CUDA compute architecture set to Beatnik default sm_70 since it was not specified")
+    message(STATUS "CUDA compute architecture set to Beatnik default sm_70--forced ")
+    set(CUDA_ARCH "sm_70" CACHE STRING "Set CUDA_ARCH to Beatnik minimum supported" FORCE)
+  #endif()
 endif()
 
 ##---------------------------------------------------------------------------##
@@ -84,8 +85,10 @@ endif()
 if( NOT Cabana_ENABLE_CAJITA )
   message( FATAL_ERROR "Cabana must be compiled with Cajita" )
 endif()
-find_package(SILO REQUIRED)
 
+# find_package(silo)
+ find_package(SILO REQUIRED )
+# target_link_libraries(beatnik PRIVATE SILO::silo)
 # Get Clang Format to use for making sure the resulting code is
 # properly formatted
 find_package(CLANG_FORMAT 10)
