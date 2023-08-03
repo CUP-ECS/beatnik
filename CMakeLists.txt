@@ -84,7 +84,7 @@ endif()
 if( NOT Cabana_ENABLE_CAJITA )
   message( FATAL_ERROR "Cabana must be compiled with Cajita" )
 endif()
-find_package(SILO REQUIRED)
+find_package(Silo REQUIRED)
 
 # Get Clang Format to use for making sure the resulting code is
 # properly formatted
