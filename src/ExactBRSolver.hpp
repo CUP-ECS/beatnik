@@ -13,6 +13,7 @@
  * @author Patrick Bridges <patrickb@unm.edu>
  * @author Thomas Hines <thomas-hines-01@utc.edu>
  * @author Jacob McCullough <jmccullough12@unm.edu>
+ * @author Jason Stewart <jastewart@unm.edu>
  *
  * @section DESCRIPTION
  * Class that uses a brute force approach to calculating the Birkhoff-Rott 
@@ -163,8 +164,8 @@ class ExactBRSolver
                     offset[1] = ldir * width[1];
 
                     /* Do the Birkhoff-Rott evaluation for this point */
-                    Operators::BR_with_remote(br, w, wremote, z, zremote, epsilon, dx, dy, weight,
-                                            i, j, k, l, offset);
+                    Operators::BR(br, w, wremote, z, zremote, epsilon, dx, dy, weight,
+                                  i, j, k, l, offset);
                     for (int d = 0; d < 3; d++) {
                         brsum[d] += br[d];
                     }
@@ -234,7 +235,6 @@ class ExactBRSolver
         int zextents1[3];
         int zextents2[3];
         for (int i = 0; i < num_procs - 1; i++) {
-
             // Alternate between remote1 and remote2 sending and receiving data to avoid copying data
             if (i % 2) { // remote1 send, remote2 receive
 

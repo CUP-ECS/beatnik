@@ -117,6 +117,7 @@ Beatnik is primarily availble as open source under a 3-Clause BSD License. It is
   * Thomas Hines (thomas-hines-01@utc.edu)
   * Jered Dominguez-Trujillo (jereddt@unm.edu)
   * Jacob McCullough (jmccullough12@unm.edu)
+  * Jason Stewart (jastewart@unm.edu)
 
 The general structure of Beatnik and the rocketrig examples were taken from the ExaMPM proxy application (https://github.com/ECP-copa/ExaMPM) developed by the ECP Center for Particle Applications (CoPA), which was also available under a 3-Clause BSD License when used for creating application structure. 
 

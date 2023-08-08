@@ -12,6 +12,7 @@
  * @file
  * @author Patrick Bridges <patrickb@unm.edu>
  * @author Thomas Hines <thomas-hines-01@utc.edu>
+ * @author Jason Stewart <jastewart@unm.edu>
  *
  * @section DESCRIPTION
  * Supporting functions for Z-Model calculations, primarily Simple differential 
@@ -106,15 +107,15 @@ namespace Operators
      * take care of periodic boundary contitions) exerts on an i/j point */
     template <class VorticityView, class PositionView>
     KOKKOS_INLINE_FUNCTION
-    void BR(double out[3], VorticityView w, PositionView z, double epsilon,
-            double dx, double dy, double weight, int i, int j, int k, int l,
+    void BR(double out[3], VorticityView w, VorticityView w2, PositionView z, PositionView z2,
+            double epsilon, double dx, double dy, double weight, int i, int j, int k, int l,
             double offset[3])
     {
         double omega[3], zdiff[3], zsize;
         zsize = 0.0;
         for (int d = 0; d < 3; d++) {
-            omega[d] = w(k, l, 1) * Dx(z, k, l, d, dx) - w(k, l, 0) * Dy(z, k, l, d, dy);
-            zdiff[d] = z(i, j, d) - (z(k, l, d) + offset[d]);
+            omega[d] = w2(k, l, 1) * Dx(z2, k, l, d, dx) - w2(k, l, 0) * Dy(z2, k, l, d, dy);
+            zdiff[d] = z(i, j, d) - (z2(k, l, d) + offset[d]);
             zsize += zdiff[d] * zdiff[d];
         }  
         zsize = pow(zsize + epsilon, 1.5); // matlab code doesn't square epsilon
