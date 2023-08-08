@@ -20,7 +20,6 @@ Beatnik relies on multiple external packages to build, including:
   * LLNL's build, link, test (BLT) library [2]
   * ECP CoPA's Cabana/Cajita particle and mesh framework [3]
   * UT-Knoxville's HeFFTe fast fourier transform library [4]
-  * The FFTW fast fourier transform library [5]
   * A high-performance MPI implementation such as OpenMPI, MPICH, or MVAPICH
 
 To ease building Beatnik, the configs/ directory includes Spack configuration files for building in spack environments on multiple systems and test case run scripts for those systems, as well as a spack package description for directly building Beatnik. This spack package will be contributed back to the mainline Spack repository following the first public Beatnik release.
@@ -32,7 +31,7 @@ Assuming that you have Spack already installed on your HPC systems (as described
   1. If not checked out from git recursively, checkout all needed Beatnik submodules, e.g. `git submodule init && git submodule update --recursive`
   1. Create a build directory for housing the Spack environment and housing the out-of-source build, e.g. `mkdir build-hopper` on the UNM hopper compute cluster.
   1. Copy the appropriate spack.yaml file from configs/[systemname]/ to spack.yaml in the newly-created build directory, e.g. `cp configs/unm-hopper/spack.yaml build-hopper/`
-  1. Perform any compiler setup needed using the system module system, as spack environments do not necessarily configure the compiler, e.g. `module load gcc/11.2.0`. This compiler should be compatible with one used in the spack.yaml file chosen, and ideally described in a README.md file in the associated configs/ directory
+  1. Perform any compiler setup needed using the system module system, as spack environments do not necessarily configure the compiler. This could include installing a fortran compiler on MacOS systems (e.g. using homebrew), or loading the proper compiler module on an HPC system. This compiler should be compatible with one used in the spack.yaml file chosen, and ideally described in a README.md file in the associated configs/ directory
   1. Change directory to the created build directory and create a spack environment in which to build Beatnik in that directory, e.g. `cd build-hopper; spack env create -d . spack.yaml`
   1. Activate, concretize, and install the resulting environment, e.g. `spack env activate -d . && spack concretize && spack install`
   1. Run cmake and make to create the appropriate Makefiles and build using them, e.g. `cmake .. && make`.
@@ -130,5 +129,3 @@ The general structure of Beatnik and the rocketrig examples were taken from the 
 1. https://github.com/ECP-copa/Cabana/
 
 1. Innovative Computing Laboratory. "heFFTe." URL: https://icl.utk.edu/fft/
-
-1. Matteo Frigo. "A Fast Fourier Transform Compiler," In the Proceedings of the 1999 ACM SIGPLAN Conference on Programming Language Design and Implementation (PLDI '99), Atlanta, Georgia, May 1999
