@@ -214,14 +214,15 @@ class ExactBRSolver
                 atomic_zdot(i, j, n) = 0.0;
         });
         
+        // Compute forces for all owned nodes on this process
         computeInterfaceVelocityPiece(atomic_zdot, z, w, local_L2G, z, w, local_L2G);
 
-        /* Perform a ring pass of data between each process */
-
+        /* Perform a ring pass of data between each process to compute forces of nodes 
+         * on other processes on he nodes owned by this process */
         int next_rank = (rank + 1) % num_procs;
         int prev_rank = (rank + num_procs - 1) % num_procs;
 
-        // Create subviews for receiving data. Alternate which views are being sent and received into
+        // Create views for receiving data. Alternate which views are being sent and received into
         // *remote2 sends first, so it needs to be deep copied. *remote1 can just be allocated
         Kokkos::View<double***, typename VorticityView::device_type> wremote1(Kokkos::ViewAllocateWithoutInitializing ("wremote1"), w.extent(0), w.extent(1), w.extent(2));
         Kokkos::View<double***, typename VorticityView::device_type> wremote2(Kokkos::ViewAllocateWithoutInitializing ("wremote2"), w.extent(0), w.extent(1), w.extent(2));
@@ -234,68 +235,81 @@ class ExactBRSolver
         int wextents2[3];
         int zextents1[3];
         int zextents2[3];
+  
+        // Now create references to these buffers. We go ahead and assign them here to get 
+        // sane type declarations. The loop reassigns these references as needed each time
+        // around the loop.
+        auto zsend_view = zremote1; 
+        auto wsend_view = wremote1; 
+        int * zsend_extents = zextents1;
+        int * wsend_extents = wextents1;
+        auto L2G_send = &L2G_remote1;
+
+        auto zrecv_view = zremote2; 
+        auto wrecv_view = wremote2; 
+        int * zrecv_extents = zextents2;
+        int * wrecv_extents = wextents2;
+        auto L2G_recv = &L2G_remote2;
+
+        // Perform the ring pass
         for (int i = 0; i < num_procs - 1; i++) {
-            // Alternate between remote1 and remote2 sending and receiving data to avoid copying data
-            if (i % 2) { // remote1 send, remote2 receive
+            // Alternate between remote1 and remote2 sending and receiving data 
+            // to avoid copying data across interations
+            if (i % 2) {
+                zsend_view = zremote1; wsend_view = wremote1; 
+                zsend_extents = zextents1; wsend_extents = wextents1;
+                L2G_send = &L2G_remote1;
 
-                // Prepare extents to send
-                for (int j = 0; j < 3; j++) {
-                    wextents1[j] = wremote1.extent(j);
-                    zextents1[j] = zremote1.extent(j);
-                }
-                
-                // Send w and z view sizes
-                MPI_Sendrecv(&wextents1, 3, MPI_INT, next_rank, 0, &wextents2, 3, MPI_INT, prev_rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                MPI_Sendrecv(&zextents1, 3, MPI_INT, next_rank, 1, &zextents2, 3, MPI_INT, prev_rank, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-                // Resize *remote2, which is receiving data
-                Kokkos::resize(wremote2, wextents2[0], wextents2[1], wextents2[2]);
-                Kokkos::resize(zremote2, zextents2[0], zextents2[1], zextents2[2]);
-                
-                // Send/receive the views
-                MPI_Sendrecv(wremote1.data(), int(wremote1.size()), MPI_DOUBLE, next_rank, 2, wremote2.data(), int(wremote2.size()), MPI_DOUBLE, prev_rank, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                MPI_Sendrecv(zremote1.data(), int(zremote1.size()), MPI_DOUBLE, next_rank, 3, zremote2.data(), int(zremote2.size()), MPI_DOUBLE, prev_rank, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-                // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
-                MPI_Sendrecv(&L2G_remote1, int(sizeof(L2G_remote1)), MPI_BYTE, next_rank, 4, &L2G_remote2, int(sizeof(L2G_remote2)), MPI_BYTE, prev_rank, 4, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-                // Do computations
-                computeInterfaceVelocityPiece(atomic_zdot, z, w, local_L2G, zremote2, wremote2, L2G_remote2);
-            }
-
-            else { // remote2 send, remote1 receive
-                
-                // Prepare extents to send
-                for (int j = 0; j < 3; j++) {
-                    wextents2[j] = wremote2.extent(j);
-                    zextents2[j] = zremote2.extent(j);
-                }
-
-                MPI_Sendrecv(&wextents2, 3, MPI_INT, next_rank, 0, &wextents1, 3, MPI_INT, prev_rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                MPI_Sendrecv(&zextents2, 3, MPI_INT, next_rank, 1, &zextents1, 3, MPI_INT, prev_rank, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-                // Resize *remote1, which is receiving data
-                Kokkos::resize(wremote1, wextents1[0], wextents1[1], wextents1[2]);
-                Kokkos::resize(zremote1, zextents1[0], zextents1[1], zextents1[2]);
-
-                // Send/receive the views
-                // First iteration, send w and z to avoid a deep dopy into wremote2 and zremote2
+                zrecv_view = zremote2; wrecv_view = wremote2; 
+                zrecv_extents = zextents2; wrecv_extents = wextents2;
+                L2G_recv = &L2G_remote2;
+	    } else {
                 if (i == 0) {
-                    MPI_Sendrecv(w.data(), int(w.size()), MPI_DOUBLE, next_rank, 2, wremote1.data(), int(wremote1.size()), MPI_DOUBLE, prev_rank, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                    MPI_Sendrecv(z.data(), int(z.size()), MPI_DOUBLE, next_rank, 3, zremote1.data(), int(zremote1.size()), MPI_DOUBLE, prev_rank, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                }
-                else {
-                    MPI_Sendrecv(wremote2.data(), int(wremote2.size()), MPI_DOUBLE, next_rank, 2, wremote1.data(), int(wremote1.size()), MPI_DOUBLE, prev_rank, 2, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                    MPI_Sendrecv(zremote2.data(), int(zremote2.size()), MPI_DOUBLE, next_rank, 3, zremote1.data(), int(zremote1.size()), MPI_DOUBLE, prev_rank, 3, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-                }
+                   /* Avoid a deep copy on the first iteration */
+                   wsend_view = w; zsend_view = z;
+                } else {
+                   wsend_view = wremote2; zsend_view = zremote2; 
+		} 
+                zsend_extents = zextents2; wsend_extents = wextents2;
+                L2G_send = &L2G_remote2;
 
-                // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
-                MPI_Sendrecv(&L2G_remote2, int(sizeof(L2G_remote2)), MPI_BYTE, next_rank, 4, &L2G_remote1, int(sizeof(L2G_remote1)), MPI_BYTE, prev_rank, 4, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                zrecv_view = zremote1; wrecv_view = wremote1; 
+                zrecv_extents = zextents1; wrecv_extents = wextents1;
+                L2G_recv = &L2G_remote1;
+             }
 
-                // Do computations XXX - Add remote_node_space
-                computeInterfaceVelocityPiece(atomic_zdot, z, w, local_L2G, zremote1, wremote1, L2G_remote1);
-            }   
-        }
+             // Prepare extents to send
+             for (int j = 0; j < 3; j++) {
+                 wsend_extents[j] = wsend_view.extent(j);
+                 zsend_extents[j] = zsend_view.extent(j);
+             }
+                
+             // Send w and z view sizes
+             MPI_Sendrecv(wsend_extents, 3, MPI_INT, next_rank, 0, 
+                          wrecv_extents, 3, MPI_INT, prev_rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+             MPI_Sendrecv(zsend_extents, 3, MPI_INT, next_rank, 1, 
+                          zrecv_extents, 3, MPI_INT, prev_rank, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+             // Resize *remote2, which is receiving data
+             Kokkos::resize(wrecv_view, wrecv_extents[0], wrecv_extents[1], wrecv_extents[2]);
+             Kokkos::resize(zrecv_view, zrecv_extents[0], zrecv_extents[1], zrecv_extents[2]);
+                
+             // Send/receive the views
+             MPI_Sendrecv(wsend_view.data(), int(wsend_view.size()), MPI_DOUBLE, next_rank, 2, 
+                          wrecv_view.data(), int(wrecv_view.size()), MPI_DOUBLE, prev_rank, 2, 
+                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+             MPI_Sendrecv(zsend_view.data(), int(zsend_view.size()), MPI_DOUBLE, next_rank, 3, 
+                          zrecv_view.data(), int(zrecv_view.size()), MPI_DOUBLE, prev_rank, 3, 
+                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+             // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
+             MPI_Sendrecv(L2G_send, int(sizeof(*L2G_send)), MPI_BYTE, next_rank, 4, 
+                         &L2G_recv, int(sizeof(*L2G_recv)), MPI_BYTE, prev_rank, 4, 
+                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+
+             // Do computations
+             computeInterfaceVelocityPiece(atomic_zdot, z, w, local_L2G, zrecv_view, wrecv_view, L2G_remote2);
+	    }
     }
     template <class L2G, class View>
     void printView(L2G local_L2G, int rank, View z, int option, int DEBUG_X, int DEBUG_Y) const
