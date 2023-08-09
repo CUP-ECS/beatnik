@@ -17,8 +17,10 @@
  *
  * @section DESCRIPTION
  * Class that uses a brute force approach to calculating the Birkhoff-Rott 
- * velocity intergral by using a all-pairs approach. Future communication
- * approach will be a standard ring-pass communication algorithm.
+ * velocity intergral by using a all-pairs approach. Communication
+ * uses a standard ring-pass communication algorithm. Does not attempt to 
+ * reduce amount of computation per ring pass by using symetry of forces
+ * as this complicates the GPU kernel.
  */
 
 #ifndef BEATNIK_EXACTBRSOLVER_HPP
@@ -31,7 +33,7 @@
 // Include Statements
 #include <Cabana_Core.hpp>
 #include <Cajita.hpp>
-#include <Cajita_IndexConversion_Edits.hpp>
+#include <Cajita_IndexConversion.hpp>
 #include <Kokkos_Core.hpp>
 
 #include <memory>
@@ -74,10 +76,9 @@ class ExactBRSolver
         , _epsilon( epsilon )
         , _dx( dx )
         , _dy( dy )
+        , _local_L2G( *_pm.mesh().localGrid() )
     {
-	// auto comm = _pm.mesh().localGrid()->globalGrid().comm();
-        /* Create a 1D MPI communicator for the ring-pass on this
-         * algorithm */
+	_comm = _pm.mesh().localGrid()->globalGrid().comm();
     }
 
     static KOKKOS_INLINE_FUNCTION double simpsonWeight(int index, int len)
@@ -89,23 +90,28 @@ class ExactBRSolver
 
     template <class AtomicView, class PositionView, class VorticityView, class L2G>
     void computeInterfaceVelocityPiece(AtomicView atomic_zdot, 
-                                       PositionView z, VorticityView w, L2G local_L2G,
+                                       PositionView z, VorticityView w, 
                                        PositionView zremote, VorticityView wremote, L2G remote_L2G) const
     {
         /* Project the Birkhoff-Rott calculation between all pairs of points on the 
          * interface, including accounting for any periodic boundary conditions.
          * Right now we brute force all of the points with no tiling to improve
          * memory access or optimizations to remove duplicate calculations. */
+
+        // Get the local index spaces of pieces we're workign with. For the local surface piece
+        // this is just hte nodes we own. For the remote surface piece, we extract it from the
+        // L2G converter they sent us.
+        auto local_grid = _pm.mesh().localGrid();
+        auto local_space = local_grid->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
+        std::array<long, 2> rmin, rmax;
+        for (int d = 0; d < 2; d++) {
+            rmin[d] = remote_L2G.local_own_min[d];
+            rmax[d] = remote_L2G.local_own_max[d];
+        }
+        Cajita::IndexSpace<2> remote_space(rmin, rmax);
+
         /* Figure out which directions we need to project the k/l point to
          * for any periodic boundary conditions */
-        auto local_space = local_L2G.local_own_space;
-        auto remote_space = remote_L2G.local_own_space;
-
-        int num_procs = 0;
-        int rank = -1;
-        MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
-        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
         int kstart, lstart, kend, lend;
         if (_bc.isPeriodicBoundary({0, 1})) {
             kstart = -1; kend = 1;
@@ -129,8 +135,6 @@ class ExactBRSolver
         /* Local temporaries for any instance variables we need so that we
          * don't have to lambda-capture "this" */
         double epsilon = _epsilon;
-        int istart = local_space.min(0), jstart = local_space.min(1);
-        int iend = local_space.max(0), jend = local_space.max(1);
         double dx = _dx, dy = _dy;
 
         // Mesh dimensions for Simpson weight calc
@@ -196,8 +200,6 @@ class ExactBRSolver
         MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-        auto local_L2G = Cajita::IndexConversion_Edits::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
-
         /* Start by zeroing the interface velocity */
         
         /* Get an atomic view of the interface velocity, since each k/l point
@@ -215,7 +217,7 @@ class ExactBRSolver
         });
         
         // Compute forces for all owned nodes on this process
-        computeInterfaceVelocityPiece(atomic_zdot, z, w, local_L2G, z, w, local_L2G);
+        computeInterfaceVelocityPiece(atomic_zdot, z, w, z, w, _local_L2G);
 
         /* Perform a ring pass of data between each process to compute forces of nodes 
          * on other processes on he nodes owned by this process */
@@ -228,8 +230,8 @@ class ExactBRSolver
         Kokkos::View<double***, typename VorticityView::device_type> wremote2(Kokkos::ViewAllocateWithoutInitializing ("wremote2"), w.extent(0), w.extent(1), w.extent(2));
         Kokkos::View<double***, typename PositionView::device_type> zremote1(Kokkos::ViewAllocateWithoutInitializing ("zremote1"), z.extent(0), z.extent(1), z.extent(2));
         Kokkos::View<double***, typename PositionView::device_type> zremote2(Kokkos::ViewAllocateWithoutInitializing ("zremote2"), z.extent(0), z.extent(1), z.extent(2));
-        auto L2G_remote1 = Cajita::IndexConversion_Edits::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
-        auto L2G_remote2 = Cajita::IndexConversion_Edits::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
+        auto L2G_remote1 = Cajita::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
+        auto L2G_remote2 = Cajita::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
 
         int wextents1[3];
         int wextents2[3];
@@ -308,41 +310,8 @@ class ExactBRSolver
                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
              // Do computations
-             computeInterfaceVelocityPiece(atomic_zdot, z, w, local_L2G, zrecv_view, wrecv_view, L2G_remote2);
+             computeInterfaceVelocityPiece(atomic_zdot, z, w, zrecv_view, wrecv_view, L2G_remote2);
 	    }
-    }
-    template <class L2G, class View>
-    void printView(L2G local_L2G, int rank, View z, int option, int DEBUG_X, int DEBUG_Y) const
-    {
-        int dims = z.extent(2);
-
-        Kokkos::parallel_for("print views",
-            Cajita::createExecutionPolicy(local_L2G.local_own_space, ExecutionSpace()),
-            KOKKOS_LAMBDA(int i, int j) {
-
-            // local_gi = global versions of the local indicies, and convention for remote 
-            int local_li[2] = {i, j};
-            int local_gi[2] = {0, 0};   // i, j
-            local_L2G(local_li, local_gi);
-            if (option == 1){
-                if (dims == 3) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
-                }
-                else if (dims == 2) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
-                }
-            }
-            else if (option == 2) {
-                if (local_gi[0] == DEBUG_X && local_gi[1] == DEBUG_Y) {
-                    if (dims == 3) {
-                        printf("R%d: %d: %d: %d: %d: %.5lf: %.5lf: %.5lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
-                    }   
-                    else if (dims == 2) {
-                        printf("R%d: %d: %d: %d: %d: %.5lf: %.5lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
-                    }
-                }
-            }
-        });
     }
 
     const pm_type & _pm;
@@ -350,7 +319,9 @@ class ExactBRSolver
     double _epsilon, _dx, _dy;
 
   private:
-    // XXX Save the w and z sizes for each process so we can avoid MPI send/receives in the ring pass?
+    MPI_Comm _comm;
+    Cajita::IndexConversion::L2G<mesh_type, Cajita::Node> _local_L2G;
+    // XXX Communication views and extents to avoid allocations during each ring pass
 
 };
 
