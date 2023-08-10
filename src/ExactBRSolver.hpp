@@ -223,10 +223,10 @@ class ExactBRSolver
 
         // Create views for receiving data. Alternate which views are being sent and received into
         // *remote2 sends first, so it needs to be deep copied. *remote1 can just be allocated
-        Kokkos::View<double***, typename node_view::device_type> wremote1(Kokkos::ViewAllocateWithoutInitializing ("wremote1"), w.extent(0), w.extent(1), w.extent(2));
-        Kokkos::View<double***, typename node_view::device_type> wremote2(Kokkos::ViewAllocateWithoutInitializing ("wremote2"), w.extent(0), w.extent(1), w.extent(2));
-        Kokkos::View<double***, typename node_view::device_type> zremote1(Kokkos::ViewAllocateWithoutInitializing ("zremote1"), z.extent(0), z.extent(1), z.extent(2));
-        Kokkos::View<double***, typename node_view::device_type> zremote2(Kokkos::ViewAllocateWithoutInitializing ("zremote2"), z.extent(0), z.extent(1), z.extent(2));
+        node_view wremote1(Kokkos::ViewAllocateWithoutInitializing ("wremote1"), w.extent(0), w.extent(1), w.extent(2));
+        node_view wremote2(Kokkos::ViewAllocateWithoutInitializing ("wremote2"), w.extent(0), w.extent(1), w.extent(2));
+        node_view zremote1(Kokkos::ViewAllocateWithoutInitializing ("zremote1"), z.extent(0), z.extent(1), z.extent(2));
+        node_view zremote2(Kokkos::ViewAllocateWithoutInitializing ("zremote2"), z.extent(0), z.extent(1), z.extent(2));
         l2g_type L2G_remote1 = Cajita::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
         l2g_type L2G_remote2 = Cajita::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
 
@@ -238,17 +238,17 @@ class ExactBRSolver
         // Now create references to these buffers. We go ahead and assign them here to get 
         // sane type declarations. The loop reassigns these references as needed each time
         // around the loop.
-        auto zsend_view = zremote1; 
-        auto wsend_view = wremote1; 
+        node_view zsend_view = zremote1; 
+        node_view wsend_view = wremote1; 
         int * zsend_extents = zextents1;
         int * wsend_extents = wextents1;
-        auto L2G_send = &L2G_remote1;
+        l2g_type * L2G_send = &L2G_remote1;
 
-        auto zrecv_view = zremote2; 
-        auto wrecv_view = wremote2; 
+        node_view zrecv_view = zremote2; 
+        node_view wrecv_view = wremote2; 
         int * zrecv_extents = zextents2;
         int * wrecv_extents = wextents2;
-        auto L2G_recv = &L2G_remote2;
+        l2g_type * L2G_recv = &L2G_remote2;
 
         // Perform the ring pass
         for (int i = 0; i < num_procs - 1; i++) {
@@ -303,8 +303,8 @@ class ExactBRSolver
 
              // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
              MPI_Sendrecv(L2G_send, int(sizeof(*L2G_send)), MPI_BYTE, next_rank, 4, 
-                         &L2G_recv, int(sizeof(*L2G_recv)), MPI_BYTE, prev_rank, 4, 
-                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                          L2G_recv, int(sizeof(*L2G_recv)), MPI_BYTE, prev_rank, 4, 
+                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
              // Do computations
              computeInterfaceVelocityPiece(atomic_zdot, z, zrecv_view, wrecv_view, L2G_remote2);
@@ -319,7 +319,6 @@ class ExactBRSolver
     MPI_Comm _comm;
     l2g_type _local_L2G;
     // XXX Communication views and extents to avoid allocations during each ring pass
-
 };
 
 }; // namespace Beatnik
