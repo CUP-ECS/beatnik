@@ -85,6 +85,8 @@ class ProblemManager
     using node_array =
         Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>,
                       device_type>;
+    using node_view = 
+        typename node_array::view_type;
 
     using halo_type = Cajita::Halo<MemorySpace>;
     using mesh_type = Mesh<exec_space, mem_space>;

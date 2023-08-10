@@ -107,7 +107,7 @@ namespace Operators
      * take care of periodic boundary contitions) exerts on an i/j point */
     template <class VorticityView, class PositionView>
     KOKKOS_INLINE_FUNCTION
-    void BR(double out[3], VorticityView w, VorticityView w2, PositionView z, PositionView z2,
+    void BR(double out[3], PositionView z, PositionView z2, VorticityView w2,
             double epsilon, double dx, double dy, double weight, int i, int j, int k, int l,
             double offset[3])
     {

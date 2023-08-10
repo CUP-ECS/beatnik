@@ -73,6 +73,7 @@ class ZModel
     using node_array =
         Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>,
                       device_type>;
+    using node_view = typename node_array::view_type;
 
     using halo_type = Cajita::Halo<MemorySpace>;
 
@@ -254,9 +255,8 @@ class ZModel
     /* For low order, we calculate the reisz transform used to compute the magnitude
      * of the interface velocity. This will be projected onto surface normals later 
      * once we have the normals */
-    template <class PositionView, class VorticityView>
-    void prepareVelocities(Order::Low, [[maybe_unused]] PositionView zdot,
-                           [[maybe_unused]] PositionView z, VorticityView w) const
+    void prepareVelocities(Order::Low, [[maybe_unused]] node_view zdot,
+                           [[maybe_unused]] node_view z, node_view w) const
     {
         computeReiszTransform(w);
     }
@@ -264,8 +264,7 @@ class ZModel
     /* For medium order, we calculate the fourier velocity that we later 
      * normalize for vorticity calculations and directly compute the 
      * interface velocity (zdot) using a far field method. */
-    template <class PositionView, class VorticityView>
-    void prepareVelocities(Order::Medium, PositionView zdot, PositionView z, VorticityView w) const
+    void prepareVelocities(Order::Medium, node_view zdot, node_view z, node_view w) const
     {
         computeReiszTransform(w);
         _br->computeInterfaceVelocity(zdot, z, w);
@@ -274,8 +273,7 @@ class ZModel
     /* For high order, we just directly compute the interface velocity (zdot)
      * using a far field method and later normalize that for use in the vorticity 
      * calculation. */
-    template <class PositionView, class VorticityView>
-    void prepareVelocities(Order::High, PositionView zdot, PositionView z, VorticityView w) const
+    void prepareVelocities(Order::High, node_view zdot, node_view z, node_view w) const
     {
         _br->computeInterfaceVelocity(zdot, z, w);
     }
@@ -315,8 +313,7 @@ class ZModel
  
     // External entry point from the TimeIntegration object that uses the
     // problem manager state.
-    template <class PositionView, class VorticityView>
-    void computeDerivatives( PositionView zdot, VorticityView wdot ) const
+    void computeDerivatives( node_view zdot, node_view wdot ) const
     {
        _pm.gather();
        auto z_orig = _pm.get( Cajita::Node(), Field::Position() );
@@ -326,9 +323,8 @@ class ZModel
 
     // External entry point from the TimeIntegration object that uses the
     // passed-in state/
-    template <class PositionView, class VorticityView>
     void computeDerivatives( node_array &z, node_array &w,
-                             PositionView zdot, VorticityView wdot ) const
+                             node_view zdot, node_view wdot ) const
     {
         _pm.gather( z, w );
 	computeHaloedDerivatives( z.view(), w.view(), zdot, wdot );
@@ -336,9 +332,8 @@ class ZModel
 
     // Shared internal entry point from the external points from the
     // TimeIntegration object
-    template <class PositionView, class VorticityView>
-    void computeHaloedDerivatives( PositionView z_view, VorticityView w_view,
-                                   PositionView zdot, VorticityView wdot ) const
+    void computeHaloedDerivatives( node_view z_view, node_view w_view,
+                                   node_view zdot, node_view wdot ) const
     {
         // External calls to this object work on Cajita arrays, but internal
         // methods mostly work on the views, with the entry points responsible

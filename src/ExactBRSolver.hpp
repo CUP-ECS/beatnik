@@ -60,12 +60,11 @@ class ExactBRSolver
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cajita::UniformMesh<double, 2>;
-
+    
     using Node = Cajita::Node;
-
-    using node_array =
-        Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>,
-                      device_type>;
+    using l2g_type = Cajita::IndexConversion::L2G<mesh_type, Node>;
+    using node_array = typename pm_type::node_array;
+    using node_view = typename pm_type::node_view;
 
     using halo_type = Cajita::Halo<MemorySpace>;
 
@@ -88,10 +87,10 @@ class ExactBRSolver
         else return 9.0/8.0;
     }
 
-    template <class AtomicView, class PositionView, class VorticityView, class L2G>
-    void computeInterfaceVelocityPiece(AtomicView atomic_zdot, 
-                                       PositionView z, VorticityView w, 
-                                       PositionView zremote, VorticityView wremote, L2G remote_L2G) const
+    template <class AtomicView>
+    void computeInterfaceVelocityPiece(AtomicView atomic_zdot, node_view z, 
+                                       node_view zremote, node_view wremote, 
+                                       l2g_type remote_L2G) const
     {
         /* Project the Birkhoff-Rott calculation between all pairs of points on the 
          * interface, including accounting for any periodic boundary conditions.
@@ -168,7 +167,7 @@ class ExactBRSolver
                     offset[1] = ldir * width[1];
 
                     /* Do the Birkhoff-Rott evaluation for this point */
-                    Operators::BR(br, w, wremote, z, zremote, epsilon, dx, dy, weight,
+                    Operators::BR(br, z, zremote, wremote, epsilon, dx, dy, weight,
                                   i, j, k, l, offset);
                     for (int d = 0; d < 3; d++) {
                         brsum[d] += br[d];
@@ -189,9 +188,7 @@ class ExactBRSolver
      * This function is called three times per time step to compute the initial, forward, and half-step
      * derivatives for velocity and vorticity.
      */
-    template <class PositionView, class VorticityView>
-    void computeInterfaceVelocity(PositionView zdot, PositionView z,
-                                  VorticityView w) const
+    void computeInterfaceVelocity(node_view zdot, node_view z, node_view w) const
     {
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
 
@@ -205,7 +202,7 @@ class ExactBRSolver
         /* Get an atomic view of the interface velocity, since each k/l point
          * is going to be updating it in parallel */
         Kokkos::View<double ***,
-             typename PositionView::device_type,
+             typename node_view::device_type,
              Kokkos::MemoryTraits<Kokkos::Atomic>> atomic_zdot = zdot;
     
         /* Zero out all of the i/j points - XXX Is this needed are is this already zeroed somewhere else? */
@@ -217,7 +214,7 @@ class ExactBRSolver
         });
         
         // Compute forces for all owned nodes on this process
-        computeInterfaceVelocityPiece(atomic_zdot, z, w, z, w, _local_L2G);
+        computeInterfaceVelocityPiece(atomic_zdot, z, z, w, _local_L2G);
 
         /* Perform a ring pass of data between each process to compute forces of nodes 
          * on other processes on he nodes owned by this process */
@@ -226,12 +223,12 @@ class ExactBRSolver
 
         // Create views for receiving data. Alternate which views are being sent and received into
         // *remote2 sends first, so it needs to be deep copied. *remote1 can just be allocated
-        Kokkos::View<double***, typename VorticityView::device_type> wremote1(Kokkos::ViewAllocateWithoutInitializing ("wremote1"), w.extent(0), w.extent(1), w.extent(2));
-        Kokkos::View<double***, typename VorticityView::device_type> wremote2(Kokkos::ViewAllocateWithoutInitializing ("wremote2"), w.extent(0), w.extent(1), w.extent(2));
-        Kokkos::View<double***, typename PositionView::device_type> zremote1(Kokkos::ViewAllocateWithoutInitializing ("zremote1"), z.extent(0), z.extent(1), z.extent(2));
-        Kokkos::View<double***, typename PositionView::device_type> zremote2(Kokkos::ViewAllocateWithoutInitializing ("zremote2"), z.extent(0), z.extent(1), z.extent(2));
-        auto L2G_remote1 = Cajita::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
-        auto L2G_remote2 = Cajita::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
+        Kokkos::View<double***, typename node_view::device_type> wremote1(Kokkos::ViewAllocateWithoutInitializing ("wremote1"), w.extent(0), w.extent(1), w.extent(2));
+        Kokkos::View<double***, typename node_view::device_type> wremote2(Kokkos::ViewAllocateWithoutInitializing ("wremote2"), w.extent(0), w.extent(1), w.extent(2));
+        Kokkos::View<double***, typename node_view::device_type> zremote1(Kokkos::ViewAllocateWithoutInitializing ("zremote1"), z.extent(0), z.extent(1), z.extent(2));
+        Kokkos::View<double***, typename node_view::device_type> zremote2(Kokkos::ViewAllocateWithoutInitializing ("zremote2"), z.extent(0), z.extent(1), z.extent(2));
+        l2g_type L2G_remote1 = Cajita::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
+        l2g_type L2G_remote2 = Cajita::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
 
         int wextents1[3];
         int wextents2[3];
@@ -310,7 +307,7 @@ class ExactBRSolver
                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
              // Do computations
-             computeInterfaceVelocityPiece(atomic_zdot, z, w, zrecv_view, wrecv_view, L2G_remote2);
+             computeInterfaceVelocityPiece(atomic_zdot, z, zrecv_view, wrecv_view, L2G_remote2);
 	    }
     }
 
@@ -320,7 +317,7 @@ class ExactBRSolver
 
   private:
     MPI_Comm _comm;
-    Cajita::IndexConversion::L2G<mesh_type, Cajita::Node> _local_L2G;
+    l2g_type _local_L2G;
     // XXX Communication views and extents to avoid allocations during each ring pass
 
 };
