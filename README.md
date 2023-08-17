@@ -4,16 +4,12 @@
 
 Beatnik is a benchmark for global communication based on Pandya and Shkoller's 3D fluid interace "Z-Model" in the Cabana/Cajita mesh framework [1]. The goals 
 of Beatnik are to:
-  1. Provide an interesting and meaningful benchmark for numerical methods that require global communication, particularly fast fourier transforms and fast multipole methods.
+  1. Provide an interesting and meaningful benchmark for numerical methods that require global communication, for example for far-field force calculations. This includes fast fourier transforms, distance sort cutoff-based methonds, and (eventually) fast multipole methods.
   1. Understand the performance characteristics of different parallel decompositions of the Z-Model based on both a 2D decomposition based on logical mesh location location and a space-filling curve mesh decomposition.
-  1. Provide a working prototype parallel implementation of the fluid interface model that other implementations can use to understand the implementation.  
+  1. Provide a working prototype parallel implementation of the fluid interface model that other codes can use to create multi-scale models and codes.
 
-The initial Beatnik implementation of the Z-Model uses a simple mesh-based representation of the surface manifold with a regular decomposition as a Cajita 2D mesh in I/J space and the physical position of each element in the mesh stored as a separate vector in the nodes of the mesh. This is efficient for the low-order z-model, as the computation of surface normals, artificial viscosity, and Fourier transforms for estimating interface velocities are straightforward in this representation. 
+Beatnik uses a simple mesh-based represeantation of the surface manifold as a Cajita 2D mesh in I/J space and a regular block 2D decomposition of this manifold. The physical position of each element in the mesh is stored as a separate vector in the nodes of the mesh. This design results in simple and efficient computation and communincation strageties for surface normals, artificial viscosity, and Fourier transforms elements. However, it complicates methods where the data decomposition and communication is based on the spatial location of manifold points, requiring them to either maintain a separate spatial decomposition of the surface or to continually construct a spatial decomposition. A surface mesh that decomposed the mesh by spatial location would be an interesting alternative but would have the opposite issue - communication for surface calculations would be more complex but the (expensive) far force methods that rely on spatial decompositions (e.g. distance sort and spatial tree methods like the fast multipole method) would be less espensive.
 
-Because Beatnik does not yet include a spatial mesh decomposition, its support for scalable far-field solvers in the higher-order interface solution models (e.g. the fast multipole method, P3M, or distance-sorting cutoff-based methods) is limited. In particular, Beatnik 1.0 currently only supports either O(N^2) brute-force calculation of far-field forces or the use of an external far-field force solver that re-sorts the mesh at each derivative calculation.
-
-In the future, we plan to add the ability to decompose the Beatnik mesh spatially by adding a ParticleMesh abstraction that the implements the portions of Cajita meshes Beatnik requires using Cabana particle abstractions. This will in turn enable the direct implementation of scalable far-field force methods. This work is planned for Beatnik 2.0.
- 
 ## Building Beatnik
 
 Beatnik relies on multiple external packages to build, including:
@@ -22,36 +18,11 @@ Beatnik relies on multiple external packages to build, including:
   * UT-Knoxville's HeFFTe fast fourier transform library [4]
   * A high-performance MPI implementation such as OpenMPI, MPICH, or MVAPICH
 
-To ease building Beatnik, the configs/ directory includes Spack configuration files for building in spack environments on multiple systems and test case run scripts for those systems, as well as a spack package description for directly building Beatnik. This spack package will be contributed back to the mainline Spack repository following the first public Beatnik release.
-
-### Building Beatnik in a Spack Environment
-
-Assuming that you have Spack already installed on your HPC systems (as described in https://spack.readthedocs.io), you can use spack to create an environment for building and developing spack as follows:
-
-  1. If not checked out from git recursively, checkout all needed Beatnik submodules, e.g. `git submodule init && git submodule update --recursive`
-  1. Create a build directory for housing the Spack environment and housing the out-of-source build, e.g. `mkdir build-hopper` on the UNM hopper compute cluster.
-  1. Copy the appropriate spack.yaml file from configs/[systemname]/ to spack.yaml in the newly-created build directory, e.g. `cp configs/unm-hopper/spack.yaml build-hopper/`
-  1. Perform any compiler setup needed using the system module system, as spack environments do not necessarily configure the compiler. This could include installing a fortran compiler on MacOS systems (e.g. using homebrew), or loading the proper compiler module on an HPC system. This compiler should be compatible with one used in the spack.yaml file chosen, and ideally described in a README.md file in the associated configs/ directory
-  1. Change directory to the created build directory and create a spack environment in which to build Beatnik in that directory, e.g. `cd build-hopper; spack env create -d . spack.yaml`
-  1. Activate, concretize, and install the resulting environment, e.g. `spack env activate -d . && spack concretize && spack install`
-  1. Run cmake and make to create the appropriate Makefiles and build using them, e.g. `cmake .. && make`.
-  
-### Building Beatnik directly using a Spack package description
-
-XXX 
-
-### Developing Beatnik using a Spack package description
-
-XXX 
-
-### Beatnik Build-Time Configuration Options
+To ease building Beatnik, the configs/ directory includes Spack configuration files for building in spack environments on multiple systems and test case run scripts for a variety of systems. In addition, the latest version of Spack includes a package description for directly building Beatnik. More information on building Beatnik can be found in the README.md file in the configs/ directory.
 
 ## Running Beatnik
 
-By default, Beatnik solves a simple multi-mode rocket rig problem sized for a 
-single serial CPU core with approximately 4GB of memory. It also includes 
-command line options to change initial problem state, I/O frequency, and to 
-weak-scale scale up the initial problem to larger number of processes.
+By default, Beatnik solves a simple multi-mode rocket rig problem sized for a single serial CPU core with approximately 4GB of memory. It also includes command line options to change initial problem state, I/O frequency, and to weak-scale scale up the initial problem to larger number of processes. It also includes problem-specific command line parameters; setting these parameters accurately generally requires expertise in fluid interface models. However, we provide several useful examples drawn from the ZModel papers that recreate the results in those papers.
 
 ### General command line parameters
 
@@ -93,25 +64,26 @@ Beatnik is being implemented in multiple distinct steps, with associated planned
     1. A high-order model implementation based on brute-force exact computation of long-range forces
     1. A medium-order model that uses the Fourier transform for estimating interface velocity and the far-field force solver for estimating how the vorticity changes at each interface point. 
     1. Support for periodic boundary conditions and free boundary conditions
-    1. A few simple benchmark examples, including a single-mode gaussian roll-up test and the multi-mode rocket rig experiment.
+    1. Simple benchmark examples including a single-mode gaussian roll-up test and the multi-mode rocket rig experiment.
     1. Direct support for weak scaling of benchmarks through command line arguments
 
   * Version 1.X Planned Features
 
-    1. A cutoff-based approach for calculating far-field forces using the Cabana particle framework that accelerates far-field force calculations.
-    1. Improved timestep, desingularization, and artificial viscosity handling to provide good defaults for the input parameters given
+    1. A cutoff-based approach for calculating far-field forces using the Cabana particle framework. The goal of this work is to understand the accuracy/performance tradeoffs in the Z-Model, not to necessarily provide  to accelerates far-field force calculations.
+    1. Improved timestep, desingularization, and artificial viscosity parameter handling. The goal of this is to provide good defaults when other input parameters are changed.
     1. Additional interface initialization options, including gaussian random and file-based interface initialization (also useful for checkpointing)
-    1. Support for coupling with other applications through either I/O (e.g. ADIOS) or Communication (e.g. Portage) approaches
-    1. Additional test cases definitions
+    1. Support for coupling with other applications through either I/O (e.g. ADIOS) or Communication (e.g. Portage) 
+    1. Additional test case definitions
 
-  * Version 2.0 Planned Features
+  * Potential later (e.g. >=2.0) features
 
     1. Spatial partitioning of the mesh using a space-filling curve to better optimize the high-order model
     1. Direct fast multipole or P3M solver for scalable, high precision high-order model solves.
+    1. Support for multiple interface manifolds in a single simulation.
 
 ## Acknowledgement, Contributors, and Copyright Information
 
-Beatnik is primarily availble as open source under a 3-Clause BSD License. It is being developed at the University of New Mexico, University of Tennessee at Chatanooga, and the University of Alabama under funding the U.S. Department of Energy's Predictive Science Academic Alliance Partnership III (PSAAP-III) program. Contributors to Beatnik development include the following:
+Beatnik is primarily availble as open source under a 3-Clause BSD License. It is being developed at the University of New Mexico, University of Tennessee at Chattanooga, and the University of Alabama under funding the U.S. Department of Energy's Predictive Science Academic Alliance Partnership III (PSAAP-III) program. Contributors to Beatnik development include the following:
 
   * Patrick G. Bridges (patrickb@unm.edu)
   * Thomas Hines (thomas-hines-01@utc.edu)
