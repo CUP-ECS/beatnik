@@ -4,3 +4,5 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR})
 blt_add_executable( NAME       rocketrig
                     SOURCES    rocketrig.cpp 
                     DEPENDS_ON beatnik)
+
+install(TARGETS rocketrig DESTINATION ${CMAKE_INSTALL_BINDIR})
