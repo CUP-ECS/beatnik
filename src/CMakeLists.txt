@@ -16,7 +16,6 @@ set(HEADERS
   # ZModel details here.
   ZModel.hpp
   ExactBRSolver.hpp
-#  VerletBRVelocity.hpp
   )
 
 #set(SOURCES
@@ -43,4 +42,5 @@ blt_add_library( NAME beatnik
                  DEPENDS_ON ${DEPENDS_ON} 
   )
 
-# Need to set up a proper install target XXX
+install(FILES ${HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(TARGETS beatnik LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
