@@ -16,7 +16,7 @@
  *
  * @section DESCRIPTION
  * Supporting functions for Z-Model calculations, primarily Simple differential 
- * and other mathematical operators but also some itility functions that 
+ * and other mathematical operators but also some utility functions that 
  * we may want to later contribute back to Cajita or other supporting libraries.
  */
 
@@ -64,7 +64,7 @@ namespace Operators
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION
     double Dy(ViewType f, int i, int j, int d, double dy)
-    {
+    {  
         return (f(i, j - 2, d) - 8.0*f(i, j - 1, d) + 8.0*f(i, j + 1, d) - f(i, j + 2, d)) / (12.0 * dy);
         //return (f(i, j+1, d) - f(i, j-1, d)) / (2.0 * dy);
     }

@@ -14,7 +14,7 @@
  * @author Thomas Hines <thomas-hines-01@utc.edu>
  *
  * @section DESCRIPTION
- * ZModel class that handles computing derivatives of ionterface position and
+ * ZModel class that handles computing derivatives of interface position and
  * velocity, using external classses for different velocity calculation
  * strategies
  */
@@ -42,7 +42,7 @@ namespace Beatnik
 {
 
 
-// Type tags designating difference orders of the 
+// Type tags designating difference orders of the zmodel
 namespace Order
 {
     struct Low {};
@@ -100,7 +100,7 @@ class ZModel
             Cajita::createArrayLayout( _pm.mesh().localGrid(), 1, Cajita::Node() );
 
         // Temporary used for central differencing of vorticities along the 
-        // surface in calculating the vorticity derivative/
+        // surface in calculating the vorticity derivative
         _V = Cajita::createArray<double, device_type>(
             "V", node_scalar_layout );
 
@@ -112,7 +112,7 @@ class ZModel
 
         /* Storage for the reisz transform of the vorticity. In the low and 
          * medium order models, it is used to calculate the vorticity 
-         * derivative. In the low order model,it is also projected onto the 
+         * derivative. In the low order model, it is also projected onto the 
          * surface normal to compute the interface velocity.  
          * XXX Make this conditional on the model we run. */
         _reisz = Cajita::createArray<double, device_type>( "reisz", node_double_layout );
@@ -279,7 +279,7 @@ class ZModel
     }
 
     // Compute the final interface velocities and normalized BR velocities
-    // from the previously computed Fourier and/or BR velocities and the surface
+    // from the previously computed Fourier and/or Birkhoff-Rott velocities and the surface
     // normal based on  the order of technique we're using.
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION 
@@ -322,7 +322,7 @@ class ZModel
     } 
 
     // External entry point from the TimeIntegration object that uses the
-    // passed-in state/
+    // passed-in state
     void computeDerivatives( node_array &z, node_array &w,
                              node_view zdot, node_view wdot ) const
     {

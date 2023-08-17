@@ -1,4 +1,4 @@
- /***************************************************************************
+/****************************************************************************
  * Copyright (c) 2021, 2022 by the Beatnik authors                          *
  * All rights reserved.                                                     *
  *                                                                          *
@@ -78,7 +78,7 @@ class SiloWriter
         DBoptlist* optlist;
         int rank = _pm.mesh().rank();
 
-        // Rertrieve the Local Grid and Local Mesh
+        // Retrieve the Local Grid and Local Mesh
         const auto & local_grid = _pm.mesh().localGrid();
 
         // Set DB Options: Time Step, Time Stamp and Delta Time
@@ -249,7 +249,7 @@ class SiloWriter
     };
 
     /**
-     * Write Multi Object Silo File the References Child Files in order to
+     * Write Multi-Object Silo File the References Child Files in order to
      * have entire set of data for the time step writen by each rank in
      * a single logical file
      *
@@ -377,7 +377,7 @@ class SiloWriter
                   file_ext );
         snprintf( nsname, 256, "domain_%05d", rank );
 
-        // Show Errors and Force FLoating Point
+        // Show Errors and Force Floating Point
         DBShowErrors( DB_ALL, NULL );
 
         DBfile * silo_file = (DBfile*)PMPIO_WaitForBaton( baton, filename, nsname );

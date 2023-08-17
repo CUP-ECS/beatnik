@@ -55,8 +55,8 @@ class Mesh
         /* Create global mesh bounds. There are a few caveats here that are
          * important to understand:
          * 1. Each mesh point has multiple locations:
-         *    1.1 It's i/j location [0..n), [0...m), 
-         *    1.2 It's location in node coordinate space [-n/2, n/2) based on
+         *    1.1 Its i/j location [0..n), [0...m), 
+         *    1.2 Its location in node coordinate space [-n/2, n/2) based on
                   its initial spatial location in x/y space, and
          *    1.3 the x/y/z location of its points at any given time.
          * 2. Of these, the first and last are used often in calculations, no 
@@ -65,7 +65,7 @@ class Mesh
          *    the low and medium order model. 
          * 3. In periodic meshes, the last point is implicit in the Cabana
          *    representation because it actually mirrors the first point.
-         * 4. For a non-periodic model, the number of cells is one less thn the 
+         * 4. For a non-periodic model, the number of cells is one less than the 
          *    the number of nodes. For a periodic model, the number of cells is 
          *    the same as the number of nodes, with the last node being
          *    implicitly the same as the first.
@@ -133,7 +133,7 @@ class Mesh
         return _high_point;
     }
 	
-	// Get the mesh size
+    // Get the mesh size
     int get_mesh_size() const
     {
         return _num_nodes[0];

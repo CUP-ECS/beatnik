@@ -308,7 +308,7 @@ class ExactBRSolver
 
              // Do computations
              computeInterfaceVelocityPiece(atomic_zdot, z, zrecv_view, wrecv_view, L2G_remote2);
-	    }
+	}
     }
 
     const pm_type & _pm;
