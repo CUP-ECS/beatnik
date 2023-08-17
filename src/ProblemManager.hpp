@@ -14,7 +14,7 @@
  *
  * @section DESCRIPTION
  * Problem manager class that stores mesh state shared between classes and 
- * maintained across multiple processes. Specific compitational methods 
+ * maintained across multiple processes. Specific computational methods 
  * may also have mesh state, but if it is not shared between classes it resides
  * in that method, not here. 
  */
@@ -99,7 +99,7 @@ class ProblemManager
     {
         // The layouts of our various arrays for values on the staggered mesh
         // and other associated data strutures. Do there need to be version with
-        // halos associuated with them?
+        // halos associated with them?
         auto node_triple_layout =
             Cajita::createArrayLayout( _mesh.localGrid(), 3, Cajita::Node() );
         auto node_pair_layout =
@@ -117,7 +117,7 @@ class ProblemManager
         Cajita::ArrayOp::assign( *_vorticity, 0.0, Cajita::Ghost() );
 
         /* Halo pattern for the position and vorticity. The halo is two cells 
-         * deep so that to be able to do fourth-order central differencing to 
+         * deep to be able to do fourth-order central differencing to 
          * compute surface normals accurately. It's a Node (8 point) pattern 
          * as opposed to a Face (4 point) pattern so the vorticity laplacian 
          * can use a 9-point stencil. */
@@ -223,7 +223,7 @@ class ProblemManager
 #if 0
     /**
      * Provide halo pattern used for position and vorticity for classes that
-     * needto manage temporary global versions of that state themselves 
+     * need to manage temporary global versions of that state themselves 
      **/
     halo_type & halo( ) const
     {
