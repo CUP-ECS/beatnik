@@ -2,16 +2,27 @@
 
 This directory contains build information and scripts for a variety of systems, mainly using the spack build system.  In general, these builds are designed to work in a self-contained spack environment (spack documentation goes here XXX) with appropriate external compilers. Each directory describes the compiler used on each system and how to access/configure it, along with the spack environment to create in which to build beatnik.  For systems where spack is not pre-configured by the system maintainers, the build directory also contains a link to a repository with a relevant spack packages.yaml file, as well as a spack environment specification the can fully configure and build on that system. 
 
+## General build requirements
+Beatnik depends on the following pacakges to build in all configurations:
+  1. Cabana version 0.5.0 or newer
+  1. A heffte version compatible with Cabana (2.1.0 for Cabana 0.5.0, 2.3.0 will be needed startign with Cabana 0.6.0)
+  1. An MPI implementation - note that MPI must be GPU-aware when running on GPU systems.
+  1. Kokkos 4.0 or newer
+  1. LLNL Silo 4.11 or newer configured with MPI support
+  1. LLNL BLT (available as a git submodule)
+
+The Beatnik Spack package and all of the environments below should enforce these requirements appropriately.
+
 ## Current list of tested build targets and suggested build method
 
   * University of New Mexico
-    * Hopper V100/A100 GPU cluster system - Spack package 
-    * Xena K40m GPU cluster system - Spack package
-    * General UNM (Wheeler/Hopper) CPU systems - Spack package
+    * Hopper V100/A100 GPU cluster system - Spack package; environment also available
+    * Xena K40m GPU cluster system - Spack package; environment also available
+    * General UNM (Wheeler/Hopper) CPU systems - Spack package; environment also available
   * Lawrence Livermore National Laboratory
-    * Lassen V100 GPU system
-    * Quartz CPU system
-    * Tioga MX250X GPU system - WORK IN PROGRESS
+    * Lassen V100 GPU system - Spack environment; configurations require a good bit of tuning to work
+    * Quartz CPU system - Spack packate with included package.yaml configuration
+    * Tioga MX250X GPU system - Spack environment; configurations require a good bit of tuning to work
   * Los Alamos National Laboratoru
     * Chicoma Cray A100 GPU system
     * Darwin GPU system
