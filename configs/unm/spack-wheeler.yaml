@@ -1,0 +1,15 @@
+# This spack environment assumes that the gcc/11.2.0 and the cmake/3.26.3 modules are always loaded.
+# To use this environment spec, follow the directions in configs/README.md 
+
+spack:
+  specs:
+  - blt
+  - ucx +ib_hw_tm +verbs
+  - openmpi @4.1: fabrics=ucx
+  - heffte +fftw
+  - kokkos @4: 
+  - cabana @master +cajita +heffte +mpi
+  - silo@4.11 +mpi
+  concretizer:
+    unify: true
+  view: true
