@@ -367,7 +367,8 @@ class ExactBRSolver
             // }
             if (rank == DEBUG_RANK) {
                 printf("w %d: R%d received from R%d: w_rec = %d (w_send = %d, w = %d)\n", i, rank, prev_rank, wrecv_extents[1], wsend_extents[1], w.extent(1));
-                printf("z %d: R%d received from R%d: z_rec = %d (z_send = %d, z = %d)\n", i, rank, prev_rank, zrecv_extents[1], zsend_extents[1], z.extent(1));
+                //printf("z %d: R%d received from R%d: z_rec = %d (z_send = %d, z = %d)\n", i, rank, prev_rank, zrecv_extents[1], zsend_extents[1], z.extent(1));
+                printf("R%d: remote1 ex: %d, remote2 ex: %d\n", rank, wextents1[1], wextents2[1]);
             }
 
             // Do computations
