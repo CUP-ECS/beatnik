@@ -203,10 +203,10 @@ class ExactBRSolver
 
         int x01 = 1;
         int y01 = 1;
-        int z01 = 1;
+        int z01 = 0;
 
-        Kokkos::resize(w, rank + 10, rank + 10, rank + 10);
-        Kokkos::resize(z, rank + 10, rank + 10, rank + 10);
+        Kokkos::resize(w, rank + 10, rank + 10, 1);
+        Kokkos::resize(z, rank + 10, rank + 10, 1);
 
         if (rank == 0) {
             w(x01, y01, z01) = 0.01;
@@ -274,6 +274,10 @@ class ExactBRSolver
         int wextents2[3];
         int zextents1[3];
         int zextents2[3];
+        for (int j = 0; j < 3; j++) {
+            wextents1[j] = rank + 10;
+            wextents2[j] = rank + 10;
+        }
   
         // Now create references to these buffers. We go ahead and assign them here to get 
         // same type declarations. The loop reassigns these references as needed each time
@@ -337,6 +341,9 @@ class ExactBRSolver
                 wsend_extents[j] = wsend_view.extent(j);
                 zsend_extents[j] = zsend_view.extent(j);
             }
+        //    if (rank == DEBUG_RANK) {
+        //         printf("sending: %d %d %d\n", wsend_view.extent(0), wsend_view.extent(1), wsend_view.extent(2));
+        //     }
                 
             // Send w and z view sizes
             MPI_Sendrecv(wsend_extents, 3, MPI_INT, next_rank, 0, 
@@ -362,8 +369,8 @@ class ExactBRSolver
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             // if (rank == DEBUG_RANK) {
-            //     printf("w %d: R%d received from R%d: w_rec = %0.2lf (w_send = %0.2lf, w = %0.2lf)\n", i, rank, prev_rank, wrecv_view(1, 1, 1), wsend_view(1, 1, 1), w(1, 1, 1));
-            //     printf("z %d: R%d received from R%d: z_rec = %0.2lf (z_send = %0.2lf, z = %0.2lf)\n", i, rank, prev_rank, zrecv_view(1, 1, 1), zsend_view(1, 1, 1), z(1, 1, 1));
+            //     printf("w %d: R%d received from R%d: w_rec = %0.2lf (w_send = %0.2lf, w = %0.2lf)\n", i, rank, prev_rank, wrecv_view(1, 1, 0), wsend_view(1, 1, 0), w(1, 1, 0));
+            //     printf("z %d: R%d received from R%d: z_rec = %0.2lf (z_send = %0.2lf, z = %0.2lf)\n", i, rank, prev_rank, zrecv_view(1, 1, 0), zsend_view(1, 1, 0), z(1, 1, 0));
             // }
             if (rank == DEBUG_RANK) {
                 printf("w %d: R%d received from R%d: w_rec = %d (w_send = %d, w = %d)\n", i, rank, prev_rank, wrecv_extents[1], wsend_extents[1], w.extent(1));
