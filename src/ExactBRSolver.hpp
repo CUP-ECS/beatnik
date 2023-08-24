@@ -205,8 +205,8 @@ class ExactBRSolver
         int y01 = 1;
         int z01 = 0;
 
-        Kokkos::resize(w, rank + 10, rank + 10, 1);
-        Kokkos::resize(z, rank + 10, rank + 10, 1);
+        // Kokkos::resize(w, rank + 10, rank + 10, 1);
+        // Kokkos::resize(z, rank + 10, rank + 10, 1);
 
         if (rank == 0) {
             w(x01, y01, z01) = 0.01;
@@ -368,15 +368,15 @@ class ExactBRSolver
                         L2G_recv, int(sizeof(*L2G_recv)), MPI_BYTE, prev_rank, 4, 
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-            // if (rank == DEBUG_RANK) {
-            //     printf("w %d: R%d received from R%d: w_rec = %0.2lf (w_send = %0.2lf, w = %0.2lf)\n", i, rank, prev_rank, wrecv_view(1, 1, 0), wsend_view(1, 1, 0), w(1, 1, 0));
-            //     printf("z %d: R%d received from R%d: z_rec = %0.2lf (z_send = %0.2lf, z = %0.2lf)\n", i, rank, prev_rank, zrecv_view(1, 1, 0), zsend_view(1, 1, 0), z(1, 1, 0));
-            // }
             if (rank == DEBUG_RANK) {
-                printf("w %d: R%d received from R%d: w_rec = %d (w_send = %d, w = %d)\n", i, rank, prev_rank, wrecv_extents[1], wsend_extents[1], w.extent(1));
-                //printf("z %d: R%d received from R%d: z_rec = %d (z_send = %d, z = %d)\n", i, rank, prev_rank, zrecv_extents[1], zsend_extents[1], z.extent(1));
-                printf("R%d: remote1 ex: %d, remote2 ex: %d\n", rank, wextents1[1], wextents2[1]);
+                printf("w %d: R%d received from R%d: w_rec = %0.2lf (w_send = %0.2lf, w = %0.2lf)\n", i, rank, prev_rank, wrecv_view(1, 1, 0), wsend_view(1, 1, 0), w(1, 1, 0));
+                printf("z %d: R%d received from R%d: z_rec = %0.2lf (z_send = %0.2lf, z = %0.2lf)\n", i, rank, prev_rank, zrecv_view(1, 1, 0), zsend_view(1, 1, 0), z(1, 1, 0));
             }
+            // if (rank == DEBUG_RANK) {
+            //     printf("w %d: R%d received from R%d: w_rec = %d (w_send = %d, w = %d)\n", i, rank, prev_rank, wrecv_extents[1], wsend_extents[1], w.extent(1));
+            //     //printf("z %d: R%d received from R%d: z_rec = %d (z_send = %d, z = %d)\n", i, rank, prev_rank, zrecv_extents[1], zsend_extents[1], z.extent(1));
+            //     printf("R%d: remote1 ex: %d, remote2 ex: %d\n", rank, wextents1[1], wextents2[1]);
+            // }
 
             // Do computations
             computeInterfaceVelocityPiece(atomic_zdot, z, zrecv_view, wrecv_view, L2G_remote2);
