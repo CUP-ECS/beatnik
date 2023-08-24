@@ -201,37 +201,37 @@ class ExactBRSolver
         MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-        int x01 = 1;
-        int y01 = 1;
-        int z01 = 0;
+        // int x01 = 1;
+        // int y01 = 1;
+        // int z01 = 0;
 
         // Kokkos::resize(w, rank + 10, rank + 10, 1);
         // Kokkos::resize(z, rank + 10, rank + 10, 1);
 
-        if (rank == 0) {
-            w(x01, y01, z01) = 0.01;
-            z(x01, y01, z01) = 0.01;
-        }
-        if (rank == 1) {
-            w(x01, y01, z01) = 1.1;
-            z(x01, y01, z01) = 1.01;
-        }
-        if (rank == 2) {
-            w(x01, y01, z01) = 2.2;
-            z(x01, y01, z01) = 2.02;
-        }
-        if (rank == 3) {
-            w(x01, y01, z01) = 3.3;
-            z(x01, y01, z01) = 3.03;
-        }
-        if (rank == 4) {
-            w(x01, y01, z01) = 4.4;
-            z(x01, y01, z01) = 4.04;
-        }
-        if (rank == 5) {
-            w(x01, y01, z01) = 5.5;
-            z(x01, y01, z01) = 5.05;
-        }
+        // if (rank == 0) {
+        //     w(x01, y01, z01) = 0.01;
+        //     z(x01, y01, z01) = 0.01;
+        // }
+        // if (rank == 1) {
+        //     w(x01, y01, z01) = 1.1;
+        //     z(x01, y01, z01) = 1.01;
+        // }
+        // if (rank == 2) {
+        //     w(x01, y01, z01) = 2.2;
+        //     z(x01, y01, z01) = 2.02;
+        // }
+        // if (rank == 3) {
+        //     w(x01, y01, z01) = 3.3;
+        //     z(x01, y01, z01) = 3.03;
+        // }
+        // if (rank == 4) {
+        //     w(x01, y01, z01) = 4.4;
+        //     z(x01, y01, z01) = 4.04;
+        // }
+        // if (rank == 5) {
+        //     w(x01, y01, z01) = 5.5;
+        //     z(x01, y01, z01) = 5.05;
+        // }
         // if (rank == 0) {
         //     printf("w R%d initial: w(1, 1, 1) = %lf\n", rank, w(1, 1, 1));
         //     printf("z R%d initial: z(1, 1, 1) = %lf\n", rank, z(1, 1, 1));
@@ -298,15 +298,15 @@ class ExactBRSolver
         l2g_type * L2G_recv = NULL;
 
         // Perform the ring pass
-        int DEBUG_RANK = 0;
+        //int DEBUG_RANK = 0;
         for (int i = 0; i < num_procs - 1; i++) {
 
             // Alternate between remote1 and remote2 sending and receiving data 
             // to avoid copying data across interations
             if (i % 2) {
-                if (rank == DEBUG_RANK) {
-                    printf("in 2\n");
-                }
+                // if (rank == DEBUG_RANK) {
+                //     printf("in 2\n");
+                // }
                 zsend_view = &zremote1; wsend_view = &wremote1; 
                 zsend_extents = zextents1; wsend_extents = wextents1;
                 L2G_send = &L2G_remote1;
