@@ -263,36 +263,39 @@ class ExactBRSolver
 
         // Create views for receiving data. Alternate which views are being sent and received into
         // *remote2 sends first, so it needs to be deep copied. *remote1 can just be allocated
+        // Kokkos::Array<Kokkos::View<node_view>, 2> zviews;
+        // Kokkos::Array<Kokkos::View<node_view>, 2> wviews;
         node_view wremote1(Kokkos::ViewAllocateWithoutInitializing ("wremote1"), w.extent(0), w.extent(1), w.extent(2));
         node_view wremote2(Kokkos::ViewAllocateWithoutInitializing ("wremote2"), w.extent(0), w.extent(1), w.extent(2));
         node_view zremote1(Kokkos::ViewAllocateWithoutInitializing ("zremote1"), z.extent(0), z.extent(1), z.extent(2));
         node_view zremote2(Kokkos::ViewAllocateWithoutInitializing ("zremote2"), z.extent(0), z.extent(1), z.extent(2));
         l2g_type L2G_remote1 = Cajita::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
         l2g_type L2G_remote2 = Cajita::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
+        
+        // zviews[0] = zremote1;
+        // zviews[1] = zremote2;
+        // wviews[0] = wremote1;
+        // wviews[1] = wremote2;
 
         int wextents1[3];
         int wextents2[3];
         int zextents1[3];
         int zextents2[3];
-        for (int j = 0; j < 3; j++) {
-            wextents1[j] = rank + 10;
-            wextents2[j] = rank + 10;
-        }
   
         // Now create references to these buffers. We go ahead and assign them here to get 
         // same type declarations. The loop reassigns these references as needed each time
         // around the loop.
-        node_view zsend_view = zremote1; 
-        node_view wsend_view = wremote1; 
-        int * zsend_extents = zextents1;
-        int * wsend_extents = wextents1;
-        l2g_type * L2G_send = &L2G_remote1;
+        node_view *zsend_view = NULL; 
+        node_view *wsend_view = NULL; 
+        int * zsend_extents = NULL;
+        int * wsend_extents = NULL;
+        l2g_type * L2G_send = NULL;
 
-        node_view zrecv_view = zremote2; 
-        node_view wrecv_view = wremote2; 
-        int * zrecv_extents = zextents2;
-        int * wrecv_extents = wextents2;
-        l2g_type * L2G_recv = &L2G_remote2;
+        node_view *zrecv_view = NULL; 
+        node_view *wrecv_view = NULL; 
+        int * zrecv_extents = NULL;
+        int * wrecv_extents = NULL;
+        l2g_type * L2G_recv = NULL;
 
         // Perform the ring pass
         int DEBUG_RANK = 0;
@@ -302,44 +305,44 @@ class ExactBRSolver
             // to avoid copying data across interations
             if (i % 2) {
                 if (rank == DEBUG_RANK) {
-                    printf("in i % 2\n");
+                    printf("in 2\n");
                 }
-                zsend_view = zremote1; wsend_view = wremote1; 
+                zsend_view = &zremote1; wsend_view = &wremote1; 
                 zsend_extents = zextents1; wsend_extents = wextents1;
                 L2G_send = &L2G_remote1;
 
-                zrecv_view = zremote2; wrecv_view = wremote2; 
+                zrecv_view = &zremote2; wrecv_view = &wremote2; 
                 zrecv_extents = zextents2; wrecv_extents = wextents2;
                 L2G_recv = &L2G_remote2;
             } else {
-                if (rank == DEBUG_RANK) {
-                    printf("in i % 2 else\n");
-                }
+                // if (rank == DEBUG_RANK) {
+                //     printf("in 3\n");
+                // }
                 if (i == 0) {
-                    if (rank == DEBUG_RANK) {
-                        printf("in i == 0\n");
-                    }
+                    // if (rank == DEBUG_RANK) {
+                    //     printf("in 0\n");
+                    // }
                     /* Avoid a deep copy on the first iteration */
-                    wsend_view = w; zsend_view = z;
+                    wsend_view = &w; zsend_view = &z;
                 } else {
-                    if (rank == DEBUG_RANK) {
-                        printf("in i == 0 else\n");
-                    }
-                    wsend_view = wremote2; zsend_view = zremote2; 
+                    // if (rank == DEBUG_RANK) {
+                    //     printf("in -1\n");
+                    // }
+                    wsend_view = &wremote2; zsend_view = &zremote2; 
                 } 
                 
                 zsend_extents = zextents2; wsend_extents = wextents2;
                 L2G_send = &L2G_remote2;
 
-                zrecv_view = zremote1; wrecv_view = wremote1; 
+                zrecv_view = &zremote1; wrecv_view = &wremote1; 
                 zrecv_extents = zextents1; wrecv_extents = wextents1;
                 L2G_recv = &L2G_remote1;
             }
 
             // Prepare extents to send
             for (int j = 0; j < 3; j++) {
-                wsend_extents[j] = wsend_view.extent(j);
-                zsend_extents[j] = zsend_view.extent(j);
+                wsend_extents[j] = wsend_view->extent(j);
+                zsend_extents[j] = zsend_view->extent(j);
             }
         //    if (rank == DEBUG_RANK) {
         //         printf("sending: %d %d %d\n", wsend_view.extent(0), wsend_view.extent(1), wsend_view.extent(2));
@@ -352,15 +355,15 @@ class ExactBRSolver
                         zrecv_extents, 3, MPI_INT, prev_rank, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             // Resize *remote2, which is receiving data
-            Kokkos::resize(wrecv_view, wrecv_extents[0], wrecv_extents[1], wrecv_extents[2]);
-            Kokkos::resize(zrecv_view, zrecv_extents[0], zrecv_extents[1], zrecv_extents[2]);
+            Kokkos::resize(*wrecv_view, wrecv_extents[0], wrecv_extents[1], wrecv_extents[2]);
+            Kokkos::resize(*zrecv_view, zrecv_extents[0], zrecv_extents[1], zrecv_extents[2]);
             
             // Send/receive the views
-            MPI_Sendrecv(wsend_view.data(), int(wsend_view.size()), MPI_DOUBLE, next_rank, 2, 
-                        wrecv_view.data(), int(wrecv_view.size()), MPI_DOUBLE, prev_rank, 2, 
+            MPI_Sendrecv(wsend_view->data(), int(wsend_view->size()), MPI_DOUBLE, next_rank, 2, 
+                        wrecv_view->data(), int(wrecv_view->size()), MPI_DOUBLE, prev_rank, 2, 
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            MPI_Sendrecv(zsend_view.data(), int(zsend_view.size()), MPI_DOUBLE, next_rank, 3, 
-                        zrecv_view.data(), int(zrecv_view.size()), MPI_DOUBLE, prev_rank, 3, 
+            MPI_Sendrecv(zsend_view->data(), int(zsend_view->size()), MPI_DOUBLE, next_rank, 3, 
+                        zrecv_view->data(), int(zrecv_view->size()), MPI_DOUBLE, prev_rank, 3, 
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
@@ -368,10 +371,10 @@ class ExactBRSolver
                         L2G_recv, int(sizeof(*L2G_recv)), MPI_BYTE, prev_rank, 4, 
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-            if (rank == DEBUG_RANK) {
-                printf("w %d: R%d received from R%d: w_rec = %0.2lf (w_send = %0.2lf, w = %0.2lf)\n", i, rank, prev_rank, wrecv_view(1, 1, 0), wsend_view(1, 1, 0), w(1, 1, 0));
-                printf("z %d: R%d received from R%d: z_rec = %0.2lf (z_send = %0.2lf, z = %0.2lf)\n", i, rank, prev_rank, zrecv_view(1, 1, 0), zsend_view(1, 1, 0), z(1, 1, 0));
-            }
+            // if (rank == DEBUG_RANK) {
+            //     printf("w %d: R%d received from R%d: w_rec = %0.2lf (w_send = %0.2lf, w = %0.2lf)\n", i, rank, prev_rank, (*wrecv_view)(1, 1, 0), (*wsend_view)(1, 1, 0), w(1, 1, 0));
+            //     printf("z %d: R%d received from R%d: z_rec = %0.2lf (z_send = %0.2lf, z = %0.2lf)\n", i, rank, prev_rank, (*zrecv_view)(1, 1, 0), (*zsend_view)(1, 1, 0), z(1, 1, 0));
+            // }
             // if (rank == DEBUG_RANK) {
             //     printf("w %d: R%d received from R%d: w_rec = %d (w_send = %d, w = %d)\n", i, rank, prev_rank, wrecv_extents[1], wsend_extents[1], w.extent(1));
             //     //printf("z %d: R%d received from R%d: z_rec = %d (z_send = %d, z = %d)\n", i, rank, prev_rank, zrecv_extents[1], zsend_extents[1], z.extent(1));
@@ -379,7 +382,7 @@ class ExactBRSolver
             // }
 
             // Do computations
-            computeInterfaceVelocityPiece(atomic_zdot, z, zrecv_view, wrecv_view, L2G_remote2);
+            computeInterfaceVelocityPiece(atomic_zdot, z, *zrecv_view, *wrecv_view, L2G_remote2);
 	    }
 
         // printView(_local_L2G, rank, z, 2, 2, 7);
