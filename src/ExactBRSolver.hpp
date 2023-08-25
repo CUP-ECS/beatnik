@@ -91,15 +91,15 @@ class ExactBRSolver
     template <class AtomicView>
     void computeInterfaceVelocityPiece(AtomicView atomic_zdot, node_view z, 
                                        node_view zremote, node_view wremote, 
-                                       l2g_type remote_L2G, int rank) const
+                                       l2g_type remote_L2G) const
     {
         /* Project the Birkhoff-Rott calculation between all pairs of points on the 
          * interface, including accounting for any periodic boundary conditions.
          * Right now we brute force all of the points with no tiling to improve
          * memory access or optimizations to remove duplicate calculations. */
 
-        // Get the local index spaces of pieces we're workign with. For the local surface piece
-        // this is just hte nodes we own. For the remote surface piece, we extract it from the
+        // Get the local index spaces of pieces we're working with. For the local surface piece
+        // this is just the nodes we own. For the remote surface piece, we extract it from the
         // L2G converter they sent us.
         auto local_grid = _pm.mesh().localGrid();
         auto local_space = local_grid->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
@@ -157,9 +157,6 @@ class ExactBRSolver
             double weight;
             weight = simpsonWeight(remote_gi[0], num_nodes)
                         * simpsonWeight(remote_gi[1], num_nodes);
-            // if (remote_gi[0] == 2 && remote_gi[1] == 7) {
-                // printf("R%d: (%d, %d), simpson weight: %0.5lf\n", rank, remote_gi[0], remote_gi[1], weight);
-            // }
             
             /* We already have N^4 parallelism, so no need to parallelize on 
              * the BR periodic points. Instead we serialize this in each thread
@@ -183,10 +180,6 @@ class ExactBRSolver
             for (int n = 0; n < 3; n++) {
                 atomic_zdot(i, j, n) += brsum[n];
             }
-            // if (remote_gi[0] == 2 && remote_gi[1] == 6 && i == 2 && j == 2) {
-            //     printf("R%d: (%d, %d), (%d, %d), %0.13lf %0.13lf %0.13lf\n", rank, i, j, remote_gi[0], remote_gi[1], brsum[0], brsum[1], brsum[2]);
-            // }
-        
         });
     }
 
@@ -203,38 +196,6 @@ class ExactBRSolver
         int rank = -1;
         MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
-        // int x01 = 1;
-        // int y01 = 1;
-        // int z01 = 0;
-        // if (rank == 0) {
-        //     w(x01, y01, z01) = 0.01;
-        //     z(x01, y01, z01) = 0.01;
-        // }
-        // if (rank == 1) {
-        //     w(x01, y01, z01) = 1.1;
-        //     z(x01, y01, z01) = 1.01;
-        // }
-        // if (rank == 2) {
-        //     w(x01, y01, z01) = 2.2;
-        //     z(x01, y01, z01) = 2.02;
-        // }
-        // if (rank == 3) {
-        //     w(x01, y01, z01) = 3.3;
-        //     z(x01, y01, z01) = 3.03;
-        // }
-        // if (rank == 4) {
-        //     w(x01, y01, z01) = 4.4;
-        //     z(x01, y01, z01) = 4.04;
-        // }
-        // if (rank == 5) {
-        //     w(x01, y01, z01) = 5.5;
-        //     z(x01, y01, z01) = 5.05;
-        // }
-        // if (rank == 0) {
-        //     printf("w R%d initial: w(1, 1, 1) = %lf\n", rank, w(1, 1, 1));
-        //     printf("z R%d initial: z(1, 1, 1) = %lf\n", rank, z(1, 1, 1));
-        // }
 
         /* Start by zeroing the interface velocity */
         
@@ -262,8 +223,6 @@ class ExactBRSolver
 
         // Create views for receiving data. Alternate which views are being sent and received into
         // *remote2 sends first, so it needs to be deep copied. *remote1 can just be allocated
-        // Kokkos::Array<Kokkos::View<node_view>, 2> zviews;
-        // Kokkos::Array<Kokkos::View<node_view>, 2> wviews;
         node_view wremote1(Kokkos::ViewAllocateWithoutInitializing ("wremote1"), w.extent(0), w.extent(1), w.extent(2));
         node_view wremote2(Kokkos::ViewAllocateWithoutInitializing ("wremote2"), w.extent(0), w.extent(1), w.extent(2));
         node_view zremote1(Kokkos::ViewAllocateWithoutInitializing ("zremote1"), z.extent(0), z.extent(1), z.extent(2));
@@ -271,11 +230,6 @@ class ExactBRSolver
         l2g_type L2G_remote1 = Cajita::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
         l2g_type L2G_remote2 = Cajita::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
         
-        // zviews[0] = zremote1;
-        // zviews[1] = zremote2;
-        // wviews[0] = wremote1;
-        // wviews[1] = wremote2;
-
         int wextents1[3];
         int wextents2[3];
         int zextents1[3];
@@ -303,9 +257,6 @@ class ExactBRSolver
             // Alternate between remote1 and remote2 sending and receiving data 
             // to avoid copying data across interations
             if (i % 2) {
-                // if (rank == DEBUG_RANK) {
-                //     printf("in 2\n");
-                // }
                 zsend_view = &zremote1; wsend_view = &wremote1; 
                 zsend_extents = zextents1; wsend_extents = wextents1;
                 L2G_send = &L2G_remote1;
@@ -314,19 +265,10 @@ class ExactBRSolver
                 zrecv_extents = zextents2; wrecv_extents = wextents2;
                 L2G_recv = &L2G_remote2;
             } else {
-                // if (rank == DEBUG_RANK) {
-                //     printf("in 3\n");
-                // }
                 if (i == 0) {
-                    // if (rank == DEBUG_RANK) {
-                    //     printf("in 0\n");
-                    // }
                     /* Avoid a deep copy on the first iteration */
                     wsend_view = &w; zsend_view = &z;
                 } else {
-                    // if (rank == DEBUG_RANK) {
-                    //     printf("in -1\n");
-                    // }
                     wsend_view = &wremote2; zsend_view = &zremote2; 
                 } 
                 
@@ -343,9 +285,6 @@ class ExactBRSolver
                 wsend_extents[j] = wsend_view->extent(j);
                 zsend_extents[j] = zsend_view->extent(j);
             }
-        //    if (rank == DEBUG_RANK) {
-        //         printf("sending: %d %d %d\n", wsend_view.extent(0), wsend_view.extent(1), wsend_view.extent(2));
-        //     }
                 
             // Send w and z view sizes
             MPI_Sendrecv(wsend_extents, 3, MPI_INT, next_rank, 0, 
@@ -370,23 +309,9 @@ class ExactBRSolver
                          L2G_recv, int(sizeof(*L2G_recv)), MPI_BYTE, prev_rank, 4, 
                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-            // if (rank == DEBUG_RANK) {
-            //     printf("w %d: R%d received from R%d: w_rec = %0.2lf (w_send = %0.2lf, w = %0.2lf)\n", i, rank, prev_rank, (*wrecv_view)(1, 1, 0), (*wsend_view)(1, 1, 0), w(1, 1, 0));
-            //     printf("z %d: R%d received from R%d: z_rec = %0.2lf (z_send = %0.2lf, z = %0.2lf)\n", i, rank, prev_rank, (*zrecv_view)(1, 1, 0), (*zsend_view)(1, 1, 0), z(1, 1, 0));
-            // }
-            // if (rank == DEBUG_RANK) {
-            //     printf("w %d: R%d received from R%d: w_rec = %d (w_send = %d, w = %d)\n", i, rank, prev_rank, wrecv_extents[1], wsend_extents[1], w.extent(1));
-            //     //printf("z %d: R%d received from R%d: z_rec = %d (z_send = %d, z = %d)\n", i, rank, prev_rank, zrecv_extents[1], zsend_extents[1], z.extent(1));
-            //     printf("R%d: remote1 ex: %d, remote2 ex: %d\n", rank, wextents1[1], wextents2[1]);
-            // }
-
             // Do computations
             computeInterfaceVelocityPiece(atomic_zdot, z, *zrecv_view, *wrecv_view, *L2G_recv);
 	    }
-
-        // printView(_local_L2G, rank, z, 2, 2, 7);
-        // printView(_local_L2G, rank, w, 2, 2, 7);
-        // printView(_local_L2G, rank, zdot, 2, 2, 7);
     }
     
     template <class l2g_type, class View>
