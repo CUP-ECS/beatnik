@@ -95,28 +95,28 @@ class TimeIntegrator
         });
 
         // Compute derivative at forward euler point from the temporaries
-        // _zm.computeDerivatives( *_ztmp, *_wtmp, z_dot, w_dot);
+        _zm.computeDerivatives( *_ztmp, *_wtmp, z_dot, w_dot);
  
-        // // TVD RK3 Step Two - derivative at half-step position
-        // // derivatives
+        // TVD RK3 Step Two - derivative at half-step position
+        // derivatives
         
-        // // Take the half-step
-        // Kokkos::parallel_for("RK3 Half Step",
-        //     Cajita::createExecutionPolicy(own_node_space, ExecutionSpace()),
-        //     KOKKOS_LAMBDA(int i, int j) {
-        //     for (int d = 0; d < 3; d++) {
-	    //     z_tmp(i, j, d) = 0.75*z_orig(i, j, d) 
-        //             + 0.25 * z_tmp(i, j, d) 
-        //             + 0.25 * delta_t * z_dot(i, j, d);
-        //     }
-        //     for (int d = 0; d < 2; d++) {
-	    //     w_tmp(i, j, d) = 0.75*w_orig(i, j, d) 
-        //             + 0.25 * w_tmp(i, j, d) 
-        //             + 0.25 * delta_t * w_dot(i, j, d);
-        //     }
-        // });
-        // // Get the derivatives at the half-setp
-        // _zm.computeDerivatives( *_ztmp, *_wtmp, z_dot, w_dot);
+        // Take the half-step
+        Kokkos::parallel_for("RK3 Half Step",
+            Cajita::createExecutionPolicy(own_node_space, ExecutionSpace()),
+            KOKKOS_LAMBDA(int i, int j) {
+            for (int d = 0; d < 3; d++) {
+	        z_tmp(i, j, d) = 0.75*z_orig(i, j, d) 
+                    + 0.25 * z_tmp(i, j, d) 
+                    + 0.25 * delta_t * z_dot(i, j, d);
+            }
+            for (int d = 0; d < 2; d++) {
+	        w_tmp(i, j, d) = 0.75*w_orig(i, j, d) 
+                    + 0.25 * w_tmp(i, j, d) 
+                    + 0.25 * delta_t * w_dot(i, j, d);
+            }
+        });
+        // Get the derivatives at the half-setp
+        _zm.computeDerivatives( *_ztmp, *_wtmp, z_dot, w_dot);
         
         // TVD RK3 Step Three - Combine start, forward euler, and half step
         // derivatives to take the final full step.
