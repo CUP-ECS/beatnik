@@ -183,9 +183,9 @@ class ExactBRSolver
             for (int n = 0; n < 3; n++) {
                 atomic_zdot(i, j, n) += brsum[n];
             }
-            if (remote_gi[0] == 2 && remote_gi[1] == 6 && i == 2 && j == 2) {
-                printf("R%d: (%d, %d), (%d, %d), %0.13lf %0.13lf %0.13lf\n", rank, i, j, remote_gi[0], remote_gi[1], brsum[0], brsum[1], brsum[2]);
-            }
+            // if (remote_gi[0] == 2 && remote_gi[1] == 6 && i == 2 && j == 2) {
+            //     printf("R%d: (%d, %d), (%d, %d), %0.13lf %0.13lf %0.13lf\n", rank, i, j, remote_gi[0], remote_gi[1], brsum[0], brsum[1], brsum[2]);
+            // }
         
         });
     }
@@ -253,7 +253,7 @@ class ExactBRSolver
         });
         
         // Compute forces for all owned nodes on this process
-        computeInterfaceVelocityPiece(atomic_zdot, z, z, w, _local_L2G, rank);
+        computeInterfaceVelocityPiece(atomic_zdot, z, z, w, _local_L2G);
 
         /* Perform a ring pass of data between each process to compute forces of nodes 
          * on other processes on he nodes owned by this process */
@@ -367,8 +367,8 @@ class ExactBRSolver
 
             // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
             MPI_Sendrecv(L2G_send, int(sizeof(*L2G_send)), MPI_BYTE, next_rank, 4, 
-                        L2G_recv, int(sizeof(*L2G_recv)), MPI_BYTE, prev_rank, 4, 
-                        MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                         L2G_recv, int(sizeof(*L2G_recv)), MPI_BYTE, prev_rank, 4, 
+                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             // if (rank == DEBUG_RANK) {
             //     printf("w %d: R%d received from R%d: w_rec = %0.2lf (w_send = %0.2lf, w = %0.2lf)\n", i, rank, prev_rank, (*wrecv_view)(1, 1, 0), (*wsend_view)(1, 1, 0), w(1, 1, 0));
@@ -381,7 +381,7 @@ class ExactBRSolver
             // }
 
             // Do computations
-            computeInterfaceVelocityPiece(atomic_zdot, z, *zrecv_view, *wrecv_view, L2G_remote2, rank);
+            computeInterfaceVelocityPiece(atomic_zdot, z, *zrecv_view, *wrecv_view, *L2G_recv);
 	    }
 
         // printView(_local_L2G, rank, z, 2, 2, 7);
