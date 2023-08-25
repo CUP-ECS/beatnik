@@ -91,7 +91,7 @@ class ExactBRSolver
     template <class AtomicView>
     void computeInterfaceVelocityPiece(AtomicView atomic_zdot, node_view z, 
                                        node_view zremote, node_view wremote, 
-                                       l2g_type remote_L2G) const
+                                       l2g_type remote_L2G, int rank) const
     {
         /* Project the Birkhoff-Rott calculation between all pairs of points on the 
          * interface, including accounting for any periodic boundary conditions.
@@ -158,7 +158,7 @@ class ExactBRSolver
             weight = simpsonWeight(remote_gi[0], num_nodes)
                         * simpsonWeight(remote_gi[1], num_nodes);
             // if (remote_gi[0] == 2 && remote_gi[1] == 7) {
-            //     printf("nodes: %d, simpson weight: %0.5lf\n", num_nodes, weight);
+                // printf("R%d: (%d, %d), simpson weight: %0.5lf\n", rank, remote_gi[0], remote_gi[1], weight);
             // }
             
             /* We already have N^4 parallelism, so no need to parallelize on 
@@ -183,6 +183,9 @@ class ExactBRSolver
             for (int n = 0; n < 3; n++) {
                 atomic_zdot(i, j, n) += brsum[n];
             }
+            if (remote_gi[0] == 2 && remote_gi[1] == 6 && i == 2 && j == 2) {
+                printf("R%d: (%d, %d), (%d, %d), %0.13lf %0.13lf %0.13lf\n", rank, i, j, remote_gi[0], remote_gi[1], brsum[0], brsum[1], brsum[2]);
+            }
         
         });
     }
@@ -204,10 +207,6 @@ class ExactBRSolver
         // int x01 = 1;
         // int y01 = 1;
         // int z01 = 0;
-
-        // Kokkos::resize(w, rank + 10, rank + 10, 1);
-        // Kokkos::resize(z, rank + 10, rank + 10, 1);
-
         // if (rank == 0) {
         //     w(x01, y01, z01) = 0.01;
         //     z(x01, y01, z01) = 0.01;
@@ -254,7 +253,7 @@ class ExactBRSolver
         });
         
         // Compute forces for all owned nodes on this process
-        computeInterfaceVelocityPiece(atomic_zdot, z, z, w, _local_L2G);
+        computeInterfaceVelocityPiece(atomic_zdot, z, z, w, _local_L2G, rank);
 
         /* Perform a ring pass of data between each process to compute forces of nodes 
          * on other processes on he nodes owned by this process */
@@ -298,7 +297,7 @@ class ExactBRSolver
         l2g_type * L2G_recv = NULL;
 
         // Perform the ring pass
-        //int DEBUG_RANK = 0;
+        //int DEBUG_RANK = 1;
         for (int i = 0; i < num_procs - 1; i++) {
 
             // Alternate between remote1 and remote2 sending and receiving data 
@@ -382,7 +381,7 @@ class ExactBRSolver
             // }
 
             // Do computations
-            computeInterfaceVelocityPiece(atomic_zdot, z, *zrecv_view, *wrecv_view, L2G_remote2);
+            computeInterfaceVelocityPiece(atomic_zdot, z, *zrecv_view, *wrecv_view, L2G_remote2, rank);
 	    }
 
         // printView(_local_L2G, rank, z, 2, 2, 7);
