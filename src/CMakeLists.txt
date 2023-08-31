@@ -26,7 +26,7 @@ set(HEADERS
 set(DEPENDS_ON
   Cabana::cabanacore
   Cabana::Cajita
-  Silo::silo 
+  SILO::silo 
   mpi
   )
  
