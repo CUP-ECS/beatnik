@@ -64,7 +64,8 @@ class ExactBRSolver
     using Node = Cajita::Node;
     using l2g_type = Cajita::IndexConversion::L2G<mesh_type, Node>;
     using node_array = typename pm_type::node_array;
-    using node_view = typename pm_type::node_view;
+    //using node_view = typename pm_type::node_view;
+    using node_view = Kokkos::View<double***, device_type>;
 
     using halo_type = Cajita::Halo<MemorySpace>;
 
@@ -97,8 +98,8 @@ class ExactBRSolver
          * Right now we brute force all of the points with no tiling to improve
          * memory access or optimizations to remove duplicate calculations. */
 
-        // Get the local index spaces of pieces we're workign with. For the local surface piece
-        // this is just hte nodes we own. For the remote surface piece, we extract it from the
+        // Get the local index spaces of pieces we're working with. For the local surface piece
+        // this is just the nodes we own. For the remote surface piece, we extract it from the
         // L2G converter they sent us.
         auto local_grid = _pm.mesh().localGrid();
         auto local_space = local_grid->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
@@ -179,7 +180,6 @@ class ExactBRSolver
             for (int n = 0; n < 3; n++) {
                 atomic_zdot(i, j, n) += brsum[n];
             }
-        
         });
     }
 
@@ -229,93 +229,137 @@ class ExactBRSolver
         node_view zremote2(Kokkos::ViewAllocateWithoutInitializing ("zremote2"), z.extent(0), z.extent(1), z.extent(2));
         l2g_type L2G_remote1 = Cajita::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
         l2g_type L2G_remote2 = Cajita::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
-
+        
         int wextents1[3];
         int wextents2[3];
         int zextents1[3];
         int zextents2[3];
   
         // Now create references to these buffers. We go ahead and assign them here to get 
-        // sane type declarations. The loop reassigns these references as needed each time
+        // same type declarations. The loop reassigns these references as needed each time
         // around the loop.
-        node_view zsend_view = zremote1; 
-        node_view wsend_view = wremote1; 
-        int * zsend_extents = zextents1;
-        int * wsend_extents = wextents1;
-        l2g_type * L2G_send = &L2G_remote1;
+        node_view *zsend_view = NULL; 
+        node_view *wsend_view = NULL; 
+        int * zsend_extents = NULL;
+        int * wsend_extents = NULL;
+        l2g_type * L2G_send = NULL;
 
-        node_view zrecv_view = zremote2; 
-        node_view wrecv_view = wremote2; 
-        int * zrecv_extents = zextents2;
-        int * wrecv_extents = wextents2;
-        l2g_type * L2G_recv = &L2G_remote2;
+        node_view *zrecv_view = NULL; 
+        node_view *wrecv_view = NULL; 
+        int * zrecv_extents = NULL;
+        int * wrecv_extents = NULL;
+        l2g_type * L2G_recv = NULL;
 
         // Perform the ring pass
+        //int DEBUG_RANK = 1;
         for (int i = 0; i < num_procs - 1; i++) {
+
             // Alternate between remote1 and remote2 sending and receiving data 
             // to avoid copying data across interations
             if (i % 2) {
-                zsend_view = zremote1; wsend_view = wremote1; 
+                zsend_view = &zremote1; wsend_view = &wremote1; 
                 zsend_extents = zextents1; wsend_extents = wextents1;
                 L2G_send = &L2G_remote1;
 
-                zrecv_view = zremote2; wrecv_view = wremote2; 
+                zrecv_view = &zremote2; wrecv_view = &wremote2; 
                 zrecv_extents = zextents2; wrecv_extents = wextents2;
                 L2G_recv = &L2G_remote2;
-	    } else {
+            } else {
                 if (i == 0) {
-                   /* Avoid a deep copy on the first iteration */
-                   wsend_view = w; zsend_view = z;
+                    /* Avoid a deep copy on the first iteration */
+                    wsend_view = &w; zsend_view = &z;
                 } else {
-                   wsend_view = wremote2; zsend_view = zremote2; 
-		} 
+                    wsend_view = &wremote2; zsend_view = &zremote2; 
+                } 
+                
                 zsend_extents = zextents2; wsend_extents = wextents2;
                 L2G_send = &L2G_remote2;
 
-                zrecv_view = zremote1; wrecv_view = wremote1; 
+                zrecv_view = &zremote1; wrecv_view = &wremote1; 
                 zrecv_extents = zextents1; wrecv_extents = wextents1;
                 L2G_recv = &L2G_remote1;
-             }
+            }
 
-             // Prepare extents to send
-             for (int j = 0; j < 3; j++) {
-                 wsend_extents[j] = wsend_view.extent(j);
-                 zsend_extents[j] = zsend_view.extent(j);
-             }
+            // Prepare extents to send
+            for (int j = 0; j < 3; j++) {
+                wsend_extents[j] = wsend_view->extent(j);
+                zsend_extents[j] = zsend_view->extent(j);
+            }
                 
-             // Send w and z view sizes
-             MPI_Sendrecv(wsend_extents, 3, MPI_INT, next_rank, 0, 
-                          wrecv_extents, 3, MPI_INT, prev_rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-             MPI_Sendrecv(zsend_extents, 3, MPI_INT, next_rank, 1, 
-                          zrecv_extents, 3, MPI_INT, prev_rank, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            // Send w and z view sizes
+            MPI_Sendrecv(wsend_extents, 3, MPI_INT, next_rank, 0, 
+                        wrecv_extents, 3, MPI_INT, prev_rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Sendrecv(zsend_extents, 3, MPI_INT, next_rank, 1, 
+                        zrecv_extents, 3, MPI_INT, prev_rank, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-             // Resize *remote2, which is receiving data
-             Kokkos::resize(wrecv_view, wrecv_extents[0], wrecv_extents[1], wrecv_extents[2]);
-             Kokkos::resize(zrecv_view, zrecv_extents[0], zrecv_extents[1], zrecv_extents[2]);
-                
-             // Send/receive the views
-             MPI_Sendrecv(wsend_view.data(), int(wsend_view.size()), MPI_DOUBLE, next_rank, 2, 
-                          wrecv_view.data(), int(wrecv_view.size()), MPI_DOUBLE, prev_rank, 2, 
-                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-             MPI_Sendrecv(zsend_view.data(), int(zsend_view.size()), MPI_DOUBLE, next_rank, 3, 
-                          zrecv_view.data(), int(zrecv_view.size()), MPI_DOUBLE, prev_rank, 3, 
-                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            // Resize *remote2, which is receiving data
+            Kokkos::resize(*wrecv_view, wrecv_extents[0], wrecv_extents[1], wrecv_extents[2]);
+            Kokkos::resize(*zrecv_view, zrecv_extents[0], zrecv_extents[1], zrecv_extents[2]);
+            
+            // Send/receive the views
+            MPI_Sendrecv(wsend_view->data(), int(wsend_view->size()), MPI_DOUBLE, next_rank, 2, 
+                        wrecv_view->data(), int(wrecv_view->size()), MPI_DOUBLE, prev_rank, 2, 
+                        MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Sendrecv(zsend_view->data(), int(zsend_view->size()), MPI_DOUBLE, next_rank, 3, 
+                        zrecv_view->data(), int(zrecv_view->size()), MPI_DOUBLE, prev_rank, 3, 
+                        MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-             // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
-             MPI_Sendrecv(L2G_send, int(sizeof(*L2G_send)), MPI_BYTE, next_rank, 4, 
-                          L2G_recv, int(sizeof(*L2G_recv)), MPI_BYTE, prev_rank, 4, 
-                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
+            MPI_Sendrecv(L2G_send, int(sizeof(*L2G_send)), MPI_BYTE, next_rank, 4, 
+                         L2G_recv, int(sizeof(*L2G_recv)), MPI_BYTE, prev_rank, 4, 
+                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
-             // Do computations
-             computeInterfaceVelocityPiece(atomic_zdot, z, zrecv_view, wrecv_view, L2G_remote2);
-	}
+            // Do computations
+            computeInterfaceVelocityPiece(atomic_zdot, z, *zrecv_view, *wrecv_view, *L2G_recv);
+	    }
+    }
+    
+    template <class l2g_type, class View>
+    void printView(l2g_type local_L2G, int rank, View z, int option, int DEBUG_X, int DEBUG_Y) const
+    {
+        int dims = z.extent(2);
+
+        std::array<long, 2> rmin, rmax;
+        for (int d = 0; d < 2; d++) {
+            rmin[d] = local_L2G.local_own_min[d];
+            rmax[d] = local_L2G.local_own_max[d];
+        }
+        Cajita::IndexSpace<2> remote_space(rmin, rmax);
+
+        Kokkos::parallel_for("print views",
+            Cajita::createExecutionPolicy(remote_space, ExecutionSpace()),
+            KOKKOS_LAMBDA(int i, int j) {
+            
+            // local_gi = global versions of the local indicies, and convention for remote 
+            int local_li[2] = {i, j};
+            int local_gi[2] = {0, 0};   // i, j
+            local_L2G(local_li, local_gi);
+            //printf("global: %d %d\n", local_gi[0], local_gi[1]);
+            if (option == 1){
+                if (dims == 3) {
+                    printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
+                }
+                else if (dims == 2) {
+                    printf("R%d %d %d %d %d %.12lf %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
+                }
+            }
+            else if (option == 2) {
+                if (local_gi[0] == DEBUG_X && local_gi[1] == DEBUG_Y) {
+                    if (dims == 3) {
+                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf: %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
+                    }   
+                    else if (dims == 2) {
+                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
+                    }
+                }
+            }
+        });
     }
 
+  private:
     const pm_type & _pm;
     const BoundaryCondition & _bc;
     double _epsilon, _dx, _dy;
-
-  private:
     MPI_Comm _comm;
     l2g_type _local_L2G;
     // XXX Communication views and extents to avoid allocations during each ring pass
