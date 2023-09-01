@@ -11,49 +11,54 @@ Beatnik depends on the following pacakges to build in all configurations:
   1. LLNL Silo 4.11 or newer configured with MPI support
   1. LLNL BLT (available as a git submodule)
 
-The Beatnik Spack package and all of the environments below should enforce these requirements appropriately.
+## Installing and Building Beatnik with Spack
 
-## Current list of tested build targets and suggested build method
+The beatnik spack package should enforce its build requirements appropriately; we strongly suggest that you use the spack package for both installation (via `spack install`) and development (via `spack develop`). We strive to keep the spack package spec up to date to enable this, as well as to maintain spack package.yaml descriptions for key systems in a [separate github repository](https://github.com/CUP-ECS/spack-configs). 
 
+When you need more control over the build configuration (e.g. complex options for building spack or the packages on which it depends), we suggest using an explicit spack environment for building Beatnik's dependencies and using, 
+
+### Current list of tested systems targets and suggested installation method
+
+We have tested beatnik installation via spack install on the following systems with the provided spack install flags. An example run script and (if necessary) `setup.sh` file to set up the system environment is also provided for each of these systems in the appropriate subdirectory.
   * University of New Mexico
-    * Hopper V100/A100 GPU cluster system - Spack package; environment also available
-    * Xena K40m GPU cluster system - Spack package; environment also available
-    * General UNM (Wheeler/Hopper) CPU systems - Spack package; environment also available
-  * Lawrence Livermore National Laboratory
-    * Lassen V100 GPU system - Spack environment; configurations require a good bit of tuning to work
-    * Quartz CPU system - Spack packate with included package.yaml configuration
-    * Tioga MX250X GPU system - Spack environment; configurations require a good bit of tuning to work
+    * Hopper V100/A100 GPU cluster system - `spack install beatnik +cuda cuda_arch=80` (or `cuda_arch=70` for the V100 nodes).
+    * General UNM (Wheeler/Hopper) CPU systems - `spack install beatnik`
+  * Lawrence Livermore National Laboratory - Needed spack package.yaml file and documentation for LLNL systems available at (https://github.com/CUP-ECS/spack-configs)
+    * Lassen V100 GPU system - `spack install beatnik +cuda cuda_arch=70 %gcc@8.3.1`; other compilers untested.
+    * Quartz CPU system - `spack install beatnik`; with included package.yaml configuration
+    * Tioga MX250X GPU system - `spack install beatnik +rocm amdgpu_arch=gfx90a`
   * Los Alamos National Laboratoru
-    * Chicoma Cray A100 GPU system
-    * Darwin GPU system
+    * Chicoma Cray A100 GPU system - `spack install beatnik +cuda cuda_arch=70 %XXX`
+    * Darwin GPU system - `spack instal 
 
-## Building Beatnik using Spack
+### Developing Beatnik and its dependencies using a Spack package description
 
-Assuming that you have Spack already installed on your HPC systems (as described in https://spack.readthedocs.io), you can use it to either install Beatnik directly, develop Beatnik from the Spack specification, or create a spack environment for building Beatnik. Note that there are some version dependencies here, and using a Spack version newer than 0.20.0 is helpful. To build a Beatnik in a spack environment, do the following:
+If you want to develop Beatnik, we recommend using and environment along with the `spack develop` command to setup the development environment. In addition to allowing you to use spack to install dependecies, this will also let you tweak the package specification to control the details of the build environment, directly modify packages that you're developing (e.g. beatnik *and* its dependencies if you want!) and still use spack to build it. 
 
-### Using the builtin Spack package description
+For example, to work on the current development branch of beatnik on the LLNL lassen system, you might do the following:
+```
+# Create a local spack environment in which to develop
+[bridges7@lassen708:~]$ mkdir devel-env
+[bridges7@lassen708:~]$ cd devel-env
+[bridges7@lassen708:devel-env]$ spack env create -d .
+==> Created environment in /g/g16/bridges7/devel-env
+==> You can activate this environment with:
+==>   spack env activate /g/g16/bridges7/devel-env
+[bridges7@lassen708:devel-env]$ spack env activate .
+[bridges7@lassen708:devel-env]$ spack add beatnik @develop +cuda cuda_arch=70 %gcc@8.3.1
+==> Adding beatnik@develop%gcc@8.3.1+cuda cuda_arch=70 to environment /g/g16/bridges7/devel-env
+# Mark beatnik as a package to develop from source locally in this environment
+# and set up all dependencies
+> spack develop beatnik @develop
+> spack concretize 
+# Now start developing in a git subbranch
+> cd spack
+> git checkout release-1.0-cleanup
+# Install from 
+> spack install
+```
 
-Beatnik has a package specification in the well-known Spack installation package that can be used to directly build it on systems where spack is well-configured. On these systems, you can simply install the appropriate beatnik configuration. In particular, `spack install beatnik` should work on these systems. To get GPU support with this method, however, you will need to force the appropriate flags through to the packages on which Beatnik depends, for example by running `spack install beatnik ++cuda cuda_arch=80` if your machine is an NVIDIA A100 system.
+Importantly, you can also develop beatnik's //dependencies// this way. For example, if you want to modify cabana to better support beatnik, you would similarly run `spack develop cabana && spack concretize -f` to add cabana to the list of packages to develop locally. You can find more information on the spack develop workflow at the [Spack documentation webpages](https://spack-tutorial.readthedocs.io/en/latest/tutorial_developer_workflows.html).
 
-### Developing Beatnik using a Spack package description
-
-XXX 
-
-### Building Beatnik in a Spack Environment
-
-If you want fine-grain control of the build environment in which Beatnik is built, you can create a Spack environment from a specification and use that to install the various Spack pacakges on which Beatnik depends. This will allow you to more easily tweak build options for these dependencies, for example. To build a Beatnik in a spack environment, do the following:
-
-  1. If not checked out from git recursively, checkout all needed Beatnik submodules, e.g. `git submodule init && git submodule update --recursive`
-  1. Create a build directory for housing the Spack environment and housing the out-of-source build, e.g. `mkdir build.
-  1. Copy the appropriate spack.yaml file from configs/[systemname]/ to spack-env.yaml in the newly-created build directory, e.g. `cp configs/unm-hopper/spack.yaml build/`
-  1. Perform any compiler setup needed using the system module system, as spack environments do not necessarily configure the compiler. This could include installing appropriate development tools on Linux or MacOS systems (e.g. using apt or homebrew), or loading the proper compiler module on an HPC system. This compiler should be compatible with one used in the spack.yaml file chosen, and ideally described in a README.md file in the associated configs/ directory
-  1. Change directory to the created build directory and create a spack environment in which to build Beatnik in that directory; we often create the environmetn in the build directory (e.g. `cd build; spack env create -d . spack-env.yaml`) but using named Spack environments is also possible
-  1. Activate, concretize, and install the resulting environment, e.g. `spack env activate -d . && spack concretize && spack install`
-  1. Run cmake and make to create the appropriate Makefiles and build using them, e.g. `cmake .. && make`.
-  
-### Beatnik Build-Time Configuration Options
-
-XXX
-
-### Known Spack build problems
+## Known Spack build problems
   * Cabana versions prior to 0.6.0 (which is as unreleased as of August, 2023) request a HeFFTe version (2.1.0) that will not build using the HeFFTe spack specification in Spack versions 0.20.0 and before. The HeFFTe spack specification has been patched to address these problems, but this requires using the develop version of spack (or modifying the HeFFTe spack configuration in the spack repo) at least until Spack 0.21.0 or Cabana 0.6.0 are available.
