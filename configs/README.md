@@ -49,13 +49,42 @@ For example, to work on the current development branch of beatnik on the LLNL la
 ==> Adding beatnik@develop%gcc@8.3.1+cuda cuda_arch=70 to environment /g/g16/bridges7/devel-env
 # Mark beatnik as a package to develop from source locally in this environment
 # and set up all dependencies
-> spack develop beatnik @develop
-> spack concretize 
+[bridges7@lassen708:devel-env]$ spack develop beatnik @develop +cuda cuda_arch=70 %gcc@8.3.1
+==> Configuring spec beatnik@=develop%gcc@8.3.1+cuda cuda_arch=70 for development at path beatnik
+[bridges7@lassen708:devel-env]$ spack concretize
+==> Concretized beatnik@develop%gcc@8.3.1+cuda cuda_arch=70
+...
 # Now start developing in a git subbranch
-> cd spack
-> git checkout release-1.0-cleanup
-# Install from 
-> spack install
+[bridges7@lassen708:devel-env] cd beatnik
+[bridges7@lassen708:beatnik]$ git checkout release-1.0-cleanup
+Branch 'release-1.0-cleanup' set up to track remote branch 'release-1.0-cleanup' from 'origin'.
+Switched to a new branch 'release-1.0-cleanup'
+[bridges7@lassen708:beatnik]$ spack install
+[+] /usr/tce/packages/cmake/cmake-3.23.1 (external cmake-3.23.1-gg5jrvmou665ssxt4wucmgij3b7nknou)
+[+] /usr/tce/packages/cuda/cuda-11.7.0 (external cuda-11.7.0-u5mvzngv5t3r5s7em4bqmsupkkkrt7qu)
+[+] /usr/tce/packages/spectrum-mpi/spectrum-mpi-rolling-release-gcc-8.3.1 (external spectrum-mpi-rolling-release-cms5gg7vjfr6ez4i6g6v2d72yxpd4apx)
+[+] /g/g16/bridges7/spack/opt/spack/linux-rhel7-power9le/gcc-8.3.1/pkgconf-1.9.5-2c2v5nm34o53bqmfesem4p7oyfqvisra
+[+] /g/g16/bridges7/spack/opt/spack/linux-rhel7-power9le/gcc-8.3.1/zlib-1.2.13-ibqzhjkqlgbzuer47g26qazsmqkete5y
+[+] /usr (external ncurses-5.9-umdjlknnhlhps46qxuwkuvv2mqfotyhb)
+[+] /g/g16/bridges7/spack/opt/spack/linux-rhel7-power9le/gcc-8.3.1/gmake-4.4.1-bt4sn3lkoi26rkpzpnhk3suoeevhlgrf
+[+] /g/g16/bridges7/spack/opt/spack/linux-rhel7-power9le/gcc-8.3.1/blt-0.5.3-yd22z7pcyvdwzjd6de4fpgegj5gdtnck
+[+] /g/g16/bridges7/spack/opt/spack/linux-rhel7-power9le/gcc-8.3.1/kokkos-nvcc-wrapper-4.0.01-taoq622vaz2tem3e2afagwic5a7zhgfw
+[+] /g/g16/bridges7/spack/opt/spack/linux-rhel7-power9le/gcc-8.3.1/fftw-3.3.10-2rwicdyovmekxe4pwf4hgivtkttxozoh
+[+] /g/g16/bridges7/spack/opt/spack/linux-rhel7-power9le/gcc-8.3.1/readline-8.2-nlvfz33jvxohsdw5b3223xhwe44fjjot
+[+] /g/g16/bridges7/spack/opt/spack/linux-rhel7-power9le/gcc-8.3.1/hdf5-1.14.2-fjtpyalmdxaoyh4ea7yxy66ka2okvtoi
+[+] /g/g16/bridges7/spack/opt/spack/linux-rhel7-power9le/gcc-8.3.1/kokkos-4.1.00-kvn3hvnouc545lvxet73z3xhpdyhsxcn
+[+] /g/g16/bridges7/spack/opt/spack/linux-rhel7-power9le/gcc-8.3.1/heffte-2.1.0-rzqlejfwrnp34ihemu7tfzt5a2nkdqsh
+[+] /g/g16/bridges7/spack/opt/spack/linux-rhel7-power9le/gcc-8.3.1/silo-4.11-gaci6mdypwmuhepf6zsqqnupilug2jsl
+[+] /g/g16/bridges7/spack/opt/spack/linux-rhel7-power9le/gcc-8.3.1/cabana-0.5.0-fybm456ddrcnchkxcof53q7j427ef2to
+==> Installing beatnik-develop-vnxen3li2npx3muhwmxtabj2ycmxp2qa [17/17]
+==> No binary for beatnik-develop-vnxen3li2npx3muhwmxtabj2ycmxp2qa found: installing from source
+==> No patches needed for beatnik
+==> beatnik: Executing phase: 'cmake'
+==> beatnik: Executing phase: 'build'
+==> beatnik: Executing phase: 'install'
+==> beatnik: Successfully installed beatnik-develop-vnxen3li2npx3muhwmxtabj2ycmxp2qa
+  Stage: 0.00s.  Cmake: 11.20s.  Build: 1m 21.66s.  Install: 0.86s.  Post-install: 0.34s.  Total: 1m 35.20s
+[+] /g/g16/bridges7/spack/opt/spack/linux-rhel7-power9le/gcc-8.3.1/beatnik-develop-vnxen3li2npx3muhwmxtabj2ycmxp2qa
 ```
 
 Importantly, you can also develop beatnik's //dependencies// this way. For example, if you want to modify cabana to better support beatnik, you would also run `spack develop cabana && spack concretize -f` to add cabana to the list of packages to develop locally. You can find more information on the spack develop workflow at the [Spack documentation webpages](https://spack-tutorial.readthedocs.io/en/latest/tutorial_developer_workflows.html).
