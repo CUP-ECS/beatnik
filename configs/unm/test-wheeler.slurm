@@ -3,7 +3,7 @@
 #SBATCH --nodes=2
 #SBATCH --tasks-per-node=8
 #SBATCH --cpus-per-task=1
-#SBATCH --time=24:00:00              # Time limit hrs:min:sec
+#SBATCH --time=1:00:00              # Time limit hrs:min:sec
 #SBATCH --output=BeatnikTest.%j.log # Standard output and error log
 
 # FIXME change these to poiint to the right directories
