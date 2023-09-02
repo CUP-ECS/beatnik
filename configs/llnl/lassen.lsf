@@ -1,0 +1,31 @@
+#!/bin/bash
+
+### LSF Syntax
+#BSUB -nnodes 2
+#BSUB -W 120
+#BSUB -e rocketrig.%J.err
+#BSUB -o rocketrig.%J.out
+#BSUB -J beatnik-rocketrig-8
+#BSUB -q pdebug
+
+# We create a scratch directory to run in in case I/O is requested. However,
+# we default we run with -F0 here to disable I/O as beatnik is primarily as a 
+# compute and communication benchmark.
+SCRATCHDIR=/p/gpfs1/${USER}/beatnik-rocketrig
+mkdir -p ${SCRATCHDIR}/data/raw
+
+# Then we load spack, which we use to build or develop beatnik
+SPACKDIR=${HOME}/spack
+source ${SPACKDIR}/share/spack/setup-env.sh
+
+# If we're running from a beatnik built with 'spack install', just load beatnik
+spack load beatnik +cuda
+
+# If we're running from a beatnik built in a spack environment (e.g. using spack
+# develop), load the spack environment
+#SPACKENVDIR=${HOME}/devel-env
+#spack env activate ${SPACKENVDIR}
+
+ROCKETRIG=`which rocketrig`
+cd ${SCRATCHDIR}
+lrun -M -gpu -n 8 -N 2 -T 4 -g 1 ${ROCKETRIG} -n 4096 -w 8 -F 0

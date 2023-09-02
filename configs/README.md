@@ -29,7 +29,7 @@ We have tested beatnik installation via spack install on the following systems w
     * Tioga MX250X GPU system - `spack install beatnik +rocm amdgpu_arch=gfx90a`
   * Los Alamos National Laboratoru
     * Chicoma Cray A100 GPU system - `spack install beatnik +cuda cuda_arch=70 %XXX`
-    * Darwin GPU system - `spack instal 
+If you use `spack install` to build beatnik, you'll then need to run `spack load beatnik` to get access to the test executables to run, for example the `rocketrig` benchmark.
 
 ### Developing Beatnik and its dependencies using a Spack package description
 
@@ -58,7 +58,7 @@ For example, to work on the current development branch of beatnik on the LLNL la
 > spack install
 ```
 
-Importantly, you can also develop beatnik's //dependencies// this way. For example, if you want to modify cabana to better support beatnik, you would similarly run `spack develop cabana && spack concretize -f` to add cabana to the list of packages to develop locally. You can find more information on the spack develop workflow at the [Spack documentation webpages](https://spack-tutorial.readthedocs.io/en/latest/tutorial_developer_workflows.html).
+Importantly, you can also develop beatnik's //dependencies// this way. For example, if you want to modify cabana to better support beatnik, you would also run `spack develop cabana && spack concretize -f` to add cabana to the list of packages to develop locally. You can find more information on the spack develop workflow at the [Spack documentation webpages](https://spack-tutorial.readthedocs.io/en/latest/tutorial_developer_workflows.html).
 
 ## Known Spack build problems
   * Cabana versions prior to 0.6.0 (which is as unreleased as of August, 2023) request a HeFFTe version (2.1.0) that will not build using the HeFFTe spack specification in Spack versions 0.20.0 and before. The HeFFTe spack specification has been patched to address these problems, but this requires using the develop version of spack (or modifying the HeFFTe spack configuration in the spack repo) at least until Spack 0.21.0 or Cabana 0.6.0 are available.
