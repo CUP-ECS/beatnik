@@ -15,7 +15,7 @@ Beatnik depends on the following pacakges to build in all configurations:
 
 The beatnik spack package should enforce its build requirements appropriately; we strongly suggest that you use the spack package for both installation (via `spack install`) and development (via `spack develop`). We strive to keep the spack package spec up to date to enable this, as well as to maintain spack package.yaml descriptions for key systems in a [separate github repository](https://github.com/CUP-ECS/spack-configs). 
 
-When you need more control over the build configuration (e.g. complex options for building spack or the packages on which it depends), we suggest using an explicit spack environment for building Beatnik's dependencies and using, 
+When you need more control over the build configuration (e.g. complex options for building spack or the packages on which it depends), we suggest using an explicit spack environment for building Beatnik's dependencies. 
 
 ### Current list of tested systems targets and suggested installation method
 
@@ -23,17 +23,17 @@ We have tested beatnik installation via spack install on the following systems w
   * University of New Mexico
     * Hopper V100/A100 GPU cluster system - `spack install beatnik +cuda cuda_arch=80` (or `cuda_arch=70` for the V100 nodes).
     * General UNM (Wheeler/Hopper) CPU systems - `spack install beatnik`
-  * Lawrence Livermore National Laboratory - Needed spack package.yaml file and documentation for LLNL systems available at (https://github.com/CUP-ECS/spack-configs)
+  * Lawrence Livermore National Laboratory - Needed appropriate spack setup for LLNL systems. The package.yaml files and documentation used for testing are available at (https://github.com/CUP-ECS/spack-configs)
     * Lassen V100 GPU system - `spack install beatnik +cuda cuda_arch=70 %gcc@8.3.1`; other compilers untested.
     * Quartz CPU system - `spack install beatnik`; with included package.yaml configuration
     * Tioga MX250X GPU system - `spack install beatnik +rocm amdgpu_arch=gfx90a`
-  * Los Alamos National Laboratoru
-    * Chicoma Cray A100 GPU system - `spack install beatnik +cuda cuda_arch=70 %XXX`
+  * Los Alamos National Laboratory
+    * Chicoma Cray A100 GPU system - To be tested 
 If you use `spack install` to build beatnik, you'll then need to run `spack load beatnik` to get access to the test executables to run, for example the `rocketrig` benchmark.
 
 ### Developing Beatnik and its dependencies using a Spack package description
 
-If you want to develop Beatnik, we recommend using and environment along with the `spack develop` command to setup the development environment. In addition to allowing you to use spack to install dependecies, this will also let you tweak the package specification to control the details of the build environment, directly modify packages that you're developing (e.g. beatnik *and* its dependencies if you want!) and still use spack to build it. 
+If you want to develop Beatnik, we recommend using an environment along with the `spack develop` command to setup the development environment. In addition to allowing you to use spack to install dependecies, this will also let you tweak the package specification to control the details of the build environment, directly modify packages that you're developing (e.g. beatnik *and* its dependencies if you want!) and still use spack to build it. 
 
 For example, to work on the current development branch of beatnik on the LLNL lassen system, you might do the following:
 ```
@@ -90,4 +90,4 @@ Switched to a new branch 'release-1.0-cleanup'
 Importantly, you can also develop beatnik's //dependencies// this way. For example, if you want to modify cabana to better support beatnik, you would also run `spack develop cabana && spack concretize -f` to add cabana to the list of packages to develop locally. You can find more information on the spack develop workflow at the [Spack documentation webpages](https://spack-tutorial.readthedocs.io/en/latest/tutorial_developer_workflows.html).
 
 ## Known Spack build problems
-  * Cabana versions prior to 0.6.0 (which is as unreleased as of August, 2023) request a HeFFTe version (2.1.0) that will not build using the HeFFTe spack specification in Spack versions 0.20.0 and before. The HeFFTe spack specification has been patched to address these problems, but this requires using the develop version of spack (or modifying the HeFFTe spack configuration in the spack repo) at least until Spack 0.21.0 or Cabana 0.6.0 are available.
+  * Cabana versions prior to 0.6.0 (which is as unreleased as of early September, 2023) request a HeFFTe version (2.1.0) that will not build using the HeFFTe spack specification in Spack versions 0.20.0 and before. The HeFFTe spack specification has been patched to address these problems, but this requires using the develop version of spack (or modifying the HeFFTe spack configuration in the spack repo) at least until Spack 0.21.0 or Cabana 0.6.0 are available.
