@@ -72,7 +72,7 @@ class ZModel
 
     using node_array =
         Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>,
-                      device_type>;
+                      memory_space>;
     using node_view = typename node_array::view_type;
 
     using halo_type = Cajita::Halo<MemorySpace>;
@@ -101,7 +101,7 @@ class ZModel
 
         // Temporary used for central differencing of vorticities along the 
         // surface in calculating the vorticity derivative
-        _V = Cajita::createArray<double, device_type>(
+        _V = Cajita::createArray<double, memory_space>(
             "V", node_scalar_layout );
 
         /* We need a halo for _V so that we can do fourth-order central differencing on
@@ -115,20 +115,20 @@ class ZModel
          * derivative. In the low order model, it is also projected onto the 
          * surface normal to compute the interface velocity.  
          * XXX Make this conditional on the model we run. */
-        _reisz = Cajita::createArray<double, device_type>( "reisz", node_double_layout );
+        _reisz = Cajita::createArray<double, memory_space>( "reisz", node_double_layout );
         Cajita::ArrayOp::assign( *_reisz, 0.0, Cajita::Ghost() );
 
         /* If we're not the hgh order model, initialize the FFT solver and 
          * the working space it will need. 
          * XXX figure out how to make this conditional on model order. */
         Cajita::Experimental::FastFourierTransformParams params;
-        _C1 = Cajita::createArray<double, device_type>("C1", node_double_layout);
-        _C2 = Cajita::createArray<double, device_type>("C2", node_double_layout);
+        _C1 = Cajita::createArray<double, memory_space>("C1", node_double_layout);
+        _C2 = Cajita::createArray<double, memory_space>("C2", node_double_layout);
 
         params.setAllToAll(true);
         params.setPencils(true);
         params.setReorder(false);
-        _fft = Cajita::Experimental::createHeffteFastFourierTransform<double, device_type>(*node_double_layout, params);
+        _fft = Cajita::Experimental::createHeffteFastFourierTransform<double, memory_space>(*node_double_layout, params);
     }
 
     double computeMinTimestep(double atwood, double g)
@@ -430,7 +430,7 @@ class ZModel
     /* XXX Make this conditional on not being the high-order model */ 
     std::shared_ptr<node_array> _reisz;
     std::shared_ptr<node_array> _C1, _C2; 
-    std::shared_ptr<Cajita::Experimental::HeffteFastFourierTransform<Cajita::Node, mesh_type, double, device_type, Cajita::Experimental::Impl::FFTBackendDefault>> _fft;
+    std::shared_ptr<Cajita::Experimental::HeffteFastFourierTransform<Cajita::Node, mesh_type, double, memory_space, exec_space, Cajita::Experimental::Impl::FFTBackendDefault>> _fft;
 }; // class ZModel
 
 } // namespace Beatnik

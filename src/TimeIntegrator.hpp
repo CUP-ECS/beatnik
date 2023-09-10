@@ -33,7 +33,7 @@ class TimeIntegrator
     using device_type = Kokkos::Device<exec_space, mem_space>;
     using node_array =
         Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>,
-                      device_type>;
+                      mem_space>;
 
 //    using halo_type = Cajita::Halo<MemorySpace>;
 
@@ -53,13 +53,13 @@ class TimeIntegrator
         auto node_pair_layout =
             Cajita::createArrayLayout( pm.mesh().localGrid(), 2, Cajita::Node() );
 
-        _zdot = Cajita::createArray<double, device_type>("velocity", 
+        _zdot = Cajita::createArray<double, mem_space>("velocity", 
                                                        node_triple_layout);
-        _wdot = Cajita::createArray<double, device_type>("vorticity derivative",
+        _wdot = Cajita::createArray<double, mem_space>("vorticity derivative",
                                                        node_pair_layout);
-        _ztmp = Cajita::createArray<double, device_type>("position temporary", 
+        _ztmp = Cajita::createArray<double, mem_space>("position temporary", 
                                                        node_triple_layout);
-        _wtmp = Cajita::createArray<double, device_type>("vorticity temporary", 
+        _wtmp = Cajita::createArray<double, mem_space>("vorticity temporary", 
                                                        node_pair_layout);
     }
 
