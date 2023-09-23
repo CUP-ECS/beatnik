@@ -14,8 +14,7 @@
 
 #include <Beatnik_Config.hpp>
 
-#include <Cajita_Partitioner.hpp>
-#include <Cajita_Types.hpp>
+#include <Cajita.hpp>
 
 #include <BoundaryCondition.hpp>
 #include <Mesh.hpp>
