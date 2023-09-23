@@ -27,7 +27,7 @@ set(DEPENDS_ON
   Cabana::cabanacore
   Cabana::Cajita
   SILO::silo 
-  mpi
+  MPI::MPI_CXX
   )
  
 set(INCLUDES
@@ -35,12 +35,11 @@ set(INCLUDES
     ${CMAKE_CURRENT_BINARY_DIR}
   )
        
-blt_add_library( NAME beatnik
-                 HEADERS ${HEADERS}
-                 SOURCES ${SOURCES}
-                 INCLUDES ${INCLUDES}
-                 DEPENDS_ON ${DEPENDS_ON} 
-  )
+add_library( beatnik INTERFACE ${SOURCES} )
+target_link_libraries( beatnik INTERFACE ${DEPENDS_ON} )
+target_include_directories( beatnik INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}
+	  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+	  $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}> )
 
 install(FILES ${HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(TARGETS beatnik LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
