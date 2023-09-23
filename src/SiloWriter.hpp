@@ -25,7 +25,7 @@
 #endif
 
 // Include Statements
-#include <Cajita.hpp>
+#include <Cabana_Grid.hpp>
 
 #include <pmpio.h>
 #include <silo.h>
@@ -95,7 +95,7 @@ class SiloWriter
 
         // Declare the coordinates of the portion of the mesh we're writing
         auto node_domain = local_grid->indexSpace(
-            Cajita::Own(), Cajita::Node(), Cajita::Local() );
+            Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local() );
 
         for ( unsigned int i = 0; i < 2; i++ )
         {
@@ -116,7 +116,7 @@ class SiloWriter
         }
 
         // Fill out coords[] arrays with coordinate values in each dimension
-        auto z = _pm.get( Cajita::Node(), Field::Position() );
+        auto z = _pm.get( Cabana::Grid::Node(), Field::Position() );
         auto zHost = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), z );
         auto xmin = node_domain.min( 0 );
         auto ymin = node_domain.min( 1 );
@@ -144,7 +144,7 @@ class SiloWriter
 
         // Mesh vorticity values - copy owned portion from the primary
         // execution space to the host execution space
-        auto w = _pm.get( Cajita::Node(), Field::Vorticity() );
+        auto w = _pm.get( Cabana::Grid::Node(), Field::Vorticity() );
 
         // array that we copy data into and then get a mirror view of.
         Kokkos::View<typename pm_type::node_array::value_type***,

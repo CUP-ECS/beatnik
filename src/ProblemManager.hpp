@@ -28,7 +28,7 @@
 
 // Include Statements
 #include <Cabana_Core.hpp>
-#include <Cajita.hpp>
+#include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
 
 #include <memory>
@@ -80,15 +80,15 @@ class ProblemManager
     using mem_space = MemorySpace;
     using device_type = Kokkos::Device<exec_space, mem_space>;
 
-    using Node = Cajita::Node;
+    using Node = Cabana::Grid::Node;
 
     using node_array =
-        Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>,
+        Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
                       mem_space>;
     using node_view = 
         typename node_array::view_type;
 
-    using halo_type = Cajita::Halo<MemorySpace>;
+    using halo_type = Cabana::Grid::Halo<MemorySpace>;
     using mesh_type = Mesh<exec_space, mem_space>;
 
     template <class InitFunc>
@@ -103,20 +103,20 @@ class ProblemManager
         // and other associated data strutures. Do there need to be version with
         // halos associated with them?
         auto node_triple_layout =
-            Cajita::createArrayLayout( _mesh.localGrid(), 3, Cajita::Node() );
+            Cabana::Grid::createArrayLayout( _mesh.localGrid(), 3, Cabana::Grid::Node() );
         auto node_pair_layout =
-            Cajita::createArrayLayout( _mesh.localGrid(), 2, Cajita::Node() );
+            Cabana::Grid::createArrayLayout( _mesh.localGrid(), 2, Cabana::Grid::Node() );
 
         // The actual arrays storing mesh quantities
         // 1. The spatial positions of the interface
-        _position = Cajita::createArray<double, mem_space>(
+        _position = Cabana::Grid::createArray<double, mem_space>(
             "position", node_triple_layout );
-        Cajita::ArrayOp::assign( *_position, 0.0, Cajita::Ghost() );
+	Cabana::Grid::ArrayOp::assign( *_position, 0.0, Cabana::Grid::Ghost() );
 
         // 2. The magnitude of vorticity at the interface 
-        _vorticity = Cajita::createArray<double, mem_space>(
+        _vorticity = Cabana::Grid::createArray<double, mem_space>(
             "vorticity", node_pair_layout );
-        Cajita::ArrayOp::assign( *_vorticity, 0.0, Cajita::Ghost() );
+	Cabana::Grid::ArrayOp::assign( *_vorticity, 0.0, Cabana::Grid::Ghost() );
 
         /* Halo pattern for the position and vorticity. The halo is two cells 
          * deep to be able to do fourth-order central differencing to 
@@ -124,7 +124,7 @@ class ProblemManager
          * as opposed to a Face (4 point) pattern so the vorticity laplacian 
          * can use a 9-point stencil. */
         int halo_depth = _mesh.localGrid()->haloCellWidth();
-        _surface_halo = Cajita::createHalo( Cajita::NodeHaloPattern<2>(), 
+        _surface_halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<2>(), 
                             halo_depth, *_position, *_vorticity);
 
         // Initialize State Values ( position and vorticity ) and 
@@ -146,26 +146,26 @@ class ProblemManager
 
         // Get Local Grid and Local Mesh
         auto local_grid = *( _mesh.localGrid() );
-        auto local_mesh = Cajita::createLocalMesh<device_type>( local_grid );
+        auto local_mesh = Cabana::Grid::createLocalMesh<device_type>( local_grid );
 
 	// Get State Arrays
-        auto z = get( Cajita::Node(), Field::Position() );
-        auto w = get( Cajita::Node(), Field::Vorticity() );
+        auto z = get( Cabana::Grid::Node(), Field::Position() );
+        auto w = get( Cabana::Grid::Node(), Field::Vorticity() );
 
         // Loop Over All Owned Nodes ( i, j )
-        auto own_nodes = local_grid.indexSpace( Cajita::Own(), Cajita::Node(),
-                                                Cajita::Local() );
+        auto own_nodes = local_grid.indexSpace( Cabana::Grid::Own(), Cabana::Grid::Node(),
+                                                Cabana::Grid::Local() );
         Kokkos::parallel_for(
             "Initialize Cells`",
-            Cajita::createExecutionPolicy( own_nodes, ExecutionSpace() ),
+            Cabana::Grid::createExecutionPolicy( own_nodes, ExecutionSpace() ),
             KOKKOS_LAMBDA( const int i, const int j ) {
                 int index[2] = { i, j };
                 double coords[2];
-                local_mesh.coordinates( Cajita::Node(), index, coords);
+                local_mesh.coordinates( Cabana::Grid::Node(), index, coords);
 
-                create_functor( Cajita::Node(), Field::Position(), index, 
+                create_functor( Cabana::Grid::Node(), Field::Position(), index, 
                                 coords, z(i, j, 0), z(i, j, 1), z(i, j, 2) );
-                create_functor( Cajita::Node(), Field::Vorticity(), index, 
+                create_functor( Cabana::Grid::Node(), Field::Vorticity(), index, 
                                 coords, w(i, j, 0), w(i, j, 1) );
             } );
     };
@@ -185,7 +185,7 @@ class ProblemManager
      * @param Field::Position
      * @return Returns view of current position at nodes
      **/
-    typename node_array::view_type get( Cajita::Node, Field::Position ) const
+    typename node_array::view_type get( Cabana::Grid::Node, Field::Position ) const
     {
         return _position->view();
     };
@@ -196,7 +196,7 @@ class ProblemManager
      * @param Field::Vorticity
      * @return Returns view of current vorticity at nodes
      **/
-    typename node_array::view_type get( Cajita::Node, Field::Vorticity ) const
+    typename node_array::view_type get( Cabana::Grid::Node, Field::Vorticity ) const
     {
         return _vorticity->view();
     };

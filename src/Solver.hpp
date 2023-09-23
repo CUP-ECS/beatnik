@@ -14,7 +14,7 @@
 
 #include <Beatnik_Config.hpp>
 
-#include <Cajita.hpp>
+#include <Cabana_Grid.hpp>
 
 #include <BoundaryCondition.hpp>
 #include <Mesh.hpp>
@@ -66,7 +66,7 @@ class Solver : public SolverBase
   public:
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using node_array =
-        Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>, MemorySpace>;
+        Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>, MemorySpace>;
 
     // At some point we'll specify this when making the solver through a template argument.
     // Still need to design that out XXX
@@ -74,13 +74,13 @@ class Solver : public SolverBase
 
     using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>;
     using ti_type = TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>;
-    using Node = Cajita::Node;
+    using Node = Cabana::Grid::Node;
 
     template <class InitFunc>
     Solver( MPI_Comm comm,
             const std::array<double, 6>& global_bounding_box,
             const std::array<int, 2>& num_nodes,
-            const Cajita::BlockPartitioner<2>& partitioner,
+            const Cabana::Grid::BlockPartitioner<2>& partitioner,
             const double atwood, const double g, const InitFunc& create_functor,
             const BoundaryCondition& bc, const double mu, 
             const double epsilon, const double delta_t)
@@ -223,7 +223,7 @@ std::shared_ptr<SolverBase>
 createSolver( const std::string& device, MPI_Comm comm,
               const std::array<double, 6>& global_bounding_box,
               const std::array<int, 2>& global_num_cell,
-              const Cajita::BlockPartitioner<2> & partitioner,
+              const Cabana::Grid::BlockPartitioner<2> & partitioner,
               const double atwood, const double g, 
               const InitFunc& create_functor, 
               const BoundaryCondition& bc, 

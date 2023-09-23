@@ -12,7 +12,7 @@
 #ifndef BEATNIK_MESH_HPP
 #define BEATNIK_MESH_HPP
 
-#include <Cajita.hpp>
+#include <Cabana_Grid.hpp>
 
 #include <Kokkos_Core.hpp>
 
@@ -35,13 +35,13 @@ class Mesh
   public:
     using memory_space = MemorySpace;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
-    using mesh_type = Cajita::UniformMesh<double, 2>;
+    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
 
     // Construct a mesh.
     Mesh( const std::array<double, 6>& global_bounding_box,
           const std::array<int, 2>& num_nodes,
 	  const std::array<bool, 2>& periodic,
-          const Cajita::BlockPartitioner<2>& partitioner,
+          const Cabana::Grid::BlockPartitioner<2>& partitioner,
           const int min_halo_width, MPI_Comm comm )
 		  : _num_nodes( num_nodes )
     {
@@ -108,18 +108,18 @@ class Mesh
         }
 
         // Finally, create the global mesh, global grid, and local grid.
-        auto global_mesh = Cajita::createUniformGlobalMesh(
+        auto global_mesh = Cabana::Grid::createUniformGlobalMesh(
             global_low_corner, global_high_corner, 1.0 );
 
-        auto global_grid = Cajita::createGlobalGrid( comm, global_mesh,
+        auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
                                                      periodic, partitioner );
         // Build the local grid.
         int halo_width = fmax(2, min_halo_width);
-        _local_grid = Cajita::createLocalGrid( global_grid, halo_width );
+        _local_grid = Cabana::Grid::createLocalGrid( global_grid, halo_width );
     }
 
     // Get the local grid.
-    const std::shared_ptr<Cajita::LocalGrid<mesh_type>> localGrid() const
+    const std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> localGrid() const
     {
         return _local_grid;
     }
@@ -143,7 +143,7 @@ class Mesh
     // doesn't work on periodic boundaries.
     // XXX Needs more error checking to make sure the boundary is in fact periodic
     template <class DecompositionType, class EntityType>
-    Cajita::IndexSpace<2>
+    Cabana::Grid::IndexSpace<2>
     periodicIndexSpace(DecompositionType dt, EntityType et, std::array<int, 2> dir) const
     {
         auto & global_grid = _local_grid->globalGrid();
@@ -157,14 +157,14 @@ class Mesh
         std::array<long, 2> zero_size;
         for ( std::size_t d = 0; d < 2; ++d )
             zero_size[d] = 0;
-        return Cajita::IndexSpace<2>( zero_size, zero_size );
+        return Cabana::Grid::IndexSpace<2>( zero_size, zero_size );
     }
 
     int rank() const { return _rank; }
 
   private:
     std::array<double, 3> _low_point, _high_point;
-    std::shared_ptr<Cajita::LocalGrid<mesh_type>> _local_grid;
+    std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> _local_grid;
     int _rank;
 	std::array<int, 2> _num_nodes;
 };

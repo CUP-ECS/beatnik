@@ -17,7 +17,7 @@
  * @section DESCRIPTION
  * Supporting functions for Z-Model calculations, primarily Simple differential 
  * and other mathematical operators but also some utility functions that 
- * we may want to later contribute back to Cajita or other supporting libraries.
+ * we may want to later contribute back to Cabana_Grid or other supporting libraries.
  */
 
 #ifndef BEATNIK_OPERATORS_HPP
@@ -29,7 +29,7 @@
 
 // Include Statements
 #include <Cabana_Core.hpp>
-#include <Cajita.hpp>
+#include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
 
 #include <memory>
@@ -130,9 +130,9 @@ namespace Operators
     }
 
     template <long M, long N>
-        Cajita::IndexSpace<M + N> crossIndexSpace(
-            const Cajita::IndexSpace<M>& index_space1,
-            const Cajita::IndexSpace<N>& index_space2)
+        Cabana::Grid::IndexSpace<M + N> crossIndexSpace(
+            const Cabana::Grid::IndexSpace<M>& index_space1,
+            const Cabana::Grid::IndexSpace<N>& index_space2)
     {
         std::array<long, M + N> range_min;
         std::array<long, M + N> range_max;
@@ -146,7 +146,7 @@ namespace Operators
             range_max[d] = index_space2.max( d - M );
         }
 
-        return Cajita::IndexSpace<M + N>( range_min, range_max );
+        return Cabana::Grid::IndexSpace<M + N>( range_min, range_max );
     }
 }; // namespace operator
 

@@ -24,8 +24,8 @@ set(HEADERS
 #  )
 
 set(DEPENDS_ON
-  Cabana::cabanacore
-  Cabana::Cajita
+  Cabana::Core
+  Cabana::Grid
   SILO::silo 
   MPI::MPI_CXX
   )

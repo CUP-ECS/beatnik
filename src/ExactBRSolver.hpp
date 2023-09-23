@@ -32,7 +32,7 @@
 
 // Include Statements
 #include <Cabana_Core.hpp>
-#include <Cajita.hpp>
+#include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
 
 #include <memory>
@@ -58,15 +58,15 @@ class ExactBRSolver
     using memory_space = MemorySpace;
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
-    using mesh_type = Cajita::UniformMesh<double, 2>;
+    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     
-    using Node = Cajita::Node;
-    using l2g_type = Cajita::IndexConversion::L2G<mesh_type, Node>;
+    using Node = Cabana::Grid::Node;
+    using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
     using node_array = typename pm_type::node_array;
     //using node_view = typename pm_type::node_view;
     using node_view = Kokkos::View<double***, device_type>;
 
-    using halo_type = Cajita::Halo<MemorySpace>;
+    using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
     ExactBRSolver( const pm_type & pm, const BoundaryCondition &bc,
                    const double epsilon, const double dx, const double dy)
@@ -101,13 +101,13 @@ class ExactBRSolver
         // this is just the nodes we own. For the remote surface piece, we extract it from the
         // L2G converter they sent us.
         auto local_grid = _pm.mesh().localGrid();
-        auto local_space = local_grid->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
+        auto local_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         std::array<long, 2> rmin, rmax;
         for (int d = 0; d < 2; d++) {
             rmin[d] = remote_L2G.local_own_min[d];
             rmax[d] = remote_L2G.local_own_max[d];
         }
-        Cajita::IndexSpace<2> remote_space(rmin, rmax);
+	Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
         /* Figure out which directions we need to project the k/l point to
          * for any periodic boundary conditions */
@@ -142,7 +142,7 @@ class ExactBRSolver
         /* Now loop over the cross product of all the node on the interface */
         auto pair_space = Operators::crossIndexSpace(local_space, remote_space);
         Kokkos::parallel_for("Exact BR Force Loop",
-            Cajita::createExecutionPolicy(pair_space, ExecutionSpace()),
+            Cabana::Grid::createExecutionPolicy(pair_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j, int k, int l) {
 
             // We need the global indicies of the (k, l) point for Simpson's weight
@@ -189,7 +189,7 @@ class ExactBRSolver
      */
     void computeInterfaceVelocity(node_view zdot, node_view z, node_view w) const
     {
-        auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
+        auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
         int num_procs = -1;
         int rank = -1;
@@ -206,7 +206,7 @@ class ExactBRSolver
     
         /* Zero out all of the i/j points - XXX Is this needed are is this already zeroed somewhere else? */
         Kokkos::parallel_for("Exact BR Zero Loop",
-            Cajita::createExecutionPolicy(local_node_space, ExecutionSpace()),
+            Cabana::Grid::createExecutionPolicy(local_node_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {
             for (int n = 0; n < 3; n++)
                 atomic_zdot(i, j, n) = 0.0;
@@ -226,8 +226,8 @@ class ExactBRSolver
         node_view wremote2(Kokkos::ViewAllocateWithoutInitializing ("wremote2"), w.extent(0), w.extent(1), w.extent(2));
         node_view zremote1(Kokkos::ViewAllocateWithoutInitializing ("zremote1"), z.extent(0), z.extent(1), z.extent(2));
         node_view zremote2(Kokkos::ViewAllocateWithoutInitializing ("zremote2"), z.extent(0), z.extent(1), z.extent(2));
-        l2g_type L2G_remote1 = Cajita::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
-        l2g_type L2G_remote2 = Cajita::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cajita::Node());
+        l2g_type L2G_remote1 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cabana::Grid::Node());
+        l2g_type L2G_remote2 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cabana::Grid::Node());
         
         int wextents1[3];
         int wextents2[3];
@@ -323,10 +323,10 @@ class ExactBRSolver
             rmin[d] = local_L2G.local_own_min[d];
             rmax[d] = local_L2G.local_own_max[d];
         }
-        Cajita::IndexSpace<2> remote_space(rmin, rmax);
+	Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
         Kokkos::parallel_for("print views",
-            Cajita::createExecutionPolicy(remote_space, ExecutionSpace()),
+            Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {
             
             // local_gi = global versions of the local indicies, and convention for remote 

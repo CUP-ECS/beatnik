@@ -112,8 +112,8 @@ struct BoundaryCondition
                      * the top end of the view, so adjust appropriately until 
                      * we figure out why and how to fix this. XXX */
                     auto boundary_space 
-                        = local_grid.boundaryIndexSpace(Cajita::Ghost(), 
-                              Cajita::Node(), dir);
+                        = local_grid.boundaryIndexSpace(Cabana::Grid::Ghost(), 
+                              Cabana::Grid::Node(), dir);
                     std::array<long,2> min, max;
                     for (int d = 0; d < 2; d++) {
                         int fext = f.extent(d);
@@ -121,9 +121,9 @@ struct BoundaryCondition
                         max[d] = (boundary_space.max(d) > fext) 
                                      ? fext : boundary_space.max(d);
                     }
-                    boundary_space = Cajita::IndexSpace<2>(min, max);
+                    boundary_space = Cabana::Grid::IndexSpace<2>(min, max);
                     Kokkos::parallel_for("Field boundary extrapolation", 
-                                         Cajita::createExecutionPolicy(boundary_space, 
+                                         Cabana::Grid::createExecutionPolicy(boundary_space, 
                                          exec_space()),
                                          KOKKOS_LAMBDA(int k, int l) {
 			/* Find the two points in the interior we want to 
@@ -171,15 +171,15 @@ struct BoundaryCondition
                     /* For periodic boundaries, the halo exchange takes care of 
                      * most everything *except* the position, which we correct 
                      * here */
-                    auto periodic_space = mesh.periodicIndexSpace(Cajita::Ghost(), 
-                        Cajita::Node(), dir);
+                    auto periodic_space = mesh.periodicIndexSpace(Cabana::Grid::Ghost(), 
+                        Cabana::Grid::Node(), dir);
                     auto z = position.view();
 
                     Kokkos::Array<int, 2> kdir = {i, j};
                     Kokkos::Array<double, 2> diff = {(bounding_box[3] - bounding_box[0]),
 				                     (bounding_box[4] - bounding_box[1])};
                     Kokkos::parallel_for("Position halo correction", 
-                                     Cajita::createExecutionPolicy(periodic_space, 
+                                     Cabana::Grid::createExecutionPolicy(periodic_space, 
                                                                    exec_space()),
                                      KOKKOS_LAMBDA(int k, int l) {
                         /* This subtracts when we're on the low boundary and adds when we're on
