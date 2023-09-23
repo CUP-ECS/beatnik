@@ -33,7 +33,6 @@
 // Include Statements
 #include <Cabana_Core.hpp>
 #include <Cajita.hpp>
-#include <Cajita_IndexConversion.hpp>
 #include <Kokkos_Core.hpp>
 
 #include <memory>
