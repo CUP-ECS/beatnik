@@ -4,8 +4,8 @@ This directory contains build information and scripts for a variety of systems, 
 
 ## General build requirements
 Beatnik depends on the following pacakges to build in all configurations:
-  1. Cabana version 0.5.0 or newer
-  1. A heffte version compatible with Cabana (2.1.0 for Cabana 0.5.0, 2.3.0 will be needed startign with Cabana 0.6.0)
+  1. Cabana version 0.6.0 or newer
+  1. A heffte version compatible with Cabana (2.3.0 is needed as of Cabana 0.6.0)
   1. An MPI implementation - note that MPI must be GPU-aware when running on GPU systems.
   1. Kokkos 4.0 or newer
   1. LLNL Silo 4.11 or newer configured with MPI support
@@ -18,15 +18,16 @@ The beatnik spack package should enforce its build requirements appropriately; w
 
 We have tested beatnik installation on the following systems via either spack install with the provided spack install flags or a spack environment. An example run script is also provided for each of these systems in the appropriate subdirectory.
   * University of New Mexico - These systems simply use `spack install` as the UNM machines have a full global spack packages.yaml already set up
-    * Hopper V100/A100 GPU cluster system - `spack install beatnik +cuda cuda_arch=80 ^cuda@11` (or `cuda_arch=70` for the V100 nodes; ^cuda@11 is needed to avoid using CUDA 12 which the UNM node drivers aren't updated to support as of 10/1/23).
-    * General UNM (Wheeler/Hopper) CPU systems - `spack install beatnik`
-  * Lawrence Livermore National Laboratory - The CORAL and CORAL2 EA systems (lassen) generally need a spack environment (provided) to set up compilers and external packages to use spack effectively on these systems. Use `spack env create` with the provided spack.yaml to build beatnik in an environment on these systems. Standard infiniband clusters like Quartz can use `spack install`.
-    * Lassen V100 GPU system - Build using gcc 8.3.1 as specificed in llnl/lassen/spack.yaml. Other compilers untested.
-    * Tioga MX250X GPU system - Build using cce 16.0.0 as specified in llnl/tioga/spack.yaml; gcc should also work. Other compilers untested. Note that you must run with the environment variable to enable gpu-waware cray-mpich, i.e. `export MPICH_GPU_SUPPORT_ENABLED=1`
-    * Quartz CPU system - After setting up compilers with `spack compiler find`, build using `spack install beatnik %gcc10`.
+    * Hopper V100/A100 GPU cluster system - `spack install beatnik +cuda cuda_arch=80 ^cuda@11` (or `cuda_arch=70` for the V100 nodes); ^cuda@11 is needed to avoid using CUDA 12 which the UNM cuda drivers aren't updated to support as of 10/1/23.
+    * General UNM (Wheeler/Hopper) CPU systems - `spack install beatnik` is sufficient
+  * Lawrence Livermore National Laboratory - These systems need a spack environment (provided) to set up compilers and external packages to use spack effectively on these systems. Use `spack env create` with the provided spack.yaml to build beatnik in an environment on these systems. Simple test run scripts are also provided.
+    * Lassen V100 GPU system - Build using the environment specification in llnl/lassen/spack.yaml. Other compilers besides gcc untested.
+    * Tioga MX250X GPU system - Build using the environment specification in llnl/tioga/spack.yaml; gcc should also work. Other compilers besides cce 16.0.0 untested. Note that you must run with the environment variable to enable gpu-waware cray-mpich, i.e. `export MPICH_GPU_SUPPORT_ENABLED=1`. The provided flux script (beatnik.flux) does this.
+    * Quartz CPU system - Build using the environment specification in llnl/quartz/spack.yaml. Othe rcompilers besides gcc@10.3.1 untested.
   * Los Alamos National Laboratory
     * Chicoma Cray A100 GPU system - not yet complete. An environment still needs to be developed that uses cray-mpich with the appropriate flags to properly compile beatnik and its dependenvies to use GPU-aware MPI.
-If you use `spack install` to build beatnik (e.g., on the UNM systems or LLNL Quartz), you'll then need to run `spack load beatnik` to get access to the test executables to run, for example the `rocketrig` benchmark. If you're running in an environment, the installed environment will include the benchmark executable.
+
+If you use `spack install` to build beatnik (e.g., on the UNM systems), you'll then need to run `spack load beatnik` to get access to the test executables to run, for example the `rocketrig` benchmark. If you're running in an environment, the installed environment will include the benchmark executable.
 
 ### Developing Beatnik and its dependencies using a Spack package description
 
