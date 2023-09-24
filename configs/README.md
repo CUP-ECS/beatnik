@@ -18,7 +18,7 @@ The beatnik spack package should enforce its build requirements appropriately; w
 
 We have tested beatnik installation on the following systems via either spack install with the provided spack install flags or a spack environment. An example run script is also provided for each of these systems in the appropriate subdirectory.
   * University of New Mexico - These systems simply use `spack install` as the UNM machines have a full global spack packages.yaml already set up
-    * Hopper V100/A100 GPU cluster system - `spack install beatnik +cuda cuda_arch=80` (or `cuda_arch=70` for the V100 nodes).
+    * Hopper V100/A100 GPU cluster system - `spack install beatnik +cuda cuda_arch=80 ^cuda@11` (or `cuda_arch=70` for the V100 nodes; ^cuda@11 is needed to avoid using CUDA 12 which the UNM node drivers aren't updated to support as of 10/1/23).
     * General UNM (Wheeler/Hopper) CPU systems - `spack install beatnik`
   * Lawrence Livermore National Laboratory - The CORAL and CORAL2 EA systems (lassen) generally need a spack environment (provided) to set up compilers and external packages to use spack effectively on these systems. Use `spack env create` with the provided spack.yaml to build beatnik in an environment on these systems. Standard infiniband clusters like Quartz can use `spack install`.
     * Lassen V100 GPU system - Build using gcc 8.3.1 as specificed in llnl/lassen/spack.yaml. Other compilers untested.
