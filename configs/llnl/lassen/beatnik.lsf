@@ -12,19 +12,16 @@
 # we default we run with -F0 here to disable I/O as beatnik is primarily as a 
 # compute and communication benchmark.
 SCRATCHDIR=/p/gpfs1/${USER}/beatnik-rocketrig
+SPACKENVDIR=${HOME}/beatnik-env-lassen 
+
 mkdir -p ${SCRATCHDIR}/data/raw
 
 # Then we load spack, which we use to build or develop beatnik
 SPACKDIR=${HOME}/spack
 source ${SPACKDIR}/share/spack/setup-env.sh
 
-# If we're running from a beatnik built with 'spack install', just load beatnik
-spack load beatnik +cuda
-
-# If we're running from a beatnik built in a spack environment (e.g. using spack
-# develop), load the spack environment
-#SPACKENVDIR=${HOME}/devel-env
-#spack env activate ${SPACKENVDIR}
+# Since we're running from a beatnik built in a spack environment, activate it.
+spack env activate ${SPACKENVDIR}
 
 ROCKETRIG=`which rocketrig`
 cd ${SCRATCHDIR}

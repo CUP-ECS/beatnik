@@ -3,8 +3,6 @@
 spack:
   packages:
     all:
-      buildable: true
-      compiler: [gcc@11.2.1, cce@16.0.0, cce@15.0.1]
       providers:
         blas: [openblas, cray-libsci@21.08.1.2]
         lapack: [openblas, cray-libsci@21.08.1.2]
@@ -12,17 +10,7 @@ spack:
         scalapack: [netlib-scalapack]
       target: [zen3]
       version: []
-    axom:
-      variants: ~examples~openmp+hdf5+umpire+raja+mpi
-    binutils:
-      buildable: true
-      compiler: []
-      providers: {}
-      target: []
-      variants: +libiberty
-      version: []
-    camp:
-      variants: ~rocm
+      variants: ~shared+static+rocm amdgpu_target=gfx90a
     cray-libsci:
       buildable: false
       externals:
@@ -43,6 +31,8 @@ spack:
         prefix: /opt/cray/pe/mpich/8.1.26/ofi/gnu/11.2
       - spec: cray-mpich@8.1.26 %cce@16
         prefix: /opt/cray/pe/mpich/8.1.26/ofi/cray/16.0
+      - spec: cray-mpich@8.1.26 %rocmcc@5.5.1
+        prefix: /opt/cray/pe/mpich/8.1.26/ofi/rocm-compiler/5.0
       providers: {}
       target: []
     fftw:
@@ -53,8 +43,10 @@ spack:
       variants: precision=float,double,long_double
       version: []
     hdf5:
-      buildable: false
+      buildable: true
       externals:
+      - spec: hdf5@1.12.2 +mpi %rocmcc@5.5.1
+        prefix: /opt/cray/pe/hdf5-parallel/1.12.2.5/AMD/5.0
       - spec: hdf5@1.12.2 +mpi %cce@16
         prefix: /opt/cray/pe/hdf5-parallel/1.12.2.5/crayclang/16.0
     hip:
@@ -276,6 +268,8 @@ spack:
       externals:
       - prefix: /opt/rocm-5.5.1
         spec: roctracer-dev@5.5.1
+    silo:
+      variants: ~hzip
     slurm:
       buildable: false
       compiler: []
@@ -322,82 +316,17 @@ spack:
     concretization: unify
   compilers:
   - compiler:
-      spec: cce@=16.0.0
+      spec: rocmcc@5.5.1
       paths:
-        cc: /usr/tce/packages/cce/cce-16.0.0-magic/bin/craycc
-        cxx: /usr/tce/packages/cce/cce-16.0.0-magic/bin/crayCC
-        f77: /usr/tce/packages/cce/cce-16.0.0-magic/bin/crayftn
-        fc: /usr/tce/packages/cce/cce-16.0.0-magic/bin/crayftn
-      flags: {}
+        cc: /opt/rocm-5.5.1/bin/amdclang
+        cxx: /opt/rocm-5.5.1/bin/amdclang++
+        f77: /opt/cray/pe/cce/15.0.0/bin/crayftn
+        fc:  /opt/cray/pe/cce/15.0.0/bin/crayftn
+      flags: 
+        fflags: -ef -hnopattern -hsystem_alloc
       operating_system: rhel8
-      target: x86_64
       modules: []
       environment: {}
-      extra_rpaths: []
-  - compiler:
-      spec: clang@=15.0.7
-      paths:
-        cc: /usr/lib64/ccache/clang
-        cxx: /usr/lib64/ccache/clang++
-        f77: null
-        fc: null
-      flags: {}
-      operating_system: rhel8
-      target: x86_64
-      modules: []
-      environment: {}
-      extra_rpaths: []
-  - compiler:
-      spec: gcc@=10.3.1
-      paths:
-        cc: /usr/tce/bin/gcc
-        cxx: /usr/tce/bin/g++
-        f77: /usr/tce/bin/gfortran
-        fc: /usr/tce/bin/gfortran
-      flags: {}
-      operating_system: rhel8
-      target: x86_64
-      modules: []
-      environment: {}
-      extra_rpaths: []
-  - compiler:
-      spec: gcc@=8.5.0
-      paths:
-        cc: /usr/bin/gcc
-        cxx: /usr/bin/g++
-        f77: /usr/bin/gfortran
-        fc: /usr/bin/gfortran
-      flags: {}
-      operating_system: rhel8
-      target: x86_64
-      modules: []
-      environment: {}
-      extra_rpaths: []
-  - compiler:
-      spec: cce@=15.0.1
-      paths:
-        cc: /usr/tce/packages/cce/cce-15.0.1-magic/bin/craycc
-        cxx: /usr/tce/packages/cce/cce-15.0.1-magic/bin/crayCC
-        f77: /usr/tce/packages/cce/cce-15.0.1-magic/bin/crayftn
-        fc: /usr/tce/packages/cce/cce-15.0.1-magic/bin/crayftn
-      flags: {}
-      operating_system: rhel8
-      target: x86_64
-      modules: []
-      environment: {}
-      extra_rpaths: []
-  - compiler:
-      spec: gcc@=11.2.1
-      paths:
-        cc: /usr/tce/packages/gcc/gcc-11.2.1-magic/bin/gcc
-        cxx: /usr/tce/packages/gcc/gcc-11.2.1-magic/bin/g++
-        f77: /usr/tce/packages/gcc/gcc-11.2.1-magic/bin/gfortran
-        fc: /usr/tce/packages/gcc/gcc-11.2.1-magic/bin/gfortran
-      flags: {}
-      operating_system: rhel8
-      target: x86_64
-      modules: []
-      environment: {}
-      extra_rpaths: []
+      extra_rpaths: [/opt/rocm-5.5.1/llvm/lib]
   specs:
-  - beatnik@develop+rocm amdgpu_target=gfx90a %cce
+  - beatnik@develop+rocm amdgpu_target=gfx90a %rocmcc

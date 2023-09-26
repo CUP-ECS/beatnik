@@ -7,22 +7,17 @@
 #SBATCH --output=BeatnikTest.%j.log # Standard output and error log
 
 # FIXME change these to poiint to the right directories
-SPACK_INSTALL=/users/${USER}/spack
-BEATNIK_BUILD=/users/${USER}/workspace/beatnik/build-wheeler
-BEATNIK_SCRATCH=/carc/scratch/${USER}/beatnik-wheeler
+SPACK_INSTALL=${HOME}/spack
+BEATNIK_SCRATCH=/carc/scratch/users/${USER}/beatnik-wheeler
 
-echo "Loading compiler"
-module load gcc/11.2.0
-
-echo "Loading spack development environment"
+echo "Loading spack and beatnik"
 source ${SPACK_INSTALL}/share/spack/setup-env.sh
-spack env activate -d ${BEATNIK_BUILD}
+spack load beatnik
 
 mkdir -p ${BEATNIK_SCRATCH}/data/raw
-cp ${BEATNIK_BUILD}/bin/rocketrig ${BEATNIK_SCRATCH}
 
 cd ${BEATNIK_SCRATCH}
-echo "Starting MPI Run with ${SLURM_NTASKS}"
-srun -n ${SLURM_NTASKS} ${BEATNIK_SCRATCH}/rocketrig -x cuda -n 512 -w ${SLURM_NTASKS}
+echo "Starting MPI Run with ${SLURM_NTASKS} processes"
+srun -n ${SLURM_NTASKS} rocketrig -n 512 -F 0 -w ${SLURM_NTASKS}
 
 echo "Finished MPI Run. Output in ${BEATNIK_SCRATCH}/data"
