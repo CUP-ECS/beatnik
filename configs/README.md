@@ -22,7 +22,7 @@ We have tested beatnik installation on the following systems via either spack in
     * General UNM (Wheeler/Hopper) CPU systems - `spack install beatnik` is sufficient
   * Lawrence Livermore National Laboratory - These systems need a spack environment (provided) to set up compilers and external packages to use spack effectively on these systems. Use `spack env create` with the provided spack.yaml to build beatnik in an environment on these systems. Simple test run scripts are also provided.
     * Lassen V100 GPU system - Build using the environment specification in llnl/lassen/spack.yaml. Other compilers besides gcc untested.
-    * Tioga MX250X GPU system - Build using the environment specification in llnl/tioga/spack.yaml; gcc should also work. Other compilers besides cce 16.0.0 untested. Note that you must run with the environment variable to enable gpu-waware cray-mpich, i.e. `export MPICH_GPU_SUPPORT_ENABLED=1`. The provided flux script (beatnik.flux) does this.
+    * Tioga MX250X GPU system - Build using the environment specification in llnl/tioga/spack.yaml; gcc should also work. Other compilers besides cce 16.0.1 untested. Note that you must run with the environment variable to enable gpu-waware cray-mpich, i.e. `export MPICH_GPU_SUPPORT_ENABLED=1`. The provided flux script (beatnik.flux) does this.
     * Quartz CPU system - Build using the environment specification in llnl/quartz/spack.yaml. Othe rcompilers besides gcc@10.3.1 untested.
   * Los Alamos National Laboratory
     * Chicoma Cray A100 GPU system - not yet complete. An environment still needs to be developed that uses cray-mpich with the appropriate flags to properly compile beatnik and its dependenvies to use GPU-aware MPI.
