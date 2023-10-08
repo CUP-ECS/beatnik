@@ -13,7 +13,6 @@ Beatnik uses a simple mesh-based represeantation of the surface manifold as a Ca
 ## Building Beatnik
 
 Beatnik relies on multiple external packages to build, including:
-  * LLNL's build, link, test (BLT) library [2]
   * ECP CoPA's Cabana/Cajita particle and mesh framework [3]
   * UT-Knoxville's HeFFTe fast fourier transform library [4]
   * A high-performance MPI implementation such as OpenMPI, MPICH, or MVAPICH
@@ -83,10 +82,10 @@ Beatnik is being implemented in multiple distinct steps, with associated planned
 
 ## Acknowledgement, Contributors, and Copyright Information
 
-Beatnik is primarily availble as open source under a 3-Clause BSD License. It is being developed at the University of New Mexico, University of Tennessee at Chattanooga, and the University of Alabama under funding the U.S. Department of Energy's Predictive Science Academic Alliance Partnership III (PSAAP-III) program. Contributors to Beatnik development include the following:
+Beatnik is primarily availble as open source under a 3-Clause BSD License. It is being developed at the University of New Mexico, Tennessee Tech University, and the University of Alabama under funding the U.S. Department of Energy's Predictive Science Academic Alliance Partnership III (PSAAP-III) program. Contributors to Beatnik development include:
 
   * Patrick G. Bridges (patrickb@unm.edu)
-  * Thomas Hines (thomas-hines-01@utc.edu)
+  * Thomas Hines (tmhines3@ua.edu)
   * Jered Dominguez-Trujillo (jereddt@unm.edu)
   * Jacob McCullough (jmccullough12@unm.edu)
   * Jason Stewart (jastewart@unm.edu)
@@ -96,8 +95,6 @@ The general structure of Beatnik and the rocketrig examples were taken from the 
 ## References
 
 1. Gavin Pandya and Steve Shkoller. "3d Interface Models for Raleigh-Taylor Instability." Published as arxiv.org preprint https://arxiv.org/abs/2201.04538, 2022.
-
-1. https://github.com/LLNL/blt
 
 1. https://github.com/ECP-copa/Cabana/
 

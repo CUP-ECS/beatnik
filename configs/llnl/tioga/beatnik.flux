@@ -20,8 +20,10 @@ cd ${BEATNIK_SCRATCH}
 
 # Make sure cray mpich supports GPU-aware communication
 export MPICH_GPU_SUPPORT_ENABLED=1
-
+export GTL_HSA_VSMSG_CUTOFF_SIZE=4096
+export FI_CXI_ATS=0
 echo "Starting MPI Run with ${SLURM_NTASKS} processes"
-flux run --ntasks=16 --gpus-per-task=1 --cores-per-task=8 --setopt=mpibind=verbose:1 rocketrig -n 16384 -w 16 -F 0
+#flux run --ntasks=16 --nodes=2 --exclusive --gpus-per-task=1 --cores-per-task=8 --setopt=mpibind=verbose:1 rocketrig -x hip -n 12288 -w 16 -F 0
+flux run --ntasks=16 --nodes=2 --exclusive --gpus-per-task=1 --cores-per-task=8 --setopt=mpibind=verbose:1 rocketrig -x hip -n 2048 -w 16 -F 0
 
 echo "Finished MPI Run. Output in ${BEATNIK_SCRATCH}/data"
