@@ -14,8 +14,7 @@
 
 #include <Beatnik_Config.hpp>
 
-#include <Cajita_Partitioner.hpp>
-#include <Cajita_Types.hpp>
+#include <Cabana_Grid.hpp>
 
 #include <BoundaryCondition.hpp>
 #include <Mesh.hpp>
@@ -23,10 +22,6 @@
 #include <SiloWriter.hpp>
 #include <TimeIntegrator.hpp>
 #include <ExactBRSolver.hpp>
-
-#ifdef Beatnik_ENABLE_PVFMM
-#include <PvfmmBRSolver.hpp>
-#endif
 
 #include <ZModel.hpp>
 
@@ -71,25 +66,21 @@ class Solver : public SolverBase
   public:
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using node_array =
-        Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>, MemorySpace>;
+        Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>, MemorySpace>;
 
     // At some point we'll specify this when making the solver through a template argument.
     // Still need to design that out XXX
-#ifdef Beatnik_ENABLE_PVFMM
-    using brsolver_type = PvfmmBRSolver<ExecutionSpace, MemorySpace>; // Not working properly
-#else
    using brsolver_type = ExactBRSolver<ExecutionSpace, MemorySpace>;  // Single node currently
-#endif
 
     using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>;
     using ti_type = TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>;
-    using Node = Cajita::Node;
+    using Node = Cabana::Grid::Node;
 
     template <class InitFunc>
     Solver( MPI_Comm comm,
             const std::array<double, 6>& global_bounding_box,
             const std::array<int, 2>& num_nodes,
-            const Cajita::BlockPartitioner<2>& partitioner,
+            const Cabana::Grid::BlockPartitioner<2>& partitioner,
             const double atwood, const double g, const InitFunc& create_functor,
             const BoundaryCondition& bc, const double mu, 
             const double epsilon, const double delta_t)
@@ -149,7 +140,7 @@ class Solver : public SolverBase
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
             *_mesh, _bc, create_functor );
 
-        // Create the BirchoffRott solver (XXX make this conditional on non-low 
+        // Create the Birkhoff-Rott solver (XXX make this conditional on non-low 
         // order solve
         _br = std::make_unique<brsolver_type>(*_pm, _bc, _eps, dx, dy);
 
@@ -184,7 +175,9 @@ class Solver : public SolverBase
 
         Kokkos::Profiling::pushRegion( "Solve" );
 
-        _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
+        if (write_freq > 0) {
+            _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
+        }
 
         num_step = t_final / _dt;
 
@@ -230,7 +223,7 @@ std::shared_ptr<SolverBase>
 createSolver( const std::string& device, MPI_Comm comm,
               const std::array<double, 6>& global_bounding_box,
               const std::array<int, 2>& global_num_cell,
-              const Cajita::BlockPartitioner<2> & partitioner,
+              const Cabana::Grid::BlockPartitioner<2> & partitioner,
               const double atwood, const double g, 
               const InitFunc& create_functor, 
               const BoundaryCondition& bc, 

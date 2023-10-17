@@ -14,7 +14,7 @@
  * @author Thomas Hines <thomas-hines-01@utc.edu>
  *
  * @section DESCRIPTION
- * ZModel class that handles computing derivatives of ionterface position and
+ * ZModel class that handles computing derivatives of interface position and
  * velocity, using external classses for different velocity calculation
  * strategies
  */
@@ -28,7 +28,7 @@
 
 // Include Statements
 #include <Cabana_Core.hpp>
-#include <Cajita.hpp>
+#include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
 
 #include <memory>
@@ -42,7 +42,7 @@ namespace Beatnik
 {
 
 
-// Type tags designating difference orders of the 
+// Type tags designating difference orders of the zmodel
 namespace Order
 {
     struct Low {};
@@ -66,15 +66,16 @@ class ZModel
     using memory_space = MemorySpace;
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
-    using mesh_type = Cajita::UniformMesh<double, 2>; 
+    using mesh_type = Cabana::Grid::UniformMesh<double, 2>; 
 
-    using Node = Cajita::Node;
+    using Node = Cabana::Grid::Node;
 
     using node_array =
-        Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>,
-                      device_type>;
+        Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
+                      memory_space>;
+    using node_view = typename node_array::view_type;
 
-    using halo_type = Cajita::Halo<MemorySpace>;
+    using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
     ZModel( const pm_type & pm, const BoundaryCondition &bc,
             const BRSolver *br, /* pointer because could be null */
@@ -92,42 +93,42 @@ class ZModel
         // Need the node triple layout for storing vector normals and the 
         // node double layout for storing x and y surface derivative
         auto node_double_layout =
-            Cajita::createArrayLayout( _pm.mesh().localGrid(), 2, Cajita::Node() );
+            Cabana::Grid::createArrayLayout( _pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
         auto node_triple_layout =
-            Cajita::createArrayLayout( _pm.mesh().localGrid(), 3, Cajita::Node() );
+            Cabana::Grid::createArrayLayout( _pm.mesh().localGrid(), 3, Cabana::Grid::Node() );
         auto node_scalar_layout =
-            Cajita::createArrayLayout( _pm.mesh().localGrid(), 1, Cajita::Node() );
+            Cabana::Grid::createArrayLayout( _pm.mesh().localGrid(), 1, Cabana::Grid::Node() );
 
         // Temporary used for central differencing of vorticities along the 
-        // surface in calculating the vorticity derivative/
-        _V = Cajita::createArray<double, device_type>(
+        // surface in calculating the vorticity derivative
+        _V = Cabana::Grid::createArray<double, memory_space>(
             "V", node_scalar_layout );
 
         /* We need a halo for _V so that we can do fourth-order central differencing on
          * it. This requires a depth 2 stencil with adjacent faces */
         int halo_depth = 2; 
-        _v_halo = Cajita::createHalo( Cajita::FaceHaloPattern<2>(),
+        _v_halo = Cabana::Grid::createHalo( Cabana::Grid::FaceHaloPattern<2>(),
                             halo_depth, *_V );
 
         /* Storage for the reisz transform of the vorticity. In the low and 
          * medium order models, it is used to calculate the vorticity 
-         * derivative. In the low order model,it is also projected onto the 
+         * derivative. In the low order model, it is also projected onto the 
          * surface normal to compute the interface velocity.  
          * XXX Make this conditional on the model we run. */
-        _reisz = Cajita::createArray<double, device_type>( "reisz", node_double_layout );
-        Cajita::ArrayOp::assign( *_reisz, 0.0, Cajita::Ghost() );
+        _reisz = Cabana::Grid::createArray<double, memory_space>( "reisz", node_double_layout );
+        Cabana::Grid::ArrayOp::assign( *_reisz, 0.0, Cabana::Grid::Ghost() );
 
         /* If we're not the hgh order model, initialize the FFT solver and 
          * the working space it will need. 
          * XXX figure out how to make this conditional on model order. */
-        Cajita::Experimental::FastFourierTransformParams params;
-        _C1 = Cajita::createArray<double, device_type>("C1", node_double_layout);
-        _C2 = Cajita::createArray<double, device_type>("C2", node_double_layout);
+        Cabana::Grid::Experimental::FastFourierTransformParams params;
+        _C1 = Cabana::Grid::createArray<double, memory_space>("C1", node_double_layout);
+        _C2 = Cabana::Grid::createArray<double, memory_space>("C2", node_double_layout);
 
         params.setAllToAll(true);
         params.setPencils(true);
         params.setReorder(false);
-        _fft = Cajita::Experimental::createHeffteFastFourierTransform<double, device_type>(*node_double_layout, params);
+        _fft = Cabana::Grid::Experimental::createHeffteFastFourierTransform<double, memory_space>(*node_double_layout, params);
     }
 
     double computeMinTimestep(double atwood, double g)
@@ -188,8 +189,8 @@ class ZModel
         /* Construct the temporary arrays C1 and C2 */
         auto local_grid = _pm.mesh().localGrid();
         auto & global_grid = local_grid->globalGrid();
-        auto local_mesh = Cajita::createLocalMesh<device_type>( *local_grid );
-        auto local_nodes = local_grid->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
+        auto local_mesh = Cabana::Grid::createLocalMesh<device_type>( *local_grid );
+        auto local_nodes = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
         /* Get the views we'll be computing with in parallel loops */
         auto C1 = _C1->view();
@@ -199,7 +200,7 @@ class ZModel
         /* First put w into the real parts of C1 and C2 (and zero out
          * any imaginary parts left from previous runs!) */
         Kokkos::parallel_for("Build FFT Arrays", 
-                     Cajita::createExecutionPolicy(local_nodes, ExecutionSpace()), 
+                     Cabana::Grid::createExecutionPolicy(local_nodes, ExecutionSpace()), 
                      KOKKOS_LAMBDA(const int i, const int j) {
             C1(i, j, 0) = w(i, j, 0);
             C1(i, j, 1) = 0;
@@ -211,19 +212,19 @@ class ZModel
          * care of that. */
 
         /* Now do the FFTs of vorticity */
-        _fft->forward(*_C1, Cajita::Experimental::FFTScaleNone());
-        _fft->forward(*_C2, Cajita::Experimental::FFTScaleNone());
+        _fft->forward(*_C1, Cabana::Grid::Experimental::FFTScaleNone());
+        _fft->forward(*_C2, Cabana::Grid::Experimental::FFTScaleNone());
 
-        int nx = global_grid.globalNumEntity(Cajita::Node(), 0);
-        int ny = global_grid.globalNumEntity(Cajita::Node(), 1);
+        int nx = global_grid.globalNumEntity(Cabana::Grid::Node(), 0);
+        int ny = global_grid.globalNumEntity(Cabana::Grid::Node(), 1);
 
         /* Now construct reisz from the weighted sum of those FFTs to take the inverse FFT. */
         parallel_for("Combine FFTs", 
-                     Cajita::createExecutionPolicy(local_nodes, ExecutionSpace()), 
+                     Cabana::Grid::createExecutionPolicy(local_nodes, ExecutionSpace()), 
                      KOKKOS_LAMBDA(const int i, const int j) {
             int indicies[2] = {i, j};
             double location[2];
-            local_mesh.coordinates( Cajita::Node(), indicies, location );
+            local_mesh.coordinates( Cabana::Grid::Node(), indicies, location );
 
             double k1 = reiszWeight(location[0], nx);
             double k2 = reiszWeight(location[1], ny);
@@ -248,15 +249,14 @@ class ZModel
 
         /* We then do the reverse transform to finish the reisz transform,
          * which is used later to calculate final interface velocity */
-        _fft->reverse(*_reisz, Cajita::Experimental::FFTScaleFull());
+        _fft->reverse(*_reisz, Cabana::Grid::Experimental::FFTScaleFull());
     }
 
     /* For low order, we calculate the reisz transform used to compute the magnitude
      * of the interface velocity. This will be projected onto surface normals later 
      * once we have the normals */
-    template <class PositionView, class VorticityView>
-    void prepareVelocities(Order::Low, [[maybe_unused]] PositionView zdot,
-                           [[maybe_unused]] PositionView z, VorticityView w) const
+    void prepareVelocities(Order::Low, [[maybe_unused]] node_view zdot,
+                           [[maybe_unused]] node_view z, node_view w) const
     {
         computeReiszTransform(w);
     }
@@ -264,8 +264,7 @@ class ZModel
     /* For medium order, we calculate the fourier velocity that we later 
      * normalize for vorticity calculations and directly compute the 
      * interface velocity (zdot) using a far field method. */
-    template <class PositionView, class VorticityView>
-    void prepareVelocities(Order::Medium, PositionView zdot, PositionView z, VorticityView w) const
+    void prepareVelocities(Order::Medium, node_view zdot, node_view z, node_view w) const
     {
         computeReiszTransform(w);
         _br->computeInterfaceVelocity(zdot, z, w);
@@ -274,14 +273,13 @@ class ZModel
     /* For high order, we just directly compute the interface velocity (zdot)
      * using a far field method and later normalize that for use in the vorticity 
      * calculation. */
-    template <class PositionView, class VorticityView>
-    void prepareVelocities(Order::High, PositionView zdot, PositionView z, VorticityView w) const
+    void prepareVelocities(Order::High, node_view zdot, node_view z, node_view w) const
     {
         _br->computeInterfaceVelocity(zdot, z, w);
     }
 
     // Compute the final interface velocities and normalized BR velocities
-    // from the previously computed Fourier and/or BR velocities and the surface
+    // from the previously computed Fourier and/or Birkhoff-Rott velocities and the surface
     // normal based on  the order of technique we're using.
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION 
@@ -315,20 +313,18 @@ class ZModel
  
     // External entry point from the TimeIntegration object that uses the
     // problem manager state.
-    template <class PositionView, class VorticityView>
-    void computeDerivatives( PositionView zdot, VorticityView wdot ) const
+    void computeDerivatives( node_view zdot, node_view wdot ) const
     {
        _pm.gather();
-       auto z_orig = _pm.get( Cajita::Node(), Field::Position() );
-       auto w_orig = _pm.get( Cajita::Node(), Field::Vorticity() );
+       auto z_orig = _pm.get( Cabana::Grid::Node(), Field::Position() );
+       auto w_orig = _pm.get( Cabana::Grid::Node(), Field::Vorticity() );
        computeHaloedDerivatives( z_orig, w_orig, zdot, wdot );
     } 
 
     // External entry point from the TimeIntegration object that uses the
-    // passed-in state/
-    template <class PositionView, class VorticityView>
+    // passed-in state
     void computeDerivatives( node_array &z, node_array &w,
-                             PositionView zdot, VorticityView wdot ) const
+                             node_view zdot, node_view wdot ) const
     {
         _pm.gather( z, w );
 	computeHaloedDerivatives( z.view(), w.view(), zdot, wdot );
@@ -336,11 +332,10 @@ class ZModel
 
     // Shared internal entry point from the external points from the
     // TimeIntegration object
-    template <class PositionView, class VorticityView>
-    void computeHaloedDerivatives( PositionView z_view, VorticityView w_view,
-                                   PositionView zdot, VorticityView wdot ) const
+    void computeHaloedDerivatives( node_view z_view, node_view w_view,
+                                   node_view zdot, node_view wdot ) const
     {
-        // External calls to this object work on Cajita arrays, but internal
+        // External calls to this object work on Cabana::Grid arrays, but internal
         // methods mostly work on the views, with the entry points responsible
         // for handling the halos.
 	double dx = _dx, dy = _dy;
@@ -362,7 +357,7 @@ class ZModel
         auto V_view = _V->view();
 
         auto local_grid = _pm.mesh().localGrid();
-        auto own_node_space = local_grid->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
+        auto own_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         Kokkos::parallel_for( "Interface Velocity",  
             createExecutionPolicy(own_node_space, ExecutionSpace()), 
             KOKKOS_LAMBDA(int i, int j) {
@@ -435,7 +430,7 @@ class ZModel
     /* XXX Make this conditional on not being the high-order model */ 
     std::shared_ptr<node_array> _reisz;
     std::shared_ptr<node_array> _C1, _C2; 
-    std::shared_ptr<Cajita::Experimental::HeffteFastFourierTransform<Cajita::Node, mesh_type, double, device_type, Cajita::Experimental::Impl::FFTBackendDefault>> _fft;
+    std::shared_ptr<Cabana::Grid::Experimental::HeffteFastFourierTransform<Cabana::Grid::Node, mesh_type, double, memory_space, exec_space, Cabana::Grid::Experimental::Impl::FFTBackendDefault>> _fft;
 }; // class ZModel
 
 } // namespace Beatnik

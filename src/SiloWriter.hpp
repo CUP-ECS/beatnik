@@ -25,7 +25,7 @@
 #endif
 
 // Include Statements
-#include <Cajita.hpp>
+#include <Cabana_Grid.hpp>
 
 #include <pmpio.h>
 #include <silo.h>
@@ -76,8 +76,9 @@ class SiloWriter
         double *coords[3], *vars[2];
         const char* coordnames[3] = { "X", "Y", "Z" };
         DBoptlist* optlist;
+        int rank = _pm.mesh().rank();
 
-        // Rertrieve the Local Grid and Local Mesh
+        // Retrieve the Local Grid and Local Mesh
         const auto & local_grid = _pm.mesh().localGrid();
 
         // Set DB Options: Time Step, Time Stamp and Delta Time
@@ -94,13 +95,19 @@ class SiloWriter
 
         // Declare the coordinates of the portion of the mesh we're writing
         auto node_domain = local_grid->indexSpace(
-            Cajita::Own(), Cajita::Node(), Cajita::Local() );
+            Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local() );
 
         for ( unsigned int i = 0; i < 2; i++ )
         {
             dims[i] = node_domain.extent( i ); 
         }
         dims[2] = 1;
+
+	if (DEBUG) {
+            std::cout << "Rank " << rank << ": "
+                      << "Writing " << dims[0] << " by " << dims[1] 
+                      << " mesh element.\n";
+        }
 
         // Allocate coordinate arrays in each dimension
         for ( unsigned int i = 0; i < 3; i++ )
@@ -109,7 +116,7 @@ class SiloWriter
         }
 
         // Fill out coords[] arrays with coordinate values in each dimension
-        auto z = _pm.get( Cajita::Node(), Field::Position() );
+        auto z = _pm.get( Cabana::Grid::Node(), Field::Position() );
         auto zHost = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), z );
         auto xmin = node_domain.min( 0 );
         auto ymin = node_domain.min( 1 );
@@ -119,9 +126,11 @@ class SiloWriter
             {
                 int iown = i - xmin;
                 int jown = j - ymin;
+                /* XXX Figure out why we have to write this column major when the optlist
+                 * explicitly says we'll be passing them row major XXX. */
                 for ( unsigned int d = 0; d < 3; d++ )
                 {
-                    coords[d][iown * node_domain.extent(0) + jown ] = zHost(i, j, d);
+                    coords[d][jown * node_domain.extent(0) + iown ] = zHost(i, j, d);
                 }
              }
         }
@@ -135,7 +144,7 @@ class SiloWriter
 
         // Mesh vorticity values - copy owned portion from the primary
         // execution space to the host execution space
-        auto w = _pm.get( Cajita::Node(), Field::Vorticity() );
+        auto w = _pm.get( Cabana::Grid::Node(), Field::Vorticity() );
 
         // array that we copy data into and then get a mirror view of.
         Kokkos::View<typename pm_type::node_array::value_type***,
@@ -240,7 +249,7 @@ class SiloWriter
     };
 
     /**
-     * Write Multi Object Silo File the References Child Files in order to
+     * Write Multi-Object Silo File the References Child Files in order to
      * have entire set of data for the time step writen by each rank in
      * a single logical file
      *
@@ -268,12 +277,12 @@ class SiloWriter
             mesh_block_names[i] = (char*)malloc( 1024 );
             w_block_names[i] = (char*)malloc( 1024 );
 
-            sprintf( mesh_block_names[i],
-                     "raw/BeatnikOutput%05d%05d.%s:/domain_%05d/Mesh",
-                     group_rank, time_step, file_ext, i );
-            sprintf( w_block_names[i],
-                     "raw/BeatnikOutput%05d%05d.%s:/domain_%05d/vorticity",
-                     group_rank, time_step, file_ext, i );
+            snprintf( mesh_block_names[i], 1024, 
+                      "raw/BeatnikOutput-%05d-%05d.%s:/domain_%05d/Mesh",
+                      group_rank, time_step, file_ext, i );
+            snprintf( w_block_names[i], 1024,
+                      "raw/BeatnikOutput-%05d-%05d.%s:/domain_%05d/vorticity",
+                      group_rank, time_step, file_ext, i );
             block_types[i] = DB_QUADMESH;
             var_types[i] = DB_QUADVAR;
         }
@@ -288,6 +297,8 @@ class SiloWriter
         DBAddOption( optlist, DBOPT_COORDSYS, &dbcoord );
         int dborder = DB_ROWMAJOR;
         DBAddOption( optlist, DBOPT_MAJORORDER, &dborder );
+        int dborigin = 0;
+        DBAddOption( optlist, DBOPT_BLOCKORIGIN, &dborigin );
         int dbtopo = 2;
         DBAddOption( optlist, DBOPT_TOPO_DIM, &dbtopo );
 
@@ -320,62 +331,61 @@ class SiloWriter
      **/
     void siloWrite( char* name, int time_step, double time, double dt )
     {
-        // Initalize Variables
-        DBfile* silo_file;
-        DBfile* master_file;
+        char masterfilename[256], filename[256], nsname[256];
+  
+        int rank = _pm.mesh().rank();
+        /* Make sure the output directory exists */
+        if (rank == 0) {
+            // Make sure directories for output exist
+            if (mkdir("data", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) {
+                if( errno != EEXIST ) {
+                    // something else
+                    std::cerr << "cannot create data directory. error:" 
+                              << strerror(errno) << std::endl;
+                    throw std::runtime_error( strerror(errno) );
+                }
+            }
+            if (mkdir("data/raw", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) {
+                if( errno != EEXIST ) {
+                    // something else
+                    std::cerr << "cannot create raw data directory. Error:" 
+                              << strerror(errno) << std::endl;
+                    throw std::runtime_error( strerror(errno) );
+                }
+            }
+        }
+
         int size;
+        // XXX Figure out how to set the number of groups intelligently
+        int numGroups = 1;
         int driver = DB_PDB;
         const char* file_ext = "silo";
-        // TODO: XXX Make the Number of Groups a Constant or a Runtime Parameter (
-        // Between 8 and 64 ) XXX
-        int numGroups = 2;
-        char masterfilename[256], filename[256], nsname[256];
-        PMPIO_baton_t* baton;
-
-
         MPI_Comm_size( MPI_COMM_WORLD, &size );
         MPI_Bcast( &numGroups, 1, MPI_INT, 0, MPI_COMM_WORLD );
         MPI_Bcast( &driver, 1, MPI_INT, 0, MPI_COMM_WORLD );
 
-        baton =
+        PMPIO_baton_t * baton =
             PMPIO_Init( numGroups, PMPIO_WRITE, MPI_COMM_WORLD, 1,
                         createSiloFile, openSiloFile, closeSiloFile, &driver );
 
-        // Make sure directories for output exist
-        if (mkdir("data", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) {
-            if( errno != EEXIST ) {
-                // something else
-                std::cerr << "cannot create data directory. error:" 
-                          << strerror(errno) << std::endl;
-                throw std::runtime_error( strerror(errno) );
-            }
-        }
-        if (mkdir("data/raw", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) {
-            if( errno != EEXIST ) {
-                // something else
-                std::cerr << "cannot create raw data directory. Error:" 
-                          << strerror(errno) << std::endl;
-                throw std::runtime_error( strerror(errno) );
-            }
-        }
 
         // Set Filename to Reflect TimeStep
-        sprintf( masterfilename, "data/Beatnik%05d.%s", time_step,
-                 file_ext );
-        sprintf( filename, "data/raw/BeatnikOutput%05d%05d.%s",
-                 PMPIO_GroupRank( baton, _pm.mesh().rank() ), time_step,
-                 file_ext );
-        sprintf( nsname, "domain_%05d", _pm.mesh().rank() );
+        snprintf( masterfilename, 256, "data/Beatnik-%05d.%s", time_step,
+                  file_ext );
+        snprintf( filename, 256, "data/raw/BeatnikOutput-%05d-%05d.%s",
+                  PMPIO_GroupRank( baton, rank ), time_step,
+                  file_ext );
+        snprintf( nsname, 256, "domain_%05d", rank );
 
-        // Show Errors and Force FLoating Point
+        // Show Errors and Force Floating Point
         DBShowErrors( DB_ALL, NULL );
 
-        silo_file = (DBfile*)PMPIO_WaitForBaton( baton, filename, nsname );
+        DBfile * silo_file = (DBfile*)PMPIO_WaitForBaton( baton, filename, nsname );
 
         writeFile( silo_file, name, time_step, time, dt );
         if ( _pm.mesh().rank() == 0 )
         {
-            master_file = DBCreate( masterfilename, DB_CLOBBER, DB_LOCAL,
+            DBfile * master_file = DBCreate( masterfilename, DB_CLOBBER, DB_LOCAL,
                                     "Beatnik", driver );
             writeMultiObjects( master_file, baton, size, time_step, 
                                time, dt, file_ext );

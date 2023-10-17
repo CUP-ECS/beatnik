@@ -29,7 +29,7 @@
 #include <Solver.hpp>
 
 #include <Cabana_Core.hpp>
-#include <Cajita.hpp>
+#include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
 
 #include <mpi.h>
@@ -181,7 +181,7 @@ void help( const int rank, char* progname )
  */
 int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 {
-    char ch;
+    signed char ch;
 
     /// Set default values
     cl.driver = "serial"; // Default Thread Setting
@@ -200,7 +200,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.gravity = 25.0;
     cl.atwood = 0.5;
 
-    /* Defaults for Z-Model method, translated by the soler  to be relative
+    /* Defaults for Z-Model method, translated by the solver to be relative
      * to sqrt(dx*dy) */
     cl.mu = 1.0;
     cl.eps = 0.25;
@@ -491,7 +491,7 @@ struct MeshInitFunc
     };
 
     KOKKOS_INLINE_FUNCTION
-    bool operator()( Cajita::Node, Beatnik::Field::Position,
+    bool operator()( Cabana::Grid::Node, Beatnik::Field::Position,
                      [[maybe_unused]] const int index[2],
                      const double coord[2],
                      double &z1, double &z2, double &z3) const
@@ -530,7 +530,7 @@ struct MeshInitFunc
     };
 
     KOKKOS_INLINE_FUNCTION
-    bool operator()( Cajita::Node, Beatnik::Field::Vorticity,
+    bool operator()( Cabana::Grid::Node, Beatnik::Field::Vorticity,
                      [[maybe_unused]] const int index[2],
                      [[maybe_unused]] const double coord[2],
                      double& w1, double &w2 ) const
@@ -553,7 +553,7 @@ void rocketrig( ClArgs& cl )
     MPI_Comm_size( MPI_COMM_WORLD, &comm_size ); // Number of Ranks
     MPI_Comm_rank( MPI_COMM_WORLD, &rank );      // Get My Rank
 
-    Cajita::DimBlockPartitioner<2> partitioner; // Create Cajita Partitioner
+    Cabana::Grid::DimBlockPartitioner<2> partitioner; // Create Cabana::Grid Partitioner
     Beatnik::BoundaryCondition bc;
     for (int i = 0; i < 6; i++)
         bc.bounding_box[i] = cl.global_bounding_box[i];

@@ -16,7 +16,7 @@
 #include <ProblemManager.hpp>
 #include <ZModel.hpp>
 
-#include <Cajita.hpp>
+#include <Cabana_Grid.hpp>
 
 #include <Kokkos_Core.hpp>
 
@@ -32,10 +32,10 @@ class TimeIntegrator
     using mem_space = MemorySpace;
     using device_type = Kokkos::Device<exec_space, mem_space>;
     using node_array =
-        Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>,
-                      device_type>;
+        Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
+                      mem_space>;
 
-//    using halo_type = Cajita::Halo<MemorySpace>;
+//    using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
   public:
     TimeIntegrator( const ProblemManager<exec_space, mem_space> & pm,
@@ -49,25 +49,25 @@ class TimeIntegrator
         // Create a layout of the temporary arrays we'll need for velocity
         // intermediate positions, and change in vorticity
         auto node_triple_layout =
-            Cajita::createArrayLayout( pm.mesh().localGrid(), 3, Cajita::Node() );
-        auto node_double_layout =
-            Cajita::createArrayLayout( pm.mesh().localGrid(), 2, Cajita::Node() );
+            Cabana::Grid::createArrayLayout( pm.mesh().localGrid(), 3, Cabana::Grid::Node() );
+        auto node_pair_layout =
+            Cabana::Grid::createArrayLayout( pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
 
-        _zdot = Cajita::createArray<double, device_type>("velocity", 
+        _zdot = Cabana::Grid::createArray<double, mem_space>("velocity", 
                                                        node_triple_layout);
-        _wdot = Cajita::createArray<double, device_type>("vorticity derivative",
+        _wdot = Cabana::Grid::createArray<double, mem_space>("vorticity derivative",
+                                                       node_pair_layout);
+        _ztmp = Cabana::Grid::createArray<double, mem_space>("position temporary", 
                                                        node_triple_layout);
-        _ztmp = Cajita::createArray<double, device_type>("position temporary", 
-                                                       node_triple_layout);
-        _wtmp = Cajita::createArray<double, device_type>("vorticity temporary", 
-                                                       node_triple_layout);
+        _wtmp = Cabana::Grid::createArray<double, mem_space>("vorticity temporary", 
+                                                       node_pair_layout);
     }
 
     void step( const double delta_t ) 
     { 
-        // Compute the derivatives of position and vorticityat our current point
-        auto z_orig = _pm.get( Cajita::Node(), Field::Position() );
-        auto w_orig = _pm.get( Cajita::Node(), Field::Vorticity() );
+        // Compute the derivatives of position and vorticity at our current point
+        auto z_orig = _pm.get( Cabana::Grid::Node(), Field::Position() );
+        auto w_orig = _pm.get( Cabana::Grid::Node(), Field::Vorticity() );
         auto z_tmp = _ztmp->view();
         auto w_tmp = _wtmp->view();
 //        auto & halo = _pm.halo(); 
@@ -82,9 +82,9 @@ class TimeIntegrator
 	// uses the problem manager position and derivative by default.
         _zm.computeDerivatives(z_dot, w_dot);
 
-        auto own_node_space = local_grid->indexSpace(Cajita::Own(), Cajita::Node(), Cajita::Local());
+        auto own_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         Kokkos::parallel_for("RK3 Euler Step",
-            Cajita::createExecutionPolicy(own_node_space, ExecutionSpace()),
+            Cabana::Grid::createExecutionPolicy(own_node_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {
             for (int d = 0; d < 3; d++) {
 	        z_tmp(i, j, d) = z_orig(i, j, d) + delta_t * z_dot(i, j, d);
@@ -102,7 +102,7 @@ class TimeIntegrator
         
         // Take the half-step
         Kokkos::parallel_for("RK3 Half Step",
-            Cajita::createExecutionPolicy(own_node_space, ExecutionSpace()),
+            Cabana::Grid::createExecutionPolicy(own_node_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {
             for (int d = 0; d < 3; d++) {
 	        z_tmp(i, j, d) = 0.75*z_orig(i, j, d) 
@@ -122,7 +122,7 @@ class TimeIntegrator
         // derivatives to take the final full step.
         // unew = 1/3 uold + 2/3 utmp + 2/3 du_dt_tmp * deltat
         Kokkos::parallel_for("RK3 Full Step",
-            Cajita::createExecutionPolicy(own_node_space, ExecutionSpace()),
+            Cabana::Grid::createExecutionPolicy(own_node_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {
             for (int d = 0; d < 3; d++) {
 	        z_orig(i, j, d) = ( 1.0 / 3.0 ) * z_orig(i, j, d) 

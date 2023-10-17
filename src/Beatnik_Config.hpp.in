@@ -19,6 +19,4 @@
 
 #define Beatnik_GIT_COMMIT_HASH "@Beatnik_GIT_COMMIT_HASH@"
 
-#cmakedefine Beatnik_ENABLE_PVFMM
-
 #endif // BEATNIK_CORE_CONFIG_HPP
