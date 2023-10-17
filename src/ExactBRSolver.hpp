@@ -310,7 +310,9 @@ class ExactBRSolver
 
             // Do computations
             computeInterfaceVelocityPiece(atomic_zdot, z, *zrecv_view, *wrecv_view, *L2G_recv);
-	    }
+	    
+			printView(_local_L2G, rank, zdot, 1, 2, 7);
+		}
     }
     
     template <class l2g_type, class View>
