@@ -286,33 +286,41 @@ class ExactBRSolver
             }
                 
             // Send w and z view sizes
+            printf("10: i%d R%d\n", i, rank);
+
             MPI_Sendrecv(wsend_extents, 3, MPI_INT, next_rank, 0, 
                         wrecv_extents, 3, MPI_INT, prev_rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             MPI_Sendrecv(zsend_extents, 3, MPI_INT, next_rank, 1, 
                         zrecv_extents, 3, MPI_INT, prev_rank, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             // Resize *remote2, which is receiving data
+            printf("11: i%d R%d\n", i, rank);
             Kokkos::resize(*wrecv_view, wrecv_extents[0], wrecv_extents[1], wrecv_extents[2]);
             Kokkos::resize(*zrecv_view, zrecv_extents[0], zrecv_extents[1], zrecv_extents[2]);
             
             // Send/receive the views
+            printf("12: i%d R%d\n", i, rank);
             MPI_Sendrecv(wsend_view->data(), int(wsend_view->size()), MPI_DOUBLE, next_rank, 2, 
                         wrecv_view->data(), int(wrecv_view->size()), MPI_DOUBLE, prev_rank, 2, 
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             MPI_Sendrecv(zsend_view->data(), int(zsend_view->size()), MPI_DOUBLE, next_rank, 3, 
                         zrecv_view->data(), int(zrecv_view->size()), MPI_DOUBLE, prev_rank, 3, 
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
+            printf("13: i%d R%d\n", i, rank);
             // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
             MPI_Sendrecv(L2G_send, int(sizeof(*L2G_send)), MPI_BYTE, next_rank, 4, 
                          L2G_recv, int(sizeof(*L2G_recv)), MPI_BYTE, prev_rank, 4, 
                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             // Do computations
+            printf("20: i%d R%d\n", i, rank);
+
             computeInterfaceVelocityPiece(atomic_zdot, z, *zrecv_view, *wrecv_view, *L2G_recv);
-	    
-			printView(_local_L2G, rank, zdot, 1, 2, 7);
 		}
+        
+
+		printView(_local_L2G, rank, zdot, 1, 2, 7);
+
     }
     
     template <class l2g_type, class View>
