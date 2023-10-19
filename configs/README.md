@@ -1,18 +1,18 @@
-# Build Configuraitons for diffrent HPC systems
+# Build Configurations for different HPC systems
 
-This directory contains build information and scripts for a variety of systems, mainly using the spack build system.  In general, these builds are designed to work in a self-contained spack environment (spack documentation goes here XXX) with appropriate external compilers. Each directory describes the compiler used on each system and how to access/configure it, along with the spack environment to create in which to build beatnik.  For systems where spack is not pre-configured by the system maintainers, the build directory also contains a link to a repository with a relevant spack packages.yaml file, as well as a spack environment specification the can fully configure and build on that system. 
+This directory contains build information and scripts for a variety of systems, mainly using the spack build system.  In general, these builds are designed to work either through a direct spack install/load or in a spack environment with appropriate external compilers. Each subdirectory has a run script for the relevant system, and the relevant spack installation infomration. In particular, on systems where spack is supported by system mainters or works out of hte box with minimal configuration, this file describes the spack install command line to use. For systems where spack cannot build beatnik out of the box, the directory also contains a `spack.yaml` environment specification that can fully configure and build beatnik on that system. 
 
 ## General build requirements
-Beatnik depends on the following pacakges to build in all configurations:
+Beatnik depends on the following packages to build in all configurations:
   1. Cabana version 0.6.0 or newer
   1. A heffte version compatible with Cabana (2.3.0 is needed as of Cabana 0.6.0)
-  1. An MPI implementation - note that MPI must be GPU-aware when running on GPU systems.
+  1. A GPU-aware MPI implementation
   1. Kokkos 4.0 or newer
   1. LLNL Silo 4.11 or newer configured with MPI support
 
 ## Installing and Building Beatnik with Spack
 
-The beatnik spack package should enforce its build requirements appropriately; we strongly suggest that you use the spack package for both installation (via `spack install` or `spack env create`) and development (via `spack develop` in a created environment). We strive to keep the spack package spec up to date to enable this, as well as to maintain spack package.yaml descriptions for key systems in a [separate github repository](https://github.com/CUP-ECS/spack-configs). 
+The beatnik spack package should enforce its build requirements appropriately; we strongly suggest that you use the spack package for both installation (via `spack install` or `spack env create`) and development (via `spack develop` in a created environment). We strive to keep the spack package spec up to date to enable this.
 
 ### Current list of tested systems targets and suggested installation method
 

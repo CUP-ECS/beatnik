@@ -1,19 +1,19 @@
-# Beatnik - A  prototype High Performance Parallel Interface Benchmark
+# Beatnik - A Prototype High Performance Parallel Interface Benchmark
 
 ## Description
 
 Beatnik is a benchmark for global communication based on Pandya and Shkoller's 3D fluid interace "Z-Model" in the Cabana/Cajita mesh framework [1]. The goals 
 of Beatnik are to:
-  1. Provide an interesting and meaningful benchmark for numerical methods that require global communication, for example for far-field force calculations. This includes fast fourier transforms, distance sort cutoff-based methonds, and (eventually) fast multipole methods.
+  1. Provide an interesting and meaningful benchmark for numerical methods that require global communication, for example for far-field force calculations. This includes fast fourier transforms, distance sort cutoff-based methods, and (eventually) fast multi-pole methods.
   1. Understand the performance characteristics of different parallel decompositions of the Z-Model based on both a 2D decomposition based on logical mesh location location and a space-filling curve mesh decomposition.
   1. Provide a working prototype parallel implementation of the fluid interface model that other codes can use to create multi-scale models and codes.
 
-Beatnik uses a simple mesh-based represeantation of the surface manifold as a Cajita 2D mesh in I/J space and a regular block 2D decomposition of this manifold. The physical position of each element in the mesh is stored as a separate vector in the nodes of the mesh. This design results in simple and efficient computation and communincation strageties for surface normals, artificial viscosity, and Fourier transforms elements. However, it complicates methods where the data decomposition and communication is based on the spatial location of manifold points, requiring them to either maintain a separate spatial decomposition of the surface or to continually construct a spatial decomposition. A surface mesh that decomposed the mesh by spatial location would be an interesting alternative but would have the opposite issue - communication for surface calculations would be more complex but the (expensive) far force methods that rely on spatial decompositions (e.g. distance sort and spatial tree methods like the fast multipole method) would be less espensive.
+Beatnik uses a simple mesh-based representation of the surface manifold as a Cabana grid 2D mesh in I/J space and a regular block 2D decomposition of this manifold. The physical position of each element in the mesh is stored as a separate vector in the nodes of the mesh. This design results in simple and efficient computation and communication strategies for surface normals, artificial viscosity, and Fourier transforms elements. However, it complicates methods where the data decomposition and communication is based on the spatial location of manifold points, requiring them to either maintain a separate spatial decomposition of the surface or to continually construct a spatial decomposition. A surface mesh that decomposed the mesh by spatial location would be an interesting alternative but would have the opposite issue - communication for surface calculations would be more complex but the (expensive) far force methods that rely on spatial decompositions (e.g. distance sort and spatial tree methods like the fast multi-pole method) would be less expensive.
 
 ## Building Beatnik
 
 Beatnik relies on multiple external packages to build, including:
-  * ECP CoPA's Cabana/Cajita particle and mesh framework [3]
+  * ECP CoPA's Cabana/Grid particle and mesh framework [3]
   * UT-Knoxville's HeFFTe fast fourier transform library [4]
   * A high-performance MPI implementation such as OpenMPI, MPICH, or MVAPICH
 
@@ -50,7 +50,7 @@ The simplest test case and the one to which the rocketrig example program defaul
   1. Cuda execution with a 1024x1024 problem scaled up to be sixteen times as large in terms of bounding box and number of total points with no I/O: bin/rocketrig -x cuda -n 1024 -F 0 -w 16`
 
 ### Example 2: Non-periodic Single-mode Gaussian Rollup
-Another test case is a single-mode rollup test where the intitial interface is set according to a hyperbolic secant function. This testcase recreates the the gaussian perturbation results in Panda and Shkoller's paper from sections 2.3 and 2.4.  To run this testcase with a high-order model, use the following command line parameters. Note that this works best with a GPU accelerator, as the exact high-order far field force solver is very compute intensive and is generally impractical for non-trivial mesh sizes without GPU acceleration:
+Another test case is a single-mode rollup test where the intitial interface is set according to a hyperbolic secant function. This testcase recreates the the Gaussian perturbation results in Panda and Shkoller's paper from sections 2.3 and 2.4.  To run this testcase with a high-order model, use the following command line parameters. Note that this works best with a GPU accelerator, as the exact high-order far field force solver is very compute intensive and is generally impractical for non-trivial mesh sizes without GPU acceleration:
 `bin/rocketrig -x cuda -O high -n 64 -I sech2 -m 0.1 -p 9.0 -b free -a 0.15 -M 2 -e 2`
 
 ## Planned Development Steps
@@ -59,30 +59,30 @@ Beatnik is being implemented in multiple distinct steps, with associated planned
 
   * Version 1.0 Features
 
-    1. A low-order model implementation that relies on Cajita/HeFFTe Fourier transforms for estimating velocity interface at mesh points.
+    1. A low-order model implementation that relies on Cabana Grid/HeFFTe Fourier transforms for estimating velocity interface at mesh points.
     1. A high-order model implementation based on brute-force exact computation of long-range forces
     1. A medium-order model that uses the Fourier transform for estimating interface velocity and the far-field force solver for estimating how the vorticity changes at each interface point. 
     1. Support for periodic boundary conditions and free boundary conditions
-    1. Simple benchmark examples including a single-mode gaussian roll-up test and the multi-mode rocket rig experiment.
+    1. Simple benchmark examples including a single-mode Gaussian roll-up test and the multi-mode rocket rig experiment.
     1. Direct support for weak scaling of benchmarks through command line arguments
 
   * Version 1.X Planned Features
 
     1. A cutoff-based approach for calculating far-field forces using the Cabana particle framework. The goal of this work is to understand the accuracy/performance tradeoffs in the Z-Model, not to necessarily provide  to accelerates far-field force calculations.
     1. Improved timestep, desingularization, and artificial viscosity parameter handling. The goal of this is to provide good defaults when other input parameters are changed.
-    1. Additional interface initialization options, including gaussian random and file-based interface initialization (also useful for checkpointing)
+    1. Additional interface initialization options, including Gaussian random and file-based interface initialization (also useful for checkpointing)
     1. Support for coupling with other applications through either I/O (e.g. ADIOS) or Communication (e.g. Portage) 
     1. Additional test case definitions
 
   * Potential later (e.g. >=2.0) features
 
     1. Spatial partitioning of the mesh using a space-filling curve to better optimize the high-order model
-    1. Direct fast multipole or P3M solver for scalable, high precision high-order model solves.
+    1. Direct fast multi-pole or P3M solver for scalable, high precision high-order model solves.
     1. Support for multiple interface manifolds in a single simulation.
 
-## Acknowledgement, Contributors, and Copyright Information
+## Acknowledgment, Contributors, and Copyright Information
 
-Beatnik is primarily availble as open source under a 3-Clause BSD License. It is being developed at the University of New Mexico, Tennessee Tech University, and the University of Alabama under funding the U.S. Department of Energy's Predictive Science Academic Alliance Partnership III (PSAAP-III) program. Contributors to Beatnik development include:
+Beatnik is primarily available as open source under a 3-Clause BSD License. It is being developed at the University of New Mexico, Tennessee Tech University, and the University of Alabama under funding the U.S. Department of Energy's Predictive Science Academic Alliance Partnership III (PSAAP-III) program. Contributors to Beatnik development include:
 
   * Patrick G. Bridges (patrickb@unm.edu)
   * Thomas Hines (tmhines3@ua.edu)
