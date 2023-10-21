@@ -25,4 +25,4 @@ spack env activate ${SPACKENVDIR}
 
 ROCKETRIG=`which rocketrig`
 cd ${SCRATCHDIR}
-lrun -M -gpu -n 8 -N 2 -T 4 -g 1 ${ROCKETRIG} -n 4096 -w 8 -F 0
+lrun -M -gpu -n 8 -N 2 -T 4 -g 1 ${ROCKETRIG} -x cuda -n 4096 -w 8 -F 0
