@@ -386,4 +386,4 @@ spack:
       environment: {}
       extra_rpaths: []
   specs:
-  - beatnik@develop +rocm amdgpu_target=gfx90a %cce
+  - beatnik +rocm amdgpu_target=gfx90a %cce
