@@ -13,9 +13,9 @@ Beatnik uses a simple mesh-based representation of the surface manifold as a Cab
 ## Building Beatnik
 
 Beatnik relies on multiple external packages to build, including:
-  * ECP CoPA's Cabana/Grid particle and mesh framework [3]
-  * UT-Knoxville's HeFFTe fast fourier transform library [4]
-  * A high-performance MPI implementation such as OpenMPI, MPICH, or MVAPICH
+  * ECP CoPA's Cabana/Grid particle and mesh framework [2]
+  * UT-Knoxville's HeFFTe fast fourier transform library [3]
+  * A high-performance GPU-aware MPI implementation such as OpenMPI, MPICH, or MVAPICH
 
 To ease building Beatnik, the configs/ directory includes Spack configuration files for building in spack environments on multiple systems and test case run scripts for a variety of systems. In addition, the latest version of Spack includes a package description for directly building Beatnik. More information on building Beatnik can be found in the README.md file in the configs/ directory.
 
@@ -68,7 +68,8 @@ Beatnik is being implemented in multiple distinct steps, with associated planned
 
   * Version 1.X Planned Features
 
-    1. A cutoff-based approach for calculating far-field forces using the Cabana particle framework. The goal of this work is to understand the accuracy/performance tradeoffs in the Z-Model, not to necessarily provide  to accelerates far-field force calculations.
+    1. Rearchitecting of the z-model solve into explicitly-coupled surface mesh and spatial mesh solvers
+    1. A spatial mesh cutoff-based approach for calculating far-field forces using the Cabana particle framework. The goal of this work is to understand the accuracy/performance tradeoffs in the Z-Model, particularly in the medium-order
     1. Improved timestep, desingularization, and artificial viscosity parameter handling. The goal of this is to provide good defaults when other input parameters are changed.
     1. Additional interface initialization options, including Gaussian random and file-based interface initialization (also useful for checkpointing)
     1. Support for coupling with other applications through either I/O (e.g. ADIOS) or Communication (e.g. Portage) 
@@ -76,7 +77,6 @@ Beatnik is being implemented in multiple distinct steps, with associated planned
 
   * Potential later (e.g. >=2.0) features
 
-    1. Spatial partitioning of the mesh using a space-filling curve to better optimize the high-order model
     1. Direct fast multi-pole or P3M solver for scalable, high precision high-order model solves.
     1. Support for multiple interface manifolds in a single simulation.
 
