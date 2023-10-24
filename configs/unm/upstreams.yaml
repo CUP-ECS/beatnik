@@ -1,0 +1,3 @@
+upstreams:
+  carc-spack:
+    install_tree: /opt/spack/opt/spack
