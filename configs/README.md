@@ -12,12 +12,12 @@ Beatnik depends on the following packages to build in all configurations:
 
 ## Installing and Building Beatnik with Spack
 
-The beatnik spack package should enforce its build requirements appropriately; we strongly suggest that you use the spack package for both installation (via `spack install` or `spack env create`) and development (via `spack develop` in a created environment). We strive to keep the spack package spec up to date to enable this.
+The beatnik spack package should enforce its build requirements appropriately; we strongly suggest that you use the spack package for both installation (via `spack install` or `spack env create`) and development (via `spack develop` in a created environment). We strive to keep the spack package spec up to date to enable this. Note that to do so, you will often need your own spack installation, information about which can be found at [the spack documentation installation tutorial](https://spack-tutorial.readthedocs.io/en/latest/tutorial_basics.html). On systems with a system spack install, we also advise upstreaming to the system spack installation. When appropriate, we note this in the list of systems below and provide a relevant `upstreams.yaml` file.
 
 ### Current list of tested systems targets and suggested installation method
 
 We have tested beatnik installation on the following systems via either spack install with the provided spack install flags or a spack environment. An example run script is also provided for each of these systems in the appropriate subdirectory.
-  * University of New Mexico - These systems simply use `spack install` as the UNM machines have a full global spack packages.yaml already set up
+  * University of New Mexico - These systems simply use `spack install` as the UNM machines have a full global spack packages.yaml already set up. Because thse systems use spack for package maintenance, we recommend adding the provided `upstreams.yaml` file in the `unm` directory to the `.spack` directory in your home directory.
     * Hopper V100/A100 GPU cluster system - `spack install beatnik +cuda cuda_arch=80 %gcc ^cuda@11` (or `cuda_arch=70` for the V100 nodes); ^cuda@11 is needed to avoid using CUDA 12 which the UNM cuda drivers aren't updated to support as of 10/1/23. Only tested with gcc as the compiler.
     * General UNM (Wheeler/Hopper) CPU systems - `spack install beatnik` is sufficient
   * Lawrence Livermore National Laboratory - These systems need a spack environment (provided) to set up compilers and external packages to use spack effectively on these systems. Use `spack env create` with the provided spack.yaml to build beatnik in an environment on these systems. Simple test run scripts are also provided.
