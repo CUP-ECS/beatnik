@@ -1,28 +1,28 @@
-# Build Configuraitons for diffrent HPC systems
+# Build Configurations for different HPC systems
 
-This directory contains build information and scripts for a variety of systems, mainly using the spack build system.  In general, these builds are designed to work in a self-contained spack environment (spack documentation goes here XXX) with appropriate external compilers. Each directory describes the compiler used on each system and how to access/configure it, along with the spack environment to create in which to build beatnik.  For systems where spack is not pre-configured by the system maintainers, the build directory also contains a link to a repository with a relevant spack packages.yaml file, as well as a spack environment specification the can fully configure and build on that system. 
+This directory contains build information and scripts for a variety of systems, mainly using the spack build system.  In general, these builds are designed to work either through a direct spack install/load or in a spack environment with appropriate external compilers. Each subdirectory has a run script for the relevant system, and the relevant spack installation information. In particular, on systems where spack is supported by system maintainers or works out of the box with minimal configuration, this file describes the spack install command line to use. For systems where spack cannot build beatnik out of the box, the directory also contains a `spack.yaml` environment specification that can fully configure and build beatnik on that system. 
 
 ## General build requirements
-Beatnik depends on the following pacakges to build in all configurations:
+Beatnik depends on the following packages to build in all configurations:
   1. Cabana version 0.6.0 or newer
   1. A heffte version compatible with Cabana (2.3.0 is needed as of Cabana 0.6.0)
-  1. An MPI implementation - note that MPI must be GPU-aware when running on GPU systems.
+  1. A GPU-aware MPI implementation
   1. Kokkos 4.0 or newer
   1. LLNL Silo 4.11 or newer configured with MPI support
 
 ## Installing and Building Beatnik with Spack
 
-The beatnik spack package should enforce its build requirements appropriately; we strongly suggest that you use the spack package for both installation (via `spack install` or `spack env create`) and development (via `spack develop` in a created environment). We strive to keep the spack package spec up to date to enable this, as well as to maintain spack package.yaml descriptions for key systems in a [separate github repository](https://github.com/CUP-ECS/spack-configs). 
+The beatnik spack package should enforce its build requirements appropriately; we strongly suggest that you use the spack package for both installation (via `spack install` or `spack env create`) and development (via `spack develop` in a created environment). We strive to keep the spack package spec up to date to enable this. Note that to do so, you will often need your own spack installation, information about which can be found at [the spack documentation installation tutorial](https://spack-tutorial.readthedocs.io/en/latest/tutorial_basics.html). On systems with a system spack install, we also advise upstreaming to the system spack installation. When appropriate, we note this in the list of systems below and provide a relevant `upstreams.yaml` file.
 
 ### Current list of tested systems targets and suggested installation method
 
-We have tested beatnik installation on the following systems via either spack install with the provided spack install flags or a spack environment. An example run script is also provided for each of these systems in the appropriate subdirectory.
-  * University of New Mexico - These systems simply use `spack install` as the UNM machines have a full global spack packages.yaml already set up
-    * Hopper V100/A100 GPU cluster system - `spack install beatnik +cuda cuda_arch=80 ^cuda@11` (or `cuda_arch=70` for the V100 nodes); ^cuda@11 is needed to avoid using CUDA 12 which the UNM cuda drivers aren't updated to support as of 10/1/23.
-    * General UNM (Wheeler/Hopper) CPU systems - `spack install beatnik` is sufficient
+We have tested the beatnik installation on the following systems via either spack install with the provided spack install flags or a spack environment. An example run script is also provided for each of these systems in the appropriate subdirectory.
+  * University of New Mexico - UNM systems have a full global spack packages.yaml already set up, and so it is often possible to use `spack install` with the appropriate compiler and other flags to install beatnik on these systems. We recommend adding the provided `upstreams.yaml` file in the `unm` directory to the `.spack` directory in your home directory.
+    * Hopper V100/A100 GPU cluster system - Build using the environment specification in `unm/hopper/spack.yaml`. It is sometimes possible to simply use `spack install beatnik +cuda cuda_arch=80 %gcc ^cuda@11` (or `cuda_arch=70` for the V100 nodes), but this may not always work depending on how spack chooses to concretize the spack installation.
+    * General UNM (Wheeler/Hopper) CPU systems - `spack install beatnik` is generally sufficient.
   * Lawrence Livermore National Laboratory - These systems need a spack environment (provided) to set up compilers and external packages to use spack effectively on these systems. Use `spack env create` with the provided spack.yaml to build beatnik in an environment on these systems. Simple test run scripts are also provided.
-    * Lassen V100 GPU system - Build using the environment specification in llnl/lassen/spack.yaml. Other compilers besides gcc untested.
-    * Tioga MX250X GPU system - Build using the environment specification in llnl/tioga/spack.yaml; gcc should also work. Other compilers besides cce 16.0.1 untested. Note that you must run with the environment variable to enable gpu-waware cray-mpich, i.e. `export MPICH_GPU_SUPPORT_ENABLED=1`. The provided flux script (beatnik.flux) does this.
+    * Lassen V100 GPU system - Build using the environment specification in llnl/lassen/spack.yaml. Other compilers besides gcc untested. Note that cuda-aware MPI support is broken in spectrum MPI with cuda versions later than 11.2; the spack configuration avoids this, but if you're building beatnik by hand on Lassen or another IBM CORAL system, be aware of this limitation.
+    * Tioga MX250X GPU system - Build using the environment specification in llnl/tioga/spack.yaml; gcc should also work. Other compilers besides cce 16.0.1 untested. Note that you must run with the environment variable to enable gpu-aware cray-mpich, i.e. `export MPICH_GPU_SUPPORT_ENABLED=1`. The provided flux script (beatnik.flux) does this.
     * Quartz CPU system - Build using the environment specification in llnl/quartz/spack.yaml. Othe rcompilers besides gcc@10.3.1 untested.
   * Los Alamos National Laboratory
     * Chicoma Cray A100 GPU system - not yet complete. An environment still needs to be developed that uses cray-mpich with the appropriate flags to properly compile beatnik and its dependenvies to use GPU-aware MPI.
