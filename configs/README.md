@@ -16,7 +16,7 @@ The beatnik spack package should enforce its build requirements appropriately; w
 
 ### Current list of tested systems targets and suggested installation method
 
-We have tested beatnik installation on the following systems via either spack install with the provided spack install flags or a spack environment. An example run script is also provided for each of these systems in the appropriate subdirectory.
+We have tested the beatnik installation on the following systems via either spack install with the provided spack install flags or a spack environment. An example run script is also provided for each of these systems in the appropriate subdirectory.
   * University of New Mexico - UNM systems have a full global spack packages.yaml already set up, and so it is often possible to use `spack install` with the appropriate compiler and other flags to install beatnik on these systems. We recommend adding the provided `upstreams.yaml` file in the `unm` directory to the `.spack` directory in your home directory.
     * Hopper V100/A100 GPU cluster system - Build using the environment specification in `unm/hopper/spack.yaml`. It is sometimes possible to simply use `spack install beatnik +cuda cuda_arch=80 %gcc ^cuda@11` (or `cuda_arch=70` for the V100 nodes), but this may not always work depending on how spack chooses to concretize the spack installation.
     * General UNM (Wheeler/Hopper) CPU systems - `spack install beatnik` is generally sufficient.
