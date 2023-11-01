@@ -33,7 +33,7 @@
 
 #include <memory>
 
-#include <Mesh.hpp>
+#include <SurfaceMesh.hpp>
 
 #include <BoundaryCondition.hpp>
 #include <Operators.hpp>

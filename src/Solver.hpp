@@ -17,7 +17,7 @@
 #include <Cabana_Grid.hpp>
 
 #include <BoundaryCondition.hpp>
-#include <Mesh.hpp>
+#include <SurfaceMesh.hpp>
 #include <ProblemManager.hpp>
 #include <SiloWriter.hpp>
 #include <TimeIntegrator.hpp>
@@ -100,7 +100,7 @@ class Solver : public SolverBase
 
         // Create a mesh one which to do the solve and a problem manager to
         // handle state
-        _mesh = std::make_unique<Mesh<ExecutionSpace, MemorySpace>>(
+        _mesh = std::make_unique<SurfaceMesh<ExecutionSpace, MemorySpace>>(
             global_bounding_box, num_nodes, periodic, partitioner,
 	    _halo_min, comm );
 
@@ -208,7 +208,7 @@ class Solver : public SolverBase
     double _dt;
     double _time;
     
-    std::unique_ptr<Mesh<ExecutionSpace, MemorySpace>> _mesh;
+    std::unique_ptr<SurfaceMesh<ExecutionSpace, MemorySpace>> _mesh;
     std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace>> _pm;
     std::unique_ptr<brsolver_type> _br;
     std::unique_ptr<zmodel_type> _zm;

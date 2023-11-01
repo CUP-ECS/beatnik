@@ -37,7 +37,7 @@
 
 #include <memory>
 
-#include <Mesh.hpp>
+#include <SurfaceMesh.hpp>
 #include <ProblemManager.hpp>
 #include <Operators.hpp>
 
@@ -137,7 +137,7 @@ class ExactBRSolver
         double dx = _dx, dy = _dy;
 
         // Mesh dimensions for Simpson weight calc
-        int num_nodes = _pm.mesh().get_mesh_size();
+        int num_nodes = _pm.mesh().get_surface_mesh_size();
 
         /* Now loop over the cross product of all the node on the interface */
         auto pair_space = Operators::crossIndexSpace(local_space, remote_space);
