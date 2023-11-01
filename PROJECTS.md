@@ -50,3 +50,7 @@
 1. Combine a Z-model example (e.g. the fluid mixing rate example) with a fluid solver benchmark, 
    including representative data movement between the two solvers, to provide a coupled code 
    communication benchmark //even if migrated data// isn't actually used by either solver.
+
+1. Add remeshing support to regenerate the interface surface and node distribution along that surface
+   as the simulation runs, including adding additional points and/or moving points to areas of 
+   high vorticity (where interface rollup happens).
