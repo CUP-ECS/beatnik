@@ -327,7 +327,7 @@ class ZModel
                              node_view zdot, node_view wdot ) const
     {
         _pm.gather( z, w );
-	computeHaloedDerivatives( z.view(), w.view(), zdot, wdot );
+	    computeHaloedDerivatives( z.view(), w.view(), zdot, wdot );
     }
 
     // Shared internal entry point from the external points from the
@@ -338,7 +338,7 @@ class ZModel
         // External calls to this object work on Cabana::Grid arrays, but internal
         // methods mostly work on the views, with the entry points responsible
         // for handling the halos.
-	double dx = _dx, dy = _dy;
+	    double dx = _dx, dy = _dy;
  
         // Phase 1: Globally-dependent bulk synchronous calculations that 
         // namely the reisz transform and/or far-field force solve to calculate
@@ -379,7 +379,7 @@ class ZModel
             double N[3];
             Operators::cross(N, dx_z, dy_z);
             for (int n = 0; n < 3; n++)
-		N[n] /= sqrt(deth);
+		        N[n] /= sqrt(deth);
 
             //  2.4 Compute zdot and zndot as needed using specialized helper functions
             double zndot;
@@ -387,12 +387,12 @@ class ZModel
                              reisz, N, deth );
 
             //  2.5 Compute V from zndot and vorticity 
-	    double w1 = w_view(i, j, 0); 
+	        double w1 = w_view(i, j, 0); 
             double w2 = w_view(i, j, 1);
 
-	    V_view(i, j, 0) = zndot * zndot 
-                         - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
-                         - 2*g*z_view(i, j, 2);
+            V_view(i, j, 0) = zndot * zndot 
+                            - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
+                            - 2*g*z_view(i, j, 2);
         });
 
         // 3. Phase 3: Halo V and apply boundary condtions on it, then calculate
