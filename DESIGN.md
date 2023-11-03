@@ -13,8 +13,8 @@ spatial mesh based on their last location.
 1. Calculate vorticity measure on the surface.
 
 1. If using spatial velocity solve, update information in the spatial distribution of the particle cloud
-   The initial location of particles in the particle cloud is based on their position during hte *previous*
-   derivative calculationm, which may be incorrect. This step both provides the data needed for velocity
+   The initial location of particles in the particle cloud is based on their position during the *previous*
+   derivative calculation, which may be incorrect. This step both provides the data needed for velocity
    calculation and updates their position and vorticity appropriately.
    1. Send updated postition, vorticity, and vorticity measure to the spatial distribution based on 
      previous position.
