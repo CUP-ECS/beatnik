@@ -90,6 +90,7 @@ class ExactBRSolver
     template <class AtomicView>
     void computeInterfaceVelocityPiece(AtomicView atomic_zdot, node_view z, 
                                        node_view zremote, node_view wremote, 
+                                       node_view oremote,
                                        l2g_type remote_L2G) const
     {
         /* Project the Birkhoff-Rott calculation between all pairs of points on the 
@@ -107,7 +108,7 @@ class ExactBRSolver
             rmin[d] = remote_L2G.local_own_min[d];
             rmax[d] = remote_L2G.local_own_max[d];
         }
-	Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
+	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
         /* Figure out which directions we need to project the k/l point to
          * for any periodic boundary conditions */
@@ -167,7 +168,7 @@ class ExactBRSolver
                     offset[1] = ldir * width[1];
 
                     /* Do the Birkhoff-Rott evaluation for this point */
-                    Operators::BR(br, z, zremote, wremote, epsilon, dx, dy, weight,
+                    Operators::BR(br, z, zremote, wremote, oremote,epsilon, dx, dy, weight,
                                   i, j, k, l, offset);
                     for (int d = 0; d < 3; d++) {
                         brsum[d] += br[d];
@@ -213,7 +214,7 @@ class ExactBRSolver
         });
         
         // Compute forces for all owned nodes on this process
-        computeInterfaceVelocityPiece(atomic_zdot, z, z, w, _local_L2G);
+        computeInterfaceVelocityPiece(atomic_zdot, z, z, w, omega_view, _local_L2G);
 
         /* Perform a ring pass of data between each process to compute forces of nodes 
          * on other processes on he nodes owned by this process */
@@ -226,6 +227,8 @@ class ExactBRSolver
         node_view wremote2(Kokkos::ViewAllocateWithoutInitializing ("wremote2"), w.extent(0), w.extent(1), w.extent(2));
         node_view zremote1(Kokkos::ViewAllocateWithoutInitializing ("zremote1"), z.extent(0), z.extent(1), z.extent(2));
         node_view zremote2(Kokkos::ViewAllocateWithoutInitializing ("zremote2"), z.extent(0), z.extent(1), z.extent(2));
+        node_view oremote1(Kokkos::ViewAllocateWithoutInitializing ("omega_remote1"), z.extent(0), z.extent(1), z.extent(2));
+        node_view oremote2(Kokkos::ViewAllocateWithoutInitializing ("omega_remote2"), z.extent(0), z.extent(1), z.extent(2));
         l2g_type L2G_remote1 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cabana::Grid::Node());
         l2g_type L2G_remote2 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cabana::Grid::Node());
         
@@ -238,13 +241,15 @@ class ExactBRSolver
         // same type declarations. The loop reassigns these references as needed each time
         // around the loop.
         node_view *zsend_view = NULL; 
-        node_view *wsend_view = NULL; 
+        node_view *wsend_view = NULL;
+        node_view *osend_view = NULL;
         int * zsend_extents = NULL;
         int * wsend_extents = NULL;
         l2g_type * L2G_send = NULL;
 
         node_view *zrecv_view = NULL; 
         node_view *wrecv_view = NULL; 
+        node_view *orecv_view = NULL;
         int * zrecv_extents = NULL;
         int * wrecv_extents = NULL;
         l2g_type * L2G_recv = NULL;
@@ -256,7 +261,7 @@ class ExactBRSolver
             // Alternate between remote1 and remote2 sending and receiving data 
             // to avoid copying data across interations
             if (i % 2) {
-                zsend_view = &zremote1; wsend_view = &wremote1; 
+                zsend_view = &zremote1; wsend_view = &wremote1; osend_view = &oremote1;
                 zsend_extents = zextents1; wsend_extents = wextents1;
                 L2G_send = &L2G_remote1;
 
@@ -266,15 +271,15 @@ class ExactBRSolver
             } else {
                 if (i == 0) {
                     /* Avoid a deep copy on the first iteration */
-                    wsend_view = &w; zsend_view = &z;
+                    wsend_view = &w; zsend_view = &z; osend_view = &omega_view;
                 } else {
-                    wsend_view = &wremote2; zsend_view = &zremote2; 
+                    wsend_view = &wremote2; zsend_view = &zremote2; osend_view = &oremote2; 
                 } 
                 
                 zsend_extents = zextents2; wsend_extents = wextents2;
                 L2G_send = &L2G_remote2;
 
-                zrecv_view = &zremote1; wrecv_view = &wremote1; 
+                zrecv_view = &zremote1; wrecv_view = &wremote1; orecv_view = &oremote1;
                 zrecv_extents = zextents1; wrecv_extents = wextents1;
                 L2G_recv = &L2G_remote1;
             }
@@ -294,6 +299,7 @@ class ExactBRSolver
             // Resize *remote2, which is receiving data
             Kokkos::resize(*wrecv_view, wrecv_extents[0], wrecv_extents[1], wrecv_extents[2]);
             Kokkos::resize(*zrecv_view, zrecv_extents[0], zrecv_extents[1], zrecv_extents[2]);
+            Kokkos::resize(*orecv_view, zrecv_extents[0], zrecv_extents[1], zrecv_extents[2]);
             
             // Send/receive the views
             MPI_Sendrecv(wsend_view->data(), int(wsend_view->size()), MPI_DOUBLE, next_rank, 2, 
@@ -302,6 +308,9 @@ class ExactBRSolver
             MPI_Sendrecv(zsend_view->data(), int(zsend_view->size()), MPI_DOUBLE, next_rank, 3, 
                         zrecv_view->data(), int(zrecv_view->size()), MPI_DOUBLE, prev_rank, 3, 
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Sendrecv(osend_view->data(), int(osend_view->size()), MPI_DOUBLE, next_rank, 3, 
+                        orecv_view->data(), int(orecv_view->size()), MPI_DOUBLE, prev_rank, 3, 
+                        MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
             MPI_Sendrecv(L2G_send, int(sizeof(*L2G_send)), MPI_BYTE, next_rank, 4, 
@@ -309,11 +318,11 @@ class ExactBRSolver
                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             // Do computations
-            computeInterfaceVelocityPiece(atomic_zdot, z, *zrecv_view, *wrecv_view, *L2G_recv);
+            computeInterfaceVelocityPiece(atomic_zdot, z, *zrecv_view, *wrecv_view, *orecv_view, *L2G_recv);
 	    }
 
-        printf("\n\n*********************\n");
-        printView(_local_L2G, rank, zdot, 1, 2, 7);
+        // printf("\n\n*********************\n");
+        // printView(_local_L2G, rank, zdot, 1, 2, 7);
     }
     
     template <class l2g_type, class View>
