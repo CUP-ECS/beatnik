@@ -26,11 +26,11 @@ namespace Beatnik
 {
 //---------------------------------------------------------------------------//
 /*!
-  \class Mesh
+  \class SurfaceMesh
   \brief Logically uniform Cartesian mesh.
 */
 template <class ExecutionSpace, class MemorySpace>
-class Mesh
+class SurfaceMesh
 {
   public:
     using memory_space = MemorySpace;
@@ -38,7 +38,7 @@ class Mesh
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
 
     // Construct a mesh.
-    Mesh( const std::array<double, 6>& global_bounding_box,
+    SurfaceMesh( const std::array<double, 6>& global_bounding_box,
           const std::array<int, 2>& num_nodes,
 	  const std::array<bool, 2>& periodic,
           const Cabana::Grid::BlockPartitioner<2>& partitioner,
@@ -134,7 +134,7 @@ class Mesh
     }
 	
     // Get the mesh size
-    int get_mesh_size() const
+    int get_surface_mesh_size() const
     {
         return _num_nodes[0];
     }

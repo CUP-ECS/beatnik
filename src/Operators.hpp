@@ -108,14 +108,15 @@ namespace Operators
      * (to * take care of periodic boundary contitions) */
     template <class VorticityView, class PositionView>
     KOKKOS_INLINE_FUNCTION
-    void BR(double out[3], PositionView z, PositionView z2, VorticityView w2,
+    void BR(double out[3], PositionView z, PositionView z2, VorticityView w2, PositionView omega_view,
             double epsilon, double dx, double dy, double weight, int i, int j, int k, int l,
-            double offset[3])
+            double offset[3]) 
     {
         double omega[3], zdiff[3], zsize;
         zsize = 0.0;
         for (int d = 0; d < 3; d++) {
-            omega[d] = w2(k, l, 1) * Dx(z2, k, l, d, dx) - w2(k, l, 0) * Dy(z2, k, l, d, dy);
+            // omega[d] = w2(k, l, 1) * Dx(z2, k, l, d, dx) - w2(k, l, 0) * Dy(z2, k, l, d, dy);
+            omega[d] = omega_view(k, l, d);
             zdiff[d] = z(i, j, d) - (z2(k, l, d) + offset[d]);
             zsize += zdiff[d] * zdiff[d];
         }  
@@ -130,7 +131,7 @@ namespace Operators
     }
 
     template <long M, long N>
-        Cabana::Grid::IndexSpace<M + N> crossIndexSpace(
+    Cabana::Grid::IndexSpace<M + N> crossIndexSpace(
             const Cabana::Grid::IndexSpace<M>& index_space1,
             const Cabana::Grid::IndexSpace<N>& index_space2)
     {

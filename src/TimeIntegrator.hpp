@@ -70,7 +70,7 @@ class TimeIntegrator
         auto w_orig = _pm.get( Cabana::Grid::Node(), Field::Vorticity() );
         auto z_tmp = _ztmp->view();
         auto w_tmp = _wtmp->view();
-//        auto & halo = _pm.halo(); 
+        // auto & halo = _pm.halo(); 
 
         auto local_grid = _pm.mesh().localGrid();
 
@@ -79,7 +79,7 @@ class TimeIntegrator
         auto w_dot = _wdot->view();
 
         // Find foward euler point using initial derivative. The zmodel solver
-	// uses the problem manager position and derivative by default.
+	    // uses the problem manager position and derivative by default.
         _zm.computeDerivatives(z_dot, w_dot);
 
         auto own_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());

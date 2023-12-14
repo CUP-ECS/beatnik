@@ -33,7 +33,7 @@
 
 #include <memory>
 
-#include <Mesh.hpp>
+#include <SurfaceMesh.hpp>
 #include <BoundaryCondition.hpp>
 
 namespace Beatnik
@@ -89,7 +89,7 @@ class ProblemManager
         typename node_array::view_type;
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
-    using mesh_type = Mesh<exec_space, mem_space>;
+    using mesh_type = SurfaceMesh<exec_space, mem_space>;
 
     template <class InitFunc>
     ProblemManager( const mesh_type & mesh,
