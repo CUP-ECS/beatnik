@@ -252,6 +252,26 @@ class ZModel
         _fft->reverse(*_reisz, Cabana::Grid::Experimental::FFTScaleFull());
     }
 
+    /* Calcuate omega for each point and store in _omega
+     */
+    void prepareOmega(node_view z, node_view w) const
+    {
+        double dx = _dx;
+        double dy = _dy;
+        auto omega = _omega->view();
+
+        auto local_grid = _pm.mesh().localGrid();
+        auto own_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
+        Kokkos::parallel_for( "Omega",  
+            createExecutionPolicy(own_node_space, ExecutionSpace()), 
+            KOKKOS_LAMBDA(int i, int j) {
+            for (int d = 0; d < 3; d++) {
+                omega(i, j, d) = w(i, j, 1) * Operators::Dx(z, i, j, d, dx) - w(i, j, 0) * Operators::Dy(z, i, j, d, dy);
+                //printf("omega0: %.15lf\n", w(k, l, 1) * Operators::Dx(z, k, l, d, dx) - w(k, l, 0) * Operators::Dy(z, k, l, d, dy));
+            }
+        });
+    }
+
     /* For low order, we calculate the reisz transform used to compute the magnitude
      * of the interface velocity. This will be projected onto surface normals later 
      * once we have the normals */
@@ -345,6 +365,11 @@ class ZModel
         // interface velocity and velocity normal magnitudes, using the
         // appropriate method. We do not attempt to overlap this with the 
         // mostly-local parallel calculations in phase 2
+
+        // Phase 1.a: Calcuate the omega value for each point
+        //prepareOmega(z_view, w_view);
+
+        // Phase 1.b: Compute zdot
         prepareVelocities(MethodOrder(), zdot, z_view, w_view);
 
         auto reisz = _reisz->view();
@@ -426,6 +451,7 @@ class ZModel
     double _A, _g, _mu;
     std::shared_ptr<node_array> _V;
     std::shared_ptr<halo_type> _v_halo;
+    std::shared_ptr<node_array> _omega;
 
     /* XXX Make this conditional on not being the high-order model */ 
     std::shared_ptr<node_array> _reisz;
