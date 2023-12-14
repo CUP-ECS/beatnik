@@ -68,7 +68,7 @@ class ExactBRSolver
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
-    ExactBRSolver( const pm_type & pm, const BoundaryCondition &bc,
+    ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc,
                    const double epsilon, const double dx, const double dy)
         : _pm( pm )
         , _bc( bc )
@@ -77,7 +77,7 @@ class ExactBRSolver
         , _dy( dy )
         , _local_L2G( *_pm.mesh().localGrid() )
     {
-	_comm = _pm.mesh().localGrid()->globalGrid().comm();
+	    _comm = _pm.mesh().localGrid()->globalGrid().comm();
     }
 
     static KOKKOS_INLINE_FUNCTION double simpsonWeight(int index, int len)
@@ -187,7 +187,7 @@ class ExactBRSolver
      * This function is called three times per time step to compute the initial, forward, and half-step
      * derivatives for velocity and vorticity.
      */
-    void computeInterfaceVelocity(node_view zdot, node_view z, node_view w) const
+    void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view omega_view) const
     {
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
@@ -312,6 +312,7 @@ class ExactBRSolver
             computeInterfaceVelocityPiece(atomic_zdot, z, *zrecv_view, *wrecv_view, *L2G_recv);
 	    }
 
+        printf("\n\n*********************\n");
         printView(_local_L2G, rank, zdot, 1, 2, 7);
     }
     
@@ -338,19 +339,19 @@ class ExactBRSolver
             //printf("global: %d %d\n", local_gi[0], local_gi[1]);
             if (option == 1){
                 if (dims == 3) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
+                    printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
                 }
                 else if (dims == 2) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
+                    printf("R%d %d %d %d %d %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
                 }
             }
             else if (option == 2) {
                 if (local_gi[0] == DEBUG_X && local_gi[1] == DEBUG_Y) {
                     if (dims == 3) {
-                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf: %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
+                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf: %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
                     }   
                     else if (dims == 2) {
-                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
+                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
                     }
                 }
             }

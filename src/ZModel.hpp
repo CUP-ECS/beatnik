@@ -99,6 +99,11 @@ class ZModel
         auto node_scalar_layout =
             Cabana::Grid::createArrayLayout( _pm.mesh().localGrid(), 1, Cabana::Grid::Node() );
 
+        
+        // Initize omega view
+        _omega = Cabana::Grid::createArray<double, memory_space>(
+            "omega", node_triple_layout );
+
         // Temporary used for central differencing of vorticities along the 
         // surface in calculating the vorticity derivative
         _V = Cabana::Grid::createArray<double, memory_space>(
@@ -276,7 +281,8 @@ class ZModel
      * of the interface velocity. This will be projected onto surface normals later 
      * once we have the normals */
     void prepareVelocities(Order::Low, [[maybe_unused]] node_view zdot,
-                           [[maybe_unused]] node_view z, node_view w) const
+                           [[maybe_unused]] node_view z, node_view w,
+                           [[maybe_unused]] node_view omega_view) const
     {
         computeReiszTransform(w);
     }
@@ -284,18 +290,19 @@ class ZModel
     /* For medium order, we calculate the fourier velocity that we later 
      * normalize for vorticity calculations and directly compute the 
      * interface velocity (zdot) using a far field method. */
-    void prepareVelocities(Order::Medium, node_view zdot, node_view z, node_view w) const
+    void prepareVelocities(Order::Medium, node_view zdot, node_view z, node_view w,
+                           node_view omega_view) const
     {
         computeReiszTransform(w);
-        _br->computeInterfaceVelocity(zdot, z, w);
+        _br->computeInterfaceVelocity(zdot, z, w, omega_view);
     }
 
     /* For high order, we just directly compute the interface velocity (zdot)
      * using a far field method and later normalize that for use in the vorticity 
      * calculation. */
-    void prepareVelocities(Order::High, node_view zdot, node_view z, node_view w) const
+    void prepareVelocities(Order::High, node_view zdot, node_view z, node_view w, node_view omega_view) const
     {
-        _br->computeInterfaceVelocity(zdot, z, w);
+        _br->computeInterfaceVelocity(zdot, z, w, omega_view);
     }
 
     // Compute the final interface velocities and normalized BR velocities
@@ -367,10 +374,11 @@ class ZModel
         // mostly-local parallel calculations in phase 2
 
         // Phase 1.a: Calcuate the omega value for each point
-        //prepareOmega(z_view, w_view);
+        prepareOmega(z_view, w_view);
 
         // Phase 1.b: Compute zdot
-        prepareVelocities(MethodOrder(), zdot, z_view, w_view);
+        auto omega_view = _omega->view();
+        prepareVelocities(MethodOrder(), zdot, z_view, w_view, omega_view);
 
         auto reisz = _reisz->view();
         double g = _g;

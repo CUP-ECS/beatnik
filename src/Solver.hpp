@@ -70,7 +70,7 @@ class Solver : public SolverBase
 
     // At some point we'll specify this when making the solver through a template argument.
     // Still need to design that out XXX
-   using brsolver_type = ExactBRSolver<ExecutionSpace, MemorySpace>;  // Single node currently
+    using brsolver_type = ExactBRSolver<ExecutionSpace, MemorySpace>;  // Single node currently
 
     using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>;
     using ti_type = TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>;
