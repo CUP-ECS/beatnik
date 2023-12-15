@@ -9,8 +9,8 @@
  * SPDX-License-Identifier: BSD-3-Clause                                    *
  ****************************************************************************/
 
-#ifndef BEATNIK_MESH_HPP
-#define BEATNIK_MESH_HPP
+#ifndef BEATNIK_SURFACE_MESH
+#define BEATNIK_SURFACE_MESH
 
 #include <Cabana_Grid.hpp>
 
@@ -173,4 +173,4 @@ class SurfaceMesh
 
 } // end namespace Beatnik
 
-#endif // end BEATNIK_MESH_HPP
+#endif // end BEATNIK_SURFACE_MESH
