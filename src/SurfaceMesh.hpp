@@ -39,11 +39,11 @@ class SurfaceMesh
 
     // Construct a mesh.
     SurfaceMesh( const std::array<double, 6>& global_bounding_box,
-          const std::array<int, 2>& num_nodes,
-	  const std::array<bool, 2>& periodic,
-          const Cabana::Grid::BlockPartitioner<2>& partitioner,
-          const int min_halo_width, MPI_Comm comm )
-		  : _num_nodes( num_nodes )
+            const std::array<int, 2>& num_nodes,
+            const std::array<bool, 2>& periodic,
+            const Cabana::Grid::BlockPartitioner<2>& partitioner,
+            const int min_halo_width, MPI_Comm comm )
+            : _num_nodes( num_nodes )
     {
         MPI_Comm_rank( comm, &_rank );
 
@@ -91,20 +91,20 @@ class SurfaceMesh
              * non-periodic -> nnodes = 5, 5 cabana nodes - 4 cells
              *              -> global low == -2, global high = 2 
              *                             -> nodes = (-2,-1,0,1,2).
-	     * So we always have (nnodes - 1 cells) */
+	         * So we always have (nnodes - 1 cells) */
 
-	    int cabana_nodes = num_nodes[d] - (periodic[d] ? 1 : 0);
-
+            int cabana_nodes = num_nodes[d] - (periodic[d] ? 1 : 0);
             global_low_corner[d] = -cabana_nodes/2;
             global_high_corner[d] = global_low_corner[d] + num_nodes[d] - 1;
-#if 0
-            std::cout << "Dim " << d << ": " 
-                      << num_nodes[d] << " nodes, "
-                      << cabana_nodes << " cabana nodes, "
-                      << " [ " << global_low_corner[d]
-                      << ", " << global_high_corner[d] << " ]"
-                      << "\n";
-#endif
+
+            #if 0
+                std::cout << "Dim " << d << ": " 
+                        << num_nodes[d] << " nodes, "
+                        << cabana_nodes << " cabana nodes, "
+                        << " [ " << global_low_corner[d]
+                        << ", " << global_high_corner[d] << " ]"
+                        << "\n";
+            #endif
         }
 
         // Finally, create the global mesh, global grid, and local grid.
@@ -112,7 +112,7 @@ class SurfaceMesh
             global_low_corner, global_high_corner, 1.0 );
 
         auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
-                                                     periodic, partitioner );
+                                                    periodic, partitioner );
         // Build the local grid.
         int halo_width = fmax(2, min_halo_width);
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, halo_width );
