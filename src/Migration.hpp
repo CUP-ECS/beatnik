@@ -9,8 +9,8 @@
  * SPDX-License-Identifier: BSD-3-Clause                                    *
  ****************************************************************************/
 
-#ifndef BEATNIK_REDISTRIBUTER
-#define BEATNIK_REDISTRIBUTER
+#ifndef BEATNIK_MIGRATION
+#define BEATNIK_MIGRATION
 
 #include <Cabana_Grid.hpp>
 
@@ -26,11 +26,11 @@ namespace Beatnik
 {
 //---------------------------------------------------------------------------//
 /*!
-  \class Redistributer
-  \brief Logically uniform Cartesian mesh.
+  \class Migration
+  \brief Migrator between surface and spatial meshes
 */
 template <class ExecutionSpace, class MemorySpace>
-class Redistributer
+class Migration
 {
   public:
     using memory_space = MemorySpace;
@@ -38,7 +38,7 @@ class Redistributer
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
 
     // Construct a mesh.
-    Redistributer( const std::array<double, 6>& global_bounding_box,
+    Migration( const std::array<double, 6>& global_bounding_box,
           const std::array<int, 2>& num_nodes,
 	      const std::array<bool, 2>& periodic,
           const Cabana::Grid::BlockPartitioner<2>& partitioner,
@@ -62,4 +62,4 @@ class Redistributer
 
 } // end namespace Beatnik
 
-#endif // end BEATNIK_REDISTRIBUTER
+#endif // end BEATNIK_MIGRATION

@@ -35,16 +35,23 @@ class SpatialMesh
   public:
     using memory_space = MemorySpace;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
-    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
+    using mesh_type = Cabana::Grid::UniformMesh<double, 3>;
 
     // Construct a mesh.
     SpatialMesh( const std::array<double, 6>& global_bounding_box,
           const std::array<int, 2>& num_nodes,
 	      const std::array<bool, 2>& periodic,
-          const Cabana::Grid::BlockPartitioner<2>& partitioner,
+          // const Cabana::Grid::BlockPartitioner<3>& partitioner,
           const int min_halo_width, MPI_Comm comm )
 		  : _num_nodes( num_nodes )
     {
+        // Declare the partioner here for now
+        // Put particle type here
+        // Make a cuttoff BRSolver and declare the spatial mesh inside the cuttoff BRSolver class
+        // Make a migration.hpp class, declare spatialmesh in solver.hpp, put all 
+        // the spatil mesh stuff in migration
+        Cabana::Grid::DimBlockPartitioner<3> partitioner;
+
         MPI_Comm_rank( comm, &_rank );
 
         for (int i = 0; i < 3; i++) {
@@ -52,70 +59,98 @@ class SpatialMesh
             _high_point[i] = global_bounding_box[i+3];
         } 
 
-        /* Create global mesh bounds. There are a few caveats here that are
-         * important to understand:
-         * 1. Each mesh point has multiple locations:
-         *    1.1 Its i/j location [0..n), [0...m), 
-         *    1.2 Its location in node coordinate space [-n/2, n/2) based on
-                  its initial spatial location in x/y space, and
-         *    1.3 the x/y/z location of its points at any given time.
-         * 2. Of these, the first and last are used often in calculations, no 
-         *    matter the the order of the model, and the second is used to 
-         *    calculate Reisz weights in every derivative calculation in 
-         *    the low and medium order model. 
-         * 3. In periodic meshes, the last point is implicit in the Cabana
-         *    representation because it actually mirrors the first point.
-         * 4. For a non-periodic model, the number of cells is one less than the 
-         *    the number of nodes. For a periodic model, the number of cells is 
-         *    the same as the number of nodes, with the last node being
-         *    implicitly the same as the first.
-         */
-       
-        /* Split those cells above and below 0 appropriately into coordinates that
-         * are used to construct reisz weights. This mainly matters for low and medium
-         * order calculations and so mainly with peiodic boundary conditions */
-        std::array<double, 2> global_low_corner, global_high_corner;
-        for ( int d = 0; d < 2; ++d )
-        {
-            /* Even number of nodes
-             * periodic -> nnodes = 4, 3 cabana nodes - 3 cells
-	     *             global low == -1, global high = 2 
-             *                   -> nodes = (-1,-0,1).
-             * non-periodic -> nnodes = 4, 4 cabana nodes - 3 cells
-             *              -> global low == -2, global high = 1 
-             *                             -> nodes = (-2,-1,0,1).
-             * Odd number of nodes
-             * periodic -> nnodes = 5, 4 cabana nodes - 4 cells
-	     *             global low == -2, global high = 2 
-             *                   -> nodes = (-2,-1,0,1).
-             * non-periodic -> nnodes = 5, 5 cabana nodes - 4 cells
-             *              -> global low == -2, global high = 2 
-             *                             -> nodes = (-2,-1,0,1,2).
-	     * So we always have (nnodes - 1 cells) */
-
-	    int cabana_nodes = num_nodes[d] - (periodic[d] ? 1 : 0);
-
-            global_low_corner[d] = -cabana_nodes/2;
-            global_high_corner[d] = global_low_corner[d] + num_nodes[d] - 1;
-#if 0
-            std::cout << "Dim " << d << ": " 
-                      << num_nodes[d] << " nodes, "
-                      << cabana_nodes << " cabana nodes, "
-                      << " [ " << global_low_corner[d]
-                      << ", " << global_high_corner[d] << " ]"
-                      << "\n";
-#endif
-        }
+        std::array<bool, 3> is_dim_periodic = { true, true, false };
 
         // Finally, create the global mesh, global grid, and local grid.
         auto global_mesh = Cabana::Grid::createUniformGlobalMesh(
-            global_low_corner, global_high_corner, 1.0 );
+            _low_point, _high_point, 1.0 );
 
         auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
-                                                     periodic, partitioner );
+                                                     is_dim_periodic, partitioner );
         // Build the local grid.
         int halo_width = fmax(2, min_halo_width);
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, halo_width );
+
+
+        // Get the current rank for printing output.
+        int comm_rank = global_grid->blockId();
+        if ( comm_rank == 0 )
+        {
+            std::cout << "Cabana::Grid Global Grid Example" << std::endl;
+            std::cout << "    (intended to be run with MPI)\n" << std::endl;
+        }
+        if ( comm_rank == 0 )
+        {
+            std::cout << "Global global grid information:" << std::endl;
+            bool periodic_x = global_grid->isPeriodic( Cabana::Grid::Dim::I );
+            std::cout << "Periodicity in X: " << periodic_x << std::endl;
+
+            int num_blocks_y = global_grid->dimNumBlock( Cabana::Grid::Dim::J );
+            std::cout << "Number of blocks in Y: " << num_blocks_y << std::endl;
+
+            int num_blocks = global_grid->totalNumBlock();
+            std::cout << "Number of blocks total: " << num_blocks << std::endl;
+
+            int num_cells_x = global_grid->globalNumEntity( Cabana::Grid::Cell(),
+                                                            Cabana::Grid::Dim::I );
+            std::cout << "Number of cells in X: " << num_cells_x << std::endl;
+
+            int num_faces_y = global_grid->globalNumEntity(
+                Cabana::Grid::Face<Cabana::Grid::Dim::I>(), Cabana::Grid::Dim::J );
+            std::cout << "Number of X Faces in Y: " << num_faces_y << std::endl;
+
+            std::cout << "\nPer rank global grid information:" << std::endl;
+        }
+
+        /*
+        The global grid also stores information to describe each separate block
+        (MPI rank): whether it sits on a global system boundary, it's position
+        ("ID") within the MPI block decomposition, and the number of mesh cells
+        "owned" (uniquely managed by this rank).
+        */
+        bool on_lo_x = global_grid->onLowBoundary( Cabana::Grid::Dim::I );
+        std::cout << "Rank-" << comm_rank << " on low X boundary: " << on_lo_x
+                << std::endl;
+
+        bool on_hi_y = global_grid->onHighBoundary( Cabana::Grid::Dim::J );
+        std::cout << "Rank-" << comm_rank << " on high Y boundary: " << on_hi_y
+                << std::endl;
+
+        bool block_id = global_grid->blockId();
+        std::cout << "Rank-" << comm_rank << " block ID: " << block_id << std::endl;
+
+        bool block_id_x = global_grid->dimBlockId( Cabana::Grid::Dim::I );
+        std::cout << "Rank-" << comm_rank << " block ID in X: " << block_id_x
+                << std::endl;
+
+        int num_cells_y = global_grid->ownedNumCell( Cabana::Grid::Dim::J );
+        std::cout << "Rank-" << comm_rank
+                << " owned mesh cells in Y: " << num_cells_y << std::endl;
+
+        // Barrier for cleaner printing.
+        MPI_Barrier( MPI_COMM_WORLD );
+
+        /*
+        Other information can be extracted which is somewhat lower level. First,
+        the MPI rank of a given block ID can be obtained; this returns -1 if it
+        an invalid ID for the current decomposition.
+        */
+        if ( comm_rank == 0 )
+        {
+            std::cout << std::endl;
+            // In this case, if the block ID is passed as an array with length equal
+            // to the spatial dimension.
+            bool block_rank = global_grid->blockRank( { 0, 0 } );
+            std::cout << "MPI rank of the first block: " << block_rank << std::endl;
+        }
+
+        /*
+        Second, the offset (the index from the bottom left corner in a given
+        dimension) of one block can be extracted.
+        */
+        int offset_x = global_grid->globalOffset( Cabana::Grid::Dim::I );
+        std::cout << "Rank-" << comm_rank << " offset in X: " << offset_x
+                << std::endl;
     }
 
     // Get the local grid.
