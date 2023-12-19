@@ -36,6 +36,7 @@ class SpatialMesh
     using memory_space = MemorySpace;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 3>;
+    using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
 
     // Construct a mesh.
     SpatialMesh( const std::array<double, 6>& global_bounding_box,
@@ -62,14 +63,17 @@ class SpatialMesh
         std::array<bool, 3> is_dim_periodic = { true, true, false };
 
         // Finally, create the global mesh, global grid, and local grid.
+        double cell_size = 0.05;
         auto global_mesh = Cabana::Grid::createUniformGlobalMesh(
-            _low_point, _high_point, 1.0 );
+            _low_point, _high_point, cell_size );
 
         auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
                                                      is_dim_periodic, partitioner );
         // Build the local grid.
         int halo_width = fmax(2, min_halo_width);
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, halo_width );
+
+        auto _local_mesh = Cabana::Grid::createLocalMesh<memory_space>( *_local_grid );
 
 
         // Get the current rank for printing output.
@@ -78,6 +82,8 @@ class SpatialMesh
         {
             std::cout << "Cabana::Grid Global Grid Example" << std::endl;
             std::cout << "    (intended to be run with MPI)\n" << std::endl;
+            printf("Low: %0.2lf %0.2lf %0.2lf, high: %0.2lf %0.2lf %0.2lf\n", _low_point[0], _low_point[1], _low_point[2],
+                _high_point[0], _high_point[1], _high_point[2]);
         }
         if ( comm_rank == 0 )
         {
@@ -151,6 +157,52 @@ class SpatialMesh
         int offset_x = global_grid->globalOffset( Cabana::Grid::Dim::I );
         std::cout << "Rank-" << comm_rank << " offset in X: " << offset_x
                 << std::endl;
+        
+        std::cout << "Low corner local: ";
+        for ( int d = 0; d < 3; ++d )
+            std::cout << _local_mesh.lowCorner( Cabana::Grid::Own(), d ) << " ";
+        std::cout << "\nHigh corner local: ";
+        for ( int d = 0; d < 3; ++d )
+            std::cout << _local_mesh.highCorner( Cabana::Grid::Own(), d ) << " ";
+        std::cout << "\nExtent local: ";
+        for ( int d = 0; d < 3; ++d )
+            std::cout << _local_mesh.extent( Cabana::Grid::Own(), d ) << " ";
+        std::cout << "\nLow corner ghost: ";
+        for ( int d = 0; d < 3; ++d )
+            std::cout << _local_mesh.lowCorner( Cabana::Grid::Ghost(), d ) << " ";
+        std::cout << "\nHigh corner ghost: ";
+        for ( int d = 0; d < 3; ++d )
+            std::cout << _local_mesh.highCorner( Cabana::Grid::Ghost(), d ) << " ";
+        std::cout << "\nExtent ghost: ";
+        for ( int d = 0; d < 3; ++d )
+            std::cout << _local_mesh.extent( Cabana::Grid::Ghost(), d ) << " ";
+
+        /*
+        Note that this information is taken directly from the global grid and mesh
+        information.
+        */
+        std::cout << "\n\nLow corner from global offset ";
+        for ( int d = 0; d < 3; ++d )
+            std::cout << cell_size * global_grid->globalOffset( d ) << " ";
+
+        /*
+        The local mesh is most often useful to get information about individual
+        cells within a kernel. Note this is done on the host here, but would most
+        often be in a Kokkos parallel kernel. The local mesh is designed such that
+        it can be captured by value in Kokkos parallel kernels.
+
+        This information includes the coordinates and the measure (size). The
+        measure depends on the entity type used: Nodes return zero, Edges return
+        length, Faces return area, and Cells return volume.
+        */
+        double loc[3];
+        int idx[3] = { 0, 0, 0 };
+        _local_mesh.coordinates( Cabana::Grid::Cell(), idx, loc );
+        std::cout << "\nRandom cell coordinates: ";
+        for ( int d = 0; d < 3; ++d )
+            std::cout << loc[d] << " ";
+        std::cout << "\nRandom cell measure: "
+                << _local_mesh.measure( Cabana::Grid::Cell(), idx ) << std::endl;
     }
 
     // Get the local grid.
@@ -199,7 +251,8 @@ class SpatialMesh
 
   private:
     std::array<double, 3> _low_point, _high_point;
-    std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> _local_grid;
+    std::shared_ptr<local_grid_type> _local_grid;
+    std::shared_ptr<Cabana::Grid::GlobalParticleComm<memory_space, local_grid_type>> _global_particle_comm;
     int _rank;
 	std::array<int, 2> _num_nodes;
 };

@@ -9,8 +9,8 @@
  * SPDX-License-Identifier: BSD-3-Clause                                    *
  ****************************************************************************/
 
-#ifndef BEATNIK_MIGRATION
-#define BEATNIK_MIGRATION
+#ifndef BEATNIK_MIGRATOR
+#define BEATNIK_MIGRATOR
 
 #include <Cabana_Grid.hpp>
 
@@ -26,11 +26,11 @@ namespace Beatnik
 {
 //---------------------------------------------------------------------------//
 /*!
-  \class Migration
+  \class Migrator
   \brief Migrator between surface and spatial meshes
 */
 template <class ExecutionSpace, class MemorySpace>
-class Migration
+class Migrator
 {
   public:
     using memory_space = MemorySpace;
@@ -38,12 +38,12 @@ class Migration
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
 
     // Construct a mesh.
-    Migration( const std::array<double, 6>& global_bounding_box,
-          const std::array<int, 2>& num_nodes,
-	      const std::array<bool, 2>& periodic,
-          const Cabana::Grid::BlockPartitioner<2>& partitioner,
-          const int min_halo_width, MPI_Comm comm )
-		  : _num_nodes( num_nodes )
+    Migrator( const std::array<double, 6>& global_bounding_box,
+        const std::array<int, 2>& num_nodes,
+        const std::array<bool, 2>& periodic,
+        const Cabana::Grid::BlockPartitioner<2>& partitioner,
+        const int min_halo_width, MPI_Comm comm )
+        : _num_nodes( num_nodes )
     {
         MPI_Comm_rank( comm, &_rank );
 
@@ -62,4 +62,4 @@ class Migration
 
 } // end namespace Beatnik
 
-#endif // end BEATNIK_MIGRATION
+#endif // end BEATNIK_MIGRATOR
