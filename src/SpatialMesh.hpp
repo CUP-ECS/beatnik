@@ -37,6 +37,7 @@ class SpatialMesh
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 3>;
     using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
+    using global_particle_comm_type = Cabana::Grid::GlobalParticleComm<memory_space, local_grid_type>;
 
     // Construct a mesh.
     SpatialMesh( const std::array<double, 6>& global_bounding_box,
@@ -72,6 +73,8 @@ class SpatialMesh
         // Build the local grid.
         int halo_width = fmax(2, min_halo_width);
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, halo_width );
+
+        _global_particle_comm = Cabana::Grid::createGlobalParticleComm(_local_grid);
 
         auto _local_mesh = Cabana::Grid::createLocalMesh<memory_space>( *_local_grid );
 
@@ -252,7 +255,7 @@ class SpatialMesh
   private:
     std::array<double, 3> _low_point, _high_point;
     std::shared_ptr<local_grid_type> _local_grid;
-    std::shared_ptr<Cabana::Grid::GlobalParticleComm<memory_space, local_grid_type>> _global_particle_comm;
+    std::shared_ptr<global_particle_comm_type> _global_particle_comm;
     int _rank;
 	std::array<int, 2> _num_nodes;
 };
