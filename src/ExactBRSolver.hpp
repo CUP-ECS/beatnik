@@ -223,8 +223,6 @@ class ExactBRSolver
 
         // Create views for receiving data. Alternate which views are being sent and received into
         // *remote2 sends first, so it needs to be deep copied. *remote1 can just be allocated
-        printf("R%d: O SIZE: %d %d %d\n", rank,
-                o.extent(0), o.extent(1), o.extent(2));
         node_view wremote1(Kokkos::ViewAllocateWithoutInitializing ("wremote1"), w.extent(0), w.extent(1), w.extent(2));
         node_view wremote2(Kokkos::ViewAllocateWithoutInitializing ("wremote2"), w.extent(0), w.extent(1), w.extent(2));
         node_view zremote1(Kokkos::ViewAllocateWithoutInitializing ("zremote1"), z.extent(0), z.extent(1), z.extent(2));
@@ -309,17 +307,9 @@ class ExactBRSolver
                         orecv_extents, 3, MPI_INT, prev_rank, 6, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             // Resize *remote2, which is receiving data
-            printf("i: %d, R%d: BEFORE RESIZE: %d %d %d\n", i, rank,
-                orecv_view->extent(0), orecv_view->extent(1), orecv_view->extent(2));
             Kokkos::resize(*wrecv_view, wrecv_extents[0], wrecv_extents[1], wrecv_extents[2]);
             Kokkos::resize(*zrecv_view, zrecv_extents[0], zrecv_extents[1], zrecv_extents[2]);
             Kokkos::resize(*orecv_view, orecv_extents[0], orecv_extents[1], orecv_extents[2]);
-            printf("i: %d, R%d: AFTER RESIZE: %d %d %d\n", i, rank,
-                orecv_view->extent(0), orecv_view->extent(1), orecv_view->extent(2));
-            
-            int error, eclass, len;
-            MPI_Errhandler_set(MPI_COMM_WORLD, MPI_ERRORS_RETURN);
-
 
             // Send/receive the views
             MPI_Sendrecv(wsend_view->data(), int(wsend_view->size()), MPI_DOUBLE, next_rank, 2, 
@@ -328,19 +318,6 @@ class ExactBRSolver
             MPI_Sendrecv(zsend_view->data(), int(zsend_view->size()), MPI_DOUBLE, next_rank, 3, 
                         zrecv_view->data(), int(zrecv_view->size()), MPI_DOUBLE, prev_rank, 3, 
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-            MPI_Status status;
-            printf("i%d: R%d: sending: %d, recv: %d FROM: %d, TO: %d\n", i, rank,
-                int(osend_view->size()), int(orecv_view->size()), prev_rank, next_rank);
-            error = MPI_Sendrecv(osend_view->data(), int(osend_view->size()), MPI_DOUBLE, next_rank, 5, 
-                        orecv_view->data(), int(orecv_view->size()), MPI_DOUBLE, prev_rank, 5, 
-                        MPI_COMM_WORLD, &status);
-
-            char estring[MPI_MAX_ERROR_STRING];
-            MPI_Error_class(error, &eclass);
-            MPI_Error_string(error, estring, &len);
-            printf("i%d: R%d: Error %d: %s\n", i, rank, eclass, estring);fflush(stdout);
-
 
             // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
             MPI_Sendrecv(L2G_send, int(sizeof(*L2G_send)), MPI_BYTE, next_rank, 4, 
