@@ -74,7 +74,7 @@ class SpatialMesh
         int halo_width = fmax(2, min_halo_width);
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, halo_width );
 
-        _global_particle_comm = Cabana::Grid::createGlobalParticleComm(_local_grid);
+        // _global_particle_comm = Cabana::Grid::createGlobalParticleComm(_local_grid);
 
         auto _local_mesh = Cabana::Grid::createLocalMesh<memory_space>( *_local_grid );
 

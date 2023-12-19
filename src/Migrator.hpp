@@ -37,11 +37,20 @@ class Migrator
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
 
+    using particle_node = Cabana::MemberTypes<double[3], // xyz position in space
+                                              double[3], // Own omega for BR
+                                              double[3], // zdot
+                                              double,    // Simpson weight
+                                              int[2],    // Index in PositionView z and VorticityView w
+                                              int,       // Point ID
+                                              int        // Rank of origin in 2D space
+                                              >;
+    using particle_array_type = Cabana::AoSoA<particle_node, device_type, 4>;
+
     // Construct a mesh.
     Migrator( const std::array<double, 6>& global_bounding_box,
         const std::array<int, 2>& num_nodes,
         const std::array<bool, 2>& periodic,
-        const Cabana::Grid::BlockPartitioner<2>& partitioner,
         const int min_halo_width, MPI_Comm comm )
         : _num_nodes( num_nodes )
     {
