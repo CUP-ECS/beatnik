@@ -62,12 +62,15 @@ class Migrator
         , _local_L2G( *_pm.mesh().localGrid() )
     {
         _comm = _spm.localGrid()->globalGrid().comm();
-        MPI_Comm_rank( _comm, &_rank );
+        MPI_Comm_size(_comm, &_comm_size);
+        MPI_Comm_rank(_comm, &_rank);
         auto local_grid = _spm.localGrid();
         auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>(*local_grid);
         
         printf("R%d: (%0.2lf, %0.2lf, %0.2lf), (%0.2lf, %0.2lf, %0.2lf)\n", _rank, local_mesh.lowCorner(Cabana::Grid::Own(), 0), local_mesh.lowCorner(Cabana::Grid::Own(), 1), local_mesh.lowCorner(Cabana::Grid::Own(), 2),
             local_mesh.highCorner(Cabana::Grid::Own(), 0), local_mesh.highCorner(Cabana::Grid::Own(), 1), local_mesh.highCorner(Cabana::Grid::Own(), 2));
+
+        _grid_space = std::vector(_comm_size, double);
 
     }
 
@@ -148,7 +151,9 @@ class Migrator
     const pm_type &_pm;
     const l2g_type _local_L2G;
     MPI_Comm _comm;
-    int _rank, _array_size;
+    int _rank, _comm_size, _array_size;
+
+    std::vector<double> _grid_space;
 };
 
 //---------------------------------------------------------------------------//
