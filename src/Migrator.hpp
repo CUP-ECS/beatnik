@@ -33,9 +33,17 @@ template <class ExecutionSpace, class MemorySpace>
 class Migrator
 {
   public:
+    using exec_space = ExecutionSpace;
     using memory_space = MemorySpace;
+    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
+    using spatial_mesh_type = SpatialMesh<ExecutionSpace, MemorySpace>;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
+    using Node = Cabana::Grid::Node;
+    using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
+    using node_array = typename pm_type::node_array;
+    //using node_view = typename pm_type::node_view;
+    using node_view = Kokkos::View<double***, device_type>;
 
     using particle_node = Cabana::MemberTypes<double[3], // xyz position in space
                                               double[3], // Own omega for BR
@@ -48,23 +56,99 @@ class Migrator
     using particle_array_type = Cabana::AoSoA<particle_node, device_type, 4>;
 
     // Construct a mesh.
-    Migrator( const std::array<double, 6>& global_bounding_box,
-        const std::array<int, 2>& num_nodes,
-        const std::array<bool, 2>& periodic,
-        const int min_halo_width, MPI_Comm comm )
-        : _num_nodes( num_nodes )
+    Migrator(const pm_type &pm, const spatial_mesh_type &spm)
+        : _pm( pm )
+        , _spm( spm )
+        , _local_L2G( *_pm.mesh().localGrid() )
     {
-        MPI_Comm_rank( comm, &_rank );
+        _comm = _spm.localGrid()->globalGrid().comm();
+        MPI_Comm_rank( _comm, &_rank );
+        auto local_grid = _spm.localGrid();
+        auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>(*local_grid);
+        
+        printf("R%d: (%0.2lf, %0.2lf, %0.2lf), (%0.2lf, %0.2lf, %0.2lf)\n", _rank, local_mesh.lowCorner(Cabana::Grid::Own(), 0), local_mesh.lowCorner(Cabana::Grid::Own(), 1), local_mesh.lowCorner(Cabana::Grid::Own(), 2),
+            local_mesh.highCorner(Cabana::Grid::Own(), 0), local_mesh.highCorner(Cabana::Grid::Own(), 1), local_mesh.highCorner(Cabana::Grid::Own(), 2));
 
     }
 
-    
+    static KOKKOS_INLINE_FUNCTION double simpsonWeight(int index, int len)
+    {
+        if (index == (len - 1) || index == 0) return 3.0/8.0;
+        else if (index % 3 == 0) return 3.0/4.0;
+        else return 9.0/8.0;
+    }
+
+    void initializeParticles(node_view z, node_view w, node_view o) 
+    {
+        auto local_grid = _pm.mesh().localGrid();
+        auto local_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
+
+        int istart = local_space.min(0), jstart = local_space.min(1);
+        int iend = local_space.max(0), jend = local_space.max(1);
+
+        // Create the AoSoA
+        _array_size = (iend - istart) * (jend - jstart);
+        _particle_array = particle_array_type("particle_array", _array_size);
+
+        int rank = _rank;
+        particle_array_type particle_array = _particle_array;
+        int mesh_dimension = _pm.mesh().get_surface_mesh_size();
+        l2g_type local_L2G = _local_L2G;
+
+        Kokkos::parallel_for("populate_particles", Kokkos::MDRangePolicy<Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
+        KOKKOS_LAMBDA(int i, int j) {
+
+            int particle_id = (i - istart) * (jend - jstart) + (j - jstart);
+
+            int local_li[2] = {i, j};
+            int local_gi[2] = {0, 0};   // i, j
+            local_L2G(local_li, local_gi);
+            
+            Cabana::Tuple<particle_node> particle;
+            //auto particle = particle_array.getTuple(particle_id);
+            //printf("id: %d, get #1\n", particle_id);
+            // XYZ position, BR omega, zdot
+            for (int dim = 0; dim < 3; dim++) {
+                Cabana::get<0>(particle, dim) = z(i, j, dim);
+                Cabana::get<1>(particle, dim) = o(i, j, dim);
+                Cabana::get<2>(particle, dim) = 0.0;
+            }
+            //printf("id: %d, get #1\n", particle_id);
+            // Simpson weight
+            // Cabana::get<3>(particle) = simpsonWeight(gi[0], mesh_size) * simpsonWeight(gi[1], mesh_size)
+            //Cabana::get<3>(particle) = simpsonWeight(i - offset[0], mesh_dimension) * simpsonWeight(j - offset[1], mesh_dimension);
+            Cabana::get<3>(particle) = simpsonWeight(local_gi[0], mesh_dimension) * simpsonWeight(local_gi[1], mesh_dimension);
+
+            // Local index
+            //printf("id: %d, get #3\n", particle_id);
+            Cabana::get<4>(particle, 0) = i;
+            Cabana::get<4>(particle, 1) = j;
+            
+            // Particle ID
+            //printf("id: %d, get #4\n", particle_id);
+            Cabana::get<5>(particle) = particle_id;
+
+            // Rank of origin
+            //printf("id: %d, get #5\n", particle_id);
+            Cabana::get<6>(particle) = rank;
+
+            //printf("id: %d, set tuple\n", particle_id);
+            particle_array.setTuple(particle_id, particle);
+
+            //printf("R%d: (%d, %d), simpson: %0.6lf\n", rank, Cabana::get<4>(particle, 0), Cabana::get<4>(particle, 1), Cabana::get<3>(particle));
+        });
+
+        // Wait for all parallel tasks to complete
+        Kokkos::fence();
+    }
 
   private:
-    std::array<double, 3> _low_point, _high_point;
-    std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> _local_grid;
-    int _rank;
-	std::array<int, 2> _num_nodes;
+    particle_array_type _particle_array;
+    const spatial_mesh_type &_spm;
+    const pm_type &_pm;
+    const l2g_type _local_L2G;
+    MPI_Comm _comm;
+    int _rank, _array_size;
 };
 
 //---------------------------------------------------------------------------//
