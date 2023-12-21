@@ -40,7 +40,7 @@
 #include <SurfaceMesh.hpp>
 #include <ProblemManager.hpp>
 #include <Operators.hpp>
-#include <MigratorUtilities.hpp>
+#include <Migrator.hpp>
 
 namespace Beatnik
 {
@@ -70,17 +70,25 @@ class ExactBRSolver
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
-    ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc, const migrator_type &migrator,
+    ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc,
                    const double epsilon, const double dx, const double dy)
         : _pm( pm )
         , _bc( bc )
-        , _migrator ( migrator )
         , _epsilon( epsilon )
         , _dx( dx )
         , _dy( dy )
         , _local_L2G( *_pm.mesh().localGrid() )
     {
 	    _comm = _pm.mesh().localGrid()->globalGrid().comm();
+
+        // std::array<double, 6> global_bounding_box = {-1.0, -1.0, -1.0, 1.0, 1.0, 1.0};
+        // std::array<int, 2> num_nodes = {64, 64}; // Match command-line args
+        // std::array<bool, 2> is_dim_periodic = {true, true}; // Overwritten in SpatialMesh constructor
+        // int halo_min = 2;
+        // _spatial_mesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
+        //     global_bounding_box, num_nodes, is_dim_periodic,
+	    //     halo_min, MPI_COMM_WORLD);
+        // _migrator = std::make_unique<Migrator<ExecutionSpace, MemorySpace>>(*_pm, *_spatial_mesh);
     }
 
     static KOKKOS_INLINE_FUNCTION double simpsonWeight(int index, int len)
@@ -383,7 +391,8 @@ class ExactBRSolver
   private:
     const pm_type & _pm;
     const BoundaryCondition & _bc;
-    const migrator_type & _migrator;
+    // std::unique_ptr<SpatialMesh<ExecutionSpace, MemorySpace>> _spatial_mesh;
+    // std::unique_ptr<Migrator<ExecutionSpace, MemorySpace>> _migrator;
     double _epsilon, _dx, _dy;
     MPI_Comm _comm;
     l2g_type _local_L2G;
