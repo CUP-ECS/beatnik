@@ -67,10 +67,30 @@ class Migrator
         auto local_grid = _spm.localGrid();
         auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>(*local_grid);
         
-        printf("R%d: (%0.2lf, %0.2lf, %0.2lf), (%0.2lf, %0.2lf, %0.2lf)\n", _rank, local_mesh.lowCorner(Cabana::Grid::Own(), 0), local_mesh.lowCorner(Cabana::Grid::Own(), 1), local_mesh.lowCorner(Cabana::Grid::Own(), 2),
-            local_mesh.highCorner(Cabana::Grid::Own(), 0), local_mesh.highCorner(Cabana::Grid::Own(), 1), local_mesh.highCorner(Cabana::Grid::Own(), 2));
+        // printf("R%d: (%0.2lf, %0.2lf, %0.2lf), (%0.2lf, %0.2lf, %0.2lf)\n", _rank, local_mesh.lowCorner(Cabana::Grid::Own(), 0), local_mesh.lowCorner(Cabana::Grid::Own(), 1), local_mesh.lowCorner(Cabana::Grid::Own(), 2),
+        //     local_mesh.highCorner(Cabana::Grid::Own(), 0), local_mesh.highCorner(Cabana::Grid::Own(), 1), local_mesh.highCorner(Cabana::Grid::Own(), 2));
 
-        _grid_space = std::vector(_comm_size, double);
+
+        double own_space[6];
+        for (int i = 0; i < 3; i++)
+        {
+            own_space[i] = local_mesh.lowCorner(Cabana::Grid::Own(), i);
+            own_space[i+3] = local_mesh.highCorner(Cabana::Grid::Own(), i);
+        }
+
+        // Gather all ranks' spaces
+        _grid_space = Kokkos::View<double*, memory_space>("grid_space", _comm_size * 6);
+        MPI_Allgather(own_space, 6, MPI_DOUBLE, _grid_space.data(), 6, MPI_DOUBLE, _comm);
+        // if (_rank == 0)
+        // {
+        //     printf("Comm size: %d\n", _comm_size);
+        //     for (int i = 0; i < _comm_size * 6; i+=6)
+        //     {
+        //         printf("R%d: (%0.3lf %0.3lf %0.3lf), (%0.3lf %0.3lf %0.3lf)\n",
+        //             i/6, _grid_space(i), _grid_space(i+1), _grid_space(i+2),
+        //             _grid_space(i+3), _grid_space(i+4), _grid_space(i+5));
+        //     }
+        // }
 
     }
 
@@ -145,6 +165,13 @@ class Migrator
         Kokkos::fence();
     }
 
+    void migrateParticles()
+    {
+        Kokkos::View<int*, memory_space> destination_ranks("destination_ranks", _array_size);
+        auto positions = Cabana::slice<0>(_particle_array, "positions");
+        Cabana::Grid::particleGridMigrate(*_spm.localGrid(), *positions, *_particle_array, 0, true);
+    }
+
   private:
     particle_array_type _particle_array;
     const spatial_mesh_type &_spm;
@@ -153,7 +180,7 @@ class Migrator
     MPI_Comm _comm;
     int _rank, _comm_size, _array_size;
 
-    std::vector<double> _grid_space;
+    Kokkos::View<double*, memory_space> _grid_space;
 };
 
 //---------------------------------------------------------------------------//
