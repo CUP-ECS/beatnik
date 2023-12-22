@@ -207,7 +207,6 @@ class ExactBRSolver
         _migrator.initializeParticles(z, w, o);
         _migrator.migrateParticles();
 
-        return;
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
         int num_procs = -1;
