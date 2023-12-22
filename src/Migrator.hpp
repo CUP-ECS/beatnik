@@ -81,16 +81,16 @@ class Migrator
         // Gather all ranks' spaces
         _grid_space = Kokkos::View<double*, memory_space>("grid_space", _comm_size * 6);
         MPI_Allgather(own_space, 6, MPI_DOUBLE, _grid_space.data(), 6, MPI_DOUBLE, _comm);
-        // if (_rank == 0)
-        // {
-        //     printf("Comm size: %d\n", _comm_size);
-        //     for (int i = 0; i < _comm_size * 6; i+=6)
-        //     {
-        //         printf("R%d: (%0.3lf %0.3lf %0.3lf), (%0.3lf %0.3lf %0.3lf)\n",
-        //             i/6, _grid_space(i), _grid_space(i+1), _grid_space(i+2),
-        //             _grid_space(i+3), _grid_space(i+4), _grid_space(i+5));
-        //     }
-        // }
+        if (_rank == 0)
+        {
+            printf("Comm size: %d\n", _comm_size);
+            for (int i = 0; i < _comm_size * 6; i+=6)
+            {
+                printf("R%d: (%0.3lf %0.3lf %0.3lf), (%0.3lf %0.3lf %0.3lf)\n",
+                    i/6, _grid_space(i), _grid_space(i+1), _grid_space(i+2),
+                    _grid_space(i+3), _grid_space(i+4), _grid_space(i+5));
+            }
+        }
 
     }
 
@@ -117,8 +117,7 @@ class Migrator
         particle_array_type particle_array = _particle_array;
         int mesh_dimension = _pm.mesh().get_surface_mesh_size();
         l2g_type local_L2G = _local_L2G;
-
-        Kokkos::parallel_for("populate_particles", Kokkos::MDRangePolicy<Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
+        Kokkos::parallel_for("populate_particles", Kokkos::MDRangePolicy<exec_space, Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
         KOKKOS_LAMBDA(int i, int j) {
 
             int particle_id = (i - istart) * (jend - jstart) + (j - jstart);
@@ -170,7 +169,21 @@ class Migrator
         Kokkos::View<int*, memory_space> destination_ranks("destination_ranks", _array_size);
         auto positions = Cabana::slice<0>(_particle_array, "positions");
         //Cabana::Grid::particleGridMigrate(_spm.localGrid(), positions, _particle_array, 0, true);
-        //GlobalParticleComm<memory_space, exec_space> gcomm = Cabana::Grid::createGlobalParticleComm(_spm.localGrid());
+        auto particle_comm = Cabana::Grid::createGlobalParticleComm<memory_space>(*_spm.localGrid());
+        particle_comm->build(positions);
+        //if (_rank == 0)
+    //    {
+    //         for (int i = 0; i < _array_size; i++)
+    //         {
+    //             auto particle = _particle_array.getTuple(i);
+    //              printf("R%d: (%0.3lf, %0.3lf, %0.3lf) to R%d\n", _rank,
+    //                 Cabana::get<0>(particle, 0), Cabana::get<0>(particle, 1), Cabana::get<0>(particle, 2),
+    //                 particle_comm->_destinations(i));
+    //         }
+    //     }
+    // }
+        particle_array_type particle_array = _particle_array;
+        particle_comm->migrate(_comm, particle_array);
     }
 
   private:
