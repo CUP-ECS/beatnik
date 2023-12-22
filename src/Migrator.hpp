@@ -169,7 +169,8 @@ class Migrator
     {
         Kokkos::View<int*, memory_space> destination_ranks("destination_ranks", _array_size);
         auto positions = Cabana::slice<0>(_particle_array, "positions");
-        Cabana::Grid::particleGridMigrate(_spm.localGrid(), positions, _particle_array, 0, true);
+        //Cabana::Grid::particleGridMigrate(_spm.localGrid(), positions, _particle_array, 0, true);
+        //GlobalParticleComm<memory_space, exec_space> gcomm = Cabana::Grid::createGlobalParticleComm(_spm.localGrid());
     }
 
   private:
