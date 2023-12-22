@@ -101,7 +101,7 @@ class Migrator
         else return 9.0/8.0;
     }
 
-    void initializeParticles(node_view z, node_view w, node_view o) 
+    void initializeParticles(node_view z, node_view w, node_view o)
     {
         auto local_grid = _pm.mesh().localGrid();
         auto local_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
@@ -165,11 +165,11 @@ class Migrator
         Kokkos::fence();
     }
 
-    void migrateParticles()
+    void migrateParticles() const
     {
         Kokkos::View<int*, memory_space> destination_ranks("destination_ranks", _array_size);
         auto positions = Cabana::slice<0>(_particle_array, "positions");
-        Cabana::Grid::particleGridMigrate(*_spm.localGrid(), *positions, *_particle_array, 0, true);
+        Cabana::Grid::particleGridMigrate(_spm.localGrid(), positions, _particle_array, 0, true);
     }
 
   private:

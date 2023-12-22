@@ -153,7 +153,7 @@ class Solver : public SolverBase
 
         // Create the Birkhoff-Rott solver (XXX make this conditional on non-low 
         // order solve
-        _br = std::make_unique<brsolver_type>(*_pm, _bc, *_migrator, *_spatial_mesh, _eps, dx, dy);
+        _br = std::make_unique<brsolver_type>(*_pm, _bc, *_spatial_mesh, *_migrator, _eps, dx, dy);
 
         // Create the ZModel solver
         _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>>(

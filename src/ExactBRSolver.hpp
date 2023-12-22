@@ -58,6 +58,7 @@ class ExactBRSolver
     using exec_space = ExecutionSpace;
     using memory_space = MemorySpace;
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
+    using spatial_mesh_type = SpatialMesh<ExecutionSpace, MemorySpace>;
     using migrator_type = Migrator<ExecutionSpace, MemorySpace>;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
@@ -70,10 +71,12 @@ class ExactBRSolver
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
-    ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc,
-                   const double epsilon, const double dx, const double dy)
+    ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc, const spatial_mesh_type &spm,
+                migrator_type &migrator, const double epsilon, const double dx, const double dy)
         : _pm( pm )
         , _bc( bc )
+        , _spm( spm )
+        , _migrator( migrator )
         , _epsilon( epsilon )
         , _dx( dx )
         , _dy( dy )
@@ -201,9 +204,10 @@ class ExactBRSolver
      */
     void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const
     {
-        MigratorUtilities::runParticleMigrate();
+        _migrator.initializeParticles(z, w, o);
+        _migrator.migrateParticles();
+
         return;
-        
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
         int num_procs = -1;
@@ -391,8 +395,8 @@ class ExactBRSolver
   private:
     const pm_type & _pm;
     const BoundaryCondition & _bc;
-    // std::unique_ptr<SpatialMesh<ExecutionSpace, MemorySpace>> _spatial_mesh;
-    // std::unique_ptr<Migrator<ExecutionSpace, MemorySpace>> _migrator;
+    const spatial_mesh_type &_spm;
+    migrator_type &_migrator;
     double _epsilon, _dx, _dy;
     MPI_Comm _comm;
     l2g_type _local_L2G;
