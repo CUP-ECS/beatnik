@@ -171,22 +171,24 @@ class Migrator
         //Cabana::Grid::particleGridMigrate(_spm.localGrid(), positions, _particle_array, 0, true);
         auto particle_comm = Cabana::Grid::createGlobalParticleComm<memory_space>(*_spm.localGrid());
         particle_comm->build(positions);
-        //if (_rank == 0)
-    //    {
-    //         for (int i = 0; i < _array_size; i++)
-    //         {
-    //             auto particle = _particle_array.getTuple(i);
-    //              printf("R%d: (%0.3lf, %0.3lf, %0.3lf) to R%d\n", _rank,
-    //                 Cabana::get<0>(particle, 0), Cabana::get<0>(particle, 1), Cabana::get<0>(particle, 2),
-    //                 particle_comm->_destinations(i));
-    //         }
-    //     }
-    // }
         particle_array_type particle_array = _particle_array;
         particle_comm->migrate(_comm, particle_array);
+        if (_rank == 0)
+        {
+            for (int i = 0; i < _array_size; i++)
+            {
+                auto particle = particle_array.getTuple(i);
+                if (Cabana::get<6>(particle) != _rank)
+                {
+                    printf("R%d: Got particle: (%0.3lf, %0.3lf, %0.3lf) from R%d\n", _rank,
+                        Cabana::get<0>(particle, 0), Cabana::get<0>(particle, 1), Cabana::get<0>(particle, 2),
+                        Cabana::get<6>(particle));
+                }
+            }
+        }
     }
 
-  private:
+  //private:
     particle_array_type _particle_array;
     const spatial_mesh_type &_spm;
     const pm_type &_pm;
