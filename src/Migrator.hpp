@@ -210,7 +210,7 @@ class Migrator
         }
     }
 
-    void computeInterfaceVelocityNeighbors(int neighbor_radius)
+    void computeInterfaceVelocityNeighbors(int neighbor_radius, double dy, double dx, double epsilon)
     {
         /* Project the Birkhoff-Rott calculation between all pairs of points on the 
          * interface, including accounting for any periodic boundary conditions.
@@ -239,7 +239,7 @@ class Migrator
         //     width[d] = high[d] - low[d];
         // }
 
-        double dx = _dx, dy = _dy, epsilon = _epsilon;
+        //double dx = _dx, dy = _dy, epsilon = _epsilon;
 
         // Find neighbors using ArborX
         //auto ids = Cabana::slice<3>(_particle_array);

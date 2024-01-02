@@ -206,7 +206,7 @@ class ExactBRSolver
     {
         _migrator.initializeParticles(z, w, o);
         _migrator.migrateParticles();
-        _migrator.computeInterfaceVelocityNeighbors(20);
+        _migrator.computeInterfaceVelocityNeighbors(20, _dy, _dx, _epsilon);
         _migrator.populate_zdot(zdot);
         return;
 
