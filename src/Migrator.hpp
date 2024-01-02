@@ -252,7 +252,7 @@ class Migrator
 
         std::size_t num_particles = positions.size();
 
-        auto neighbor_list = Cabana::Experimental::makeNeighborList<device_type>(
+        auto neighbor_list = Cabana::Experimental::makeNeighborList(
         Cabana::FullNeighborTag{}, positions, 0, num_particles,
             neighbor_radius);
 
