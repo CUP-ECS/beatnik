@@ -170,7 +170,29 @@ class Migrator
         auto positions = Cabana::slice<0>(_particle_array, "positions");
         //Cabana::Grid::particleGridMigrate(_spm.localGrid(), positions, _particle_array, 0, true);
         auto particle_comm = Cabana::Grid::createGlobalParticleComm<memory_space>(*_spm.localGrid());
+        auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>(*_spm.localGrid());
+        particle_comm->storeRanks(local_mesh);
         particle_comm->build(positions);
+        
+
+        
+        // const std::size_t num_space_dim = 3;
+        // int myrank = _rank;
+        // auto rank = particle_comm->_rank;
+        // auto print_corners = KOKKOS_LAMBDA( const std::size_t d )
+        // {
+        //     printf("R%d: %d: %d: (%0.3lf, %0.3lf)\n", myrank, rank[d], d, particle_comm->_local_corners( rank[d], d, 0 ),
+        //         particle_comm->_local_corners( rank[d], d, 1 ));
+        // };
+        // using exec_space = typename memory_space::execution_space;
+        // Kokkos::RangePolicy<exec_space> policy( 0, num_space_dim );
+        // Kokkos::parallel_for( "print_corners",
+        //                       policy, print_corners );
+        // Kokkos::fence();
+
+
+
+
         particle_array_type particle_array = _particle_array;
         particle_comm->migrate(_comm, particle_array);
         if (_rank == 0)
