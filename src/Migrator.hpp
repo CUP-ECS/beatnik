@@ -222,6 +222,57 @@ class Migrator
 
         particle_array_type particle_array = _particle_array;
         particle_comm->migrate(_comm, particle_array);
+        //_array_size = _particle_array.size();
+        // Get the local domain bounds to check particles.
+        // auto local_mesh =
+        //     Cabana::Grid::createLocalMesh<TEST_MEMSPACE>( *local_grid );
+        std::array<double, 3> local_low = {
+            local_mesh.lowCorner( Cabana::Grid::Own(), Cabana::Grid::Dim::I ),
+            local_mesh.lowCorner( Cabana::Grid::Own(), Cabana::Grid::Dim::J ),
+            local_mesh.lowCorner( Cabana::Grid::Own(), Cabana::Grid::Dim::K ) };
+        std::array<double, 3> local_high = {
+            local_mesh.highCorner( Cabana::Grid::Own(), Cabana::Grid::Dim::I ),
+            local_mesh.highCorner( Cabana::Grid::Own(), Cabana::Grid::Dim::J ),
+            local_mesh.highCorner( Cabana::Grid::Own(), Cabana::Grid::Dim::K ) };
+
+        // printf("    R%d: (%0.3lf %0.3lf %0.3lf), (%0.3lf %0.3lf %0.3lf)\n", _rank, local_low[0], local_low[1], local_low[2],
+        //     local_high[0], local_high[1], local_high[2]);
+        // Copy particles to the host.
+        // particle_array_type particles_host(
+        //     "migrated", _particle_array.size() );
+        // Cabana::deep_copy( particles_host, _particle_array );
+        // auto position_host = Cabana::slice<0>( particles_host );
+
+        // // Make sure the total particles were conserved.
+        // int global_particles;
+        // int local_particles = static_cast<int>( _particle_array.size() );
+        // MPI_Reduce( &local_particles, &global_particles, 1, MPI_INT, MPI_SUM, 0,
+        //             MPI_COMM_WORLD );
+        // // if ( global_grid->blockId() == 0 )
+        // // {
+        // //     if( global_particles ==
+        // //             _array_size * global_grid->totalNumBlock() )
+        // //             {
+        // //                 printf("good\n");
+        // //             }
+        // // }
+
+        // for ( std::size_t p = 0; p < _particle_array.size(); ++p )
+        // {
+        //     // Check that all of the particles were moved to the correct local rank.
+        //     for ( int d = 0; d < 3; ++d )
+        //     {
+        //         if ( position_host( p, d ) <= local_low[d] )
+        //         {
+        //             printf("bad\n");
+        //         }
+        //         if ( position_host( p, d ) >= local_high[d] )
+        //         {
+        //             printf("bad\n");
+        //         }
+        //     }
+        // }
+        printf("R%d: owns %d particles\n", _rank, _particle_array.size());
         if (_rank == 0)
         {
             for (int i = 0; i < _array_size; i++)

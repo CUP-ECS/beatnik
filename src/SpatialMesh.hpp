@@ -57,8 +57,8 @@ class SpatialMesh
         MPI_Comm_rank( comm, &_rank );
 
         for (int i = 0; i < 3; i++) {
-            _low_point[i] = global_bounding_box[i];
-            _high_point[i] = global_bounding_box[i+3];
+            _low_point[i] = global_bounding_box[i] - 1;
+            _high_point[i] = global_bounding_box[i+3] + 1;
         } 
 
         std::array<bool, 3> is_dim_periodic = { true, true, false };
