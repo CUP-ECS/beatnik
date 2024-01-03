@@ -260,7 +260,7 @@ class Migrator
         particle_array_type particle_array = _particle_array;
         int rank = _rank;
 
-        Kokkos::parallel_for("compute_BR_with_neighbors", num_particles, KOKKOS_LAMBDA(int i) {
+        Kokkos::parallel_for("compute_BR_with_neighbors", Kokkos::RangePolicy<exec_space>(0, num_particles), KOKKOS_LAMBDA(int i) {
 
             int num_neighbors = Cabana::NeighborList<list_type>::numNeighbor(neighbor_list, i);
             double brsum[3] = {0.0, 0.0, 0.0};
@@ -367,7 +367,7 @@ class Migrator
         int rank = _rank;
 
         // Parallel for loop using Kokkos
-        Kokkos::parallel_for("update_zdot", _array_size, KOKKOS_LAMBDA(int i) {
+        Kokkos::parallel_for("update_zdot", Kokkos::RangePolicy<exec_space>(0, _array_size), KOKKOS_LAMBDA(int i) {
             auto particle = particle_array.getTuple(i);
             int particle_rank = Cabana::get<6>(particle);
 
