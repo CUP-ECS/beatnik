@@ -162,6 +162,33 @@ class Migrator
 
         // Wait for all parallel tasks to complete
         Kokkos::fence();
+
+        int count = 0;
+        for (int i = 0; i < _array_size; i++)
+        {
+            double x, y, z;
+            int index = _rank * 6;
+            auto particle = particle_array.getTuple(i);
+            x = Cabana::get<0>(particle, 0);
+            y = Cabana::get<0>(particle, 1);
+            z = Cabana::get<0>(particle, 2);
+            if (x >= _grid_space(index) && 
+                y >= _grid_space(index + 1) &&
+                z >= _grid_space(index + 2) &&
+                x < _grid_space(index + 3) &&
+                y < _grid_space(index + 4) &&
+                z < _grid_space(index + 5))
+                {
+                    count++;
+                }
+            else
+            {
+                printf("R%d sending PID (%d, %d) (%0.3lf, %0.3lf, %0.3lf)\n", _rank, Cabana::get<5>(particle),
+                    Cabana::get<6>(particle), x, y, z);
+            }
+        }
+       
+        printf("R%d: owns %d particles, sends %d\n", _rank, _array_size, _array_size - count);
     }
 
     void migrateParticles() const

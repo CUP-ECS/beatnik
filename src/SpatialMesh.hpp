@@ -80,7 +80,7 @@ class SpatialMesh
 
 
         // Get the current rank for printing output.
-        // int comm_rank = global_grid->blockId();
+        //int comm_rank = global_grid->blockId();
         // if ( comm_rank == 0 )
         // {
         //     std::cout << "Cabana::Grid Global Grid Example" << std::endl;

@@ -204,6 +204,12 @@ class ExactBRSolver
      */
     void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const
     {
+        int num_procs = -1;
+        int rank = -1;
+        MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        //printView(_local_L2G, rank, z, 1, 2, 7);
+        
         _migrator.initializeParticles(z, w, o);
         _migrator.migrateParticles();
         _migrator.computeInterfaceVelocityNeighbors(20, _dy, _dx, _epsilon);
@@ -211,11 +217,6 @@ class ExactBRSolver
         return;
 
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
-
-        int num_procs = -1;
-        int rank = -1;
-        MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
-        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
         /* Start by zeroing the interface velocity */
         
