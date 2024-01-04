@@ -288,9 +288,9 @@ class Migrator
         }
     }
 
-    void performHaloExchange3D() const
+    void performHaloExchange3D()
     {
-
+        
     }
 
     void migrateParticlesTo2D()
