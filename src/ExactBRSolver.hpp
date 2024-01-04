@@ -211,8 +211,9 @@ class ExactBRSolver
         //printView(_local_L2G, rank, z, 1, 2, 7);
         
         _migrator.initializeParticles(z, w, o);
-        _migrator.migrateParticles();
+        _migrator.migrateParticlesTo3D();
         _migrator.computeInterfaceVelocityNeighbors(20, _dy, _dx, _epsilon);
+        _migrator.migrateParticlesTo2D();
         _migrator.populate_zdot(zdot);
         return;
 
