@@ -210,14 +210,14 @@ class ExactBRSolver
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
         //printView(_local_L2G, rank, z, 1, 2, 7);
         
-        _migrator.initializeParticles(z, w, o);
-        _migrator.migrateParticlesTo3D();
-        _migrator.performHaloExchange3D();
-        _migrator.computeInterfaceVelocityNeighbors(20, _dy, _dx, _epsilon);
-        _migrator.migrateParticlesTo2D();
-        _migrator.populate_zdot(zdot);
-        printView(_local_L2G, rank, zdot, 1, 2, 7);
-        return;
+        // _migrator.initializeParticles(z, w, o);
+        // _migrator.migrateParticlesTo3D();
+        // _migrator.performHaloExchange3D();
+        // _migrator.computeInterfaceVelocityNeighbors(20, _dy, _dx, _epsilon);
+        // _migrator.migrateParticlesTo2D();
+        // _migrator.populate_zdot(zdot);
+        // printView(_local_L2G, rank, zdot, 1, 2, 7);
+        // return;
 
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
@@ -353,7 +353,7 @@ class ExactBRSolver
 	    }
 
         // printf("\n\n*********************\n");
-        // printView(_local_L2G, rank, zdot, 1, 2, 7);
+        printView(_local_L2G, rank, zdot, 1, 2, 7);
     }
     
     template <class l2g_type, class View>
