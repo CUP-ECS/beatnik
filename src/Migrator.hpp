@@ -117,8 +117,18 @@ class Migrator
         particle_array_type particle_array = _particle_array;
         int mesh_dimension = _pm.mesh().get_surface_mesh_size();
         l2g_type local_L2G = _local_L2G;
+        int is_outside_box = 0;
+        Kokkos::View<int, memory_space> outside_box_view("outside_box_view");
         Kokkos::parallel_for("populate_particles", Kokkos::MDRangePolicy<exec_space, Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
         KOKKOS_LAMBDA(int i, int j) {
+
+            // Check if the particle has moved outside the bounding box
+            int outside_box = 0;
+            if (z(i, j, 2) > 4.0)
+            {
+                outside_box = 1;
+                Kokkos::atomic_add(&outside_box_view(), outside_box);
+            }
 
             int particle_id = (i - istart) * (jend - jstart) + (j - jstart);
 
@@ -163,6 +173,15 @@ class Migrator
         // Wait for all parallel tasks to complete
         Kokkos::fence();
 
+        // Check if any particles have moved outside the bounding box.
+        // If so, exit. XXX change this functionality?
+        Kokkos::deep_copy(is_outside_box, outside_box_view);
+        if (is_outside_box)
+        {
+            printf("Particle has moved outside bounding box. Exiting.\n");
+            exit(1);
+        }
+
         int count = 0;
         for (int i = 0; i < _array_size; i++)
         {
@@ -183,8 +202,8 @@ class Migrator
                 }
             else
             {
-                printf("R%d sending PID (%d, %d) (%0.3lf, %0.3lf, %0.3lf)\n", _rank, Cabana::get<5>(particle),
-                    Cabana::get<6>(particle), x, y, z);
+                // printf("R%d sending PID (%d, %d) (%0.3lf, %0.3lf, %0.3lf)\n", _rank, Cabana::get<5>(particle),
+                //     Cabana::get<6>(particle), x, y, z);
             }
         }
        

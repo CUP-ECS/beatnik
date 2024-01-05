@@ -57,9 +57,13 @@ class SpatialMesh
         MPI_Comm_rank( comm, &_rank );
 
         for (int i = 0; i < 3; i++) {
-            _low_point[i] = global_bounding_box[i] - 1;
-            _high_point[i] = global_bounding_box[i+3] + 1;
-        } 
+            _low_point[i] = global_bounding_box[i] - 0.1;
+            _high_point[i] = global_bounding_box[i+3] + 0.1;
+        }
+
+        // Set the z-dimension to have larger bounds
+        _low_point[2] = -4;
+        _high_point[2] = 4;
 
         std::array<bool, 3> is_dim_periodic = { true, true, false };
 
