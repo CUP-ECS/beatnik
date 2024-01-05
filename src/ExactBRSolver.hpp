@@ -216,6 +216,7 @@ class ExactBRSolver
         _migrator.computeInterfaceVelocityNeighbors(20, _dy, _dx, _epsilon);
         _migrator.migrateParticlesTo2D();
         _migrator.populate_zdot(zdot);
+        printView(_local_L2G, rank, zdot, 1, 2, 7);
         return;
 
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());

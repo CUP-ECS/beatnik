@@ -79,7 +79,7 @@ class Migrator
         }
 
         // Gather all ranks' spaces
-        _grid_space = Kokkos::View<double*, memory_space>("grid_space", _comm_size * 6);
+        _grid_space = Kokkos::View<double*, device_type>("grid_space", _comm_size * 6);
         MPI_Allgather(own_space, 6, MPI_DOUBLE, _grid_space.data(), 6, MPI_DOUBLE, _comm);
         if (_rank == 0)
         {
@@ -110,8 +110,8 @@ class Migrator
         int iend = local_space.max(0), jend = local_space.max(1);
 
         // Create the AoSoA
-        _array_size = (iend - istart) * (jend - jstart);
-        _particle_array = particle_array_type("particle_array", _array_size);
+        int array_size = (iend - istart) * (jend - jstart);
+        _particle_array = particle_array_type("particle_array", array_size);
 
         int rank = _rank;
         particle_array_type particle_array = _particle_array;
@@ -127,6 +127,7 @@ class Migrator
             if (z(i, j, 2) > 4.0)
             {
                 outside_box = 1;
+                //printf("R%d OUTSIDE BOX\n", rank);
                 Kokkos::atomic_add(&outside_box_view(), outside_box);
             }
 
@@ -145,6 +146,15 @@ class Migrator
                 Cabana::get<1>(particle, dim) = o(i, j, dim);
                 Cabana::get<2>(particle, dim) = 0.0;
             }
+
+            // Debug
+            // if (rank == 0 && particle_id == 20)
+            // {
+            //     Cabana::get<0>(particle, 0) = -0.5; 
+            //     Cabana::get<0>(particle, 1) = 0.5;
+            //     Cabana::get<0>(particle, 2) = 1.0; 
+            // }
+
             //printf("id: %d, get #1\n", particle_id);
             // Simpson weight
             // Cabana::get<3>(particle) = simpsonWeight(gi[0], mesh_size) * simpsonWeight(gi[1], mesh_size)
@@ -181,131 +191,40 @@ class Migrator
             printf("Particle has moved outside bounding box. Exiting.\n");
             exit(1);
         }
-
-        int count = 0;
-        for (int i = 0; i < _array_size; i++)
-        {
-            double x, y, z;
-            int index = _rank * 6;
-            auto particle = particle_array.getTuple(i);
-            x = Cabana::get<0>(particle, 0);
-            y = Cabana::get<0>(particle, 1);
-            z = Cabana::get<0>(particle, 2);
-            if (x >= _grid_space(index) && 
-                y >= _grid_space(index + 1) &&
-                z >= _grid_space(index + 2) &&
-                x < _grid_space(index + 3) &&
-                y < _grid_space(index + 4) &&
-                z < _grid_space(index + 5))
-                {
-                    count++;
-                }
-            else
-            {
-                // printf("R%d sending PID (%d, %d) (%0.3lf, %0.3lf, %0.3lf)\n", _rank, Cabana::get<5>(particle),
-                //     Cabana::get<6>(particle), x, y, z);
-            }
-        }
-       
-        printf("R%d: owns %d particles, sends %d\n", _rank, _array_size, _array_size - count);
     }
 
     void migrateParticlesTo3D()
     {
-        Kokkos::View<int*, memory_space> destination_ranks("destination_ranks", _array_size);
+        Kokkos::View<int*, memory_space> destination_ranks("destination_ranks", _particle_array.size());
         auto positions = Cabana::slice<0>(_particle_array, "positions");
-        //Cabana::Grid::particleGridMigrate(_spm.localGrid(), positions, _particle_array, 0, true);
         auto particle_comm = Cabana::Grid::createGlobalParticleComm<memory_space>(*_spm.localGrid());
         auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>(*_spm.localGrid());
         particle_comm->storeRanks(local_mesh);
         particle_comm->build(positions);
-        
-
-        
-        // const std::size_t num_space_dim = 3;
-        // int myrank = _rank;
-        // auto rank = particle_comm->_rank;
-        // auto print_corners = KOKKOS_LAMBDA( const std::size_t d )
-        // {
-        //     printf("R%d: %d: %d: (%0.3lf, %0.3lf)\n", myrank, rank[d], d, particle_comm->_local_corners( rank[d], d, 0 ),
-        //         particle_comm->_local_corners( rank[d], d, 1 ));
-        // };
-        // using exec_space = typename memory_space::execution_space;
-        // Kokkos::RangePolicy<exec_space> policy( 0, num_space_dim );
-        // Kokkos::parallel_for( "print_corners",
-        //                       policy, print_corners );
-        // Kokkos::fence();
-
-
-
-
         particle_array_type particle_array = _particle_array;
         particle_comm->migrate(_comm, particle_array);
-        //_array_size = _particle_array.size();
-        // Get the local domain bounds to check particles.
-        // auto local_mesh =
-        //     Cabana::Grid::createLocalMesh<TEST_MEMSPACE>( *local_grid );
-        // std::array<double, 3> local_low = {
-        //     local_mesh.lowCorner( Cabana::Grid::Own(), Cabana::Grid::Dim::I ),
-        //     local_mesh.lowCorner( Cabana::Grid::Own(), Cabana::Grid::Dim::J ),
-        //     local_mesh.lowCorner( Cabana::Grid::Own(), Cabana::Grid::Dim::K ) };
-        // std::array<double, 3> local_high = {
-        //     local_mesh.highCorner( Cabana::Grid::Own(), Cabana::Grid::Dim::I ),
-        //     local_mesh.highCorner( Cabana::Grid::Own(), Cabana::Grid::Dim::J ),
-        //     local_mesh.highCorner( Cabana::Grid::Own(), Cabana::Grid::Dim::K ) };
 
-        // printf("    R%d: (%0.3lf %0.3lf %0.3lf), (%0.3lf %0.3lf %0.3lf)\n", _rank, local_low[0], local_low[1], local_low[2],
-        //     local_high[0], local_high[1], local_high[2]);
-        // Copy particles to the host.
-        // particle_array_type particles_host(
-        //     "migrated", _particle_array.size() );
-        // Cabana::deep_copy( particles_host, _particle_array );
-        // auto position_host = Cabana::slice<0>( particles_host );
-
-        // // Make sure the total particles were conserved.
-        // int global_particles;
-        // int local_particles = static_cast<int>( _particle_array.size() );
-        // MPI_Reduce( &local_particles, &global_particles, 1, MPI_INT, MPI_SUM, 0,
-        //             MPI_COMM_WORLD );
-        // // if ( global_grid->blockId() == 0 )
-        // // {
-        // //     if( global_particles ==
-        // //             _array_size * global_grid->totalNumBlock() )
-        // //             {
-        // //                 printf("good\n");
-        // //             }
-        // // }
-
-        // for ( std::size_t p = 0; p < _particle_array.size(); ++p )
-        // {
-        //     // Check that all of the particles were moved to the correct local rank.
-        //     for ( int d = 0; d < 3; ++d )
-        //     {
-        //         if ( position_host( p, d ) <= local_low[d] )
-        //         {
-        //             printf("bad\n");
-        //         }
-        //         if ( position_host( p, d ) >= local_high[d] )
-        //         {
-        //             printf("bad\n");
-        //         }
-        //     }
-        // }
-        printf("R%d: owns %d particles\n", _rank, _particle_array.size());
-        if (_rank == 0)
+        // Check if _particle_array needs to be resized
+        if (particle_array.size() != _particle_array.size())
         {
-            for (int i = 0; i < _array_size; i++)
-            {
-                auto particle = particle_array.getTuple(i);
-                if (Cabana::get<6>(particle) != _rank)
-                {
-                    printf("R%d: Got particle: (%0.3lf, %0.3lf, %0.3lf) from R%d\n", _rank,
-                        Cabana::get<0>(particle, 0), Cabana::get<0>(particle, 1), Cabana::get<0>(particle, 2),
-                        Cabana::get<6>(particle));
-                }
-            }
+            _particle_array.resize(particle_array.size());
+            //printf("To 3D: R%d resized: %d, _%d\n", _rank, particle_array.size(), _particle_array.size());
         }
-    }
+        Cabana::deep_copy(_particle_array, particle_array);
+
+        //printf("To 3D: R%d: owns %d, _%d particles\n", _rank, particle_array.size(), _particle_array.size());
+        for (int i = 0; i < _particle_array.size(); i++)
+        {
+            auto particle = _particle_array.getTuple(i);
+            if (Cabana::get<6>(particle) != _rank)
+            {
+                //printf("R%d: Got particle: (%0.3lf, %0.3lf, %0.3lf) from R%d\n", _rank,
+                //    Cabana::get<0>(particle, 0), Cabana::get<0>(particle, 1), Cabana::get<0>(particle, 2),
+                //    Cabana::get<6>(particle));
+            }
+        
+        }
+}
 
     void performHaloExchange3D()
     {
@@ -314,24 +233,29 @@ class Migrator
 
     void migrateParticlesTo2D()
     {
-        //Kokkos::View<int*, memory_space> destination_ranks("destination_ranks", _array_size);
         particle_array_type particle_array = _particle_array;
         auto destinations = Cabana::slice<6>(particle_array, "destinations");
-        //Cabana::Grid::particleGridMigrate(_spm.localGrid(), positions, _particle_array, 0, true);
         Cabana::Distributor<memory_space> distributer(_comm, destinations);
         Cabana::migrate(distributer, particle_array);
+
+        // Check if _particle_array needs to be resized
+        if (particle_array.size() != _particle_array.size())
+        {
+            _particle_array.resize(particle_array.size());
+            //printf("To 2D: R%d resized: %d, _%d\n", _rank, particle_array.size(), _particle_array.size());
+        }
+        Cabana::deep_copy(_particle_array, particle_array);
         
-        printf("R%d: owns %d particles\n", _rank, _particle_array.size());
+        //printf("To 2D: R%d: owns %d particles\n", _rank, _particle_array.size());
         if (_rank == 0)
         {
-            for (int i = 0; i < _array_size; i++)
+            for (int i = 0; i < _particle_array.size(); i++)
             {
                 auto particle = particle_array.getTuple(i);
-                if (Cabana::get<6>(particle) != _rank)
+                if (Cabana::get<5>(particle) == 20)
                 {
-                    printf("R%d: Got particle: (%0.3lf, %0.3lf, %0.3lf) from R%d\n", _rank,
-                        Cabana::get<0>(particle, 0), Cabana::get<0>(particle, 1), Cabana::get<0>(particle, 2),
-                        Cabana::get<6>(particle));
+                    //printf("To 2D: R%d: Got particle: (%0.3lf, %0.3lf, %0.3lf)\n", _rank,
+                    //    Cabana::get<0>(particle, 0), Cabana::get<0>(particle, 1), Cabana::get<0>(particle, 2));
                 }
             }
         }
@@ -393,7 +317,8 @@ class Migrator
             double brsum[3] = {0.0, 0.0, 0.0};
             auto particle = particle_array.getTuple(i);
 
-            if (Cabana::get<6>(particle) != rank) return;
+            // XXX Do not consider ghosted particles
+            //if (Cabana::get<6>(particle) != rank) return;
 
             // Compute BR forces from neighbors
             int i_index = Cabana::get<4>(particle, 0);
@@ -493,8 +418,7 @@ class Migrator
         particle_array_type particle_array = _particle_array;
         int rank = _rank;
 
-        // Parallel for loop using Kokkos
-        Kokkos::parallel_for("update_zdot", Kokkos::RangePolicy<exec_space>(0, _array_size), KOKKOS_LAMBDA(int i) {
+        Kokkos::parallel_for("update_zdot", Kokkos::RangePolicy<exec_space>(0, particle_array.size()), KOKKOS_LAMBDA(int i) {
             auto particle = particle_array.getTuple(i);
             int particle_rank = Cabana::get<6>(particle);
 
@@ -548,9 +472,9 @@ class Migrator
     const pm_type &_pm;
     const l2g_type _local_L2G;
     MPI_Comm _comm;
-    int _rank, _comm_size, _array_size;
+    int _rank, _comm_size;
 
-    Kokkos::View<double*, memory_space> _grid_space;
+    Kokkos::View<double*, device_type> _grid_space;
 };
 
 //---------------------------------------------------------------------------//
