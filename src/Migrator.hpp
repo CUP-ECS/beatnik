@@ -84,12 +84,12 @@ class Migrator
         if (_rank == 0)
         {
             printf("Comm size: %d\n", _comm_size);
-            for (int i = 0; i < _comm_size * 6; i+=6)
-            {
-                printf("R%d: (%0.3lf %0.3lf %0.3lf), (%0.3lf %0.3lf %0.3lf)\n",
-                    i/6, _grid_space(i), _grid_space(i+1), _grid_space(i+2),
-                    _grid_space(i+3), _grid_space(i+4), _grid_space(i+5));
-            }
+            // for (int i = 0; i < _comm_size * 6; i+=6)
+            // {
+            //     printf("R%d: (%0.3lf %0.3lf %0.3lf), (%0.3lf %0.3lf %0.3lf)\n",
+            //         i/6, _grid_space(i), _grid_space(i+1), _grid_space(i+2),
+            //         _grid_space(i+3), _grid_space(i+4), _grid_space(i+5));
+            // }
         }
 
     }
@@ -474,7 +474,7 @@ class Migrator
     MPI_Comm _comm;
     int _rank, _comm_size;
 
-    Kokkos::View<double*, device_type> _grid_space;
+    Kokkos::View<double*, memory_space> _grid_space;
 };
 
 //---------------------------------------------------------------------------//
