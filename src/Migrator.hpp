@@ -51,7 +51,8 @@ class Migrator
                                               double,    // Simpson weight
                                               int[2],    // Index in PositionView z and VorticityView w
                                               int,       // Point ID
-                                              int        // Rank of origin in 2D space
+                                              int,       // Owning rank in 2D space
+                                              int        // Owning rank in 3D space
                                               >;
     using particle_array_type = Cabana::AoSoA<particle_node, device_type, 4>;
 
@@ -173,6 +174,7 @@ class Migrator
             // Rank of origin
             //printf("id: %d, get #5\n", particle_id);
             Cabana::get<6>(particle) = rank;
+            Cabana::get<7>(particle) = -1;
 
             //printf("id: %d, set tuple\n", particle_id);
             particle_array.setTuple(particle_id, particle);
@@ -228,7 +230,7 @@ class Migrator
 
     void performHaloExchange3D()
     {
-        
+        // Populate 3D rank of origin
     }
 
     void migrateParticlesTo2D()
@@ -353,8 +355,8 @@ class Migrator
             // }
         });
 
-        // Wait for all parallel tasks to complete
         Kokkos::fence();
+        Cabana::deep_copy(_particle_array, particle_array);
 
         // for ( std::size_t i = 0; i < positions.size(); ++i )
         // {
@@ -466,7 +468,7 @@ class Migrator
         // }
     }
 
-  //private:
+  private:
     particle_array_type _particle_array;
     const spatial_mesh_type &_spm;
     const pm_type &_pm;
