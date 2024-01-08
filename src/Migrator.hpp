@@ -16,6 +16,8 @@
 
 #include <Kokkos_Core.hpp>
 
+#include <HaloComm.hpp>
+
 #include <memory>
 
 #include <mpi.h>
@@ -55,6 +57,8 @@ class Migrator
                                               int        // Owning rank in 3D space
                                               >;
     using particle_array_type = Cabana::AoSoA<particle_node, device_type, 4>;
+    using spatial_mesh_type2 = Cabana::Grid::UniformMesh<double, 3>;
+    using local_grid_type2 = Cabana::Grid::LocalGrid<spatial_mesh_type2>;
 
     // Construct a mesh.
     Migrator(const pm_type &pm, const spatial_mesh_type &spm)
@@ -231,6 +235,11 @@ class Migrator
     void performHaloExchange3D()
     {
         // Populate 3D rank of origin
+
+        auto positions = Cabana::slice<0>(_particle_array, "positions");
+        auto halo_ids = HaloIds<memory_space, local_grid_type2>(*_spm.localGrid(), positions, 20, 10);
+        printf("R%d Dest1: %d\n", _rank, halo_ids._destinations(0));
+
     }
 
     void migrateParticlesTo2D()
