@@ -218,7 +218,7 @@ class Migrator
         }
         Cabana::deep_copy(_particle_array, particle_array);
 
-        //printf("To 3D: R%d: owns %d, _%d particles\n", _rank, particle_array.size(), _particle_array.size());
+        printf("To 3D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
         for (int i = 0; i < _particle_array.size(); i++)
         {
             auto particle = _particle_array.getTuple(i);
@@ -235,10 +235,33 @@ class Migrator
     void performHaloExchange3D()
     {
         // Populate 3D rank of origin
+        auto particle_array = _particle_array;
+        int rank = _rank;
+        Kokkos::parallel_for("3D origin rank", Kokkos::RangePolicy<exec_space>(0, particle_array.size()), KOKKOS_LAMBDA(int i) {
+            auto particle = particle_array.getTuple(i);
+            Cabana::get<7>(particle) = rank;
+        });
 
-        auto positions = Cabana::slice<0>(_particle_array, "positions");
-        auto halo_ids = HaloIds<memory_space, local_grid_type2>(*_spm.localGrid(), positions, 20, 10);
-        printf("R%d Dest1: %d\n", _rank, halo_ids._destinations(0));
+        // Halo exchange
+        auto positions = Cabana::slice<0>(particle_array, "positions");
+        auto halo_ids = HaloIds<memory_space, local_grid_type2>(*_spm.localGrid(), positions, 100, 10);
+        printf("REBUILDING...\n");
+        halo_ids.rebuild( positions );
+        //printf("R%d Dest1: %d\n", _rank, halo_ids._destinations(0));
+        auto destinations = halo_ids._destinations;
+        printf("STARTING MIGRATE...\n");
+        //Cabana::Distributor<memory_space> distributer(_comm, destinations);
+        //Cabana::migrate(distributer, particle_array);
+
+        // Check if _particle_array needs to be resized
+        // if (particle_array.size() != _particle_array.size())
+        // {
+        //     _particle_array.resize(particle_array.size());
+        //     //printf("To 2D: R%d resized: %d, _%d\n", _rank, particle_array.size(), _particle_array.size());
+        // }
+        // Cabana::deep_copy(_particle_array, particle_array);
+
+        printf("Halo exch: R%d: owns %d particles\n", _rank, _particle_array.size());
 
     }
 
@@ -328,8 +351,8 @@ class Migrator
             double brsum[3] = {0.0, 0.0, 0.0};
             auto particle = particle_array.getTuple(i);
 
-            // XXX Do not consider ghosted particles
-            //if (Cabana::get<6>(particle) != rank) return;
+            // Do not consider ghosted particles
+            if (Cabana::get<7>(particle) != rank) return;
 
             // Compute BR forces from neighbors
             int i_index = Cabana::get<4>(particle, 0);
