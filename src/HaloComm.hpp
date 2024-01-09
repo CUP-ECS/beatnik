@@ -77,6 +77,17 @@ struct HaloIds
         auto topology = Cabana::Grid::getTopology( local_grid );
         _device_topology = vectorToArray<topology_size>( topology );
 
+        int rank;
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+        if (rank == 13)
+        {
+            for (int i = 0; i < topology_size; i++)
+            {
+                printf("Topo: R%d: i:%d: %d\n", rank, i, _device_topology[i]);
+            }
+        }
+
         // Get the neighboring mesh bounds (only needed once unless load
         // balancing).
         neighborBounds( local_grid );
@@ -147,8 +158,8 @@ struct HaloIds
         int rank;
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-        printf("Coords: (%0.3lf, %0.3lf, %0.3lf), (%0.3lf, %0.3lf, %0.3lf)\n",
-            min_coord[0][0], min_coord[0][1], min_coord[0][2], max_coord[0][0], max_coord[0][1], max_coord[0][2]);
+        // printf("Coords: (%0.3lf, %0.3lf, %0.3lf), (%0.3lf, %0.3lf, %0.3lf)\n",
+        //     min_coord[0][0], min_coord[0][1], min_coord[0][2], max_coord[0][0], max_coord[0][1], max_coord[0][2]);
 
         // Look for ghosts within the halo width of the local mesh boundary,
         // potentially for each of the 26 neighbors cells.
@@ -205,14 +216,14 @@ struct HaloIds
         Kokkos::fence();
         std::size_t size = send_count();
         std::size_t psize = positions.size();
-        printf("R%d: Positions size: %zu, send count: %zu\n", rank, psize, size);
-        if (rank == 16)
-        {
-            for (std::size_t i = 0; i < size; i++)
-            {
-                printf("R%d: %zu: (%d, %d)\n", rank, i, ids(i), destinations(i));
-            }
-        }
+        // printf("R%d: Positions size: %zu, send count: %zu\n", rank, psize, size);
+        // if (rank == 16)
+        // {
+        //     for (std::size_t i = 0; i < size; i++)
+        //     {
+        //         printf("R%d: %zu: (%d, %d)\n", rank, i, ids(i), destinations(i));
+        //     }
+        // }
         //printf("Done building\n");
     }
 
