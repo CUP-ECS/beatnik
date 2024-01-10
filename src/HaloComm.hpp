@@ -80,13 +80,13 @@ struct HaloIds
         int rank;
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-        if (rank == 0)
-        {
-            for (int i = 0; i < topology_size; i++)
-            {
-                printf("Topo: R%d: i:%d: %d\n", rank, i, _device_topology[i]);
-            }
-        }
+        // if (rank == 0)
+        // {
+        //     for (int i = 0; i < topology_size; i++)
+        //     {
+        //         printf("Topo: R%d: i:%d: %d\n", rank, i, _device_topology[i]);
+        //     }
+        // }
 
         // Get the neighboring mesh bounds (only needed once unless load
         // balancing).
@@ -216,14 +216,14 @@ struct HaloIds
         Kokkos::fence();
         std::size_t size = send_count();
         std::size_t psize = positions.size();
-        printf("R%d: Positions size: %zu, send count: %zu\n", rank, psize, size);
-        if (rank == 0)
-        {
-            for (std::size_t i = 0; i < size; i++)
-            {
-                printf("R%d: %zu: (%d, %d)\n", rank, i, ids(i), destinations(i));
-            }
-        }
+        //printf("R%d: Positions size: %zu, send count: %zu\n", rank, psize, size);
+        // if (rank == 0)
+        // {
+        //     for (std::size_t i = 0; i < size; i++)
+        //     {
+        //         printf("R%d: %zu: (%d, %d)\n", rank, i, ids(i), destinations(i));
+        //     }
+        // }
         //printf("Done building\n");
     }
 
@@ -283,19 +283,19 @@ class Comm
           const LocalGridType& local_grid, int max_export_guess = 100 )
         : max_export( max_export_guess )
     {
-        MPI_Comm_size( local_grid->globalGrid().comm(), &mpi_size );
-        MPI_Comm_rank( local_grid->globalGrid().comm(), &mpi_rank );
+        MPI_Comm_size( local_grid.globalGrid().comm(), &mpi_size );
+        MPI_Comm_rank( local_grid.globalGrid().comm(), &mpi_rank );
 
         auto positions = Cabana::slice<0>(particles, "positions");
 
         // Get all 26 neighbor ranks.
-        auto halo_width = local_grid->haloCellWidth();
-        auto topology = Cabana::Grid::getTopology( *local_grid );
+        auto halo_width = local_grid.haloCellWidth();
+        auto topology = Cabana::Grid::getTopology( local_grid );
 
         // Determine which particles need to be ghosted to neighbors.
         // FIXME: set halo width based on cutoff distance.
         auto halo_ids =
-            createHaloIds( *local_grid, positions, halo_width, max_export );
+            createHaloIds( local_grid, positions, halo_width, max_export );
         // Rebuild if needed.
         halo_ids.rebuild( positions );
 
@@ -303,11 +303,12 @@ class Comm
         int num_local = particles.size();
 
         // Create the Cabana Halo.
-        halo = std::make_shared<halo_type>( local_grid->globalGrid().comm(),
+        halo = std::make_shared<halo_type>( local_grid.globalGrid().comm(),
                                             num_local, halo_ids._ids,
                                             halo_ids._destinations, topology );
 
-        particles.resize( halo->numLocal(), halo->numGhost() );
+        int total_particles = halo->numLocal() + halo->numGhost();
+        particles.resize( total_particles );
 
         Cabana::gather( *halo, particles );
 
@@ -318,7 +319,7 @@ class Comm
 
 //     // Determine which particles should be ghosted, reallocating and recounting
 //     // if needed.
-    template <class LocalGridType, class PositionSliceType>
+    template <class PositionSliceType>
     auto createHaloIds( const LocalGridType& local_grid,
                         const PositionSliceType& positions,
                         const int min_halo_width, const int max_export )

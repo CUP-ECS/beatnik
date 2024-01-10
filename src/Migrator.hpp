@@ -47,14 +47,15 @@ class Migrator
     //using node_view = typename pm_type::node_view;
     using node_view = Kokkos::View<double***, device_type>;
 
-    using particle_node = Cabana::MemberTypes<double[3], // xyz position in space
-                                              double[3], // Own omega for BR
-                                              double[3], // zdot
-                                              double,    // Simpson weight
-                                              int[2],    // Index in PositionView z and VorticityView w
-                                              int,       // Point ID
-                                              int,       // Owning rank in 2D space
-                                              int        // Owning rank in 3D space
+    using particle_node = Cabana::MemberTypes<double[3], // xyz position in space                           0
+                                              double[3], // Own omega for BR                                1
+                                              double[3], // zdot                                            2
+                                              double,    // Simpson weight                                  3
+                                              int[2],    // Index in PositionView z and VorticityView w     4
+                                              int,       // Point ID in 2D                                  5
+                                              int,       // Owning rank in 2D space                         6
+                                              int,       // Owning rank in 3D space                         7
+                                              int        // Point ID in 3D                                  8
                                               >;
     using particle_array_type = Cabana::AoSoA<particle_node, device_type, 4>;
     using spatial_mesh_type2 = Cabana::Grid::UniformMesh<double, 3>;
@@ -210,6 +211,15 @@ class Migrator
         particle_array_type particle_array = _particle_array;
         particle_comm->migrate(_comm, particle_array);
 
+        // Populate 3D rank of origin and ID
+        int rank = _rank;
+        Kokkos::parallel_for("3D origin rank", Kokkos::RangePolicy<exec_space>(0, particle_array.size()), KOKKOS_LAMBDA(int i) {
+            auto particle = particle_array.getTuple(i);
+            Cabana::get<7>(particle) = rank;
+            Cabana::get<8>(particle) = i;
+            particle_array.setTuple(i, particle);
+        });
+
         // Check if _particle_array needs to be resized
         if (particle_array.size() != _particle_array.size())
         {
@@ -218,59 +228,23 @@ class Migrator
         }
         Cabana::deep_copy(_particle_array, particle_array);
 
-        printf("To 3D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
-        for (int i = 0; i < _particle_array.size(); i++)
-        {
-            auto particle = _particle_array.getTuple(i);
-            if (Cabana::get<6>(particle) != _rank)
-            {
-                //printf("R%d: Got particle: (%0.3lf, %0.3lf, %0.3lf) from R%d\n", _rank,
-                //    Cabana::get<0>(particle, 0), Cabana::get<0>(particle, 1), Cabana::get<0>(particle, 2),
-                //    Cabana::get<6>(particle));
-            }
-        
-        }
+        // Updated owned 3D count for migration back to 2D
+        _owned_3D_count = _particle_array.size();
+
+        //printf("To 3D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
+        // for (int i = 0; i < _particle_array.size(); i++)
+        // {
+        //     auto particle = _particle_array.getTuple(i);
+        //     printf("To 3D: R%d particle id: %d, 2D: %d, 3D: %d\n", _rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
+        // }
 }
 
     void performHaloExchange3D()
     {
-        // Populate 3D rank of origin
-        auto particle_array = _particle_array;
-        int rank = _rank;
-        Kokkos::parallel_for("3D origin rank", Kokkos::RangePolicy<exec_space>(0, particle_array.size()), KOKKOS_LAMBDA(int i) {
-            auto particle = particle_array.getTuple(i);
-            Cabana::get<7>(particle) = rank;
-        });
-
         // Halo exchange
+        auto particle_array = _particle_array;
         auto positions = Cabana::slice<0>(particle_array, "positions");
-        auto halo_ids = HaloIds<memory_space, local_grid_type2>(*_spm.localGrid(), positions, 100, 10);
-        printf("REBUILDING...\n");
-        halo_ids.rebuild( positions );
-        //printf("R%d Dest1: %d\n", _rank, halo_ids._destinations(0));
-        auto destinations = halo_ids._destinations;
-        printf("STARTING MIGRATE...\n");
-        //Cabana::Distributor<memory_space> distributer(_comm, destinations);
-        //Cabana::migrate(distributer, particle_array);
-
-        // Check if _particle_array needs to be resized
-        // if (particle_array.size() != _particle_array.size())
-        // {
-        //     _particle_array.resize(particle_array.size());
-        //     //printf("To 2D: R%d resized: %d, _%d\n", _rank, particle_array.size(), _particle_array.size());
-        // }
-        // Cabana::deep_copy(_particle_array, particle_array);
-
-        printf("Halo exch: R%d: owns %d particles\n", _rank, _particle_array.size());
-
-    }
-
-    void migrateParticlesTo2D()
-    {
-        particle_array_type particle_array = _particle_array;
-        auto destinations = Cabana::slice<6>(particle_array, "destinations");
-        Cabana::Distributor<memory_space> distributer(_comm, destinations);
-        Cabana::migrate(distributer, particle_array);
+        auto halo_comm = Comm<memory_space, particle_array_type, local_grid_type2>(particle_array, *_spm.localGrid(), 40);
 
         // Check if _particle_array needs to be resized
         if (particle_array.size() != _particle_array.size())
@@ -279,20 +253,80 @@ class Migrator
             //printf("To 2D: R%d resized: %d, _%d\n", _rank, particle_array.size(), _particle_array.size());
         }
         Cabana::deep_copy(_particle_array, particle_array);
+
+        //printf("Halo exch: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
+        // for (int i = 0; i < _particle_array.size(); i++)
+        // {
+        //     auto particle = _particle_array.getTuple(i);
+        //     printf("Halo exch: R%d particle id: %d, 2D: %d, 3D: %d\n", _rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
+        // }
+
+    }
+
+    void migrateParticlesTo2D()
+    {
+        // We only want to send back the non-ghosted particles to 2D
+        particle_array_type array_3D = _particle_array;
+        particle_array_type particle_array = particle_array_type("particle_array_for_2D", _owned_3D_count);
+        int rank = _rank;
+        // Kokkos::atomic<int> atomic_counter(0);
+        Kokkos::parallel_for("fill particle_array_for_2D", Kokkos::RangePolicy<exec_space>(0, array_3D.size()), KOKKOS_LAMBDA(int i) {
+            auto particle = array_3D.getTuple(i);
+            if (Cabana::get<7>(particle) == rank) {
+                int id_3D = Cabana::get<8>(particle);
+                particle_array.setTuple(id_3D, particle);
+                //printf("To 2D: R%d particle id: %d, 2D: %d, 3D: %d\n", rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
+            } 
+        });
+        //int count_3d = 0;
+        // for (int i = 0; i < array_3D.size(); i++)
+        // {
+        //     auto particle = array_3D.getTuple(i);
+        //     if (Cabana::get<7>(particle) == rank)
+        //     {
+        //         int id = Cabana::get<5>(particle);
+        //         particle_array.setTuple(count_3d, particle);
+        //         printf("R%d: id: %d, tid: %d, 2D: %d, 3D: %d\n", rank, id, count_3d, Cabana::get<6>(particle),  Cabana::get<7>(particle));
+        //         count_3d++;
+        //     }
+        // }
+        //printf("R%d: count3d: %d, size: %lu\n", rank, count_3d, particle_array.size());
+
+        // printf("To 2D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
+        // for (int i = 0; i < particle_array.size(); i++)
+        // {
+        //     auto particle = particle_array.getTuple(i);
+        //     printf("To 2D: R%d particle id: %d, 2D: %d, 3D: %d\n", _rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
+        // }
+        //printf("R%d done filling 2d\n", _rank);
+        // Kokkos::fence();
+        // MPI_Barrier(_comm);
         
-        //printf("To 2D: R%d: owns %d particles\n", _rank, _particle_array.size());
-        if (_rank == 0)
+        // for (int i = 0; i < particle_array.size(); i++)
+        // {
+        //     auto particle = particle_array.getTuple(i);
+        //     printf("R%d particle id: %d, 2D: %d, 3D: %d\n", _rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
+        // }
+        
+        auto destinations = Cabana::slice<6>(particle_array, "destinations");
+
+        Cabana::Distributor<memory_space> distributer(_comm, destinations);
+        Cabana::migrate(distributer, particle_array);
+        //printf("R%d done migrating\n", _rank);
+        // Check if _particle_array needs to be resized
+        if (particle_array.size() != _particle_array.size())
         {
-            for (int i = 0; i < _particle_array.size(); i++)
-            {
-                auto particle = particle_array.getTuple(i);
-                if (Cabana::get<5>(particle) == 20)
-                {
-                    //printf("To 2D: R%d: Got particle: (%0.3lf, %0.3lf, %0.3lf)\n", _rank,
-                    //    Cabana::get<0>(particle, 0), Cabana::get<0>(particle, 1), Cabana::get<0>(particle, 2));
-                }
-            }
+            _particle_array.resize(particle_array.size());
+            //printf("To 2D: R%d resized: %d, _%d\n", _rank, particle_array.size(), _particle_array.size());
         }
+        Cabana::deep_copy(_particle_array, particle_array);
+        
+        //printf("To 2D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
+        // for (int i = 0; i < _particle_array.size(); i++)
+        // {
+        //     auto particle = _particle_array.getTuple(i);
+        //     printf("To 2D: R%d particle id: %d, 2D: %d, 3D: %d\n", _rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
+        // }
     }
 
     void computeInterfaceVelocityNeighbors(int neighbor_radius, double dy, double dx, double epsilon)
@@ -507,6 +541,8 @@ class Migrator
     const l2g_type _local_L2G;
     MPI_Comm _comm;
     int _rank, _comm_size;
+
+    int _owned_3D_count;
 
     Kokkos::View<double*, memory_space> _grid_space;
 };
