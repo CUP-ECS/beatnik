@@ -80,7 +80,7 @@ struct HaloIds
         int rank;
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-        if (rank == 13)
+        if (rank == 0)
         {
             for (int i = 0; i < topology_size; i++)
             {
@@ -216,14 +216,14 @@ struct HaloIds
         Kokkos::fence();
         std::size_t size = send_count();
         std::size_t psize = positions.size();
-        // printf("R%d: Positions size: %zu, send count: %zu\n", rank, psize, size);
-        // if (rank == 16)
-        // {
-        //     for (std::size_t i = 0; i < size; i++)
-        //     {
-        //         printf("R%d: %zu: (%d, %d)\n", rank, i, ids(i), destinations(i));
-        //     }
-        // }
+        printf("R%d: Positions size: %zu, send count: %zu\n", rank, psize, size);
+        if (rank == 0)
+        {
+            for (std::size_t i = 0; i < size; i++)
+            {
+                printf("R%d: %zu: (%d, %d)\n", rank, i, ids(i), destinations(i));
+            }
+        }
         //printf("Done building\n");
     }
 
@@ -263,70 +263,70 @@ struct HaloIds
 // template <class ParticleType, class ModelType>
 // class Comm;
 
-// // FIXME: extract model from ParticleType instead.
-// template <class ParticleType>
-// class Comm<ParticleType>
-// {
-//   public:
-//     int mpi_size = -1;
-//     int mpi_rank = -1;
-//     int max_export;
+// FIXME: extract model from ParticleType instead.
+template <class MemorySpace, class ParticleType, class LocalGridType>
+class Comm
+{
+  public:
+    int mpi_size = -1;
+    int mpi_rank = -1;
+    int max_export;
 
-//     using memory_space = typename ParticleType::memory_space;
-//     using halo_type = Cabana::Halo<memory_space>;
-//     using gather_u_type =
-//         Cabana::Gather<halo_type, typename ParticleType::aosoa_u_type>;
-//     std::shared_ptr<gather_u_type> gather_u;
-//     std::shared_ptr<halo_type> halo;
+    using memory_space = MemorySpace;
+    using halo_type = Cabana::Halo<memory_space>;
+    using gather_particles_type =
+        Cabana::Gather<halo_type, ParticleType>;
+    std::shared_ptr<gather_particles_type> gather_particles;
+    std::shared_ptr<halo_type> halo;
 
-//     Comm( ParticleType& particles, int max_export_guess = 100 )
-//         : max_export( max_export_guess )
-//     {
-//         auto local_grid = particles.local_grid;
-//         MPI_Comm_size( local_grid->globalGrid().comm(), &mpi_size );
-//         MPI_Comm_rank( local_grid->globalGrid().comm(), &mpi_rank );
+    Comm( ParticleType& particles,
+          const LocalGridType& local_grid, int max_export_guess = 100 )
+        : max_export( max_export_guess )
+    {
+        MPI_Comm_size( local_grid->globalGrid().comm(), &mpi_size );
+        MPI_Comm_rank( local_grid->globalGrid().comm(), &mpi_rank );
 
-//         auto positions = particles.sliceReferencePosition();
-//         // Get all 26 neighbor ranks.
-//         auto halo_width = local_grid->haloCellWidth();
-//         auto topology = Cajita::getTopology( *local_grid );
+        auto positions = Cabana::slice<0>(particles, "positions");
 
-//         // Determine which particles need to be ghosted to neighbors.
-//         // FIXME: set halo width based on cutoff distance.
-//         auto halo_ids =
-//             createHaloIds( *local_grid, positions, halo_width, max_export );
-//         // Rebuild if needed.
-//         halo_ids.rebuild( positions );
+        // Get all 26 neighbor ranks.
+        auto halo_width = local_grid->haloCellWidth();
+        auto topology = Cabana::Grid::getTopology( *local_grid );
 
-//         // Create the Cabana Halo.
-//         halo = std::make_shared<halo_type>( local_grid->globalGrid().comm(),
-//                                             particles.n_local, halo_ids._ids,
-//                                             halo_ids._destinations, topology );
+        // Determine which particles need to be ghosted to neighbors.
+        // FIXME: set halo width based on cutoff distance.
+        auto halo_ids =
+            createHaloIds( *local_grid, positions, halo_width, max_export );
+        // Rebuild if needed.
+        halo_ids.rebuild( positions );
 
-//         particles.resize( halo->numLocal(), halo->numGhost() );
+        // Number of local particles
+        int num_local = particles.size();
 
-//         // Only use this interface because we don't need to recommunicate
-//         // positions, volumes, or no-fail region.
-//         Cabana::gather( *halo, particles._aosoa_x );
-//         Cabana::gather( *halo, particles._aosoa_vol );
-//         Cabana::gather( *halo, particles._aosoa_nofail );
+        // Create the Cabana Halo.
+        halo = std::make_shared<halo_type>( local_grid->globalGrid().comm(),
+                                            num_local, halo_ids._ids,
+                                            halo_ids._destinations, topology );
 
-//         gather_u = std::make_shared<gather_u_type>( *halo, particles._aosoa_u );
-//         gather_u->apply();
-//     }
-//     ~Comm() {}
+        particles.resize( halo->numLocal(), halo->numGhost() );
+
+        Cabana::gather( *halo, particles );
+
+        gather_particles = std::make_shared<gather_particles_type>( *halo, particles );
+        gather_particles->apply();
+    }
+    ~Comm() {}
 
 //     // Determine which particles should be ghosted, reallocating and recounting
 //     // if needed.
-//     template <class LocalGridType, class PositionSliceType>
-//     auto createHaloIds( const LocalGridType& local_grid,
-//                         const PositionSliceType& positions,
-//                         const int min_halo_width, const int max_export )
-//     {
-//         return HaloIds<typename PositionSliceType::memory_space, LocalGridType>(
-//             local_grid, positions, min_halo_width, max_export );
-//     }
-
+    template <class LocalGridType, class PositionSliceType>
+    auto createHaloIds( const LocalGridType& local_grid,
+                        const PositionSliceType& positions,
+                        const int min_halo_width, const int max_export )
+    {
+        return HaloIds<typename PositionSliceType::memory_space, LocalGridType>(
+            local_grid, positions, min_halo_width, max_export );
+    }
+};
 //     // We assume here that the particle count has not changed and no resize
 //     // is necessary.
 //     void gatherDisplacement() { gather_u->apply(); }
