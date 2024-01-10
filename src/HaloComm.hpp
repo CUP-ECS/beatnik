@@ -214,8 +214,8 @@ struct HaloIds
         Kokkos::parallel_for( "CabanaPD::Comm::GhostSearch", policy,
                               ghost_search );
         Kokkos::fence();
-        std::size_t size = send_count();
-        std::size_t psize = positions.size();
+        // std::size_t size = send_count();
+        // std::size_t psize = positions.size();
         //printf("R%d: Positions size: %zu, send count: %zu\n", rank, psize, size);
         // if (rank == 0)
         // {
