@@ -180,7 +180,7 @@ class TimeIntegrator
                 
                 if (local_gi[0] == 2 && local_gi[1] == 7)
                 { 
-                    for (int k = 0; k < 2; k++)
+                    for (int k = 0; k < 3; k++)
                     {
                         if (abs(z(i, j, k) - zdot_27[k]) > tolerance)
                         {
@@ -191,7 +191,7 @@ class TimeIntegrator
                 }
                 if (local_gi[0] == 5 && local_gi[1] == 4)
                 { 
-                    for (int k = 0; k < 2; k++)
+                    for (int k = 0; k < 3; k++)
                     {
                         if (abs(z(i, j, k) - zdot_54[k]) > tolerance)
                         {
@@ -202,7 +202,7 @@ class TimeIntegrator
                 }
                 if (local_gi[0] == 10 && local_gi[1] == 9)
                 { 
-                    for (int k = 0; k < 2; k++)
+                    for (int k = 0; k < 3; k++)
                     {
                         if (abs(z(i, j, k) - zdot_109[k]) > tolerance)
                         {
