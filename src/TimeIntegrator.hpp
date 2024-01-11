@@ -61,6 +61,7 @@ class TimeIntegrator
                                                        node_triple_layout);
         _wtmp = Cabana::Grid::createArray<double, mem_space>("vorticity temporary", 
                                                        node_pair_layout);
+        _counter = 0;
     }
 
     void step( const double delta_t ) 
@@ -135,6 +136,85 @@ class TimeIntegrator
                     + ( 2.0 / 3.0 ) * delta_t * w_dot(i, j, d);
             }
         });
+        test_zdot();
+    }
+
+    void test_zdot()
+    {
+        int rank;
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        if (_counter == 2)
+        {
+            // Correct zdot values after timestep 3 with 3 derivatives calcs per timestep:
+            // Global index 2, 7:
+            std::array<double, 3> zdot_27 = {0.000191718592, 0.000016416558, 0.000555184524};
+
+            // Global index 5, 4:
+            std::array<double, 3> zdot_54 = {0.000157808216, 0.000225322892, 0.002440748022}; 
+            
+            // Global index 10, 9: (These numbers differ when run with multiple processes...)
+            std::array<double, 3> zdot_109 = {-0.000108051686, -0.000063444818, 0.006112150174};
+
+            double tolerance = 0.0000001;
+
+            auto local_L2G = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cabana::Grid::Node());
+            auto z = _zdot->view();
+            //printf("hi\n");
+
+            std::array<long, 2> rmin, rmax;
+            for (int d = 0; d < 2; d++) {
+                rmin[d] = local_L2G.local_own_min[d];
+                rmax[d] = local_L2G.local_own_max[d];
+            }
+            Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
+
+            Kokkos::parallel_for("check zdot",
+                Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
+                KOKKOS_LAMBDA(int i, int j) {
+                
+                // local_gi = global versions of the local indicies, and convention for remote 
+                int local_li[2] = {i, j};
+                int local_gi[2] = {0, 0};   // i, j
+                local_L2G(local_li, local_gi);
+                //printf("global: %d %d\n", local_gi[0], local_gi[1]);
+                
+                if (local_gi[0] == 2 && local_gi[1] == 7)
+                { 
+                    for (int k = 0; k < 2; k++)
+                    {
+                        if (abs(z(i, j, k) - zdot_27[k]) > tolerance)
+                        {
+                            printf("ERROR: zdot (2, 7, %d): correct: %0.7lf, value: %0.7lf\n",
+                                k, zdot_27[k], z(i, j, k));
+                        } 
+                    }
+                }
+                if (local_gi[0] == 5 && local_gi[1] == 4)
+                { 
+                    for (int k = 0; k < 2; k++)
+                    {
+                        if (abs(z(i, j, k) - zdot_54[k]) > tolerance)
+                        {
+                            printf("ERROR: zdot (5, 4, %d): correct: %0.7lf, value: %0.7lf\n",
+                                k, zdot_54[k], z(i, j, k));
+                        } 
+                    }
+                }
+                if (local_gi[0] == 10 && local_gi[1] == 9)
+                { 
+                    for (int k = 0; k < 2; k++)
+                    {
+                        if (abs(z(i, j, k) - zdot_109[k]) > tolerance)
+                        {
+                            printf("ERROR: zdot (10, 9, %d): correct: %0.7lf, value: %0.7lf\n",
+                                k, zdot_109[k], z(i, j, k));
+                        } 
+                    }
+                }
+                
+            });
+        }
+        _counter++;
     }
 
   private:
@@ -142,6 +222,8 @@ class TimeIntegrator
     const BoundaryCondition &_bc;
     const ZModelType & _zm;
     std::shared_ptr<node_array> _zdot, _wdot, _wtmp, _ztmp;
+
+    int _counter;
 };
 
 } // end namespace Beatnik
