@@ -188,7 +188,7 @@ class ExactBRSolver
      * This function is called three times per time step to compute the initial, forward, and half-step
      * derivatives for velocity and vorticity.
      */
-    void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view omega_view) const
+    void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const
     {
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
@@ -214,7 +214,7 @@ class ExactBRSolver
         });
         
         // Compute forces for all owned nodes on this process
-        computeInterfaceVelocityPiece(atomic_zdot, z, z, w, omega_view, _local_L2G);
+        computeInterfaceVelocityPiece(atomic_zdot, z, z, w, o, _local_L2G);
 
         /* Perform a ring pass of data between each process to compute forces of nodes 
          * on other processes on he nodes owned by this process */
@@ -227,8 +227,8 @@ class ExactBRSolver
         node_view wremote2(Kokkos::ViewAllocateWithoutInitializing ("wremote2"), w.extent(0), w.extent(1), w.extent(2));
         node_view zremote1(Kokkos::ViewAllocateWithoutInitializing ("zremote1"), z.extent(0), z.extent(1), z.extent(2));
         node_view zremote2(Kokkos::ViewAllocateWithoutInitializing ("zremote2"), z.extent(0), z.extent(1), z.extent(2));
-        node_view oremote1(Kokkos::ViewAllocateWithoutInitializing ("omega_remote1"), z.extent(0), z.extent(1), z.extent(2));
-        node_view oremote2(Kokkos::ViewAllocateWithoutInitializing ("omega_remote2"), z.extent(0), z.extent(1), z.extent(2));
+        node_view oremote1(Kokkos::ViewAllocateWithoutInitializing ("oremote1"), o.extent(0), o.extent(1), o.extent(2));
+        node_view oremote2(Kokkos::ViewAllocateWithoutInitializing ("oremote2"), o.extent(0), o.extent(1), o.extent(2));
         l2g_type L2G_remote1 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cabana::Grid::Node());
         l2g_type L2G_remote2 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cabana::Grid::Node());
         
@@ -236,6 +236,11 @@ class ExactBRSolver
         int wextents2[3];
         int zextents1[3];
         int zextents2[3];
+        int oextents1[3];
+        int oextents2[3];
+
+        // printf("extents: omega: %d %d %d, z: %d %d %d\n", omega_view.extent(0), omega_view.extent(1), omega_view.extent(2),
+        //     z.extent(0), z.extent(1), z.extent(2));
   
         // Now create references to these buffers. We go ahead and assign them here to get 
         // same type declarations. The loop reassigns these references as needed each time
@@ -245,6 +250,7 @@ class ExactBRSolver
         node_view *osend_view = NULL;
         int * zsend_extents = NULL;
         int * wsend_extents = NULL;
+        int * osend_extents = NULL;
         l2g_type * L2G_send = NULL;
 
         node_view *zrecv_view = NULL; 
@@ -252,6 +258,7 @@ class ExactBRSolver
         node_view *orecv_view = NULL;
         int * zrecv_extents = NULL;
         int * wrecv_extents = NULL;
+        int * orecv_extents = NULL;
         l2g_type * L2G_recv = NULL;
 
         // Perform the ring pass
@@ -262,25 +269,25 @@ class ExactBRSolver
             // to avoid copying data across interations
             if (i % 2) {
                 zsend_view = &zremote1; wsend_view = &wremote1; osend_view = &oremote1;
-                zsend_extents = zextents1; wsend_extents = wextents1;
+                zsend_extents = zextents1; wsend_extents = wextents1; osend_extents = oextents1;
                 L2G_send = &L2G_remote1;
 
                 zrecv_view = &zremote2; wrecv_view = &wremote2; 
-                zrecv_extents = zextents2; wrecv_extents = wextents2;
+                zrecv_extents = zextents2; wrecv_extents = wextents2; orecv_extents = oextents2;
                 L2G_recv = &L2G_remote2;
             } else {
                 if (i == 0) {
                     /* Avoid a deep copy on the first iteration */
-                    wsend_view = &w; zsend_view = &z; osend_view = &omega_view;
+                    wsend_view = &w; zsend_view = &z; osend_view = &o;
                 } else {
                     wsend_view = &wremote2; zsend_view = &zremote2; osend_view = &oremote2; 
                 } 
                 
-                zsend_extents = zextents2; wsend_extents = wextents2;
+                zsend_extents = zextents2; wsend_extents = wextents2; osend_extents = oextents2;
                 L2G_send = &L2G_remote2;
 
                 zrecv_view = &zremote1; wrecv_view = &wremote1; orecv_view = &oremote1;
-                zrecv_extents = zextents1; wrecv_extents = wextents1;
+                zrecv_extents = zextents1; wrecv_extents = wextents1; orecv_extents = oextents1;
                 L2G_recv = &L2G_remote1;
             }
 
@@ -288,6 +295,7 @@ class ExactBRSolver
             for (int j = 0; j < 3; j++) {
                 wsend_extents[j] = wsend_view->extent(j);
                 zsend_extents[j] = zsend_view->extent(j);
+                osend_extents[j] = osend_view->extent(j);
             }
                 
             // Send w and z view sizes
@@ -295,21 +303,20 @@ class ExactBRSolver
                         wrecv_extents, 3, MPI_INT, prev_rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             MPI_Sendrecv(zsend_extents, 3, MPI_INT, next_rank, 1, 
                         zrecv_extents, 3, MPI_INT, prev_rank, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Sendrecv(osend_extents, 3, MPI_INT, next_rank, 6, 
+                        orecv_extents, 3, MPI_INT, prev_rank, 6, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             // Resize *remote2, which is receiving data
             Kokkos::resize(*wrecv_view, wrecv_extents[0], wrecv_extents[1], wrecv_extents[2]);
             Kokkos::resize(*zrecv_view, zrecv_extents[0], zrecv_extents[1], zrecv_extents[2]);
-            Kokkos::resize(*orecv_view, zrecv_extents[0], zrecv_extents[1], zrecv_extents[2]);
-            
+            Kokkos::resize(*orecv_view, orecv_extents[0], orecv_extents[1], orecv_extents[2]);
+
             // Send/receive the views
             MPI_Sendrecv(wsend_view->data(), int(wsend_view->size()), MPI_DOUBLE, next_rank, 2, 
                         wrecv_view->data(), int(wrecv_view->size()), MPI_DOUBLE, prev_rank, 2, 
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             MPI_Sendrecv(zsend_view->data(), int(zsend_view->size()), MPI_DOUBLE, next_rank, 3, 
                         zrecv_view->data(), int(zrecv_view->size()), MPI_DOUBLE, prev_rank, 3, 
-                        MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            MPI_Sendrecv(osend_view->data(), int(osend_view->size()), MPI_DOUBLE, next_rank, 3, 
-                        orecv_view->data(), int(orecv_view->size()), MPI_DOUBLE, prev_rank, 3, 
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
