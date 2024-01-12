@@ -112,14 +112,18 @@ namespace Operators
             double epsilon, double dx, double dy, double weight, int i, int j, int k, int l,
             double offset[3]) 
     {
-        double omega[3], zdiff[3], zsize;
+        double omega[3], zdiff[3], omega_good[3], zsize;
         zsize = 0.0;
         for (int d = 0; d < 3; d++) {
-            // omega[d] = w2(k, l, 1) * Dx(z2, k, l, d, dx) - w2(k, l, 0) * Dy(z2, k, l, d, dy);
+            omega_good[d] = w2(k, l, 1) * Dx(z2, k, l, d, dx) - w2(k, l, 0) * Dy(z2, k, l, d, dy);
             omega[d] = omega_view(k, l, d);
             zdiff[d] = z(i, j, d) - (z2(k, l, d) + offset[d]);
             zsize += zdiff[d] * zdiff[d];
-        }  
+        }
+        if (i == 2 && j == 7 && k == 2 && l == 6)
+        {
+            printf("(%d, %d) omega[0] correct: %0.13lf, bad: %0.13lf\n", k, l, omega_good[0], omega[0]);
+        }
         zsize = pow(zsize + epsilon, 1.5); // matlab code doesn't square epsilon
         for (int d = 0; d < 3; d++) {
             zdiff[d] /= zsize;

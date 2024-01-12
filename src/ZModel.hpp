@@ -272,6 +272,7 @@ class ZModel
             KOKKOS_LAMBDA(int i, int j) {
             for (int d = 0; d < 3; d++) {
                 omega(i, j, d) = w(i, j, 1) * Operators::Dx(z, i, j, d, dx) - w(i, j, 0) * Operators::Dy(z, i, j, d, dy);
+                // omega[d] = w2(k, l, 1) * Dx(z2, k, l, d, dx) - w2(k, l, 0) * Dy(z2, k, l, d, dy);
                 //printf("omega0: %.15lf\n", w(k, l, 1) * Operators::Dx(z, k, l, d, dx) - w(k, l, 0) * Operators::Dy(z, k, l, d, dy));
             }
         });
@@ -375,6 +376,7 @@ class ZModel
 
         // Phase 1.a: Calcuate the omega value for each point
         prepareOmega(z_view, w_view);
+        //printf("size o: %d, size z: %d\n", int(_omega->view().size()), int(z_view.size()));
 
         // Phase 1.b: Compute zdot
         auto omega_view = _omega->view();
