@@ -272,7 +272,7 @@ class ExactBRSolver
                 zsend_extents = zextents1; wsend_extents = wextents1; osend_extents = oextents1;
                 L2G_send = &L2G_remote1;
 
-                zrecv_view = &zremote2; wrecv_view = &wremote2; 
+                zrecv_view = &zremote2; wrecv_view = &wremote2; orecv_view = &oremote2; 
                 zrecv_extents = zextents2; wrecv_extents = wextents2; orecv_extents = oextents2;
                 L2G_recv = &L2G_remote2;
             } else {
@@ -313,8 +313,8 @@ class ExactBRSolver
             // printf("z resize: (%d, %d, %d), o resize: (%d, %d, %d)\n",
             //     zrecv_extents[0], zrecv_extents[1], zrecv_extents[2],
             //     orecv_extents[0], orecv_extents[1], orecv_extents[2]);
-            // printf("send/recv sizes o: %d, %d\n", int(osend_view->size()), int(orecv_view->size()));
-            // printf("send/recv sizes z: %d, %d\n", int(zsend_view->size()), int(zrecv_view->size()));
+            printf("i%d R%d: send/recv sizes o: %d, %d\n", i, rank, int(osend_view->size()), int(orecv_view->size()));
+            printf("i%d R%d: send/recv sizes z: %d, %d\n", i, rank, int(zsend_view->size()), int(zrecv_view->size()));
 
             // Send/receive the views
             MPI_Sendrecv(wsend_view->data(), int(wsend_view->size()), MPI_DOUBLE, next_rank, 2, 
@@ -326,8 +326,8 @@ class ExactBRSolver
             MPI_Sendrecv(osend_view->data(), int(osend_view->size()), MPI_DOUBLE, next_rank, 7, 
                         orecv_view->data(), int(orecv_view->size()), MPI_DOUBLE, prev_rank, 7, 
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            printf("i%d R%d: send/recv sizes o: %d, %d\n", i, rank, int(osend_view->size()), int(orecv_view->size()));
-            printf("i%d R%d: send/recv sizes z: %d, %d\n", i, rank, int(zsend_view->size()), int(zrecv_view->size()));
+            // printf("i%d R%d: send/recv sizes o: %d, %d\n", i, rank, int(osend_view->size()), int(orecv_view->size()));
+            // printf("i%d R%d: send/recv sizes z: %d, %d\n", i, rank, int(zsend_view->size()), int(zrecv_view->size()));
 
             // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
             MPI_Sendrecv(L2G_send, int(sizeof(*L2G_send)), MPI_BYTE, next_rank, 4, 
