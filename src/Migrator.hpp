@@ -266,6 +266,7 @@ class Migrator
     void migrateParticlesTo2D()
     {
         // We only want to send back the non-ghosted particles to 2D
+        // XXX Assume all ghosted particles are at the end of the array
         particle_array_type array_3D = _particle_array;
         particle_array_type particle_array = particle_array_type("particle_array_for_2D", _owned_3D_count);
         int rank = _rank;

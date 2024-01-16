@@ -54,6 +54,7 @@ class SpatialMesh
         // the spatil mesh stuff in migration
         Cabana::Grid::DimBlockPartitioner<3> partitioner;
 
+        
         MPI_Comm_rank( comm, &_rank );
 
         for (int i = 0; i < 3; i++) {
