@@ -313,8 +313,8 @@ class ExactBRSolver
             // printf("z resize: (%d, %d, %d), o resize: (%d, %d, %d)\n",
             //     zrecv_extents[0], zrecv_extents[1], zrecv_extents[2],
             //     orecv_extents[0], orecv_extents[1], orecv_extents[2]);
-            printf("i%d R%d: send/recv sizes o: %d, %d\n", i, rank, int(osend_view->size()), int(orecv_view->size()));
-            printf("i%d R%d: send/recv sizes z: %d, %d\n", i, rank, int(zsend_view->size()), int(zrecv_view->size()));
+            // printf("i%d R%d: send/recv sizes o: %d, %d\n", i, rank, int(osend_view->size()), int(orecv_view->size()));
+            // printf("i%d R%d: send/recv sizes z: %d, %d\n", i, rank, int(zsend_view->size()), int(zrecv_view->size()));
 
             // Send/receive the views
             MPI_Sendrecv(wsend_view->data(), int(wsend_view->size()), MPI_DOUBLE, next_rank, 2, 

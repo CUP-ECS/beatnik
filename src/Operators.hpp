@@ -120,10 +120,10 @@ namespace Operators
             zdiff[d] = z(i, j, d) - (z2(k, l, d) + offset[d]);
             zsize += zdiff[d] * zdiff[d];
         }
-        if (i == 2 && j == 7 && k == 2 && l == 6)
-        {
-            printf("(%d, %d) omega[0] correct: %0.13lf, bad: %0.13lf\n", k, l, omega_good[0], omega[0]);
-        }
+        // if (i == 2 && j == 7 && k == 2 && l == 6)
+        // {
+        //     printf("(%d, %d) omega[0] correct: %0.13lf, bad: %0.13lf\n", k, l, omega_good[0], omega[0]);
+        // }
         zsize = pow(zsize + epsilon, 1.5); // matlab code doesn't square epsilon
         for (int d = 0; d < 3; d++) {
             zdiff[d] /= zsize;
