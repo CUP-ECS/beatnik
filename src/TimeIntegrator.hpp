@@ -118,6 +118,12 @@ class TimeIntegrator
         });
         // Get the derivatives at the half-setp
         _zm.computeDerivatives( *_ztmp, *_wtmp, z_dot, w_dot);
+
+        /* Figure out how wide the 3D bounding box is in each direction,
+         * to make sure no paerticles have moved outside of it. */
+        // XXX Only do this if using the spatial solve?
+        auto low = _pm.mesh().boundingBoxMin();
+        auto high = _pm.mesh().boundingBoxMax();;
         
         // TVD RK3 Step Three - Combine start, forward euler, and half step
         // derivatives to take the final full step.
