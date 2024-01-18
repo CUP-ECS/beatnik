@@ -57,7 +57,11 @@ class Migrator
                                               int,       // Owning rank in 3D space                         7
                                               int        // Point ID in 3D                                  8
                                               >;
+    // XXX Change the final parameter of particle_array_type, vector type, to
+    // be aligned with the machine we are using
     using particle_array_type = Cabana::AoSoA<particle_node, device_type, 4>;
+
+    // XXX Get this type from the SpatialMesh class
     using spatial_mesh_type2 = Cabana::Grid::UniformMesh<double, 3>;
     using local_grid_type2 = Cabana::Grid::LocalGrid<spatial_mesh_type2>;
 
@@ -153,18 +157,6 @@ class Migrator
                 Cabana::get<2>(particle, dim) = 0.0;
             }
 
-            // Debug
-            // if (rank == 0 && particle_id == 20)
-            // {
-            //     Cabana::get<0>(particle, 0) = -0.5; 
-            //     Cabana::get<0>(particle, 1) = 0.5;
-            //     Cabana::get<0>(particle, 2) = 1.0; 
-            // }
-
-            //printf("id: %d, get #1\n", particle_id);
-            // Simpson weight
-            // Cabana::get<3>(particle) = simpsonWeight(gi[0], mesh_size) * simpsonWeight(gi[1], mesh_size)
-            //Cabana::get<3>(particle) = simpsonWeight(i - offset[0], mesh_dimension) * simpsonWeight(j - offset[1], mesh_dimension);
             Cabana::get<3>(particle) = simpsonWeight(local_gi[0], mesh_dimension) * simpsonWeight(local_gi[1], mesh_dimension);
 
             // Local index
@@ -423,36 +415,6 @@ class Migrator
 
         // Wait for all parallel tasks to complete
         Kokkos::fence();
-
-
-        //if (_rank == 0) {
-            //printf("R%d: ****START**** size = %d, array_size = %d\n", _rank, _particle_array.size(), _array_size);
-        //}
-        // for (int i = 0; i < _array_size; i++)
-        // {
-        //     if (_rank == 0) {
-        //         //printf("R%d: i = %d\n", _rank, i);
-        //     }
-        //     auto particle = _particle_array.getTuple(i);
-
-        //     // Check that the particle is owned by our rank, and thus in zdot
-        //     int particle_rank = Cabana::get<6>(particle);
-        //     if (_rank == 0) {
-        //         //printf("R%d: i%d: p-rank: %d\n", _rank, i, particle_rank);
-        //     }
-        //     if (particle_rank == _rank)
-        //     {
-        //         int i_index = Cabana::get<4>(particle, 0);
-        //         int j_index = Cabana::get<4>(particle, 1);
-        //         //if (_rank == 0) {
-        //            // printf("R%d: i%d: p-rank: %d, i-index: %d, j-index: %d\n", _rank, i, particle_rank, i_index, j_index);
-        //         //}
-        //         for (int n = 0; n < 3; n++) 
-        //         {
-        //             zdot(i_index, j_index, n) = Cabana::get<2>(particle, n);
-        //         }
-        //     }
-        // }
     }
 
   private:
