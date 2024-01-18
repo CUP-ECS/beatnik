@@ -66,7 +66,7 @@ class Migrator
     using local_grid_type2 = Cabana::Grid::LocalGrid<spatial_mesh_type2>;
 
     // Construct a mesh.
-    Migrator(const pm_type &pm, const spatial_mesh_type &spm, const int cutoff_distance)
+    Migrator(const pm_type &pm, const spatial_mesh_type &spm, const double cutoff_distance)
         : _pm( pm )
         , _spm( spm )
         , _local_L2G( *_pm.mesh().localGrid() )
@@ -102,15 +102,24 @@ class Migrator
             printf("Comm size: %d\n", _comm_size);
             for (int i = 0; i < _comm_size * 6; i+=6)
             {
-                if ((_grid_space(i+3) - _grid_space(i)) > _cutoff_distance)
+                // Check cutoff distance
+                // printf("Min space max-min: abs(%0.3lf - %0.3lf) = %0.3lf, dist: %0.3lf\n",
+                //     _grid_space(i+3), _grid_space(i), abs(_grid_space(i+3) - _grid_space(i)), _cutoff_distance);
+                if (_cutoff_distance > abs(_grid_space(i+3) - _grid_space(i)))
                 {
                     printf("Cutoff distance too large. Exiting\n");
                     exit(1);
                 }
-                //if 
-                printf("R%d: (%0.3lf %0.3lf %0.3lf), (%0.3lf %0.3lf %0.3lf)\n",
-                    i/6, _grid_space(i), _grid_space(i+1), _grid_space(i+2),
-                    _grid_space(i+3), _grid_space(i+4), _grid_space(i+5));
+                // Check cell size
+                printf("dist: %0.3lf, size: %0.3lf, fmod: %0.3lf\n", _cutoff_distance, cell_size, fmod(cell_size, _cutoff_distance));
+                if (fmod(cell_size, _cutoff_distance) != 0.0)
+                {
+                    printf("Cutoff distance not divisible by cell size. Exiting\n");
+                    exit(1);
+                }
+                // printf("R%d: (%0.3lf %0.3lf %0.3lf), (%0.3lf %0.3lf %0.3lf)\n",
+                //     i/6, _grid_space(i), _grid_space(i+1), _grid_space(i+2),
+                //     _grid_space(i+3), _grid_space(i+4), _grid_space(i+5));
             }
         }
 
@@ -438,7 +447,7 @@ class Migrator
     int _rank, _comm_size;
 
     int _owned_3D_count;
-    const int _cutoff_distance;
+    const double _cutoff_distance;
 
     Kokkos::View<double*, memory_space> _grid_space;
 };

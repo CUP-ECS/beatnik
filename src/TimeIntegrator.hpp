@@ -138,7 +138,7 @@ class TimeIntegrator
                 // Check if a particle has moved outside 3D bounding box
                 // XXX Only do this if using the spatial solve?
                 // XXX Should be >=, <= or just >, < ?
-                if (z_orig(i, j, d) >= high[d] || z_orig(i, j, d) <= low[d])
+                if (z_orig(i, j, d) > high[d] || z_orig(i, j, d) < low[d])
                 {
                     printf("Particle has moved outside 3D bounding box. Exiting.\n");
                     exit(1);

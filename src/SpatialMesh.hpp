@@ -71,7 +71,7 @@ class SpatialMesh
         // Finally, create the global mesh, global grid, and local grid.
         _cell_size = 0.05;
         auto global_mesh = Cabana::Grid::createUniformGlobalMesh(
-            _low_point, _high_point, cell_size );
+            _low_point, _high_point, _cell_size );
 
         auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
                                                      is_dim_periodic, partitioner );
