@@ -66,10 +66,11 @@ class Migrator
     using local_grid_type2 = Cabana::Grid::LocalGrid<spatial_mesh_type2>;
 
     // Construct a mesh.
-    Migrator(const pm_type &pm, const spatial_mesh_type &spm)
+    Migrator(const pm_type &pm, const spatial_mesh_type &spm, const int cutoff_distance)
         : _pm( pm )
         , _spm( spm )
         , _local_L2G( *_pm.mesh().localGrid() )
+        , _cutoff_distance( cutoff_distance )
     {
         _comm = _spm.localGrid()->globalGrid().comm();
         MPI_Comm_size(_comm, &_comm_size);
@@ -88,18 +89,29 @@ class Migrator
             own_space[i+3] = local_mesh.highCorner(Cabana::Grid::Own(), i);
         }
 
-        // Gather all ranks' spaces
+        // Check if the cutoff distance exceeds the domain size each process holds.
+        // We can only halo particles that are on neighboring ranks,
+        // so if the cutoff distance spreads multiple ranks our solution will be incorrect.
+        // Also check if the cutoff distance is a multiple of the cell size. Halo exchange
+        // distances are multiples of the cell size.
         _grid_space = Kokkos::View<double*, device_type>("grid_space", _comm_size * 6);
         MPI_Allgather(own_space, 6, MPI_DOUBLE, _grid_space.data(), 6, MPI_DOUBLE, _comm);
+        double cell_size = _spm.cell_size();
         if (_rank == 0)
         {
             printf("Comm size: %d\n", _comm_size);
-            // for (int i = 0; i < _comm_size * 6; i+=6)
-            // {
-            //     printf("R%d: (%0.3lf %0.3lf %0.3lf), (%0.3lf %0.3lf %0.3lf)\n",
-            //         i/6, _grid_space(i), _grid_space(i+1), _grid_space(i+2),
-            //         _grid_space(i+3), _grid_space(i+4), _grid_space(i+5));
-            // }
+            for (int i = 0; i < _comm_size * 6; i+=6)
+            {
+                if ((_grid_space(i+3) - _grid_space(i)) > _cutoff_distance)
+                {
+                    printf("Cutoff distance too large. Exiting\n");
+                    exit(1);
+                }
+                //if 
+                printf("R%d: (%0.3lf %0.3lf %0.3lf), (%0.3lf %0.3lf %0.3lf)\n",
+                    i/6, _grid_space(i), _grid_space(i+1), _grid_space(i+2),
+                    _grid_space(i+3), _grid_space(i+4), _grid_space(i+5));
+            }
         }
 
     }
@@ -224,7 +236,7 @@ class Migrator
         // Updated owned 3D count for migration back to 2D
         _owned_3D_count = _particle_array.size();
 
-        //printf("To 3D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
+        printf("To 3D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
         // for (int i = 0; i < _particle_array.size(); i++)
         // {
         //     auto particle = _particle_array.getTuple(i);
@@ -248,7 +260,7 @@ class Migrator
         // XXX Can we avoid a deep copy here?
         Cabana::deep_copy(_particle_array, particle_array);
 
-        //printf("Halo exch: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
+        printf("Halo exch: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
         // for (int i = 0; i < _particle_array.size(); i++)
         // {
         //     auto particle = _particle_array.getTuple(i);
@@ -288,7 +300,7 @@ class Migrator
         // XXX Can we avoid a deep copy here?
         Cabana::deep_copy(_particle_array, particle_array);
         
-        //printf("To 2D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
+        printf("To 2D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
         // for (int i = 0; i < _particle_array.size(); i++)
         // {
         //     auto particle = _particle_array.getTuple(i);
@@ -296,7 +308,7 @@ class Migrator
         // }
     }
 
-    void computeInterfaceVelocityNeighbors(int neighbor_radius, double dy, double dx, double epsilon)
+    void computeInterfaceVelocityNeighbors(double dy, double dx, double epsilon)
     {
         /* Project the Birkhoff-Rott calculation between all pairs of points on the 
          * interface, including accounting for any periodic boundary conditions.
@@ -340,7 +352,7 @@ class Migrator
 
         auto neighbor_list = Cabana::Experimental::makeNeighborList(
         Cabana::FullNeighborTag{}, positions, 0, num_particles,
-            neighbor_radius);
+            _cutoff_distance);
 
         using list_type = decltype(neighbor_list);
         particle_array_type particle_array = _particle_array;
@@ -426,6 +438,7 @@ class Migrator
     int _rank, _comm_size;
 
     int _owned_3D_count;
+    const int _cutoff_distance;
 
     Kokkos::View<double*, memory_space> _grid_space;
 };

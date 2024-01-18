@@ -149,8 +149,9 @@ class Solver : public SolverBase
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
             *_surfaceMesh, *_spatialMesh, _bc, create_functor );
         
+        int cutoff_distance = 10;
         _migrator = std::make_unique<Migrator<ExecutionSpace, MemorySpace>>(
-            *_pm, *_spatialMesh);
+            *_pm, *_spatialMesh, cutoff_distance);
 
         // Create the Birkhoff-Rott solver (XXX make this conditional on non-low 
         // order solve

@@ -69,15 +69,15 @@ class SpatialMesh
         std::array<bool, 3> is_dim_periodic = { false, false, false };
 
         // Finally, create the global mesh, global grid, and local grid.
-        double cell_size = 0.05;
+        _cell_size = 0.05;
         auto global_mesh = Cabana::Grid::createUniformGlobalMesh(
             _low_point, _high_point, cell_size );
 
         auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
                                                      is_dim_periodic, partitioner );
         // Build the local grid.
-        int halo_width = fmax(20, min_halo_width);
-        _local_grid = Cabana::Grid::createLocalGrid( global_grid, halo_width );
+        _halo_width = fmax(100000, min_halo_width);
+        _local_grid = Cabana::Grid::createLocalGrid( global_grid, _halo_width );
 
         // _global_particle_comm = Cabana::Grid::createGlobalParticleComm(_local_grid);
 
@@ -234,6 +234,17 @@ class SpatialMesh
         return _num_nodes[0];
     }
 
+    int halo_width() const
+    {
+        return _halo_width;
+    }
+
+    double cell_size() const
+    {
+        return _cell_size;
+    }
+
+
     // Get the boundary indexes on the periodic boundary. local_grid.boundaryIndexSpace()
     // doesn't work on periodic boundaries.
     // XXX Needs more error checking to make sure the boundary is in fact periodic
@@ -261,7 +272,8 @@ class SpatialMesh
     std::array<double, 3> _low_point, _high_point;
     std::shared_ptr<local_grid_type> _local_grid;
     std::shared_ptr<global_particle_comm_type> _global_particle_comm;
-    int _rank;
+    int _rank, _halo_width;
+    double _cell_size;
 	std::array<int, 2> _num_nodes;
 };
 
