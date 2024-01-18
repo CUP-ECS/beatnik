@@ -226,6 +226,7 @@ class Migrator
             _particle_array.resize(particle_array.size());
             //printf("To 3D: R%d resized: %d, _%d\n", _rank, particle_array.size(), _particle_array.size());
         }
+        // XXX Can we avoid a deep copy here?
         Cabana::deep_copy(_particle_array, particle_array);
 
         // Updated owned 3D count for migration back to 2D
@@ -252,6 +253,7 @@ class Migrator
             _particle_array.resize(particle_array.size());
             //printf("To 2D: R%d resized: %d, _%d\n", _rank, particle_array.size(), _particle_array.size());
         }
+        // XXX Can we avoid a deep copy here?
         Cabana::deep_copy(_particle_array, particle_array);
 
         //printf("Halo exch: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
@@ -279,35 +281,6 @@ class Migrator
                 //printf("To 2D: R%d particle id: %d, 2D: %d, 3D: %d\n", rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
             } 
         });
-        //int count_3d = 0;
-        // for (int i = 0; i < array_3D.size(); i++)
-        // {
-        //     auto particle = array_3D.getTuple(i);
-        //     if (Cabana::get<7>(particle) == rank)
-        //     {
-        //         int id = Cabana::get<5>(particle);
-        //         particle_array.setTuple(count_3d, particle);
-        //         printf("R%d: id: %d, tid: %d, 2D: %d, 3D: %d\n", rank, id, count_3d, Cabana::get<6>(particle),  Cabana::get<7>(particle));
-        //         count_3d++;
-        //     }
-        // }
-        //printf("R%d: count3d: %d, size: %lu\n", rank, count_3d, particle_array.size());
-
-        // printf("To 2D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
-        // for (int i = 0; i < particle_array.size(); i++)
-        // {
-        //     auto particle = particle_array.getTuple(i);
-        //     printf("To 2D: R%d particle id: %d, 2D: %d, 3D: %d\n", _rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
-        // }
-        //printf("R%d done filling 2d\n", _rank);
-        // Kokkos::fence();
-        // MPI_Barrier(_comm);
-        
-        // for (int i = 0; i < particle_array.size(); i++)
-        // {
-        //     auto particle = particle_array.getTuple(i);
-        //     printf("R%d particle id: %d, 2D: %d, 3D: %d\n", _rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
-        // }
         
         auto destinations = Cabana::slice<6>(particle_array, "destinations");
 
@@ -320,6 +293,7 @@ class Migrator
             _particle_array.resize(particle_array.size());
             //printf("To 2D: R%d resized: %d, _%d\n", _rank, particle_array.size(), _particle_array.size());
         }
+        // XXX Can we avoid a deep copy here?
         Cabana::deep_copy(_particle_array, particle_array);
         
         //printf("To 2D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
@@ -423,62 +397,8 @@ class Migrator
         });
 
         Kokkos::fence();
+        // XXX Can we avoid a deep copy here?
         Cabana::deep_copy(_particle_array, particle_array);
-
-        // for ( std::size_t i = 0; i < positions.size(); ++i )
-        // {
-        //     int num_neighbors = Cabana::NeighborList<list_type>::numNeighbor(neighbor_list, i);
-
-        //     //std::cout << "R" << rank << ": Particle " << i << " # neighbor = " << num_neighbors << std::endl;
-        //     // int num_n = Cabana::NeighborList<list_type>::numNeighbor( neighbor_list, i );
-        //     // for ( int j = 0; j < num_n; ++j )
-        //     //     std::cout << "    neighbor " << j << " = "
-        //     //             << Cabana::NeighborList<list_type>::getNeighbor(
-        //     //                     neighbor_list, i, j )
-        //     //             << std::endl;
-
-        //     // Compute BR force from neighbors
-            
-        //     double brsum[3] = {0.0, 0.0, 0.0};
-        //     auto particle = _particle_array.getTuple(i);
-
-        //     // Only calculate for particles owned by this rank, not ghosts
-        //     if (Cabana::get<6>(particle) != _rank) continue;
-
-        //     int i_index = Cabana::get<4>(particle, 0);
-        //     int j_index = Cabana::get<4>(particle, 1);
-        //     for (int j = 0; j < num_neighbors; j++) {
-        //         int neighbor_id = Cabana::NeighborList<list_type>::getNeighbor(neighbor_list, i, j);
-        //         auto neighbor_particle = _particle_array.getTuple(neighbor_id);
-
-        //         double weight = Cabana::get<3>(neighbor_particle);
-
-        //         // XXX Offset initializtion not correct for periodic boundaries
-        //         double offset[3] = {0.0, 0.0, 0.0}, br[3];
-                
-        //         /* Do the Birkhoff-Rott evaluation for this point */
-        //         Operators::BR_with_aosoa(br, particle, neighbor_particle, epsilon, dx, dy, weight, offset);
-        //         for (int d = 0; d < 3; d++) {
-        //             brsum[d] += br[d];
-        //         }
-        //     }
-        //     /* Add it its contribution to the integral */
-        //     for (int n = 0; n < 3; n++) {
-        //         Cabana::get<2>(particle, n) = brsum[n];
-        //     }
-
-        //     // Update the AoSoA
-        //     _particle_array.setTuple(i, particle);
-            
-
-        //     // if (i_index == 4 && j_index == 9) {
-        //     //     printf("xyz: %0.5lf %0.5lf %0.5lf\nomega: %0.5lf %0.5lf %0.5lf\nzdot: %0.13lf %0.13lf %0.13lf\nsimpson: %0.5lf, (%d, %d), id: %d\n", 
-        //     //         Cabana::get<0>(particle, 0), Cabana::get<0>(particle, 1), Cabana::get<0>(particle, 2),
-        //     //         Cabana::get<1>(particle, 0), Cabana::get<1>(particle, 1), Cabana::get<1>(particle, 2),
-        //     //         Cabana::get<2>(particle, 0), Cabana::get<2>(particle, 1), Cabana::get<2>(particle, 2),
-        //     //         Cabana::get<3>(particle), Cabana::get<4>(particle, 0), Cabana::get<4>(particle, 1), Cabana::get<5>(particle));
-        //     // }
-        // }
     }
 
     template <class PositionView>
