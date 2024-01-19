@@ -103,23 +103,19 @@ class Migrator
             for (int i = 0; i < _comm_size * 6; i+=6)
             {
                 // Check cutoff distance
-                // printf("Min space max-min: abs(%0.3lf - %0.3lf) = %0.3lf, dist: %0.3lf\n",
-                //     _grid_space(i+3), _grid_space(i), abs(_grid_space(i+3) - _grid_space(i)), _cutoff_distance);
-                if (_cutoff_distance > abs(_grid_space(i+3) - _grid_space(i)))
+                double max_distance = abs(_grid_space(i+3) - _grid_space(i));
+                if (_cutoff_distance > max_distance)
                 {
-                    printf("Cutoff distance too large. Exiting\n");
+                    printf("Cutoff distance is %0.3lf. Maxmium allowed in this dimension is %0.3lf. Exiting\n", _cutoff_distance, max_distance);
                     exit(1);
                 }
                 // Check cell size
-                printf("dist: %0.3lf, size: %0.3lf, fmod: %0.3lf\n", _cutoff_distance, cell_size, fmod(cell_size, _cutoff_distance));
-                if (fmod(cell_size, _cutoff_distance) != 0.0)
+                double result = std::floor(_cutoff_distance / cell_size);
+                if (result * cell_size != _cutoff_distance)
                 {
-                    printf("Cutoff distance not divisible by cell size. Exiting\n");
+                    printf("Cutoff distance (%0.3lf) not divisible by cell size (%0.3lf). Exiting\n", _cutoff_distance, cell_size);
                     exit(1);
                 }
-                // printf("R%d: (%0.3lf %0.3lf %0.3lf), (%0.3lf %0.3lf %0.3lf)\n",
-                //     i/6, _grid_space(i), _grid_space(i+1), _grid_space(i+2),
-                //     _grid_space(i+3), _grid_space(i+4), _grid_space(i+5));
             }
         }
 
