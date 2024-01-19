@@ -149,7 +149,7 @@ class Solver : public SolverBase
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
             *_surfaceMesh, *_spatialMesh, _bc, create_functor );
         
-        double cutoff_distance = 1.1;
+        double cutoff_distance = 1.0;
         _migrator = std::make_unique<Migrator<ExecutionSpace, MemorySpace>>(
             *_pm, *_spatialMesh, cutoff_distance);
 

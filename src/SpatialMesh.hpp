@@ -58,8 +58,8 @@ class SpatialMesh
         MPI_Comm_rank( comm, &_rank );
 
         for (int i = 0; i < 3; i++) {
-            _low_point[i] = global_bounding_box[i] - 0.1;
-            _high_point[i] = global_bounding_box[i+3] + 0.1;
+            _low_point[i] = global_bounding_box[i];
+            _high_point[i] = global_bounding_box[i+3];
         }
 
         // Set the z-dimension to have larger bounds
