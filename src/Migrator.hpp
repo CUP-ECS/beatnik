@@ -144,19 +144,8 @@ class Migrator
         particle_array_type particle_array = _particle_array;
         int mesh_dimension = _pm.mesh().get_surface_mesh_size();
         l2g_type local_L2G = _local_L2G;
-        int is_outside_box = 0;
-        Kokkos::View<int, memory_space> outside_box_view("outside_box_view");
         Kokkos::parallel_for("populate_particles", Kokkos::MDRangePolicy<exec_space, Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
         KOKKOS_LAMBDA(int i, int j) {
-
-            // Check if the particle has moved outside the bounding box
-            int outside_box = 0;
-            if (z(i, j, 2) > 4.0)
-            {
-                outside_box = 1;
-                //printf("R%d OUTSIDE BOX\n", rank);
-                Kokkos::atomic_add(&outside_box_view(), outside_box);
-            }
 
             int particle_id = (i - istart) * (jend - jstart) + (j - jstart);
 
@@ -175,6 +164,7 @@ class Migrator
             }
 
             Cabana::get<3>(particle) = simpsonWeight(local_gi[0], mesh_dimension) * simpsonWeight(local_gi[1], mesh_dimension);
+            printf("R%d: w(%d, %d), simp: %0.6lf\n", rank, local_gi[0], local_gi[1], Cabana::get<3>(particle));
 
             // Local index
             //printf("id: %d, get #3\n", particle_id);
@@ -196,17 +186,7 @@ class Migrator
             //printf("R%d: (%d, %d), simpson: %0.6lf\n", rank, Cabana::get<4>(particle, 0), Cabana::get<4>(particle, 1), Cabana::get<3>(particle));
         });
 
-        // Wait for all parallel tasks to complete
         Kokkos::fence();
-
-        // Check if any particles have moved outside the bounding box.
-        // If so, exit. XXX change this functionality?
-        Kokkos::deep_copy(is_outside_box, outside_box_view);
-        if (is_outside_box)
-        {
-            printf("Particle has moved outside bounding box. Exiting.\n");
-            exit(1);
-        }
     }
 
     void migrateParticlesTo3D()
@@ -241,7 +221,7 @@ class Migrator
         // Updated owned 3D count for migration back to 2D
         _owned_3D_count = _particle_array.size();
 
-        printf("To 3D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
+        //printf("To 3D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
         // for (int i = 0; i < _particle_array.size(); i++)
         // {
         //     auto particle = _particle_array.getTuple(i);
@@ -265,7 +245,7 @@ class Migrator
         // XXX Can we avoid a deep copy here?
         Cabana::deep_copy(_particle_array, particle_array);
 
-        printf("Halo exch: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
+        //printf("Halo exch: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
         // for (int i = 0; i < _particle_array.size(); i++)
         // {
         //     auto particle = _particle_array.getTuple(i);
@@ -305,7 +285,7 @@ class Migrator
         // XXX Can we avoid a deep copy here?
         Cabana::deep_copy(_particle_array, particle_array);
         
-        printf("To 2D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
+        //printf("To 2D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
         // for (int i = 0; i < _particle_array.size(); i++)
         // {
         //     auto particle = _particle_array.getTuple(i);
@@ -357,7 +337,7 @@ class Migrator
 
         auto neighbor_list = Cabana::Experimental::makeNeighborList(
         Cabana::FullNeighborTag{}, positions, 0, num_particles,
-            _cutoff_distance);
+            10000);
 
         using list_type = decltype(neighbor_list);
         particle_array_type particle_array = _particle_array;
@@ -370,12 +350,15 @@ class Migrator
             auto particle = particle_array.getTuple(i);
 
             // Do not consider ghosted particles
-            if (Cabana::get<7>(particle) != rank) return;
+            if (Cabana::get<7>(particle) != rank)
+            {
+                return;
+            }
 
             // Compute BR forces from neighbors
             int i_index = Cabana::get<4>(particle, 0);
             int j_index = Cabana::get<4>(particle, 1);
-            //printf("Particle %d/%lu, num neighbors %d\n", i, num_particles, num_neighbors);
+            //printf("R%d: particle %d/%lu, num neighbors %d\n", rank, i, num_particles, num_neighbors);
 
             for (int j = 0; j < num_neighbors; j++) {
                 int neighbor_id = Cabana::NeighborList<list_type>::getNeighbor(neighbor_list, i, j);
@@ -406,6 +389,7 @@ class Migrator
         });
 
         Kokkos::fence();
+
         // XXX Can we avoid a deep copy here?
         Cabana::deep_copy(_particle_array, particle_array);
     }
