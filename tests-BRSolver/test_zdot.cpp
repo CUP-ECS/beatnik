@@ -207,7 +207,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 
     /* Defaults computed once other arguments known */
     cl.delta_t = -1.0;
-    cl.t_final = 3.0;
+    cl.t_final = 8.0;
 
     // Now parse any arguments
     while ( ( ch = getopt_long( argc, argv, shortargs, longargs, NULL ) ) !=
