@@ -352,8 +352,8 @@ class ExactBRSolver
             computeInterfaceVelocityPiece(atomic_zdot, z, *zrecv_view, *wrecv_view, *orecv_view, *L2G_recv);
 	    }
 
-        printf("\n\n*********************\n");
-        printView(_local_L2G, rank, zdot, 1, 2, 7);
+        // printf("\n\n*********************\n");
+        // printView(_local_L2G, rank, zdot, 1, 2, 7);
     }
     
     template <class l2g_type, class View>

@@ -128,6 +128,11 @@ namespace Operators
         for (int d = 0; d < 3; d++) {  
             out[d] *= (dx * dy * weight) / (-4.0 * Kokkos::numbers::pi_v<double>);
         }
+        if (i == 4 && j == 8 && k == 5 && l == 9)
+        {
+            printf("(%d, %d -> %d, %d): %0.13lf, %0.13lf, %0.13lf\n",
+                i, j, k, l, out[0], out[1], out[2]);
+        }
     }
 
     template <class ParticleTuple>
@@ -156,6 +161,14 @@ namespace Operators
         cross(out, omega, zdiff);
         for (int d = 0; d < 3; d++) {  
             out[d] *= (dx * dy * weight) / (-4.0 * Kokkos::numbers::pi_v<double>);
+        }
+        int x, y, nx, ny;
+        x = Cabana::get<4>(particle, 0); y = Cabana::get<4>(particle, 1);
+        nx = Cabana::get<4>(neighbor_particle, 0); ny = Cabana::get<4>(neighbor_particle, 1);
+        if (x == 4 && y == 8 && nx == 5 && ny == 9)
+        {
+            printf("(%d, %d -> %d, %d): %0.13lf, %0.13lf, %0.13lf\n",
+                x, y, nx, ny, out[0], out[1], out[2]);
         }
         //printf("out: %.5lf %.5lf %.5lf\n", out[0], out[1], out[2]);
     }
