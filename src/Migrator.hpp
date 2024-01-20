@@ -409,7 +409,6 @@ class Migrator
                 int j_index = Cabana::get<4>(particle, 1);
 
                 for (int n = 0; n < 3; n++) {
-                    //Kokkos::atomic_add(&zdot(i_index, j_index, n), Cabana::get<2>(particle, n));
                     zdot(i_index, j_index, n) = Cabana::get<2>(particle, n);
                 }
             }
