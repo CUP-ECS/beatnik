@@ -62,10 +62,6 @@ class SpatialMesh
             _high_point[i] = global_bounding_box[i+3];
         }
 
-        // Set the z-dimension to have larger bounds
-        _low_point[2] = -4;
-        _high_point[2] = 4;
-
         std::array<bool, 3> is_dim_periodic = { false, false, false };
 
         // Finally, create the global mesh, global grid, and local grid.
