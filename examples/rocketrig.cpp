@@ -433,7 +433,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     }
 
     /* Physical setup of problem */
-    cl.global_bounding_box = {-1.0, -1.0, -1.0, 1.0, 1.0, 1.0};
+    cl.global_bounding_box = {-1.0, -1.0, -2.0, 1.0, 1.0, 10.0};
     cl.gravity = cl.gravity * 9.81;
 
     /* Scale up global bounding box and number of cells by weak scaling factor */
