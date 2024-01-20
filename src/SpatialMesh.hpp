@@ -44,7 +44,7 @@ class SpatialMesh
           const std::array<int, 2>& num_nodes,
 	      const std::array<bool, 2>& periodic,
           // const Cabana::Grid::BlockPartitioner<3>& partitioner,
-          const int min_halo_width, MPI_Comm comm )
+          const double cutoff_distance, MPI_Comm comm )
 		  : _num_nodes( num_nodes )
     {
         // Declare the partioner here for now
@@ -72,7 +72,8 @@ class SpatialMesh
         auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
                                                      is_dim_periodic, partitioner );
         // Build the local grid.
-        _halo_width = fmax(100000, min_halo_width);
+        //_halo_width = fmax(100000, min_halo_width);
+        _halo_width = (int) cutoff_distance / _cell_size;
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, _halo_width );
 
         // _global_particle_comm = Cabana::Grid::createGlobalParticleComm(_local_grid);

@@ -141,15 +141,15 @@ class Solver : public SolverBase
 #endif
 
         // Create the spatial mesh
+        double cutoff_distance = 1.0;
         _spatialMesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
             global_bounding_box, num_nodes, periodic,
-	        _halo_min, comm );
+	        cutoff_distance, comm );
 
         // Create a problem manager to manage mesh state
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
             *_surfaceMesh, *_spatialMesh, _bc, create_functor );
         
-        double cutoff_distance = 1.0;
         _migrator = std::make_unique<Migrator<ExecutionSpace, MemorySpace>>(
             *_pm, *_spatialMesh, cutoff_distance);
 
