@@ -99,19 +99,22 @@ class Migrator
         double cell_size = _spm.cell_size();
         if (_rank == 0)
         {
-            printf("Comm size: %d\n", _comm_size);
+            // printf("Comm size: %d\n", _comm_size);
+            double multiplier = 10000000.0;
+            int cutoff_distance_int = (int) (_cutoff_distance * multiplier);
             for (int i = 0; i < _comm_size * 6; i+=6)
             {
                 // Check cutoff distance
-                double max_distance = abs(_grid_space(i+3) - _grid_space(i));
-                if (_cutoff_distance > max_distance)
+                int max_distance = abs((int) (_grid_space(i+3) * multiplier) - (int) (_grid_space(i) * multiplier));
+                // printf("cutoff-int: %d, max_distance: %d\n", cutoff_distance_int, max_distance + 1);
+                if (cutoff_distance_int > max_distance + 1)
                 {
-                    printf("Cutoff distance is %0.3lf. Maxmium allowed in this dimension is %0.3lf. Exiting\n", _cutoff_distance, max_distance);
+                    printf("Cutoff distance is %0.3lf. Maxmium allowed in this dimension is %0.3lf. Exiting\n", _cutoff_distance, (double) max_distance / multiplier);
                     exit(1);
                 }
                 // Check cell size
-                double result = std::floor(_cutoff_distance / cell_size);
-                if (result * cell_size != _cutoff_distance)
+                int result = cutoff_distance_int % (int) (cell_size * multiplier);
+                if (result != 0)
                 {
                     printf("Cutoff distance (%0.3lf) not divisible by cell size (%0.3lf). Exiting\n", _cutoff_distance, cell_size);
                     exit(1);
@@ -337,7 +340,7 @@ class Migrator
 
         auto neighbor_list = Cabana::Experimental::makeNeighborList(
         Cabana::FullNeighborTag{}, positions, 0, num_particles,
-            10000);
+            _cutoff_distance);
 
         using list_type = decltype(neighbor_list);
         particle_array_type particle_array = _particle_array;
