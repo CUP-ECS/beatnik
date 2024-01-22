@@ -94,7 +94,7 @@ class Migrator
         // so if the cutoff distance spreads multiple ranks our solution will be incorrect.
         // Also check if the cutoff distance is a multiple of the cell size. Halo exchange
         // distances are multiples of the cell size.
-        _grid_space = Kokkos::View<double*, device_type>("grid_space", _comm_size * 6);
+        _grid_space = Kokkos::View<double*, Kokkos::HostSpace>("grid_space", _comm_size * 6);
         MPI_Allgather(own_space, 6, MPI_DOUBLE, _grid_space.data(), 6, MPI_DOUBLE, _comm);
         double cell_size = _spm.cell_size();
         if (_rank == 0)
@@ -432,7 +432,7 @@ class Migrator
     int _owned_3D_count;
     const double _cutoff_distance;
 
-    Kokkos::View<double*, memory_space> _grid_space;
+    Kokkos::View<double*, Kokkos::HostSpace> _grid_space;
 };
 
 //---------------------------------------------------------------------------//
