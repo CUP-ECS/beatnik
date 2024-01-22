@@ -59,7 +59,7 @@ class Migrator
                                               >;
     // XXX Change the final parameter of particle_array_type, vector type, to
     // be aligned with the machine we are using
-    using particle_array_type = Cabana::AoSoA<particle_node, memory_space, 4>;
+    using particle_array_type = Cabana::AoSoA<particle_node, device_type, 4>;
 
     // XXX Get this type from the SpatialMesh class
     using spatial_mesh_type2 = Cabana::Grid::UniformMesh<double, 3>;
@@ -150,6 +150,7 @@ class Migrator
         particle_array_type particle_array = particle_array_type("particle_array", array_size);
         int mesh_dimension = _pm.mesh().get_surface_mesh_size();
         l2g_type local_L2G = _local_L2G;
+        printf("IN INIT: Before parallel for\n");
         Kokkos::parallel_for("populate_particles", Kokkos::MDRangePolicy<exec_space, Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
         KOKKOS_LAMBDA(int i, int j) {
 
