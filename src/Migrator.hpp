@@ -73,6 +73,7 @@ class Migrator
         , _cutoff_distance( cutoff_distance )
     {
         _comm = _spm.localGrid()->globalGrid().comm();
+        _particle_array = particle_array_type("particle_array", 1000);
         MPI_Comm_size(_comm, &_comm_size);
         MPI_Comm_rank(_comm, &_rank);
         auto local_grid = _spm.localGrid();
@@ -141,10 +142,12 @@ class Migrator
 
         // Create the AoSoA
         int array_size = (iend - istart) * (jend - jstart);
-        _particle_array = particle_array_type("particle_array", array_size);
+        printf("IN INIT: Before making particle_array\n");
+        // _particle_array = particle_array_type("particle_array", array_size);
 
         int rank = _rank;
-        particle_array_type particle_array = _particle_array;
+        // particle_array_type particle_array = _particle_array;
+        particle_array_type particle_array = particle_array_type("particle_array", array_size);
         int mesh_dimension = _pm.mesh().get_surface_mesh_size();
         l2g_type local_L2G = _local_L2G;
         Kokkos::parallel_for("populate_particles", Kokkos::MDRangePolicy<exec_space, Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
@@ -190,6 +193,16 @@ class Migrator
         });
 
         Kokkos::fence();
+
+        printf("IN INIT: Before deep copy\n");
+        // Check if _particle_array needs to be resized
+        if (particle_array.size() != _particle_array.size())
+        {
+            _particle_array.resize(particle_array.size());
+            //printf("To 3D: R%d resized: %d, _%d\n", _rank, particle_array.size(), _particle_array.size());
+        }
+        // XXX Can we avoid a deep copy here?
+        Cabana::deep_copy(_particle_array, particle_array);
     }
 
     void migrateParticlesTo3D()
