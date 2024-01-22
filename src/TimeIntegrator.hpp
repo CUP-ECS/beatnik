@@ -150,7 +150,7 @@ class TimeIntegrator
                     + ( 2.0 / 3.0 ) * delta_t * w_dot(i, j, d);
             }
         });
-        test_zdot();
+        // test_zdot();
     }
 
     void test_zdot()
