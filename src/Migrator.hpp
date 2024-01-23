@@ -141,14 +141,14 @@ class Migrator
 
         // Create the AoSoA
         int array_size = (iend - istart) * (jend - jstart);
-        printf("IN INIT: Before making particle_array\n");
+        // printf("IN INIT: Before making particle_array\n");
         _particle_array = particle_array_type("particle_array", array_size);
 
         int rank = _rank;
         particle_array_type particle_array = _particle_array;
         int mesh_dimension = _pm.mesh().get_surface_mesh_size();
         l2g_type local_L2G = _local_L2G;
-        printf("IN INIT: Before parallel for\n");
+        // printf("IN INIT: Before parallel for\n");
         Kokkos::parallel_for("populate_particles", Kokkos::MDRangePolicy<exec_space, Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
         KOKKOS_LAMBDA(int i, int j) {
 
@@ -193,7 +193,7 @@ class Migrator
 
         Kokkos::fence();
 
-        printf("IN INIT: Before deep copy\n");
+        // printf("IN INIT: Before deep copy\n");
         Cabana::deep_copy(_particle_array, particle_array);
     }
 
