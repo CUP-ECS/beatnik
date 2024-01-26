@@ -97,6 +97,7 @@ class Migrator
         _grid_space = Kokkos::View<double*, Kokkos::HostSpace>("grid_space", _comm_size * 6);
         MPI_Allgather(own_space, 6, MPI_DOUBLE, _grid_space.data(), 6, MPI_DOUBLE, _comm);
         double cell_size = _spm.cell_size();
+        return;
         if (_rank == 0)
         {
             // printf("Comm size: %d\n", _comm_size);
