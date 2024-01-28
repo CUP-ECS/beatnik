@@ -150,10 +150,25 @@ class Migrator
         // printf("IN INIT: Before making particle_array\n");
 
         int rank = _rank;
-        particle_array_type particle_array = particle_array_type("particle_array", array_size);
+
+        // Resize the particle array to hold all the mesh points we're migrating
+	_particle_array.resize(array_size);
+
+        // Get slices of each piece of the particle array
+        auto z_part = Cabana::slice<0>(_particle_array);
+        auto o_part = Cabana::slice<1>(_particle_array);
+        auto zdot_part = Cabana::slice<2>(_particle_array);
+        auto weight_part = Cabana::slice<3>(_particle_array);
+        auto idx_part = Cabana::slice<4>(_particle_array);
+        auto id_part = Cabana::slice<5>(_particle_array);
+        auto rank2d_part = Cabana::slice<6>(_particle_array);
+        auto rank3d_part = Cabana::slice<7>(_particle_array);
+
         int mesh_dimension = _pm.mesh().get_surface_mesh_size();
         l2g_type local_L2G = _local_L2G;
         // printf("IN INIT: Before parallel for\n");
+
+	// We should convert this to a Cabana::simd_parallel_for at some point to get better write behavior
         Kokkos::parallel_for("populate_particles", Kokkos::MDRangePolicy<exec_space, Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
         KOKKOS_LAMBDA(int i, int j) {
 
@@ -168,45 +183,28 @@ class Migrator
             //printf("id: %d, get #1\n", particle_id);
             // XYZ position, BR omega, zdot
             for (int dim = 0; dim < 3; dim++) {
-                Cabana::get<0>(particle, dim) = z(i, j, dim);
-                Cabana::get<1>(particle, dim) = o(i, j, dim);
-                Cabana::get<2>(particle, dim) = 0.0;
+                z_part(particle_id, dim) = z(i, j, dim);
+                o_part(particle_id, dim) = o(i, j, dim);
+                zdot_part(particle_id, dim) = 0.0;
             }
-
-            Cabana::get<3>(particle) = simpsonWeight(local_gi[0], mesh_dimension) * simpsonWeight(local_gi[1], mesh_dimension);
+            weight_part(particle_id) = simpsonWeight(local_gi[0], mesh_dimension) * simpsonWeight(local_gi[1], mesh_dimension);
             //printf("R%d: w(%d, %d), simp: %0.6lf\n", rank, local_gi[0], local_gi[1], Cabana::get<3>(particle));
 
             // Local index
             //printf("id: %d, get #3\n", particle_id);
-            Cabana::get<4>(particle, 0) = i;
-            Cabana::get<4>(particle, 1) = j;
+            idx_part(particle_id, 0) = i;
+            idx_part(particle_id, 1) = j;
             
-            // Particle ID
+            // Particle ID and rank
             //printf("id: %d, get #4\n", particle_id);
-            Cabana::get<5>(particle) = particle_id;
-
-            // Rank of origin
-            //printf("id: %d, get #5\n", particle_id);
-            Cabana::get<6>(particle) = rank;
-            Cabana::get<7>(particle) = -1;
-
-            //printf("id: %d, set tuple\n", particle_id);
-            particle_array.setTuple(particle_id, particle);
+            id_part(particle_id) = particle_id;
+            rank2d_part(particle_id) = rank;
+            rank3d_part(particle_id) = -1;
 
             //printf("R%d: (%d, %d), simpson: %0.6lf\n", rank, Cabana::get<4>(particle, 0), Cabana::get<4>(particle, 1), Cabana::get<3>(particle));
         });
 
         Kokkos::fence();
-
-        // printf("IN INIT: Before deep copy\n");
-        // Check if _particle_array needs to be resized
-        if (particle_array.size() != _particle_array.size())
-        {
-            _particle_array.resize(particle_array.size());
-            //printf("To 3D: R%d resized: %d, _%d\n", _rank, particle_array.size(), _particle_array.size());
-        }
-        // XXX Can we avoid a deep copy here?
-        Cabana::deep_copy(_particle_array, particle_array);
     }
 
     void migrateParticlesTo3D()
