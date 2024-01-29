@@ -152,7 +152,7 @@ class Migrator
         int rank = _rank;
 
         // Resize the particle array to hold all the mesh points we're migrating
-	_particle_array.resize(array_size);
+	    _particle_array.resize(array_size);
 
         // Get slices of each piece of the particle array
         auto z_part = Cabana::slice<0>(_particle_array);
@@ -168,7 +168,7 @@ class Migrator
         l2g_type local_L2G = _local_L2G;
         // printf("IN INIT: Before parallel for\n");
 
-	// We should convert this to a Cabana::simd_parallel_for at some point to get better write behavior
+	    // We should convert this to a Cabana::simd_parallel_for at some point to get better write behavior
         Kokkos::parallel_for("populate_particles", Kokkos::MDRangePolicy<exec_space, Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
         KOKKOS_LAMBDA(int i, int j) {
 
@@ -238,63 +238,63 @@ class Migrator
 
     void performHaloExchange3D()
     {
-        // Halo exchange
+        // Halo exchange done in Comm constructor
         Comm<memory_space, particle_array_type, local_grid_type2>(_particle_array, *_spm.localGrid(), 40);
     }
 
     void migrateParticlesTo2D()
     {
-	// We only want to send back the non-ghosted particles to 2D
-	// XXX Assume all ghosted particles are at the end of the array
-	int rank = _rank;
-	
+        // We only want to send back the non-ghosted particles to 2D
+        // XXX Assume all ghosted particles are at the end of the array
+        int rank = _rank;
+        
         _particle_array.resize(_owned_3D_count);
-	auto destinations = Cabana::slice<6>(_particle_array, "destinations");
-	Cabana::Distributor<memory_space> distributor(_comm, destinations);
-	Cabana::migrate(distributor, _particle_array);
-	
-	//printf("To 2D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
-	// for (int i = 0; i < _particle_array.size(); i++)
-	// {
-	//     auto particle = _particle_array.getTuple(i);
-	//     printf("To 2D: R%d particle id: %d, 2D: %d, 3D: %d\n", _rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
-	// }
+        auto destinations = Cabana::slice<6>(_particle_array, "destinations");
+        Cabana::Distributor<memory_space> distributor(_comm, destinations);
+        Cabana::migrate(distributor, _particle_array);
+        
+        //printf("To 2D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
+        // for (int i = 0; i < _particle_array.size(); i++)
+        // {
+        //     auto particle = _particle_array.getTuple(i);
+        //     printf("To 2D: R%d particle id: %d, 2D: %d, 3D: %d\n", _rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
+        // }
     }
 
     void computeInterfaceVelocityNeighbors(double dy, double dx, double epsilon)
     {
-	/* Project the Birkhoff-Rott calculation between all pairs of points on the 
-	 * interface, including accounting for any periodic boundary conditions.
-	 * Right now we brute force all of the points with no tiling to improve
-	 * memory access or optimizations to remove duplicate calculations. */
-	/* Figure out which directions we need to project the k/l point to
-	 * for any periodic boundary conditions */
+        /* Project the Birkhoff-Rott calculation between all pairs of points on the 
+        * interface, including accounting for any periodic boundary conditions.
+        * Right now we brute force all of the points with no tiling to improve
+        * memory access or optimizations to remove duplicate calculations. */
+        /* Figure out which directions we need to project the k/l point to
+        * for any periodic boundary conditions */
 
-	// int kstart, lstart, kend, lend;
-	// if (_bc.isPeriodicBoundary({0, 1})) {
-	//     kstart = -1; kend = 1;
-	// } else {
-	//     kstart = kend = 0;
-	// }
-	// if (_bc.isPeriodicBoundary({1, 1})) {
-	//     lstart = -1; lend = 1;
-	// } else {
-	//     lstart = lend = 0;
-	// }
+        // int kstart, lstart, kend, lend;
+        // if (_bc.isPeriodicBoundary({0, 1})) {
+        //     kstart = -1; kend = 1;
+        // } else {
+        //     kstart = kend = 0;
+        // }
+        // if (_bc.isPeriodicBoundary({1, 1})) {
+        //     lstart = -1; lend = 1;
+        // } else {
+        //     lstart = lend = 0;
+        // }
 
-	/* Figure out how wide the bounding box is in each direction */
-	// auto low = _pm.mesh().boundingBoxMin();
-	// auto high = _pm.mesh().boundingBoxMax();;
-	// double width[3];
-	// for (int d = 0; d < 3; d++) {
-	//     width[d] = high[d] - low[d];
-	// }
+        /* Figure out how wide the bounding box is in each direction */
+        // auto low = _pm.mesh().boundingBoxMin();
+        // auto high = _pm.mesh().boundingBoxMax();;
+        // double width[3];
+        // for (int d = 0; d < 3; d++) {
+        //     width[d] = high[d] - low[d];
+        // }
 
-	//double dx = _dx, dy = _dy, epsilon = _epsilon;
+        //double dx = _dx, dy = _dy, epsilon = _epsilon;
 
-	// Find neighbors using ArborX
-	//auto ids = Cabana::slice<3>(_particle_array);
-	auto positions = Cabana::slice<0>(_particle_array);
+        // Find neighbors using ArborX
+        //auto ids = Cabana::slice<3>(_particle_array);
+        auto positions = Cabana::slice<0>(_particle_array);
         // for (int i = 0; i < positions.size(); i++) {
         //     auto tp = _particle_array.getTuple( i );
         //     printf("R%d: ID %d: %0.5lf %0.5lf %0.5lf\n", rank, Cabana::get<4>(tp),
