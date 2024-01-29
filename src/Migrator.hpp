@@ -178,7 +178,6 @@ class Migrator
             int local_gi[2] = {0, 0};   // i, j
             local_L2G(local_li, local_gi);
             
-            Cabana::Tuple<particle_node> particle;
             //auto particle = particle_array.getTuple(particle_id);
             //printf("id: %d, get #1\n", particle_id);
             // XYZ position, BR omega, zdot
@@ -215,26 +214,16 @@ class Migrator
         auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>(*_spm.localGrid());
         particle_comm->storeRanks(local_mesh);
         particle_comm->build(positions);
-        particle_array_type particle_array = _particle_array;
-        particle_comm->migrate(_comm, particle_array);
+        particle_comm->migrate(_comm, _particle_array);
 
         // Populate 3D rank of origin and ID
         int rank = _rank;
-        Kokkos::parallel_for("3D origin rank", Kokkos::RangePolicy<exec_space>(0, particle_array.size()), KOKKOS_LAMBDA(int i) {
-            auto particle = particle_array.getTuple(i);
-            Cabana::get<7>(particle) = rank;
-            Cabana::get<8>(particle) = i;
-            particle_array.setTuple(i, particle);
+        auto rank3d_part = Cabana::slice<7>(_particle_array);
+        auto id3d_part = Cabana::slice<8>(_particle_array);
+        Kokkos::parallel_for("3D origin rank", Kokkos::RangePolicy<exec_space>(0, _particle_array.size()), KOKKOS_LAMBDA(int i) {
+            rank3d_part(i) = rank;
+            id3d_part(i) = i;
         });
-
-        // Check if _particle_array needs to be resized
-        if (particle_array.size() != _particle_array.size())
-        {
-            _particle_array.resize(particle_array.size());
-            //printf("To 3D: R%d resized: %d, _%d\n", _rank, particle_array.size(), _particle_array.size());
-        }
-        // XXX Can we avoid a deep copy here?
-        Cabana::deep_copy(_particle_array, particle_array);
 
         // Updated owned 3D count for migration back to 2D
         _owned_3D_count = _particle_array.size();
@@ -245,106 +234,67 @@ class Migrator
         //     auto particle = _particle_array.getTuple(i);
         //     printf("To 3D: R%d particle id: %d, 2D: %d, 3D: %d\n", _rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
         // }
-}
+    }
 
     void performHaloExchange3D()
     {
         // Halo exchange
-        auto particle_array = _particle_array;
-        auto positions = Cabana::slice<0>(particle_array, "positions");
-        auto halo_comm = Comm<memory_space, particle_array_type, local_grid_type2>(particle_array, *_spm.localGrid(), 40);
-
-        // Check if _particle_array needs to be resized
-        if (particle_array.size() != _particle_array.size())
-        {
-            _particle_array.resize(particle_array.size());
-            //printf("To 2D: R%d resized: %d, _%d\n", _rank, particle_array.size(), _particle_array.size());
-        }
-        // XXX Can we avoid a deep copy here?
-        Cabana::deep_copy(_particle_array, particle_array);
-
-        //printf("Halo exch: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
-        // for (int i = 0; i < _particle_array.size(); i++)
-        // {
-        //     auto particle = _particle_array.getTuple(i);
-        //     printf("Halo exch: R%d particle id: %d, 2D: %d, 3D: %d\n", _rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
-        // }
-
+        Comm<memory_space, particle_array_type, local_grid_type2>(_particle_array, *_spm.localGrid(), 40);
     }
 
     void migrateParticlesTo2D()
     {
-        // We only want to send back the non-ghosted particles to 2D
-        // XXX Assume all ghosted particles are at the end of the array
-        particle_array_type array_3D = _particle_array;
-        particle_array_type particle_array = particle_array_type("particle_array_for_2D", _owned_3D_count);
-        int rank = _rank;
-        // Kokkos::atomic<int> atomic_counter(0);
-        Kokkos::parallel_for("fill particle_array_for_2D", Kokkos::RangePolicy<exec_space>(0, array_3D.size()), KOKKOS_LAMBDA(int i) {
-            auto particle = array_3D.getTuple(i);
-            if (Cabana::get<7>(particle) == rank) {
-                int id_3D = Cabana::get<8>(particle);
-                particle_array.setTuple(id_3D, particle);
-                //printf("To 2D: R%d particle id: %d, 2D: %d, 3D: %d\n", rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
-            } 
-        });
-        
-        auto destinations = Cabana::slice<6>(particle_array, "destinations");
-
-        Cabana::Distributor<memory_space> distributer(_comm, destinations);
-        Cabana::migrate(distributer, particle_array);
-        //printf("R%d done migrating\n", _rank);
-        // Check if _particle_array needs to be resized
-        if (particle_array.size() != _particle_array.size())
-        {
-            _particle_array.resize(particle_array.size());
-            //printf("To 2D: R%d resized: %d, _%d\n", _rank, particle_array.size(), _particle_array.size());
-        }
-        // XXX Can we avoid a deep copy here?
-        Cabana::deep_copy(_particle_array, particle_array);
-        
-        //printf("To 2D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
-        // for (int i = 0; i < _particle_array.size(); i++)
-        // {
-        //     auto particle = _particle_array.getTuple(i);
-        //     printf("To 2D: R%d particle id: %d, 2D: %d, 3D: %d\n", _rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
-        // }
+	// We only want to send back the non-ghosted particles to 2D
+	// XXX Assume all ghosted particles are at the end of the array
+	int rank = _rank;
+	
+        _particle_array.resize(_owned_3D_count);
+	auto destinations = Cabana::slice<6>(_particle_array, "destinations");
+	Cabana::Distributor<memory_space> distributor(_comm, destinations);
+	Cabana::migrate(distributor, _particle_array);
+	
+	//printf("To 2D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
+	// for (int i = 0; i < _particle_array.size(); i++)
+	// {
+	//     auto particle = _particle_array.getTuple(i);
+	//     printf("To 2D: R%d particle id: %d, 2D: %d, 3D: %d\n", _rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
+	// }
     }
 
     void computeInterfaceVelocityNeighbors(double dy, double dx, double epsilon)
     {
-        /* Project the Birkhoff-Rott calculation between all pairs of points on the 
-         * interface, including accounting for any periodic boundary conditions.
-         * Right now we brute force all of the points with no tiling to improve
-         * memory access or optimizations to remove duplicate calculations. */
-        /* Figure out which directions we need to project the k/l point to
-         * for any periodic boundary conditions */
+	/* Project the Birkhoff-Rott calculation between all pairs of points on the 
+	 * interface, including accounting for any periodic boundary conditions.
+	 * Right now we brute force all of the points with no tiling to improve
+	 * memory access or optimizations to remove duplicate calculations. */
+	/* Figure out which directions we need to project the k/l point to
+	 * for any periodic boundary conditions */
 
-        // int kstart, lstart, kend, lend;
-        // if (_bc.isPeriodicBoundary({0, 1})) {
-        //     kstart = -1; kend = 1;
-        // } else {
-        //     kstart = kend = 0;
-        // }
-        // if (_bc.isPeriodicBoundary({1, 1})) {
-        //     lstart = -1; lend = 1;
-        // } else {
-        //     lstart = lend = 0;
-        // }
+	// int kstart, lstart, kend, lend;
+	// if (_bc.isPeriodicBoundary({0, 1})) {
+	//     kstart = -1; kend = 1;
+	// } else {
+	//     kstart = kend = 0;
+	// }
+	// if (_bc.isPeriodicBoundary({1, 1})) {
+	//     lstart = -1; lend = 1;
+	// } else {
+	//     lstart = lend = 0;
+	// }
 
-        /* Figure out how wide the bounding box is in each direction */
-        // auto low = _pm.mesh().boundingBoxMin();
-        // auto high = _pm.mesh().boundingBoxMax();;
-        // double width[3];
-        // for (int d = 0; d < 3; d++) {
-        //     width[d] = high[d] - low[d];
-        // }
+	/* Figure out how wide the bounding box is in each direction */
+	// auto low = _pm.mesh().boundingBoxMin();
+	// auto high = _pm.mesh().boundingBoxMax();;
+	// double width[3];
+	// for (int d = 0; d < 3; d++) {
+	//     width[d] = high[d] - low[d];
+	// }
 
-        //double dx = _dx, dy = _dy, epsilon = _epsilon;
+	//double dx = _dx, dy = _dy, epsilon = _epsilon;
 
-        // Find neighbors using ArborX
-        //auto ids = Cabana::slice<3>(_particle_array);
-        auto positions = Cabana::slice<0>(_particle_array);
+	// Find neighbors using ArborX
+	//auto ids = Cabana::slice<3>(_particle_array);
+	auto positions = Cabana::slice<0>(_particle_array);
         // for (int i = 0; i < positions.size(); i++) {
         //     auto tp = _particle_array.getTuple( i );
         //     printf("R%d: ID %d: %0.5lf %0.5lf %0.5lf\n", rank, Cabana::get<4>(tp),
@@ -358,36 +308,28 @@ class Migrator
             _cutoff_distance);
 
         using list_type = decltype(neighbor_list);
-        particle_array_type particle_array = _particle_array;
         int rank = _rank;
 
-        Kokkos::parallel_for("compute_BR_with_neighbors", Kokkos::RangePolicy<exec_space>(0, num_particles), KOKKOS_LAMBDA(int i) {
-
-            int num_neighbors = Cabana::NeighborList<list_type>::numNeighbor(neighbor_list, i);
+        auto position_part = Cabana::slice<0>(_particle_array);
+        auto omega_part = Cabana::slice<1>(_particle_array);
+        auto zdot_part = Cabana::slice<2>(_particle_array);
+        auto weight_part = Cabana::slice<3>(_particle_array);
+        Kokkos::parallel_for("compute_BR_with_neighbors", Kokkos::RangePolicy<exec_space>(0, _owned_3D_count), 
+                             KOKKOS_LAMBDA(int my_id) {
+            int num_neighbors = Cabana::NeighborList<list_type>::numNeighbor(neighbor_list, my_id);
             double brsum[3] = {0.0, 0.0, 0.0};
-            auto particle = particle_array.getTuple(i);
 
-            // Do not consider ghosted particles
-            if (Cabana::get<7>(particle) != rank)
-            {
-                return;
-            }
-
-            // Compute BR forces from neighbors
-            int i_index = Cabana::get<4>(particle, 0);
-            int j_index = Cabana::get<4>(particle, 1);
             //printf("R%d: particle %d/%lu, num neighbors %d\n", rank, i, num_particles, num_neighbors);
 
             for (int j = 0; j < num_neighbors; j++) {
-                int neighbor_id = Cabana::NeighborList<list_type>::getNeighbor(neighbor_list, i, j);
-                auto neighbor_particle =  particle_array.getTuple(neighbor_id);
-                double weight = Cabana::get<3>(neighbor_particle);
+                int neighbor_id = Cabana::NeighborList<list_type>::getNeighbor(neighbor_list, my_id, j);
 
                 // XXX Offset initializtion not correct for periodic boundaries
                 double offset[3] = {0.0, 0.0, 0.0}, br[3];
                 
                 /* Do the Birkhoff-Rott evaluation for this point */
-                Operators::BR_with_aosoa(br, particle, neighbor_particle, epsilon, dx, dy, weight, offset);
+                Operators::BR_with_slice(br, my_id, neighbor_id, position_part, omega_part, weight_part, 
+                                         epsilon, dx, dy, offset);
                 for (int d = 0; d < 3; d++) {
                     brsum[d] += br[d];
                 }
@@ -398,37 +340,30 @@ class Migrator
             
             // Update the AoSoA
             for (int n = 0; n < 3; n++) {
-                Cabana::get<2>(particle, n) = brsum[n];
+                zdot_part(my_id, n) = brsum[n];
             }
-            particle_array.setTuple(i, particle);
             // if (i == 20) {
             //     printf("R%d: Particle %d/%lu (%d, %d),br_sum: %0.13lf %0.13lf %0.13lf\n", rank, i, num_particles, i_index, j_index, brsum[0], brsum[1], brsum[2]);
             // }
         });
 
         Kokkos::fence();
-
-        // XXX Can we avoid a deep copy here?
-        Cabana::deep_copy(_particle_array, particle_array);
     }
 
     template <class PositionView>
     void populate_zdot(PositionView zdot)
     {
-        particle_array_type particle_array = _particle_array;
         int rank = _rank;
 
-        Kokkos::parallel_for("update_zdot", Kokkos::RangePolicy<exec_space>(0, particle_array.size()), KOKKOS_LAMBDA(int i) {
-            auto particle = particle_array.getTuple(i);
-            int particle_rank = Cabana::get<6>(particle);
+        auto zdot_part = Cabana::slice<2>(_particle_array);
+        auto idx_part = Cabana::slice<4>(_particle_array);
+        Kokkos::parallel_for("update_zdot", Kokkos::RangePolicy<exec_space>(0, _particle_array.size()), 
+            KOKKOS_LAMBDA(int i) {
+            int i_index = idx_part(i, 0);
+            int j_index = idx_part(i, 1);
 
-            if (particle_rank == rank) {
-                int i_index = Cabana::get<4>(particle, 0);
-                int j_index = Cabana::get<4>(particle, 1);
-
-                for (int n = 0; n < 3; n++) {
-                    zdot(i_index, j_index, n) = Cabana::get<2>(particle, n);
-                }
+            for (int n = 0; n < 3; n++) {
+                zdot(i_index, j_index, n) = zdot_part(i, n);
             }
         });
 
