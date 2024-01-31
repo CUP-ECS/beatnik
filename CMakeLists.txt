@@ -26,7 +26,7 @@ MESSAGE(STATUS "Beatnik Revision = '${Beatnik_GIT_COMMIT_HASH}'")
 ##---------------------------------------------------------------------------##
 ## Get the dependent packages we need: Cabana, Silo, and ClangFormat         ##
 ##---------------------------------------------------------------------------##
-find_package(Cabana REQUIRED COMPONENTS Cabana::Cajita Cabana::cabanacore)
+find_package(Cabana REQUIRED COMPONENTS Cabana::Grid Cabana::Core)
 if( NOT Cabana_ENABLE_MPI )
   message( FATAL_ERROR "Cabana must be compiled with MPI" )
 endif()

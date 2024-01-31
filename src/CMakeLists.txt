@@ -3,7 +3,7 @@ configure_file(Beatnik_Config.hpp.in Beatnik_Config.hpp)
 
 set(HEADERS
   # General problem/mesh/time integration files
-  Mesh.hpp
+  SurfaceMesh.hpp
   Operators.hpp
   ProblemManager.hpp
   Solver.hpp
