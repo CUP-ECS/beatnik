@@ -221,6 +221,15 @@ class ExactBRSolver
 
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
+        _migrator.initializeParticles(z, w, o);
+        _migrator.migrateParticlesTo3D();
+        _migrator.performHaloExchange3D();
+        _migrator.computeInterfaceVelocityNeighbors(_dy, _dx, _epsilon);
+        _migrator.migrateParticlesTo2D();
+        _migrator.populate_zdot(zdot);
+        //printView(_local_L2G, rank, zdot, 1, 2, 7);
+        return;
+
         /* Start by zeroing the interface velocity */
         
         /* Get an atomic view of the interface velocity, since each k/l point

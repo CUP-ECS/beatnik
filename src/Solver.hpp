@@ -103,7 +103,7 @@ class Solver : public SolverBase
 
         // Create a mesh one which to do the solve and a problem manager to
         // handle state
-        _surfaceMesh = std::make_unique<SurfaceMesh<ExecutionSpace, MemorySpace>>(
+        _surface_mesh = std::make_unique<SurfaceMesh<ExecutionSpace, MemorySpace>>(
             global_bounding_box, num_nodes, periodic, partitioner,
 	    _halo_min, comm );
 
@@ -140,22 +140,22 @@ class Solver : public SolverBase
                   << "=============================\n";
 #endif
 
-        // Create the spatial mesh
+         // Create the spatial mesh
         double cutoff_distance = 20;
-        _spatialMesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
+        _spatial_mesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
             global_bounding_box, num_nodes, periodic,
 	        cutoff_distance, comm );
 
         // Create a problem manager to manage mesh state
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
-            *_surfaceMesh, *_spatialMesh, _bc, create_functor );
-        
+            *_surface_mesh, *_spatial_mesh, _bc, create_functor );
+
         _migrator = std::make_unique<Migrator<ExecutionSpace, MemorySpace>>(
-            *_pm, *_spatialMesh, cutoff_distance);
+            *_pm, *_spatial_mesh, cutoff_distance);
 
         // Create the Birkhoff-Rott solver (XXX make this conditional on non-low 
         // order solve
-        _br = std::make_unique<brsolver_type>(*_pm, _bc, *_spatialMesh, *_migrator, _eps, dx, dy);
+        _br = std::make_unique<brsolver_type>(*_pm, _bc, *_spatial_mesh, *_migrator, _eps, dx, dy);
 
         // Create the ZModel solver
         _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>>(
@@ -197,7 +197,7 @@ class Solver : public SolverBase
         // Start advancing time.
         do
         {
-            if ( 0 == _surfaceMesh->rank() )
+            if ( 0 == _surface_mesh->rank() )
                 printf( "Step %d / %d at time = %f\n", t, num_step, _time );
 
             step();
@@ -221,8 +221,8 @@ class Solver : public SolverBase
     double _dt;
     double _time;
     
-    std::unique_ptr<SurfaceMesh<ExecutionSpace, MemorySpace>> _surfaceMesh;
-    std::unique_ptr<SpatialMesh<ExecutionSpace, MemorySpace>> _spatialMesh;
+    std::unique_ptr<SurfaceMesh<ExecutionSpace, MemorySpace>> _surface_mesh;
+    std::unique_ptr<SpatialMesh<ExecutionSpace, MemorySpace>> _spatial_mesh;
     std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace>> _pm;
     std::unique_ptr<Migrator<ExecutionSpace, MemorySpace>> _migrator;
     std::unique_ptr<brsolver_type> _br;
