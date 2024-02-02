@@ -23,6 +23,7 @@
 #include <SiloWriter.hpp>
 #include <TimeIntegrator.hpp>
 #include <ExactBRSolver.hpp>
+#include <Migrator.hpp>
 
 #include <ZModel.hpp>
 
@@ -148,6 +149,9 @@ class Solver : public SolverBase
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
             *_surface_mesh, *_spatial_mesh, _bc, create_functor );
 
+        _migrator = std::make_unique<Migrator<ExecutionSpace, MemorySpace>>(
+            *_pm, *_spatial_mesh, cutoff_distance);
+
         // Create the Birkhoff-Rott solver (XXX make this conditional on non-low 
         // order solve
         _br = std::make_unique<brsolver_type>(*_pm, _bc, _eps, dx, dy);
@@ -219,6 +223,7 @@ class Solver : public SolverBase
     std::unique_ptr<SurfaceMesh<ExecutionSpace, MemorySpace>> _surface_mesh;
     std::unique_ptr<SpatialMesh<ExecutionSpace, MemorySpace>> _spatial_mesh;
     std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace>> _pm;
+    std::unique_ptr<Migrator<ExecutionSpace, MemorySpace>> _migrator;
     std::unique_ptr<brsolver_type> _br;
     std::unique_ptr<zmodel_type> _zm;
     std::unique_ptr<ti_type> _ti;
