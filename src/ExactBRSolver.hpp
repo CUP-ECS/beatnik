@@ -202,6 +202,15 @@ class ExactBRSolver
         MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
+        _migrator.initializeParticles(z, w, o);
+        _migrator.migrateParticlesTo3D();
+        _migrator.performHaloExchange3D();
+        _migrator.computeInterfaceVelocityNeighbors(_dy, _dx, _epsilon);
+        _migrator.migrateParticlesTo2D();
+        _migrator.populate_zdot(zdot);
+        //printView(_local_L2G, rank, zdot, 1, 2, 7);
+        return;
+
         /* Start by zeroing the interface velocity */
         
         /* Get an atomic view of the interface velocity, since each k/l point
@@ -383,7 +392,7 @@ class ExactBRSolver
     const pm_type & _pm;
     const BoundaryCondition & _bc;
     const spatial_mesh_type &_spm;
-    const migrator_type &_migrator;
+    migrator_type &_migrator;
     double _epsilon, _dx, _dy;
     MPI_Comm _comm;
     l2g_type _local_L2G;
