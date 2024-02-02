@@ -40,6 +40,7 @@
 #include <SurfaceMesh.hpp>
 #include <ProblemManager.hpp>
 #include <Operators.hpp>
+#include <Migrator.hpp>
 
 namespace Beatnik
 {
@@ -56,7 +57,9 @@ class ExactBRSolver
   public:
     using exec_space = ExecutionSpace;
     using memory_space = MemorySpace;
-    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
+    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;\
+    using spatial_mesh_type = SpatialMesh<ExecutionSpace, MemorySpace>;
+    using migrator_type = Migrator<ExecutionSpace, MemorySpace>;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     
@@ -68,10 +71,12 @@ class ExactBRSolver
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
-    ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc,
-                   const double epsilon, const double dx, const double dy)
+    ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc, const spatial_mesh_type &spm,
+                migrator_type &migrator, const double epsilon, const double dx, const double dy)
         : _pm( pm )
         , _bc( bc )
+        , _spm( spm )
+        , _migrator( migrator )
         , _epsilon( epsilon )
         , _dx( dx )
         , _dy( dy )
@@ -377,6 +382,8 @@ class ExactBRSolver
   private:
     const pm_type & _pm;
     const BoundaryCondition & _bc;
+    const spatial_mesh_type &_spm;
+    const migrator_type &_migrator;
     double _epsilon, _dx, _dy;
     MPI_Comm _comm;
     l2g_type _local_L2G;
