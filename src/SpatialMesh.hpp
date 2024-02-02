@@ -47,15 +47,43 @@ class SpatialMesh
           const double cutoff_distance, MPI_Comm comm )
 		  : _num_nodes( num_nodes )
     {
+        MPI_Comm_rank( comm, &_rank );
+        MPI_Comm_size( comm, &_comm_size );
         // Declare the partioner here for now
         // Put particle type here
         // Make a cuttoff BRSolver and declare the spatial mesh inside the cuttoff BRSolver class
         // Make a migration.hpp class, declare spatialmesh in solver.hpp, put all 
-        // the spatil mesh stuff in migration
-        Cabana::Grid::DimBlockPartitioner<3> partitioner;
+        // the spatial mesh stuff in migration
+        //Cabana::Grid::DimBlockPartitioner<3> partitioner;
 
+        // Partition in x and y only
+        // Try to partition evenly, otherwise set the x-dim to have sqrt(_comm_size)
+        // ranks and the y-dim to have the remaining ranks.
+        int ranks_in_xy = (int) floor(sqrt((float) _comm_size));
+        if (_comm_size % ranks_in_xy && _rank == 0) 
+        {
+            printf("ERROR: The square root of the number of ranks must be an integer. There are %d ranks.\n", _comm_size);
+            exit(1);
+        }
+        std::array<int, 3> input_ranks_per_dim = { ranks_in_xy, ranks_in_xy, 1 };
+
+        // Create the manual partitioner in 2D.
+        Cabana::Grid::ManualBlockPartitioner<3> partitioner(
+            input_ranks_per_dim );
+
+        std::array<int, 3> ranks_per_dim_manual =
+            partitioner.ranksPerDimension( MPI_COMM_WORLD, { 0, 0, 0 } );
+
+        // Print the created decomposition.
+        if ( _rank == 0 )
+        {
+            std::cout << "Ranks per dimension (manual): ";
+            for ( int d = 0; d < 3; ++d )
+                std::cout << ranks_per_dim_manual[d] << " ";
+            std::cout << std::endl;
+        }
         
-        MPI_Comm_rank( comm, &_rank );
+        
 
         for (int i = 0; i < 3; i++) {
             _low_point[i] = global_bounding_box[i];
@@ -269,7 +297,7 @@ class SpatialMesh
     std::array<double, 3> _low_point, _high_point;
     std::shared_ptr<local_grid_type> _local_grid;
     std::shared_ptr<global_particle_comm_type> _global_particle_comm;
-    int _rank, _halo_width;
+    int _rank, _comm_size, _halo_width;
     double _cell_size;
 	std::array<int, 2> _num_nodes;
 };
