@@ -18,6 +18,7 @@
 
 #include <BoundaryCondition.hpp>
 #include <SurfaceMesh.hpp>
+#include <SpatialMesh.hpp>
 #include <ProblemManager.hpp>
 #include <SiloWriter.hpp>
 #include <TimeIntegrator.hpp>
@@ -136,6 +137,13 @@ class Solver : public SolverBase
                   << "eps = " << _eps << "\n"
                   << "=============================\n";
 #endif
+
+         // Create the spatial mesh
+        double cutoff_distance = 20;
+        _spatialMesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
+            global_bounding_box, num_nodes, periodic,
+	        cutoff_distance, comm );
+
         // Create a problem manager to manage mesh state
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
             *_mesh, _bc, create_functor );
@@ -209,6 +217,7 @@ class Solver : public SolverBase
     double _time;
     
     std::unique_ptr<SurfaceMesh<ExecutionSpace, MemorySpace>> _mesh;
+    std::unique_ptr<SpatialMesh<ExecutionSpace, MemorySpace>> _spatialMesh;
     std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace>> _pm;
     std::unique_ptr<brsolver_type> _br;
     std::unique_ptr<zmodel_type> _zm;
