@@ -101,7 +101,7 @@ class Solver : public SolverBase
 
         // Create a mesh one which to do the solve and a problem manager to
         // handle state
-        _mesh = std::make_unique<SurfaceMesh<ExecutionSpace, MemorySpace>>(
+        _surface_mesh = std::make_unique<SurfaceMesh<ExecutionSpace, MemorySpace>>(
             global_bounding_box, num_nodes, periodic, partitioner,
 	    _halo_min, comm );
 
@@ -146,7 +146,7 @@ class Solver : public SolverBase
 
         // Create a problem manager to manage mesh state
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
-            *_mesh, _bc, create_functor );
+            *_surface_mesh, _bc, create_functor );
 
         // Create the Birkhoff-Rott solver (XXX make this conditional on non-low 
         // order solve
@@ -192,7 +192,7 @@ class Solver : public SolverBase
         // Start advancing time.
         do
         {
-            if ( 0 == _mesh->rank() )
+            if ( 0 == _surface_mesh->rank() )
                 printf( "Step %d / %d at time = %f\n", t, num_step, _time );
 
             step();
@@ -216,7 +216,7 @@ class Solver : public SolverBase
     double _dt;
     double _time;
     
-    std::unique_ptr<SurfaceMesh<ExecutionSpace, MemorySpace>> _mesh;
+    std::unique_ptr<SurfaceMesh<ExecutionSpace, MemorySpace>> _surface_mesh;
     std::unique_ptr<SpatialMesh<ExecutionSpace, MemorySpace>> _spatialMesh;
     std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace>> _pm;
     std::unique_ptr<brsolver_type> _br;
