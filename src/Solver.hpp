@@ -140,13 +140,13 @@ class Solver : public SolverBase
 
          // Create the spatial mesh
         double cutoff_distance = 20;
-        _spatialMesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
+        _spatial_mesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
             global_bounding_box, num_nodes, periodic,
 	        cutoff_distance, comm );
 
         // Create a problem manager to manage mesh state
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
-            *_surface_mesh, _bc, create_functor );
+            *_surface_mesh, *_spatial_mesh, _bc, create_functor );
 
         // Create the Birkhoff-Rott solver (XXX make this conditional on non-low 
         // order solve
@@ -217,7 +217,7 @@ class Solver : public SolverBase
     double _time;
     
     std::unique_ptr<SurfaceMesh<ExecutionSpace, MemorySpace>> _surface_mesh;
-    std::unique_ptr<SpatialMesh<ExecutionSpace, MemorySpace>> _spatialMesh;
+    std::unique_ptr<SpatialMesh<ExecutionSpace, MemorySpace>> _spatial_mesh;
     std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace>> _pm;
     std::unique_ptr<brsolver_type> _br;
     std::unique_ptr<zmodel_type> _zm;

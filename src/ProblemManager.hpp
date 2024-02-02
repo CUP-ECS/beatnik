@@ -89,13 +89,18 @@ class ProblemManager
         typename node_array::view_type;
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
-    using mesh_type = SurfaceMesh<exec_space, mem_space>;
+    using surface_mesh_type = SurfaceMesh<exec_space, mem_space>;
+
+    // XXX Get this type out of the SpatialMesh class
+    using spatial_mesh_type = SpatialMesh<ExecutionSpace, MemorySpace>;
 
     template <class InitFunc>
-    ProblemManager( const mesh_type & mesh,
+    ProblemManager( const surface_mesh_type & surface_mesh,
+                    const spatial_mesh_type & spatial_mesh,
                     const BoundaryCondition & bc, 
                     const InitFunc& create_functor )
-        : _surface_mesh( mesh )
+        : _surface_mesh( surface_mesh )
+        , _spatial_mesh( spatial_mesh )
         , _bc( bc )
     // , other initializers
     {
@@ -174,7 +179,7 @@ class ProblemManager
      * Return mesh
      * @return Returns Mesh object
      **/
-    const mesh_type & mesh() const
+    const surface_mesh_type & mesh() const
     {
         return _surface_mesh;
     };
@@ -235,7 +240,8 @@ class ProblemManager
 
   private:
     // The mesh on which our data items are stored
-    const mesh_type &_surface_mesh;
+    const surface_mesh_type &_surface_mesh;
+    const spatial_mesh_type &_spatial_mesh;
     const BoundaryCondition &_bc;
 
     // Basic long-term quantities stored in the mesh and periodically written
