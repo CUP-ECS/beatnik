@@ -76,6 +76,7 @@ class Solver : public SolverBase
 
     using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>;
     using ti_type = TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>;
+    using migrator_type = Migrator<ExecutionSpace, MemorySpace>;
     using Node = Cabana::Grid::Node;
 
     template <class InitFunc>
@@ -95,7 +96,7 @@ class Solver : public SolverBase
         , _dt( delta_t )
         , _time( 0.0 )
     {
-	std::array<bool, 2> periodic;
+	    std::array<bool, 2> periodic;
 
         periodic[0] = (bc.boundary_type[0] == PERIODIC);
         periodic[1] = (bc.boundary_type[1] == PERIODIC);

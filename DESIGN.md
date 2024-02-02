@@ -10,7 +10,7 @@ Initial assumption - Surface-based information on Z and W is correct. Z and W in
 domain may be incorrect. The redistribution object stores the owner process of particle in the 
 spatial mesh based on their last location. 
 
-1. Calculate vorticity measure on the surface.
+1. Calculate vorticity measure on the surface (omega).
 
 1. If using spatial velocity solve, update information in the spatial distribution of the particle cloud
    The initial location of particles in the particle cloud is based on their position during the *previous*

@@ -176,8 +176,17 @@ class ProblemManager
     };
 
     /**
-     * Return mesh
-     * @return Returns Mesh object
+     * Return the surface mesh
+     * @return Returns SurfaceMesh object
+     **/
+    const surface_mesh_type & mesh() const
+    {
+        return _surfaceMesh;
+    };
+
+    /**
+     * Return the spatial mesh
+     * @return Returns SpatialMesh object
      **/
     const surface_mesh_type & mesh() const
     {

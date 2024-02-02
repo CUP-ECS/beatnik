@@ -185,29 +185,29 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 
     /// Set default values
     cl.driver = "serial"; // Default Thread Setting
-    cl.order = SolverOrder::ORDER_LOW;;
+    cl.order = SolverOrder::ORDER_HIGH;;
     cl.weak_scale = 1;
-    cl.write_freq = 10;
+    cl.write_freq = 0;
 
-    /* Default problem is the cosine rocket rig */
-    cl.num_nodes = { 128, 128 };
-    cl.initial_condition = IC_COS;
-    cl.boundary = Beatnik::BoundaryType::PERIODIC;
+    /* Default problem for testing */
+    cl.num_nodes = { 16, 16 };
+    cl.initial_condition = IC_SECH2;
+    cl.boundary = Beatnik::BoundaryType::FREE;
     cl.tilt = 0.0;
-    cl.magnitude = 0.05;
+    cl.magnitude = 0.1;
     cl.variation = 0.00;
-    cl.period = 1.0;
+    cl.period = 9.0;
     cl.gravity = 25.0;
-    cl.atwood = 0.5;
+    cl.atwood = 0.15;
 
     /* Defaults for Z-Model method, translated by the solver to be relative
      * to sqrt(dx*dy) */
-    cl.mu = 1.0;
-    cl.eps = 0.25;
+    cl.mu = 2.0;
+    cl.eps = 2.0;
 
     /* Defaults computed once other arguments known */
     cl.delta_t = -1.0;
-    cl.t_final = -1.0;
+    cl.t_final = 8.0;
 
     // Now parse any arguments
     while ( ( ch = getopt_long( argc, argv, shortargs, longargs, NULL ) ) !=
@@ -247,7 +247,8 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             }
             break;
         case 'F':
-            cl.write_freq = atoi( optarg) ;
+            // cl.write_freq = atoi( optarg) ;
+            cl.write_freq = 0; // Do not write data for testing
             if ( cl.write_freq < 0 )
             {
                 if ( rank == 0 )
@@ -261,37 +262,43 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         case 'O':
         {
             std::string order(optarg);
-            if (order.compare("low") == 0 ) {
-                cl.order = SolverOrder::ORDER_LOW;
-            } else if (order.compare("medium") == 0 ) {
-                cl.order =  SolverOrder::ORDER_MEDIUM;
-            } else if (order.compare("high") == 0 ) {
-                cl.order = SolverOrder::ORDER_HIGH;
-            } else {
-                if ( rank == 0 )
-                {
-                    std::cerr << "Invalid model order argument.\n";
-                    help( rank, argv[0] );
-                }
-                exit( -1 );
-            }
+            // Test high order model
+            cl.order = SolverOrder::ORDER_HIGH;
+
+            // if (order.compare("low") == 0 ) {
+            //     cl.order = SolverOrder::ORDER_LOW;
+            // } else if (order.compare("medium") == 0 ) {
+            //     cl.order =  SolverOrder::ORDER_MEDIUM;
+            // } else if (order.compare("high") == 0 ) {
+            //     cl.order = SolverOrder::ORDER_HIGH;
+            // } else {
+            //     if ( rank == 0 )
+            //     {
+            //         std::cerr << "Invalid model order argument.\n";
+            //         help( rank, argv[0] );
+            //     }
+            //     exit( -1 );
+            // }
             break;
         }
         case 'b':
         {
             std::string order(optarg);
-            if (order.compare("periodic") == 0) {
-                cl.boundary = Beatnik::BoundaryType::PERIODIC;
-            } else if (order.compare("free") == 0) {
-                cl.boundary = Beatnik::BoundaryType::FREE;
-            } else {
-                if ( rank == 0 )
-                {
-                    std::cerr << "Invalid boundary condition type.\n";
-                    help( rank, argv[0] );
-                }
-                exit( -1 );
-            }
+            // Non-periodic boundary conditions only
+            cl.boundary = Beatnik::BoundaryType::FREE;
+
+            // if (order.compare("periodic") == 0) {
+            //     cl.boundary = Beatnik::BoundaryType::PERIODIC;
+            // } else if (order.compare("free") == 0) {
+            //     cl.boundary = Beatnik::BoundaryType::FREE;
+            // } else {
+            //     if ( rank == 0 )
+            //     {
+            //         std::cerr << "Invalid boundary condition type.\n";
+            //         help( rank, argv[0] );
+            //     }
+            //     exit( -1 );
+            // }
             break;
         }
         case 'w':
@@ -307,32 +314,39 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         case 'I':
         {
             std::string model(optarg);
-            if (model.compare("cos") == 0 ) {
-                cl.initial_condition = InitialConditionModel::IC_COS;
-            } else if (model.compare("sech2") == 0 ) {
-                cl.initial_condition =  InitialConditionModel::IC_SECH2;
-            } else {
-                if ( rank == 0 )
-                {
-                    std::cerr << "Invalid initial condition model argument.\n";
-                    help( rank, argv[0] );
-                }
-                exit( -1 );
-            }
+            cl.initial_condition =  InitialConditionModel::IC_SECH2;
+
+            // if (model.compare("cos") == 0 ) {
+            //     cl.initial_condition = InitialConditionModel::IC_COS;
+            // } else if (model.compare("sech2") == 0 ) {
+            //     cl.initial_condition =  InitialConditionModel::IC_SECH2;
+            // } else {
+            //     if ( rank == 0 )
+            //     {
+            //         std::cerr << "Invalid initial condition model argument.\n";
+            //         help( rank, argv[0] );
+            //     }
+            //     exit( -1 );
+            // }
             break;
         }
         case 'm':
-            cl.magnitude = atof( optarg );
-            if ( cl.magnitude <= 0.0 )
-            {
-                if ( rank == 0 )
-                {
-                    std::cerr << "Invalid initial condition magnitude.\n";
-                    help( rank, argv[0] );
-                }
-                exit( -1 );
-            }
+        {
+            // cl.magnitude = atof( optarg );
+
+            cl.magnitude = 0.1;
+
+            // if ( cl.magnitude <= 0.0 )
+            // {
+            //     if ( rank == 0 )
+            //     {
+            //         std::cerr << "Invalid initial condition magnitude.\n";
+            //         help( rank, argv[0] );
+            //     }
+            //     exit( -1 );
+            // }
             break;
+        }
         case 'v':
             cl.variation = atof( optarg );
             if ( cl.variation < 0.0 )
@@ -346,28 +360,31 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             }
             break;
         case 'p':
-            cl.period = atof( optarg );
-            if ( cl.period <= 0.0 )
-            {
-                if ( rank == 0 )
-                {
-                    std::cerr << "Invalid initial condition period.\n";
-                    help( rank, argv[0] );
-                }
-                exit( -1 );
-            }
+            // cl.period = atof( optarg );
+
+            cl.period = 9.0;
+            // if ( cl.period <= 0.0 )
+            // {
+            //     if ( rank == 0 )
+            //     {
+            //         std::cerr << "Invalid initial condition period.\n";
+            //         help( rank, argv[0] );
+            //     }
+            //     exit( -1 );
+            // }
             break;
         case 'a':
-            cl.atwood = atof( optarg );
-            if ( cl.atwood <= 0.0 )
-            {
-                if ( rank == 0 )
-                {
-                    std::cerr << "Invalid atwood number.\n";
-                    help( rank, argv[0] );
-                }
-                exit( -1 );
-            }
+            // cl.atwood = atof( optarg );
+            cl.atwood = 0.15;
+            // if ( cl.atwood <= 0.0 )
+            // {
+            //     if ( rank == 0 )
+            //     {
+            //         std::cerr << "Invalid atwood number.\n";
+            //         help( rank, argv[0] );
+            //     }
+            //     exit( -1 );
+            // }
             break;
         case 'g':
             cl.gravity = atof( optarg );
@@ -382,7 +399,10 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             }
             break;
         case 'M':
-            cl.mu = atof( optarg );
+            // cl.mu = atof( optarg );
+
+            cl.mu = 2.0;
+
             if ( cl.mu <= 0.0 )
             {
                 if ( rank == 0 )
@@ -394,32 +414,38 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             }
             break;
         case 'e':
-            cl.eps = atof( optarg );
-            if ( cl.eps <= 0.0 )
-            {
-                if ( rank == 0 )
-                {
-                    std::cerr << "Invalid desingularization constant.\n";
-                    help( rank, argv[0] );
-                }
-                exit( -1 );
-            }
+            // cl.eps = atof( optarg );
+
+            cl.eps = 2;
+
+            // if ( cl.eps <= 0.0 )
+            // {
+            //     if ( rank == 0 )
+            //     {
+            //         std::cerr << "Invalid desingularization constant.\n";
+            //         help( rank, argv[0] );
+            //     }
+            //     exit( -1 );
+            // }
             break;
         case 'h':
             help( rank, argv[0] );
             exit( 0 );
             break;
         case 't':
-          cl.t_final = atof( optarg );
-          if ( cl.t_final <= 0.0 )
-          {
-              if ( rank == 0 )
-              {
-                  std::cerr << "Invalid number of timesteps.\n";
-                  help( rank, argv[0] );
-              }
-              exit( -1 );
-          }
+          // cl.t_final = atof( optarg );
+
+            cl.t_final = 3;
+
+        //   if ( cl.t_final <= 0.0 )
+        //   {
+        //       if ( rank == 0 )
+        //       {
+        //           std::cerr << "Invalid number of timesteps.\n";
+        //           help( rank, argv[0] );
+        //       }
+        //       exit( -1 );
+        //   }
           break;
         default:
             if ( rank == 0 )
@@ -433,7 +459,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     }
 
     /* Physical setup of problem */
-    cl.global_bounding_box = {-1.0, -1.0, -2.0, 1.0, 1.0, 10.0};
+    cl.global_bounding_box = {-1.0, -1.0, -1.0, 1.0, 1.0, 1.0};
     cl.gravity = cl.gravity * 9.81;
 
     /* Scale up global bounding box and number of cells by weak scaling factor */
@@ -590,6 +616,8 @@ void rocketrig( ClArgs& cl )
     // Solve
     solver->solve( cl.t_final, cl.write_freq );
 }
+
+
 
 int main( int argc, char* argv[] )
 {

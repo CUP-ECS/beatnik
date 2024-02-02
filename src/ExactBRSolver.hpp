@@ -83,6 +83,15 @@ class ExactBRSolver
         , _local_L2G( *_pm.mesh().localGrid() )
     {
 	    _comm = _pm.mesh().localGrid()->globalGrid().comm();
+
+        // std::array<double, 6> global_bounding_box = {-1.0, -1.0, -1.0, 1.0, 1.0, 1.0};
+        // std::array<int, 2> num_nodes = {64, 64}; // Match command-line args
+        // std::array<bool, 2> is_dim_periodic = {true, true}; // Overwritten in SpatialMesh constructor
+        // int halo_min = 2;
+        // _spatial_mesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
+        //     global_bounding_box, num_nodes, is_dim_periodic,
+	    //     halo_min, MPI_COMM_WORLD);
+        // _migrator = std::make_unique<Migrator<ExecutionSpace, MemorySpace>>(*_pm, *_spatial_mesh);
     }
 
     static KOKKOS_INLINE_FUNCTION double simpsonWeight(int index, int len)
@@ -195,12 +204,22 @@ class ExactBRSolver
      */
     void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const
     {
-        auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
-
         int num_procs = -1;
         int rank = -1;
         MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        //printView(_local_L2G, rank, z, 1, 2, 7);
+        
+        _migrator.initializeParticles(z, w, o);
+        _migrator.migrateParticlesTo3D();
+        _migrator.performHaloExchange3D();
+        _migrator.computeInterfaceVelocityNeighbors(_dy, _dx, _epsilon);
+        _migrator.migrateParticlesTo2D();
+        _migrator.populate_zdot(zdot);
+        //printView(_local_L2G, rank, zdot, 1, 2, 7);
+        return;
+
+        auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
         _migrator.initializeParticles(z, w, o);
         _migrator.migrateParticlesTo3D();
