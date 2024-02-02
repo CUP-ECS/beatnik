@@ -57,7 +57,7 @@ class ExactBRSolver
   public:
     using exec_space = ExecutionSpace;
     using memory_space = MemorySpace;
-    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;\
+    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
     using spatial_mesh_type = SpatialMesh<ExecutionSpace, MemorySpace>;
     using migrator_type = Migrator<ExecutionSpace, MemorySpace>;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
