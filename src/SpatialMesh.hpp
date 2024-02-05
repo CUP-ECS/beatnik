@@ -59,32 +59,56 @@ class SpatialMesh
         // Partition in x and y only
         // Try to partition evenly, otherwise set the x-dim to have sqrt(_comm_size)
         // ranks and the y-dim to have the remaining ranks.
-        int ranks_in_xy = (int) floor(sqrt((float) _comm_size));
-        if (_comm_size % ranks_in_xy && _rank == 0) 
-        {
-            printf("ERROR: The square root of the number of ranks must be an integer. There are %d ranks.\n", _comm_size);
-            exit(1);
-        }
-        std::array<int, 3> input_ranks_per_dim = { ranks_in_xy, ranks_in_xy, 1 };
+        // int ranks_in_xy = (int) floor(sqrt((float) _comm_size));
+        // if (_comm_size % ranks_in_xy && _rank == 0) 
+        // {
+        //     printf("ERROR: The square root of the number of ranks must be an integer. There are %d ranks.\n", _comm_size);
+        //     exit(1);
+        // }
+        // std::array<int, 3> input_ranks_per_dim = { ranks_in_xy, ranks_in_xy, 1 };
 
-        // Create the manual partitioner in 2D.
-        Cabana::Grid::ManualBlockPartitioner<3> partitioner(
-            input_ranks_per_dim );
-
-        std::array<int, 3> ranks_per_dim_manual =
-            partitioner.ranksPerDimension( MPI_COMM_WORLD, { 0, 0, 0 } );
-
-        // Print the created decomposition.
-        if ( _rank == 0 )
-        {
-            std::cout << "Ranks per dimension (manual): ";
-            for ( int d = 0; d < 3; ++d )
-                std::cout << ranks_per_dim_manual[d] << " ";
-            std::cout << std::endl;
-        }
+        // // Create the manual partitioner in 2D.
+        // Cabana::Grid::ManualBlockPartitioner<3> partitioner(
+        //     input_ranks_per_dim );
         
+        // define the domain size
+        constexpr int size_tile_per_dim = 32;
+        constexpr int cell_per_tile_dim = 4;
+        constexpr int size_per_dim = size_tile_per_dim * cell_per_tile_dim;
         
+        // some settings for partitioner
+        float max_workload_coeff = 1.5;
+        int particle_num = _num_nodes[0] * _num_nodes[1];
+        int num_step_rebalance = 20;
+        int max_optimize_iteration = 10;
 
+        // cells per dimension in the whole simulation domain
+        std::array<int, 3> global_cells_per_dim = { size_per_dim, size_per_dim,
+                                                    size_per_dim };
+
+        // partitioner def
+        Cabana::Grid::SparseDimPartitioner<device_type, cell_per_tile_dim> partitioner(
+            comm, max_workload_coeff, particle_num, num_step_rebalance,
+            global_cells_per_dim, max_optimize_iteration );
+
+        // initialize partitions (average partition)
+        std::array<std::vector<int>, 3> rec_partitions;
+        std::array<int, 3> ranks_per_dim = {3, 3, 1};
+        for ( int d = 0; d < 3; ++d )
+        {
+            int ele = size_tile_per_dim / ranks_per_dim[d];
+            int part = 0;
+            for ( int i = 0; i < ranks_per_dim[d]; ++i )
+            {
+                rec_partitions[d].push_back( part );
+                part += ele;
+            }
+            rec_partitions[d].push_back( size_tile_per_dim );
+        }
+
+        partitioner.initializeRecPartition( rec_partitions[0], rec_partitions[1],
+                                        rec_partitions[2] );
+        
         for (int i = 0; i < 3; i++) {
             _low_point[i] = global_bounding_box[i];
             _high_point[i] = global_bounding_box[i+3];
@@ -94,19 +118,29 @@ class SpatialMesh
 
         // Finally, create the global mesh, global grid, and local grid.
         _cell_size = 0.05;
-        auto global_mesh = Cabana::Grid::createUniformGlobalMesh(
+        auto global_mesh = Cabana::Grid::createSparseGlobalMesh(
             _low_point, _high_point, _cell_size );
 
-        auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
-                                                     is_dim_periodic, partitioner );
+        // auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
+        //                                              is_dim_periodic, partitioner );
+
+        // Optimize the partitioner
+        auto sis = Cabana::Grid::createSparseMap<ExecutionSpace>( *global_mesh, 10 );
+        // do sth ... (register active tiles in the sparse map)
+        partitioner.optimizePartition( sis, comm );
+        
+        std::array<std::vector<int>, 3> part = partitioner.getCurrentPartition();
+        float imbalance_factor = partitioner.computeImbalanceFactor( comm );
+        printf("R%d: Imbalance factor: %0.2lf\n", _rank, imbalance_factor);
+
         // Build the local grid.
         //_halo_width = fmax(100000, min_halo_width);
         _halo_width = (int) cutoff_distance / _cell_size;
-        _local_grid = Cabana::Grid::createLocalGrid( global_grid, _halo_width );
+        //_local_grid = Cabana::Grid::createLocalGrid( global_grid, _halo_width );
 
         // _global_particle_comm = Cabana::Grid::createGlobalParticleComm(_local_grid);
 
-        auto _local_mesh = Cabana::Grid::createLocalMesh<memory_space>( *_local_grid );
+        //auto _local_mesh = Cabana::Grid::createLocalMesh<memory_space>( *_local_grid );
 
 
         // Get the current rank for printing output.
