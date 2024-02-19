@@ -140,7 +140,7 @@ class Solver : public SolverBase
 #endif
 
          // Create the spatial mesh
-        double cutoff_distance = 20;
+        double cutoff_distance = 1.0;
         _spatial_mesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
             global_bounding_box, num_nodes, periodic,
 	        cutoff_distance, comm );
