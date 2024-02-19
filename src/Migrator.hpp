@@ -24,6 +24,8 @@
 
 #include <limits>
 
+#include <caliper/cali.h>
+
 namespace Beatnik
 {
 //---------------------------------------------------------------------------//
@@ -214,7 +216,11 @@ class Migrator
         auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>(*_spm.localGrid());
         particle_comm->storeRanks(local_mesh);
         particle_comm->build(positions);
+
+        CALI_MARK_BEGIN("particle_comm_migrateTo3D");
         particle_comm->migrate(_comm, _particle_array);
+        CALI_MARK_END("particle_comm_migrateTo3D");
+
 
         // Populate 3D rank of origin and ID
         int rank = _rank;
