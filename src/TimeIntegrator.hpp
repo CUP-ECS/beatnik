@@ -61,8 +61,6 @@ class TimeIntegrator
                                                        node_triple_layout);
         _wtmp = Cabana::Grid::createArray<double, mem_space>("vorticity temporary", 
                                                        node_pair_layout);
-
-        _counter = 0;
     }
 
     void step( const double delta_t ) 
@@ -137,9 +135,6 @@ class TimeIntegrator
                     + ( 2.0 / 3.0 ) * delta_t * w_dot(i, j, d);
             }
         });
-
-        print_view(1, z_orig);
-        _counter++;
     }
 
     template <class View>
@@ -193,8 +188,6 @@ class TimeIntegrator
     const BoundaryCondition &_bc;
     const ZModelType & _zm;
     std::shared_ptr<node_array> _zdot, _wdot, _wtmp, _ztmp;
-
-    int _counter;
 };
 
 } // end namespace Beatnik
