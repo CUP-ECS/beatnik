@@ -41,6 +41,8 @@
 #include <ProblemManager.hpp>
 #include <Operators.hpp>
 
+#include <caliper/cali.h>
+
 namespace Beatnik
 {
 
@@ -296,12 +298,14 @@ class ExactBRSolver
             Kokkos::resize(*zrecv_view, zrecv_extents[0], zrecv_extents[1], zrecv_extents[2]);
             
             // Send/receive the views
+            CALI_MARK_BEGIN("ring pass view send/recv");
             MPI_Sendrecv(wsend_view->data(), int(wsend_view->size()), MPI_DOUBLE, next_rank, 2, 
                         wrecv_view->data(), int(wrecv_view->size()), MPI_DOUBLE, prev_rank, 2, 
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             MPI_Sendrecv(zsend_view->data(), int(zsend_view->size()), MPI_DOUBLE, next_rank, 3, 
                         zrecv_view->data(), int(zrecv_view->size()), MPI_DOUBLE, prev_rank, 3, 
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            CALI_MARK_END("ring pass view send/recv");
 
             // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
             MPI_Sendrecv(L2G_send, int(sizeof(*L2G_send)), MPI_BYTE, next_rank, 4, 
