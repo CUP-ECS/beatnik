@@ -245,7 +245,9 @@ class Migrator
     void performHaloExchange3D()
     {
         // Halo exchange done in Comm constructor
+        CALI_MARK_BEGIN("performHaloExchange3D");
         Comm<memory_space, particle_array_type, local_grid_type2>(_particle_array, *_spm.localGrid(), 40);
+        CALI_MARK_END("performHaloExchange3D");
     }
 
     void migrateParticlesTo2D()
@@ -257,8 +259,10 @@ class Migrator
         _particle_array.resize(_owned_3D_count);
         auto destinations = Cabana::slice<6>(_particle_array, "destinations");
         Cabana::Distributor<memory_space> distributor(_comm, destinations);
+        CALI_MARK_BEGIN("migrateParticlesTo2D");
         Cabana::migrate(distributor, _particle_array);
-        
+        CALI_MARK_END("migrateParticlesTo2D");
+
         //printf("To 2D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
         // for (int i = 0; i < _particle_array.size(); i++)
         // {
