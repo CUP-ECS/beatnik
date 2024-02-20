@@ -6,7 +6,7 @@ project(Beatnik LANGUAGES C CXX VERSION 0.1.0)
 include(GNUInstallDirs)
 
 # find dependencies
-set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
+set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH} ${caliper_DIR})
 
 ##---------------------------------------------------------------------------##
 ## Print the revision number to stdout
@@ -38,6 +38,9 @@ find_package(SILO REQUIRED)
 # Get Clang Format to use for making sure the resulting code is
 # properly formatted
 find_package(CLANG_FORMAT 10)
+
+# Find Caliper
+find_package(caliper REQUIRED)
 
 # library
 add_subdirectory(src)
