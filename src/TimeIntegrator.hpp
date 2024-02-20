@@ -137,52 +137,6 @@ class TimeIntegrator
         });
     }
 
-    template <class View>
-    void print_view(int timestep, View z)
-    {
-        if (_counter != timestep) return;
-
-        int rank;
-        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
-        // std::string filename = "output_pos_rank" + std::to_string(rank) + ".txt";
-        // FILE *fptr;
-        // fptr = fopen(filename.c_str(), "w");
-
-        auto local_L2G = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cabana::Grid::Node());
-        // auto z = _zdot->view();
-
-        int dims = z.extent(2);
-
-        std::array<long, 2> rmin, rmax;
-        for (int d = 0; d < 2; d++) {
-            rmin[d] = local_L2G.local_own_min[d];
-            rmax[d] = local_L2G.local_own_max[d];
-        }
-        Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
-
-       Kokkos::parallel_for("print views",
-            Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
-            KOKKOS_LAMBDA(int i, int j) {
-            
-            // local_gi = global versions of the local indicies, and convention for remote 
-            int local_li[2] = {i, j};
-            int local_gi[2] = {0, 0};   // i, j
-            local_L2G(local_li, local_gi);
-            //printf("global: %d %d\n", local_gi[0], local_gi[1]);
-            if (dims == 3) {
-                printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
-                //fprintf(fptr, "R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
-            }
-            else if (dims == 2) {
-                printf("R%d %d %d %d %d %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
-            }
-        });
-
-        //fclose(fptr);
-
-    }
-
   private:
     const ProblemManager<ExecutionSpace, MemorySpace> & _pm;
     const BoundaryCondition &_bc;
