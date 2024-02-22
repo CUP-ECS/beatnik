@@ -141,6 +141,8 @@ class Migrator
 
     void initializeParticles(node_view z, node_view w, node_view o)
     {
+        CALI_CXX_MARK_FUNCTION;
+
         auto local_grid = _pm.mesh().localGrid();
         auto local_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
@@ -210,6 +212,8 @@ class Migrator
 
     void migrateParticlesTo3D()
     {
+        CALI_CXX_MARK_FUNCTION;
+
         Kokkos::View<int*, memory_space> destination_ranks("destination_ranks", _particle_array.size());
         auto positions = Cabana::slice<0>(_particle_array, "positions");
         auto particle_comm = Cabana::Grid::createGlobalParticleComm<memory_space>(*_spm.localGrid());
@@ -217,9 +221,9 @@ class Migrator
         particle_comm->storeRanks(local_mesh);
         particle_comm->build(positions);
 
-        CALI_MARK_BEGIN("particle_comm_migrateTo3D");
+        CALI_MARK_BEGIN("mpi_migrateParticlesTo3D");
         particle_comm->migrate(_comm, _particle_array);
-        CALI_MARK_END("particle_comm_migrateTo3D");
+        CALI_MARK_END("mpi_migrateParticlesTo3D");
 
 
         // Populate 3D rank of origin and ID
@@ -244,14 +248,17 @@ class Migrator
 
     void performHaloExchange3D()
     {
+        CALI_CXX_MARK_FUNCTION;
+
         // Halo exchange done in Comm constructor
-        CALI_MARK_BEGIN("performHaloExchange3D");
+        CALI_MARK_BEGIN("mpi_performHaloExchange3D");
         Comm<memory_space, particle_array_type, local_grid_type2>(_particle_array, *_spm.localGrid(), 40);
-        CALI_MARK_END("performHaloExchange3D");
+        CALI_MARK_END("mpi_performHaloExchange3D");
     }
 
     void migrateParticlesTo2D()
     {
+        CALI_CXX_MARK_FUNCTION;
         // We only want to send back the non-ghosted particles to 2D
         // XXX Assume all ghosted particles are at the end of the array
         int rank = _rank;
@@ -259,9 +266,9 @@ class Migrator
         _particle_array.resize(_owned_3D_count);
         auto destinations = Cabana::slice<6>(_particle_array, "destinations");
         Cabana::Distributor<memory_space> distributor(_comm, destinations);
-        CALI_MARK_BEGIN("migrateParticlesTo2D");
+        CALI_MARK_BEGIN("mpi_migrateParticlesTo2D");
         Cabana::migrate(distributor, _particle_array);
-        CALI_MARK_END("migrateParticlesTo2D");
+        CALI_MARK_END("mpi_migrateParticlesTo2D");
 
         //printf("To 2D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
         // for (int i = 0; i < _particle_array.size(); i++)
@@ -273,6 +280,8 @@ class Migrator
 
     void computeInterfaceVelocityNeighbors(double dy, double dx, double epsilon)
     {
+        CALI_CXX_MARK_FUNCTION;
+
         /* Project the Birkhoff-Rott calculation between all pairs of points on the 
         * interface, including accounting for any periodic boundary conditions.
         * Right now we brute force all of the points with no tiling to improve
@@ -363,6 +372,8 @@ class Migrator
     template <class PositionView>
     void populate_zdot(PositionView zdot)
     {
+        CALI_CXX_MARK_FUNCTION;
+        
         int rank = _rank;
 
         auto zdot_part = Cabana::slice<2>(_particle_array);
