@@ -94,6 +94,8 @@ class ExactBRSolver
                                        node_view zremote, node_view wremote, 
                                        l2g_type remote_L2G) const
     {
+        CALI_CXX_MARK_FUNCTION;
+        
         /* Project the Birkhoff-Rott calculation between all pairs of points on the 
          * interface, including accounting for any periodic boundary conditions.
          * Right now we brute force all of the points with no tiling to improve
@@ -191,6 +193,8 @@ class ExactBRSolver
      */
     void computeInterfaceVelocity(node_view zdot, node_view z, node_view w) const
     {
+        CALI_CXX_MARK_FUNCTION;
+
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
         int num_procs = -1;
