@@ -139,6 +139,8 @@ class TimeIntegrator
         });
 
         _counter++;
+        print_view(50, z_orig);
+        print_view(75, z_orig);
         print_view(100, z_orig);
     }
 
@@ -149,7 +151,7 @@ class TimeIntegrator
 
         int rank;
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
+        printf("\n\n\n\nR%d: t%d: printing view...\n", rank, _counter);
         // std::string filename = "output_pos_rank" + std::to_string(rank) + ".txt";
         // FILE *fptr;
         // fptr = fopen(filename.c_str(), "w");
