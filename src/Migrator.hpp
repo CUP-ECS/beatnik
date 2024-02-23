@@ -142,6 +142,7 @@ class Migrator
     void initializeParticles(node_view z, node_view w, node_view o)
     {
         CALI_CXX_MARK_FUNCTION;
+        // Kokkos::Profiling::push/pop region
 
         auto local_grid = _pm.mesh().localGrid();
         auto local_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
