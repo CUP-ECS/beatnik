@@ -184,6 +184,8 @@ class ExactBRSolver
                 atomic_zdot(i, j, n) += brsum[n];
             }
         });
+
+        Kokkos::fence();
     }
 
     /* Directly compute the interface velocity by integrating the vorticity 
