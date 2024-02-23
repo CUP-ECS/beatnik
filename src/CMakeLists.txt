@@ -28,11 +28,13 @@ set(DEPENDS_ON
   Cabana::Grid
   SILO::silo 
   MPI::MPI_CXX
+  caliper
   )
  
 set(INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_BINARY_DIR}
+    ${caliper_INCLUDE_DIR}
   )
        
 add_library( beatnik INTERFACE ${SOURCES} )
