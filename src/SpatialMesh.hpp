@@ -101,7 +101,7 @@ class SpatialMesh
                                                      is_dim_periodic, partitioner );
         // Build the local grid.
         //_halo_width = fmax(100000, min_halo_width);
-        _halo_width = (int) cutoff_distance / _cell_size;
+        _halo_width = (int) (cutoff_distance / _cell_size);
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, _halo_width );
 
         // _global_particle_comm = Cabana::Grid::createGlobalParticleComm(_local_grid);
