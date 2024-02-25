@@ -85,7 +85,8 @@ class Solver : public SolverBase
             const Cabana::Grid::BlockPartitioner<2>& partitioner,
             const double atwood, const double g, const InitFunc& create_functor,
             const BoundaryCondition& bc, const double mu, 
-            const double epsilon, const double delta_t)
+            const double epsilon, const double delta_t,
+            const double cutoff_distance)
         : _halo_min( 2 )
         , _atwood( atwood )
         , _g( g )
@@ -94,6 +95,7 @@ class Solver : public SolverBase
         , _eps( epsilon )
         , _dt( delta_t )
         , _time( 0.0 )
+        , _cutoff_distance( cutoff_distance )
     {
 	std::array<bool, 2> periodic;
 
@@ -140,10 +142,9 @@ class Solver : public SolverBase
 #endif
 
          // Create the spatial mesh
-        double cutoff_distance = 1.0;
         _spatial_mesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
             global_bounding_box, num_nodes, periodic,
-	        cutoff_distance, comm );
+	        _cutoff_distance, comm );
 
         // Create a problem manager to manage mesh state
         _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
@@ -219,6 +220,7 @@ class Solver : public SolverBase
     double _mu, _eps;
     double _dt;
     double _time;
+    double _cutoff_distance;
     
     std::unique_ptr<SurfaceMesh<ExecutionSpace, MemorySpace>> _surface_mesh;
     std::unique_ptr<SpatialMesh<ExecutionSpace, MemorySpace>> _spatial_mesh;
@@ -244,7 +246,8 @@ createSolver( const std::string& device, MPI_Comm comm,
               const ModelOrder,
               const double mu,
               const double epsilon, 
-              const double delta_t )
+              const double delta_t,
+              const double cutoff_distance )
 {
     if ( 0 == device.compare( "serial" ) )
     {
@@ -252,7 +255,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<
             Beatnik::Solver<Kokkos::Serial, Kokkos::HostSpace, ModelOrder>>(
             comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t);
+            create_functor, bc, mu, epsilon, delta_t, cutoff_distance);
 #else
         throw std::runtime_error( "Serial Backend Not Enabled" );
 #endif
@@ -263,7 +266,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<
             Beatnik::Solver<Kokkos::Threads, Kokkos::HostSpace, ModelOrder>>(
             comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t);
+            create_functor, bc, mu, epsilon, delta_t, cutoff_distance);
 #else
         throw std::runtime_error( "Threads Backend Not Enabled" );
 #endif
@@ -274,7 +277,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<
             Beatnik::Solver<Kokkos::OpenMP, Kokkos::HostSpace, ModelOrder>>(
             comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t);
+            create_functor, bc, mu, epsilon, delta_t, cutoff_distance);
 #else
         throw std::runtime_error( "OpenMP Backend Not Enabled" );
 #endif
@@ -285,7 +288,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<
             Beatnik::Solver<Kokkos::Cuda, Kokkos::CudaSpace, ModelOrder>>(
             comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t);
+            create_functor, bc, mu, epsilon, delta_t, cutoff_distance);
 #else
         throw std::runtime_error( "CUDA Backend Not Enabled" );
 #endif
@@ -296,7 +299,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<Beatnik::Solver<Kokkos::Experimental::HIP, 
             Kokkos::Experimental::HIPSpace, ModelOrder>>(
                 comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
-                create_functor, bc, mu, epsilon, delta_t);
+                create_functor, bc, mu, epsilon, delta_t, cutoff_distance);
 #else
         throw std::runtime_error( "HIP Backend Not Enabled" );
 #endif

@@ -47,7 +47,7 @@
 
 using namespace Beatnik;
 
-static char* shortargs = (char*)"n:t:d:x:F:o:I:b:g:a:T:m:v:p:i:w:O:M:e:h";
+static char* shortargs = (char*)"n:t:d:x:F:o:I:b:g:a:T:m:v:p:i:w:O:M:e:h:c:";
 
 static option longargs[] = {
     // Basic simulation parameters
@@ -57,6 +57,7 @@ static option longargs[] = {
     { "driver", required_argument, NULL, 'x' },
     { "write_frequency", required_argument, NULL, 'F' },
     { "outdir", required_argument, NULL, 'o' },
+    { "cutoff_distance", required_argument, NULL, 'c' },
 
     // Z-model simulation parameters
     { "initial_condition", required_argument, NULL, 'I' },
@@ -106,6 +107,7 @@ struct ClArgs
     double delta_t;     /**< Timestep */
     std::string driver; /**< ( Serial, Threads, OpenMP, CUDA ) */
     int weak_scale;     /**< Amount to scale up resulting problem */
+    double cutoff_distance; /* Cutoff distance for cutoff-based solve */
 
     /* I/O parameters */
     char *indir;        /**< Where to read initial conditions from */
@@ -188,6 +190,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.order = SolverOrder::ORDER_LOW;;
     cl.weak_scale = 1;
     cl.write_freq = 10;
+    cl.cutoff_distance = 1.0;
 
     /* Default problem is the cosine rocket rig */
     cl.num_nodes = { 128, 128 };
@@ -210,11 +213,23 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.t_final = -1.0;
 
     // Now parse any arguments
-    while ( ( ch = getopt_long( argc, argv, shortargs, longargs, NULL ) ) !=
-            -1 )
+    while ( ( ch = getopt_long( argc, argv, shortargs, longargs, NULL ) ) != -1 )
     {
         switch ( ch )
         {
+        case 'c':
+        {
+            printf("Getting cutoff distance for: %s\n", optarg);
+            cl.cutoff_distance = std::atof( optarg );
+            printf("Got distance\n");
+            if (cl.cutoff_distance <= 0.0 && rank == 0)
+            {
+                std::cerr << "Invalid cutoff distance: " << cl.cutoff_distance << "\n";
+                help( rank, argv[0] );
+                exit( -1 );
+            }
+            break;
+        }
         case 'n':
             cl.num_nodes[0] = atoi( optarg );
 
@@ -247,7 +262,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             }
             break;
         case 'F':
-            cl.write_freq = atoi( optarg) ;
+            cl.write_freq = atoi( optarg ) ;
             if ( cl.write_freq < 0 )
             {
                 if ( rank == 0 )
@@ -569,19 +584,19 @@ void rocketrig( ClArgs& cl )
             cl.driver, MPI_COMM_WORLD,
             cl.global_bounding_box, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t );
+            bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t, cl.cutoff_distance );
     } else if (cl.order == SolverOrder::ORDER_MEDIUM) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD,
             cl.global_bounding_box, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t );
+            bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t, cl.cutoff_distance );
     } else if (cl.order == SolverOrder::ORDER_HIGH) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD,
             cl.global_bounding_box, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t );
+            bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t, cl.cutoff_distance );
     } else {
         std::cerr << "Invalid Model Order parameter!\n";
         exit(-1);
@@ -636,6 +651,8 @@ int main( int argc, char* argv[] )
                   << ": " << std::setw( 8 ) << cl.mu << "\n";
         std::cout << std::left << std::setw( 30 ) << "Desingularization"
                   << ": " << std::setw( 8 ) << cl.eps  << "\n";
+        std::cout << std::left << std::setw( 30 ) << "Cutoff distance"
+                  << ": " << std::setw( 8 ) << cl.cutoff_distance  << "\n";
         std::cout << "==============================================\n";
     }
 
