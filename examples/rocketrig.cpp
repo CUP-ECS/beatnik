@@ -608,6 +608,9 @@ void rocketrig( ClArgs& cl )
 
 int main( int argc, char* argv[] )
 {
+    std::chrono::time_point<std::chrono::system_clock> start, end;
+    start = std::chrono::system_clock::now();
+
     MPI_Init( &argc, &argv );         // Initialize MPI
     Kokkos::initialize( argc, argv ); // Initialize Kokkos
 
@@ -661,6 +664,15 @@ int main( int argc, char* argv[] )
 
     Kokkos::finalize(); // Finalize Kokkos
     MPI_Finalize();     // Finalize MPI
+
+    end = std::chrono::system_clock::now();
+    std::chrono::duration<double> elapsed_seconds = end - start;
+    std::cout << "measured_time: " << elapsed_seconds.count() << std::endl;
+    
+    if(rank == 0)
+    {
+        printf("FINISHED COMPUTING\n");
+    }
 
     return 0;
 };
