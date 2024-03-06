@@ -41,8 +41,6 @@
 #include <ProblemManager.hpp>
 #include <Operators.hpp>
 
-#include <caliper/cali.h>
-
 namespace Beatnik
 {
 
@@ -94,8 +92,9 @@ class ExactBRSolver
                                        node_view zremote, node_view wremote, 
                                        l2g_type remote_L2G) const
     {
-        CALI_CXX_MARK_FUNCTION;
         
+        Kokkos::Profiling::pushRegion( "computeInterfaceVelocityPiece" );
+
         /* Project the Birkhoff-Rott calculation between all pairs of points on the 
          * interface, including accounting for any periodic boundary conditions.
          * Right now we brute force all of the points with no tiling to improve
@@ -186,6 +185,7 @@ class ExactBRSolver
         });
 
         Kokkos::fence();
+        Kokkos::Profiling::popRegion();
     }
 
     /* Directly compute the interface velocity by integrating the vorticity 
@@ -195,7 +195,6 @@ class ExactBRSolver
      */
     void computeInterfaceVelocity(node_view zdot, node_view z, node_view w) const
     {
-        CALI_CXX_MARK_FUNCTION;
 
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
@@ -304,14 +303,14 @@ class ExactBRSolver
             Kokkos::resize(*zrecv_view, zrecv_extents[0], zrecv_extents[1], zrecv_extents[2]);
             
             // Send/receive the views
-            CALI_MARK_BEGIN("ring pass view send/recv");
+            Kokkos::Profiling::pushRegion( "ring pass view send/recv" );
             MPI_Sendrecv(wsend_view->data(), int(wsend_view->size()), MPI_DOUBLE, next_rank, 2, 
                         wrecv_view->data(), int(wrecv_view->size()), MPI_DOUBLE, prev_rank, 2, 
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             MPI_Sendrecv(zsend_view->data(), int(zsend_view->size()), MPI_DOUBLE, next_rank, 3, 
                         zrecv_view->data(), int(zrecv_view->size()), MPI_DOUBLE, prev_rank, 3, 
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-            CALI_MARK_END("ring pass view send/recv");
+            Kokkos::Profiling::popRegion();
 
             // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
             MPI_Sendrecv(L2G_send, int(sizeof(*L2G_send)), MPI_BYTE, next_rank, 4, 
