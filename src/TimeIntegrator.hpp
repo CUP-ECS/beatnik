@@ -138,10 +138,10 @@ class TimeIntegrator
             }
         });
 
-        _counter++;
-        print_view(50, z_orig);
-        print_view(75, z_orig);
-        print_view(100, z_orig);
+        // _counter++;
+        // print_view(50, z_orig);
+        // print_view(75, z_orig);
+        // print_view(100, z_orig);
     }
 
     template <class View>
