@@ -219,9 +219,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         {
         case 'c':
         {
-            printf("Getting cutoff distance for: %s\n", optarg);
             cl.cutoff_distance = std::atof( optarg );
-            printf("Got distance\n");
             if (cl.cutoff_distance <= 0.0 && rank == 0)
             {
                 std::cerr << "Invalid cutoff distance: " << cl.cutoff_distance << "\n";
