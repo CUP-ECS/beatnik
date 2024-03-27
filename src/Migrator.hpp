@@ -139,6 +139,8 @@ class Migrator
 
     void initializeParticles(node_view z, node_view w, node_view o)
     {
+        Kokkos::Profiling::pushRegion("initializeParticles");
+
         auto local_grid = _pm.mesh().localGrid();
         auto local_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
@@ -204,10 +206,14 @@ class Migrator
         });
 
         Kokkos::fence();
+
+        Kokkos::Profiling::popRegion();
     }
 
     void migrateParticlesTo3D()
     {
+        Kokkos::Profiling::pushRegion("migrateParticlesTo3D");
+
         Kokkos::View<int*, memory_space> destination_ranks("destination_ranks", _particle_array.size());
         auto positions = Cabana::slice<0>(_particle_array, "positions");
         auto particle_comm = Cabana::Grid::createGlobalParticleComm<memory_space>(*_spm.localGrid());
@@ -234,16 +240,24 @@ class Migrator
         //     auto particle = _particle_array.getTuple(i);
         //     printf("To 3D: R%d particle id: %d, 2D: %d, 3D: %d\n", _rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
         // }
+
+        Kokkos::Profiling::popRegion();
     }
 
     void performHaloExchange3D()
     {
+        Kokkos::Profiling::pushRegion("performHaloExchange3D");
+
         // Halo exchange done in Comm constructor
         Comm<memory_space, particle_array_type, local_grid_type2>(_particle_array, *_spm.localGrid(), 40);
+
+        Kokkos::Profiling::popRegion();
     }
 
     void migrateParticlesTo2D()
     {
+        Kokkos::Profiling::pushRegion("migrateParticlesTo2D");
+
         // We only want to send back the non-ghosted particles to 2D
         // XXX Assume all ghosted particles are at the end of the array
         int rank = _rank;
@@ -259,10 +273,14 @@ class Migrator
         //     auto particle = _particle_array.getTuple(i);
         //     printf("To 2D: R%d particle id: %d, 2D: %d, 3D: %d\n", _rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
         // }
+
+        Kokkos::Profiling::popRegion();
     }
 
     void computeInterfaceVelocityNeighbors(double dy, double dx, double epsilon)
     {
+        Kokkos::Profiling::pushRegion("computeInterfaceVelocityNeighbors");
+
         /* Project the Birkhoff-Rott calculation between all pairs of points on the 
         * interface, including accounting for any periodic boundary conditions.
         * Right now we brute force all of the points with no tiling to improve
@@ -348,11 +366,15 @@ class Migrator
         });
 
         Kokkos::fence();
+
+        Kokkos::Profiling::popRegion();
     }
 
     template <class PositionView>
     void populate_zdot(PositionView zdot)
     {
+        Kokkos::Profiling::pushRegion("populate_zdot");
+
         int rank = _rank;
 
         auto zdot_part = Cabana::slice<2>(_particle_array);
@@ -367,8 +389,9 @@ class Migrator
             }
         });
 
-        // Wait for all parallel tasks to complete
         Kokkos::fence();
+
+        Kokkos::Profiling::popRegion();
     }
 
   private:
