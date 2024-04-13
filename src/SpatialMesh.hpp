@@ -89,6 +89,8 @@ class SpatialMesh
             _low_point[i] = global_bounding_box[i];
             _high_point[i] = global_bounding_box[i+3];
         }
+        _low_point[2] = -20;
+        _high_point[2] = 20;
 
         std::array<bool, 3> is_dim_periodic = { false, false, false };
 
