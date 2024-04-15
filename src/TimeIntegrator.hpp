@@ -135,6 +135,7 @@ class TimeIntegrator
                 if (z_orig(i, j, d) < low[d] || z_orig(i, j, d) > high[d])
                 {
                     printf("Point has moved outside bounding box. Exiting.\n");
+                    printf("z_orig: %d, min: %d, max: %d\n", z_orig(i, j, d), low[d], high[d]);
                     exit(1);
                 }
             }
