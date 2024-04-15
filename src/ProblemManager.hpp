@@ -185,6 +185,15 @@ class ProblemManager
     };
 
     /**
+     * Return spatial mesh
+     * @return Returns Mesh object
+     **/
+    const spatial_mesh_type & spatial_mesh() const
+    {
+        return _spatial_mesh;
+    };
+
+    /**
      * Return Position Field
      * @param Location::Node
      * @param Field::Position
