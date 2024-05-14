@@ -123,21 +123,13 @@ class TimeIntegrator
         // TVD RK3 Step Three - Combine start, forward euler, and half step
         // derivatives to take the final full step.
         // unew = 1/3 uold + 2/3 utmp + 2/3 du_dt_tmp * deltat
-        auto low = _pm.spatial_mesh().boundingBoxMin();
-        auto high = _pm.spatial_mesh().boundingBoxMax();
         Kokkos::parallel_for("RK3 Full Step",
             Cabana::Grid::createExecutionPolicy(own_node_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {
             for (int d = 0; d < 3; d++) {
-                z_orig(i, j, d) = ( 1.0 / 3.0 ) * z_orig(i, j, d) 
-                        + ( 2.0 / 3.0 ) * z_tmp(i, j, d) 
-                        + ( 2.0 / 3.0 ) * delta_t * z_dot(i, j, d);
-                if (z_orig(i, j, d) < low[d] || z_orig(i, j, d) > high[d])
-                {
-                    printf("Point has moved outside bounding box. Exiting.\n");
-                    printf("z_orig: %d, min: %d, max: %d\n", z_orig(i, j, d), low[d], high[d]);
-                    exit(1);
-                }
+	        z_orig(i, j, d) = ( 1.0 / 3.0 ) * z_orig(i, j, d) 
+                    + ( 2.0 / 3.0 ) * z_tmp(i, j, d) 
+                    + ( 2.0 / 3.0 ) * delta_t * z_dot(i, j, d);
             }
             for (int d = 0; d < 2; d++) {
 	        w_orig(i, j, d) = ( 1.0 / 3.0 ) * w_orig(i, j, d) 
