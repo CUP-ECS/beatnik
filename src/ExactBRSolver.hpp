@@ -72,7 +72,8 @@ class ExactBRSolver
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
     ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc, const spatial_mesh_type &spm,
-                migrator_type &migrator, const double epsilon, const double dx, const double dy)
+                migrator_type &migrator, const double epsilon, const double dx, const double dy,
+                const double cutoff_distance)
         : _pm( pm )
         , _bc( bc )
         , _spm( spm )
@@ -80,6 +81,7 @@ class ExactBRSolver
         , _epsilon( epsilon )
         , _dx( dx )
         , _dy( dy )
+        , _cutoff_distance (cutoff_distance )
         , _local_L2G( *_pm.mesh().localGrid() )
     {
 	    _comm = _pm.mesh().localGrid()->globalGrid().comm();
@@ -202,14 +204,18 @@ class ExactBRSolver
         MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-        _migrator.initializeParticles(z, w, o);
-        _migrator.migrateParticlesTo3D();
-        _migrator.performHaloExchange3D();
-        _migrator.computeInterfaceVelocityNeighbors(_dy, _dx, _epsilon);
-        _migrator.migrateParticlesTo2D();
-        _migrator.populate_zdot(zdot);
-        //printView(_local_L2G, rank, zdot, 1, 2, 7);
-        return;
+        if (_cutoff_distance)
+        {
+            // Perform cutoff solve
+            _migrator.initializeParticles(z, w, o);
+            _migrator.migrateParticlesTo3D();
+            _migrator.performHaloExchange3D();
+            _migrator.computeInterfaceVelocityNeighbors(_dy, _dx, _epsilon);
+            _migrator.migrateParticlesTo2D();
+            _migrator.populate_zdot(zdot);
+            //printView(_local_L2G, rank, zdot, 1, 2, 7);
+            return;
+        }
 
         /* Start by zeroing the interface velocity */
         
@@ -394,6 +400,7 @@ class ExactBRSolver
     const spatial_mesh_type &_spm;
     migrator_type &_migrator;
     double _epsilon, _dx, _dy;
+    const double _cutoff_distance;
     MPI_Comm _comm;
     l2g_type _local_L2G;
     // XXX Communication views and extents to avoid allocations during each ring pass
