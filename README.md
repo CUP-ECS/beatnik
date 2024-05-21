@@ -28,12 +28,12 @@ By default, Beatnik solves a simple multi-mode rocket rig problem sized for a si
   * `-x [cuda|threads|serial]` - The node-level parallelism/accelerator backend to use
   * `-F [write-frequency]` - Interval between timesteps when I/O is written
   * `-O [solution order]` - Order of solver to use ('high', 'medium', or 'low'). 'low' is the default.
-  * `-w [weak scaling factor] - Scale up the problem specification, including the x/y bounding box, to be N times larger
+  * `-w [weak scaling factor]` - Scale up the problem specification, including the x/y bounding box, to be N times larger
 
 ### Problem-specific command line parameters
 
   * `-n [i/j mesh dimension ]` - Number of points on the interface manifold in the I and J dimensions
-  * `-t [timesteps] - number of timesteps to simulate
+  * `-t [timesteps]` - number of timesteps to simulate
   * `-I [interface initialization]` - Function to use for interface initial condition. Currently only 'cos' and 'sech2' are supported.
   * `-m [magnitude]` - The maximum magnitude of the initialization function. 
   * `-p [period]` - The number of periods of the interface in the initial bounding box
