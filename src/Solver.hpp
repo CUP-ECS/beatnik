@@ -86,7 +86,8 @@ class Solver : public SolverBase
             const double atwood, const double g, const InitFunc& create_functor,
             const BoundaryCondition& bc, const double mu, 
             const double epsilon, const double delta_t,
-            const double cutoff_distance)
+            const double cutoff_distance,
+            const int heffte_configuration)
         : _halo_min( 2 )
         , _atwood( atwood )
         , _g( g )
@@ -96,6 +97,7 @@ class Solver : public SolverBase
         , _dt( delta_t )
         , _time( 0.0 )
         , _cutoff_distance( cutoff_distance )
+        , _heffte_configuration( heffte_configuration )
     {
 	std::array<bool, 2> periodic;
 
@@ -151,7 +153,7 @@ class Solver : public SolverBase
             *_surface_mesh, *_spatial_mesh, _bc, create_functor );
 
         _migrator = std::make_unique<Migrator<ExecutionSpace, MemorySpace>>(
-            *_pm, *_spatial_mesh, cutoff_distance);
+            *_pm, *_spatial_mesh, _cutoff_distance);
 
         // Create the Birkhoff-Rott solver (XXX make this conditional on non-low 
         // order solve
@@ -159,7 +161,7 @@ class Solver : public SolverBase
 
         // Create the ZModel solver
         _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>>(
-            *_pm, _bc, _br.get(), dx, dy, _atwood, _g, _mu);
+            *_pm, _bc, _br.get(), dx, dy, _atwood, _g, _mu, _heffte_configuration);
 
         // Make a time integrator to move the zmodel forward
         _ti = std::make_unique<TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>>( *_pm, _bc, *_zm );
@@ -221,6 +223,7 @@ class Solver : public SolverBase
     double _dt;
     double _time;
     double _cutoff_distance;
+    int _heffte_configuration;
     
     std::unique_ptr<SurfaceMesh<ExecutionSpace, MemorySpace>> _surface_mesh;
     std::unique_ptr<SpatialMesh<ExecutionSpace, MemorySpace>> _spatial_mesh;
@@ -247,7 +250,8 @@ createSolver( const std::string& device, MPI_Comm comm,
               const double mu,
               const double epsilon, 
               const double delta_t,
-              const double cutoff_distance )
+              const double cutoff_distance,
+              const int heffte_configuration )
 {
     if ( 0 == device.compare( "serial" ) )
     {
@@ -255,7 +259,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<
             Beatnik::Solver<Kokkos::Serial, Kokkos::HostSpace, ModelOrder>>(
             comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t, cutoff_distance);
+            create_functor, bc, mu, epsilon, delta_t, cutoff_distance, heffte_configuration);
 #else
         throw std::runtime_error( "Serial Backend Not Enabled" );
 #endif
@@ -266,7 +270,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<
             Beatnik::Solver<Kokkos::Threads, Kokkos::HostSpace, ModelOrder>>(
             comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t, cutoff_distance);
+            create_functor, bc, mu, epsilon, delta_t, cutoff_distance, heffte_configuration);
 #else
         throw std::runtime_error( "Threads Backend Not Enabled" );
 #endif
@@ -277,7 +281,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<
             Beatnik::Solver<Kokkos::OpenMP, Kokkos::HostSpace, ModelOrder>>(
             comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t, cutoff_distance);
+            create_functor, bc, mu, epsilon, delta_t, cutoff_distance, heffte_configuration);
 #else
         throw std::runtime_error( "OpenMP Backend Not Enabled" );
 #endif
@@ -288,7 +292,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<
             Beatnik::Solver<Kokkos::Cuda, Kokkos::CudaSpace, ModelOrder>>(
             comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t, cutoff_distance);
+            create_functor, bc, mu, epsilon, delta_t, cutoff_distance, heffte_configuration);
 #else
         throw std::runtime_error( "CUDA Backend Not Enabled" );
 #endif
@@ -299,7 +303,7 @@ createSolver( const std::string& device, MPI_Comm comm,
         return std::make_shared<Beatnik::Solver<Kokkos::Experimental::HIP, 
             Kokkos::Experimental::HIPSpace, ModelOrder>>(
                 comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
-                create_functor, bc, mu, epsilon, delta_t, cutoff_distance);
+                create_functor, bc, mu, epsilon, delta_t, cutoff_distance, heffte_configuration);
 #else
         throw std::runtime_error( "HIP Backend Not Enabled" );
 #endif

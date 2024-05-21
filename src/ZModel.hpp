@@ -80,7 +80,8 @@ class ZModel
     ZModel( const pm_type & pm, const BoundaryCondition &bc,
             const BRSolver *br, /* pointer because could be null */
             const double dx, const double dy, 
-            const double A, const double g, const double mu)
+            const double A, const double g, const double mu,
+            const int heffte_configuration)
         : _pm( pm )
         , _bc( bc )
         , _br( br )
@@ -89,6 +90,7 @@ class ZModel
         , _A( A )
         , _g( g )
         , _mu( mu )
+        , _heffte_configuration( heffte_configuration )
     {
         // Need the node triple layout for storing vector normals and the 
         // node double layout for storing x and y surface derivative
@@ -130,9 +132,48 @@ class ZModel
         _C1 = Cabana::Grid::createArray<double, memory_space>("C1", node_double_layout);
         _C2 = Cabana::Grid::createArray<double, memory_space>("C2", node_double_layout);
 
-        params.setAllToAll(true);
-        params.setPencils(true);
-        params.setReorder(false);
+        switch (_heffte_configuration) {
+            case 0:
+                params.setAllToAll(false);
+                params.setPencils(false);
+                params.setReorder(false);
+                break;
+            case 1:
+                params.setAllToAll(false);
+                params.setPencils(false);
+                params.setReorder(true);
+                break;
+            case 2:
+                params.setAllToAll(false);
+                params.setPencils(true);
+                params.setReorder(false);
+                break;
+            case 3:
+                params.setAllToAll(false);
+                params.setPencils(true);
+                params.setReorder(true);
+                break;
+            case 4:
+                params.setAllToAll(true);
+                params.setPencils(false);
+                params.setReorder(false);
+                break;
+            case 5:
+                params.setAllToAll(true);
+                params.setPencils(false);
+                params.setReorder(true);
+                break;
+            case 6:
+                params.setAllToAll(true);
+                params.setPencils(true);
+                params.setReorder(false);
+                break;
+            case 7:
+                params.setAllToAll(true);
+                params.setPencils(true);
+                params.setReorder(true);
+                break;
+        }
         _fft = Cabana::Grid::Experimental::createHeffteFastFourierTransform<double, memory_space>(*node_double_layout, params);
     }
 
@@ -457,6 +498,7 @@ class ZModel
     const BRSolver *_br;
     double _dx, _dy;
     double _A, _g, _mu;
+    const int _heffte_configuration;
     std::shared_ptr<node_array> _V;
     std::shared_ptr<halo_type> _v_halo;
     std::shared_ptr<node_array> _omega;
