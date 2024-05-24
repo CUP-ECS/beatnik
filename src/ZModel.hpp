@@ -189,7 +189,7 @@ class ZModel
         /* Construct the temporary arrays C1 and C2 */
         auto local_grid = _pm.mesh().localGrid();
         auto & global_grid = local_grid->globalGrid();
-        auto local_mesh = Cabana::Grid::createLocalMesh<device_type>( *local_grid );
+        auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>( *local_grid );
         auto local_nodes = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
         /* Get the views we'll be computing with in parallel loops */
