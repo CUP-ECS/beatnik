@@ -57,7 +57,6 @@ struct Params
         7	    True	    True	True
     */
     int heffte_configuration;
-    
 };
 
 /*
@@ -99,7 +98,7 @@ class Solver : public SolverBase
     // Still need to design that out XXX
     using brsolver_type = ExactBRSolver<ExecutionSpace, MemorySpace>;  // Single node currently
 
-    using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>;
+    using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder, BRSolverType>;
     using ti_type = TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>;
     using Node = Cabana::Grid::Node;
 
@@ -183,7 +182,7 @@ class Solver : public SolverBase
         _br = std::make_unique<brsolver_type>(*_pm, _bc, *_spatial_mesh, *_migrator, _eps, dx, dy, _params.cutoff_distance);
 
         // Create the ZModel solver
-        _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>>(
+        _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder, BRSolverType>>(
             *_pm, _bc, _br.get(), dx, dy, _atwood, _g, _mu, _params.heffte_configuration);
 
         // Make a time integrator to move the zmodel forward

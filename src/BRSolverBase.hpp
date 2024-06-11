@@ -56,7 +56,7 @@ class BRSolverBase
     virtual ~BRSolverBase() = default;
 
     template <class node_view>
-    virtual void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) = 0;
+    virtual void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const = 0;
 };
 
 //---------------------------------------------------------------------------//
@@ -73,7 +73,7 @@ createBRSolver( const BRSolverType,
         return std::make_shared<
             Beatnik::BRSolver<ExecutionSpace, MemorySpace>>(
             comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t, cutoff_distance, heffte_configuration);
+            create_functor, bc, mu, epsilon, delta_t, cutoff_distance);
     }
 }
 
