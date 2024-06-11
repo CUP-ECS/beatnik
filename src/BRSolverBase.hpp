@@ -9,8 +9,8 @@
  * SPDX-License-Identifier: BSD-3-Clause                                    *
  ****************************************************************************/
 
-#ifndef BEATNIK_SOLVER_HPP
-#define BEATNIK_SOLVER_HPP
+#ifndef BEATNIK_BRSOLVERBASE_HPP
+#define BEATNIK_BRSOLVERBASE_HPP
 
 #include <Beatnik_Config.hpp>
 
@@ -78,3 +78,5 @@ createBRSolver( const BRSolverType,
 }
 
 }
+
+#endif // end BEATNIK_BRSOLVERBASE_HPP

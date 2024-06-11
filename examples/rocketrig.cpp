@@ -47,7 +47,7 @@
 
 using namespace Beatnik;
 
-static char* shortargs = (char*)"n:t:d:x:F:o:I:b:g:a:T:m:v:p:i:w:O:M:e:h:c:H:";
+static char* shortargs = (char*)"n:t:d:x:F:o:I:b:g:a:T:m:v:p:i:w:O:S:M:e:h:c:H:";
 
 static option longargs[] = {
     // Basic simulation parameters
@@ -74,6 +74,7 @@ static option longargs[] = {
 
     // Z-model simulation parameters
     { "order", required_argument, NULL, 'O' },
+    { "solver", required_argument, NULL, 'S' },
     { "mu", required_argument, NULL, 'M' },
     { "epsilon", required_argument, NULL, 'e' },
 
@@ -83,6 +84,8 @@ static option longargs[] = {
 
 enum InitialConditionModel {IC_COS = 0, IC_SECH2, IC_GAUSSIAN, IC_RANDOM, IC_FILE};
 enum SolverOrder {ORDER_LOW = 0, ORDER_MEDIUM, ORDER_HIGH};
+enum BRSolverType {BR_EXACT = 0, BR_CUTOFF};
+
 /**
  * @struct ClArgs
  * @brief Template struct to organize and keep track of parameters controlled by
@@ -108,20 +111,6 @@ struct ClArgs
     double delta_t;     /**< Timestep */
     std::string driver; /**< ( Serial, Threads, OpenMP, CUDA ) */
     int weak_scale;     /**< Amount to scale up resulting problem */
-    double cutoff_distance; /* Cutoff distance for cutoff-based solve */
-
-    /* Heffte configuration: 
-        Value	All-to-all	Pencils	Reorder
-        0	    False	    False	False
-        1	    False	    False	True
-        2	    False	    True	False
-        3	    False	    True	True
-        4	    True	    False	False
-        5	    True	    False	True
-        6	    True	    True	False (Default)
-        7	    True	    True	True
-    */
-    int heffte_configuration;
 
     /* I/O parameters */
     char *indir;        /**< Where to read initial conditions from */
@@ -130,8 +119,12 @@ struct ClArgs
 
     /* Solution method constants */
     enum SolverOrder order;  /**< Order of z-model solver to use */
+    enum BRSolverType br_solver; /**< BRSolver to use */
     double mu;      /**< Artificial viscosity constant */
     double eps;     /**< Desingularization constant */
+
+    /* Parameters specific to solver order and BR solver type */
+    Params params;
 };
 
 /**
@@ -165,7 +158,8 @@ void help( const int rank, char* progname )
                   << "Write Frequency (default 10)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-O" << std::setw( 40 )
                   << "Solver Order (default \"low\")" << std::left << "\n";
-
+        std::cout << std::left << std::setw( 10 ) << "-S" << std::setw( 40 )
+                  << "BRSolver (default \"exact\")" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-I" << std::setw( 40 )
                   << "Initial Condition Model (default \"cos\")" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-m" << std::setw( 40 )
@@ -183,7 +177,7 @@ void help( const int rank, char* progname )
         std::cout << std::left << std::setw( 10 ) << "-M" << std::setw( 40 )
                   << "Artificial Viscosity Constant (default 1.0)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-e" << std::setw( 40 )
-		<< "Desingularization Constant (defailt 0.25)" << std::left << "\n";
+		<< "Desingularization Constant (default 0.25)" << std::left << "\n";
 
         std::cout << std::left << std::setw( 10 ) << "-h" << std::setw( 40 )
                   << "Print Help Message" << std::left << "\n";
@@ -205,11 +199,14 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 
     /// Set default values
     cl.driver = "serial"; // Default Thread Setting
-    cl.order = SolverOrder::ORDER_LOW;;
+    cl.order = SolverOrder::ORDER_LOW;
+    cl.br_solver = BRSolverType::BR_EXACT;
     cl.weak_scale = 1;
     cl.write_freq = 10;
-    cl.cutoff_distance = 0.0;
-    cl.heffte_configuration = 6;
+
+    // Set default extra parameters
+    cl.params.cutoff_distance = 0.0;
+    cl.params.heffte_configuration = 6;
 
     /* Default problem is the cosine rocket rig */
     cl.num_nodes = { 128, 128 };
@@ -236,12 +233,29 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     {
         switch ( ch )
         {
+        case 'S':
+        {
+            std::string solver(optarg);
+            if (solver.compare("exact") == 0 ) {
+                cl.br_solver = BRSolverType::BR_EXACT;
+            } else if (solver.compare("cutoff") == 0 ) {
+                cl.br_solver = BRSolverType::BR_CUTOFF;
+            } else {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid BR solver argument.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
+            break;
+        }
         case 'c':
         {
-            cl.cutoff_distance = std::atof( optarg );
-            if (cl.cutoff_distance <= 0.0 && rank == 0)
+            cl.params.cutoff_distance = std::atof( optarg );
+            if (cl.params.cutoff_distance <= 0.0 && rank == 0)
             {
-                std::cerr << "Invalid cutoff distance: " << cl.cutoff_distance << "\n";
+                std::cerr << "Invalid cutoff distance: " << cl.params.cutoff_distance << "\n";
                 help( rank, argv[0] );
                 exit( -1 );
             }
@@ -249,10 +263,10 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         }
         case 'H':
         {
-            cl.heffte_configuration = std::atoi( optarg );
-            if (cl.heffte_configuration < 0 || cl.heffte_configuration > 7 && rank == 0)
+            cl.params.heffte_configuration = std::atoi( optarg );
+            if (cl.params.heffte_configuration < 0 || cl.params.heffte_configuration > 7 && rank == 0)
             {
-                std::cerr << "Invalid heffte configuration: " << cl.heffte_configuration << "\n"
+                std::cerr << "Invalid heffte configuration: " << cl.params.heffte_configuration << "\n"
                           << "Must be between 0 and 7." << "\n";
                 help( rank, argv[0] );
                 exit( -1 );
@@ -613,22 +627,22 @@ void rocketrig( ClArgs& cl )
             cl.driver, MPI_COMM_WORLD,
             cl.global_bounding_box, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t,
-            cl.cutoff_distance, cl.heffte_configuration );
+            bc, Beatnik::Order::Low(), NULL, cl.mu, cl.eps, cl.delta_t,
+            cl.params );
     } else if (cl.order == SolverOrder::ORDER_MEDIUM) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD,
             cl.global_bounding_box, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t,
-            cl.cutoff_distance, cl.heffte_configuration );
+            bc, Beatnik::Order::Medium(), cl.br_solver, cl.mu, cl.eps, cl.delta_t,
+            cl.params );
     } else if (cl.order == SolverOrder::ORDER_HIGH) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD,
             cl.global_bounding_box, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t,
-            cl.cutoff_distance, cl.heffte_configuration );
+            bc, Beatnik::Order::High(), cl.br_solver, cl.mu, cl.eps, cl.delta_t,
+            cl.params );
     } else {
         std::cerr << "Invalid Model Order parameter!\n";
         exit(-1);
@@ -671,6 +685,11 @@ int main( int argc, char* argv[] )
                   << "\n"; // Number of Cells
         std::cout <<  std::left << std::setw( 30 ) << "Solver Order"
                   << ": " << std::setw( 8 ) << cl.order << "\n";
+        if (cl.order == SolverOrder::ORDER_HIGH || cl.order == SolverOrder::ORDER_MEDIUM)
+        {
+            std::cout <<  std::left << std::setw( 30 ) << "BR Solver type"
+                  << ": " << std::setw( 8 ) << cl.br_solver << "\n";
+        }
         std::cout << std::left << std::setw( 30 ) << "Total Simulation Time"
                   << ": " << std::setw( 8 ) << cl.t_final << "\n";
         std::cout << std::left << std::setw( 30 ) << "Timestep Size"
@@ -686,10 +705,18 @@ int main( int argc, char* argv[] )
                   << ": " << std::setw( 8 ) << cl.mu << "\n";
         std::cout << std::left << std::setw( 30 ) << "Desingularization"
                   << ": " << std::setw( 8 ) << cl.eps  << "\n";
-        std::cout << std::left << std::setw( 30 ) << "Cutoff distance"
-                  << ": " << std::setw( 8 ) << cl.cutoff_distance  << "\n";
-        std::cout << std::left << std::setw( 30 ) << "HeFFTe configuration"
-                  << ": " << std::setw( 8 ) << cl.heffte_configuration  << "\n";
+        if ((cl.order == SolverOrder::ORDER_HIGH ||
+             cl.order == SolverOrder::ORDER_MEDIUM) &&
+             cl.br_solver == BRSolverType::BR_CUTOFF)
+        {
+            std::cout << std::left << std::setw( 30 ) << "Cutoff distance"
+                  << ": " << std::setw( 8 ) << cl.params.cutoff_distance  << "\n";
+        }
+        if (cl.order == SolverOrder::ORDER_LOW)
+        {
+            std::cout << std::left << std::setw( 30 ) << "HeFFTe configuration"
+                  << ": " << std::setw( 8 ) << cl.params.heffte_configuration  << "\n";
+        }
         std::cout << std::left << std::setw( 30 ) << "Bounding Box Low/High"
                   << ": " << std::setw( 8 ) << cl.global_bounding_box[0]
                   << ", " << cl.global_bounding_box[3] << "\n";
