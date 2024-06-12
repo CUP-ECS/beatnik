@@ -37,6 +37,7 @@
 
 #include <memory>
 
+#include <BRSolverBase.hpp>
 #include <SurfaceMesh.hpp>
 #include <ProblemManager.hpp>
 #include <Operators.hpp>
@@ -51,8 +52,8 @@ namespace Beatnik
  * @brief Directly solves the Birkhoff-Rott integral using brute-force 
  * all-pairs calculation, limited by a cutoff distance
  **/
-template <class ExecutionSpace, class MemorySpace>
-class CutoffBRSolver : public BRSolverBase
+template <class ExecutionSpace, class MemorySpace, class Params>
+class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 {
   public:
     using exec_space = ExecutionSpace;

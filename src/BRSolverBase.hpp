@@ -22,7 +22,6 @@
 #include <ProblemManager.hpp>
 #include <SiloWriter.hpp>
 #include <TimeIntegrator.hpp>
-#include <ExactBRSolver.hpp>
 #include <Migrator.hpp>
 
 #include <ZModel.hpp>
@@ -36,14 +35,11 @@
 namespace Beatnik
 {
 
-enum BRSolverType {BR_EXACT = 0, BR_CUTOFF};
-
-
 /*
  * Convenience base class so that examples that use this don't need to know
  * the details of the problem manager/mesh/etc templating.
  */
-template <class ExecutionSpace, class MemorySpace>
+template <class ExecutionSpace, class MemorySpace, class Params>
 class BRSolverBase
 {
   public:
@@ -54,24 +50,29 @@ class BRSolverBase
 };
 
 //---------------------------------------------------------------------------//
-// Creation method.
-template <class pm_type, class Params>
-std::shared_ptr<BRSolverBase<class ExecutionSpace, class MemorySpace>>
-createBRSolver( const pm_type &pm, const BoundaryCondition &bc,
-                const double epsilon, const double dx, const double dy,
-                const Params params )
-{
-    if ( params.br_solver == BR_EXACT )
-    {
-        // *_pm, _bc, *_spatial_mesh, *_migrator, _eps, dx, dy, _params.cutoff_distance)
-        // ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc,
-        //            const double epsilon, const double dx, const double dy )
-        return std::make_unique<
-            Beatnik::ExactBRSolver<ExecutionSpace, MemorySpace, Params>>(
-            *pm, bc, epsilon, dx, dy, params);
-    }
-}
+// // Creation method.
+// template <class pm_type, class ExecutionSpace, class MemorySpace, class Params>
+// std::shared_ptr<BRSolverBase<ExecutionSpace, MemorySpace, Params>>
+// createBRSolver( const pm_type &pm, const BoundaryCondition &bc,
+//                 const double epsilon, const double dx, const double dy,
+//                 const Params params )
+// {
+//     if ( params.br_solver == BR_EXACT )
+//     {
+//         using br_type = Beatnik::ExactBRSolver<ExecutionSpace, MemorySpace, Params>;
+//         // *_pm, _bc, *_spatial_mesh, *_migrator, _eps, dx, dy, _params.cutoff_distance)
+//         // ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc,
+//         //            const double epsilon, const double dx, const double dy )
 
-}
+//         return std::make_shared<br_type>(
+//             pm, bc, epsilon, dx, dy, params);
+//     }
+//     if ( params.br_solver = BR_CUTOFF )
+//     {
+//         using br_type = Beatnik::CutoffBRSolver<ExecutionSpace, MemorySpace, Params>
+//     }
+// }
+
+} // end namespace Beantik
 
 #endif // end BEATNIK_BRSOLVERBASE_HPP

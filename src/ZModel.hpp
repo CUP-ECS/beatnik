@@ -34,6 +34,7 @@
 #include <memory>
 
 #include <SurfaceMesh.hpp>
+#include <CreateBRSolver.hpp>
 
 #include <BoundaryCondition.hpp>
 #include <Operators.hpp>
@@ -58,13 +59,14 @@ namespace Order
  * @brief ZModel class handles the specific of the various ZModel versions, 
  * invoking an external class to solve far-field forces if necessary.
  **/
-template <class ExecutionSpace, class MemorySpace, class MethodOrder, class BRSolver>
+template <class ExecutionSpace, class MemorySpace, class MethodOrder, class Params>
 class ZModel
 {
   public:
     using exec_space = ExecutionSpace;
     using memory_space = MemorySpace;
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
+    using br_solver_type = BRSolverBase<ExecutionSpace, MemorySpace, Params>;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>; 
 
@@ -78,7 +80,7 @@ class ZModel
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
     ZModel( const pm_type & pm, const BoundaryCondition &bc,
-            const BRSolver *br, /* pointer because could be null */
+            const br_solver_type *br, /* pointer because could be null */
             const double dx, const double dy, 
             const double A, const double g, const double mu,
             const int heffte_configuration)
@@ -495,7 +497,7 @@ class ZModel
   private:
     const pm_type & _pm;
     const BoundaryCondition & _bc;
-    const BRSolver *_br;
+    const br_solver_type *_br;
     double _dx, _dy;
     double _A, _g, _mu;
     const int _heffte_configuration;

@@ -41,6 +41,7 @@
 #include <ProblemManager.hpp>
 #include <Operators.hpp>
 #include <Migrator.hpp>
+#include <BRSolverBase.hpp>
 
 namespace Beatnik
 {
@@ -52,7 +53,7 @@ namespace Beatnik
  * all-pairs calculation
  **/
 template <class ExecutionSpace, class MemorySpace, class Params>
-class ExactBRSolver
+class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 {
   public:
     using exec_space = ExecutionSpace;
@@ -194,7 +195,7 @@ class ExactBRSolver
      * This function is called three times per time step to compute the initial, forward, and half-step
      * derivatives for velocity and vorticity.
      */
-    void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const
+    void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const override
     {
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
@@ -203,18 +204,7 @@ class ExactBRSolver
         MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-        if (_cutoff_distance)
-        {
-            // Perform cutoff solve
-            _migrator.initializeParticles(z, w, o);
-            _migrator.migrateParticlesTo3D();
-            _migrator.performHaloExchange3D();
-            _migrator.computeInterfaceVelocityNeighbors(_dy, _dx, _epsilon);
-            _migrator.migrateParticlesTo2D();
-            _migrator.populate_zdot(zdot);
-            //printView(_local_L2G, rank, zdot, 1, 2, 7);
-            return;
-        }
+        
 
         /* Start by zeroing the interface velocity */
         
