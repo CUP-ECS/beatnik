@@ -51,7 +51,7 @@ namespace Beatnik
  * @brief Directly solves the Birkhoff-Rott integral using brute-force 
  * all-pairs calculation
  **/
-template <class ExecutionSpace, class MemorySpace>
+template <class ExecutionSpace, class MemorySpace, class Params>
 class ExactBRSolver
 {
   public:
@@ -64,6 +64,7 @@ class ExactBRSolver
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     
     using Node = Cabana::Grid::Node;
+    //using Params = Beatnik::Params;
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
     using node_array = typename pm_type::node_array;
     //using node_view = typename pm_type::node_view;
@@ -71,17 +72,15 @@ class ExactBRSolver
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
-    ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc, const spatial_mesh_type &spm,
-                migrator_type &migrator, const double epsilon, const double dx, const double dy,
-                const double cutoff_distance)
+    ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc,
+                   const double epsilon, const double dx, const double dy,
+                   const Params params)
         : _pm( pm )
         , _bc( bc )
-        , _spm( spm )
-        , _migrator( migrator )
         , _epsilon( epsilon )
         , _dx( dx )
         , _dy( dy )
-        , _cutoff_distance (cutoff_distance )
+        , _params( params )
         , _local_L2G( *_pm.mesh().localGrid() )
     {
 	    _comm = _pm.mesh().localGrid()->globalGrid().comm();
@@ -397,10 +396,9 @@ class ExactBRSolver
   private:
     const pm_type & _pm;
     const BoundaryCondition & _bc;
-    const spatial_mesh_type &_spm;
-    migrator_type &_migrator;
+    const Params _params;
     double _epsilon, _dx, _dy;
-    const double _cutoff_distance;
+
     MPI_Comm _comm;
     l2g_type _local_L2G;
     // XXX Communication views and extents to avoid allocations during each ring pass

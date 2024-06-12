@@ -85,7 +85,6 @@ static option longargs[] = {
 
 enum InitialConditionModel {IC_COS = 0, IC_SECH2, IC_GAUSSIAN, IC_RANDOM, IC_FILE};
 enum SolverOrder {ORDER_LOW = 0, ORDER_MEDIUM, ORDER_HIGH};
-enum BRSolverType {BR_EXACT = 0, BR_CUTOFF};
 
 /**
  * @struct ClArgs
@@ -201,13 +200,13 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     /// Set default values
     cl.driver = "serial"; // Default Thread Setting
     cl.order = SolverOrder::ORDER_LOW;
-    cl.br_solver = BRSolverType::BR_EXACT;
     cl.weak_scale = 1;
     cl.write_freq = 10;
 
     // Set default extra parameters
     cl.params.cutoff_distance = 0.0;
     cl.params.heffte_configuration = 6;
+    cl.params.br_solver = BR_EXACT;
 
     /* Default problem is the cosine rocket rig */
     cl.num_nodes = { 128, 128 };
@@ -238,9 +237,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         {
             std::string solver(optarg);
             if (solver.compare("exact") == 0 ) {
-                cl.br_solver = BRSolverType::BR_EXACT;
+                cl.params.br_solver = BRSolverType::BR_EXACT;
             } else if (solver.compare("cutoff") == 0 ) {
-                cl.br_solver = BRSolverType::BR_CUTOFF;
+                cl.params.br_solver = BRSolverType::BR_CUTOFF;
             } else {
                 if ( rank == 0 )
                 {
@@ -628,21 +627,21 @@ void rocketrig( ClArgs& cl )
             cl.driver, MPI_COMM_WORLD,
             cl.global_bounding_box, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::Low(), NULL, cl.mu, cl.eps, cl.delta_t,
+            bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t,
             cl.params );
     } else if (cl.order == SolverOrder::ORDER_MEDIUM) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD,
             cl.global_bounding_box, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::Medium(), cl.br_solver, cl.mu, cl.eps, cl.delta_t,
+            bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t,
             cl.params );
     } else if (cl.order == SolverOrder::ORDER_HIGH) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD,
             cl.global_bounding_box, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::High(), cl.br_solver, cl.mu, cl.eps, cl.delta_t,
+            bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t,
             cl.params );
     } else {
         std::cerr << "Invalid Model Order parameter!\n";

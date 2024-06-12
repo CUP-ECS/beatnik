@@ -36,13 +36,8 @@
 namespace Beatnik
 {
 
-// Type tags designating different BRSolvers
-namespace BRSolver
-{
-    struct Exact {};
+enum BRSolverType {BR_EXACT = 0, BR_CUTOFF};
 
-    struct Cutoff {};
-} // namespace BRSolver
 
 /*
  * Convenience base class so that examples that use this don't need to know
@@ -52,28 +47,28 @@ template <class ExecutionSpace, class MemorySpace>
 class BRSolverBase
 {
   public:
-    
+    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
+    using node_view = Kokkos::View<double***, device_type>;
     virtual ~BRSolverBase() = default;
-
-    template <class node_view>
     virtual void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const = 0;
 };
 
 //---------------------------------------------------------------------------//
 // Creation method.
-template <class pm_type, class spatial_mesh_type, class BRSolverType>
+template <class pm_type, class Params>
 std::shared_ptr<BRSolverBase<class ExecutionSpace, class MemorySpace>>
-createBRSolver( const BRSolverType,
-                const pm_type &pm, const BoundaryCondition &bc, const spatial_mesh_type &spm,
+createBRSolver( const pm_type &pm, const BoundaryCondition &bc,
                 const double epsilon, const double dx, const double dy,
-                const double cutoff_distance )
+                const Params params )
 {
-    if ( BRSolverType() == BRSolver::Exact )
+    if ( params.br_solver == BR_EXACT )
     {
-        return std::make_shared<
-            Beatnik::BRSolver<ExecutionSpace, MemorySpace>>(
-            comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t, cutoff_distance);
+        // *_pm, _bc, *_spatial_mesh, *_migrator, _eps, dx, dy, _params.cutoff_distance)
+        // ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc,
+        //            const double epsilon, const double dx, const double dy )
+        return std::make_unique<
+            Beatnik::ExactBRSolver<ExecutionSpace, MemorySpace, Params>>(
+            *pm, bc, epsilon, dx, dy, params);
     }
 }
 

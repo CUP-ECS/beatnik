@@ -23,6 +23,7 @@
 #include <SiloWriter.hpp>
 #include <TimeIntegrator.hpp>
 #include <ExactBRSolver.hpp>
+#include <BRSolverBase.hpp>
 #include <Migrator.hpp>
 
 #include <ZModel.hpp>
@@ -36,12 +37,16 @@
 namespace Beatnik
 {
 
+
 /**
  * @struct Params
  * @brief Holds order and solver-specific parameters
  */
 struct Params
 {
+    /* BR solver type */
+    BRSolverType br_solver;
+
     /* Cutoff distance for cutoff-based BRSolver */
     double cutoff_distance;
 
@@ -86,7 +91,7 @@ class SolverBase
  *    as const references.
  */
 
-template <class ExecutionSpace, class MemorySpace, class ModelOrder, class BRSolverType>
+template <class ExecutionSpace, class MemorySpace, class ModelOrder>
 class Solver : public SolverBase
 {
   public:
@@ -96,7 +101,7 @@ class Solver : public SolverBase
 
     // At some point we'll specify this when making the solver through a template argument.
     // Still need to design that out XXX
-    using brsolver_type = ExactBRSolver<ExecutionSpace, MemorySpace>;  // Single node currently
+    //using brsolver_type = ExactBRSolver<ExecutionSpace, MemorySpace>;  // Single node currently
 
     using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder, BRSolverType>;
     using ti_type = TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>;
@@ -179,7 +184,8 @@ class Solver : public SolverBase
 
         // Create the Birkhoff-Rott solver (XXX make this conditional on non-low 
         // order solve
-        _br = std::make_unique<brsolver_type>(*_pm, _bc, *_spatial_mesh, *_migrator, _eps, dx, dy, _params.cutoff_distance);
+        //_br = std::make_unique<ExactBRSolver>(*_pm, _bc, *_spatial_mesh, *_migrator, _eps, dx, dy, _params.cutoff_distance);
+        _br = Beatnik::createBRSolver(*_pm, _bc, _eps, dx, dy, _params);
 
         // Create the ZModel solver
         _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder, BRSolverType>>(
@@ -250,7 +256,8 @@ class Solver : public SolverBase
     std::unique_ptr<SpatialMesh<ExecutionSpace, MemorySpace>> _spatial_mesh;
     std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace>> _pm;
     std::unique_ptr<Migrator<ExecutionSpace, MemorySpace>> _migrator;
-    std::unique_ptr<brsolver_type> _br;
+    //std::unique_ptr<brsolver_type> _br;
+    std::unique_ptr<BRSolverBase<ExecutionSpace, MemorySpace>> _br;
     std::unique_ptr<zmodel_type> _zm;
     std::unique_ptr<ti_type> _ti;
     std::unique_ptr<SiloWriter<ExecutionSpace, MemorySpace>> _silo;
@@ -258,7 +265,7 @@ class Solver : public SolverBase
 
 //---------------------------------------------------------------------------//
 // Creation method.
-template <class InitFunc, class ModelOrder, class BRSolverType, class Params>
+template <class InitFunc, class ModelOrder, class Params>
 std::shared_ptr<SolverBase>
 createSolver( const std::string& device, MPI_Comm comm,
               const std::array<double, 6>& global_bounding_box,
@@ -268,7 +275,6 @@ createSolver( const std::string& device, MPI_Comm comm,
               const InitFunc& create_functor, 
               const BoundaryCondition& bc, 
               const ModelOrder,
-              const BRSolverType,
               const double mu,
               const double epsilon, 
               const double delta_t,
@@ -278,7 +284,7 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #if defined( KOKKOS_ENABLE_SERIAL )
         return std::make_shared<
-            Beatnik::Solver<Kokkos::Serial, Kokkos::HostSpace, ModelOrder, BRSolverType>>(
+            Beatnik::Solver<Kokkos::Serial, Kokkos::HostSpace, ModelOrder>>(
             comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t, params);
 #else
@@ -289,7 +295,7 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #if defined( KOKKOS_ENABLE_THREADS )
         return std::make_shared<
-            Beatnik::Solver<Kokkos::Threads, Kokkos::HostSpace, ModelOrder, BRSolverType>>(
+            Beatnik::Solver<Kokkos::Threads, Kokkos::HostSpace, ModelOrder>>(
             comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t, params);
 #else
@@ -300,7 +306,7 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #if defined( KOKKOS_ENABLE_OPENMP )
         return std::make_shared<
-            Beatnik::Solver<Kokkos::OpenMP, Kokkos::HostSpace, ModelOrder, BRSolverType>>(
+            Beatnik::Solver<Kokkos::OpenMP, Kokkos::HostSpace, ModelOrder>>(
             comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t, params);
 #else
@@ -311,7 +317,7 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #if defined(KOKKOS_ENABLE_CUDA)
         return std::make_shared<
-            Beatnik::Solver<Kokkos::Cuda, Kokkos::CudaSpace, ModelOrder, BRSolverType>>(
+            Beatnik::Solver<Kokkos::Cuda, Kokkos::CudaSpace, ModelOrder>>(
             comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t, params);
 #else
@@ -322,7 +328,7 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #ifdef KOKKOS_ENABLE_HIP
         return std::make_shared<Beatnik::Solver<Kokkos::Experimental::HIP, 
-            Kokkos::Experimental::HIPSpace, ModelOrder, BRSolverType>>(
+            Kokkos::Experimental::HIPSpace, ModelOrder>>(
                 comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
                 create_functor, bc, mu, epsilon, delta_t, params);
 #else
