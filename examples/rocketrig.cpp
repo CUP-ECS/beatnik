@@ -12,6 +12,7 @@
  * @file
  * @author Patrick Bridges <patrickb@unm.edu>
  * @author Jacob McCullough <jmccullough12@unm.edu>
+ * @author Jason Stewart <jastewart@unm.edu>
  *
  * @section DESCRIPTION
  * General rocket rig fluid interface example using the Beatnik z-model
