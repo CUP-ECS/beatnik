@@ -39,21 +39,6 @@ class SpatialMesh
     using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
     using global_particle_comm_type = Cabana::Grid::GlobalParticleComm<memory_space, local_grid_type>;
 
-    using particle_node = Cabana::MemberTypes<double[3], // xyz position in space                           0
-                                              double[3], // Own omega for BR                                1
-                                              double[3], // zdot                                            2
-                                              double,    // Simpson weight                                  3
-                                              int[2],    // Index in PositionView z and VorticityView w     4
-                                              int,       // Point ID in 2D                                  5
-                                              int,       // Owning rank in 2D space                         6
-                                              int,       // Owning rank in 3D space                         7
-                                              int        // Point ID in 3D                                  8
-                                              >;
-    // XXX Change the final parameter of particle_array_type, vector type, to
-    // be aligned with the machine we are using
-    using particle_array_type = Cabana::AoSoA<particle_node, device_type, 4>;
-
-    // Construct a mesh.
     SpatialMesh( const std::array<double, 6>& global_bounding_box,
 	      const std::array<bool, 2>& periodic,
           // const Cabana::Grid::BlockPartitioner<3>& partitioner,
@@ -174,13 +159,6 @@ class SpatialMesh
     std::shared_ptr<global_particle_comm_type> _global_particle_comm;
     int _rank, _comm_size, _halo_width;
     double _cell_size;
-
-    /* Particle-specific data structures. Need to be defined and operated
-     * on here because the computeInterfaceVelocity function in 
-     * CutoffBRSolver must be kept as a const function.
-     */
-    int _rank, _owned_3D_count;
-    particle_array_type _particle_array;
 };
 
 //---------------------------------------------------------------------------//
