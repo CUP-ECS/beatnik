@@ -18,12 +18,10 @@
 
 #include <BoundaryCondition.hpp>
 #include <SurfaceMesh.hpp>
-#include <SpatialMesh.hpp>
 #include <ProblemManager.hpp>
 #include <SiloWriter.hpp>
 #include <TimeIntegrator.hpp>
 #include <CreateBRSolver.hpp>
-#include <Migrator.hpp>
 
 #include <ZModel.hpp>
 
@@ -43,8 +41,9 @@ namespace Beatnik
  */
 struct Params
 {
-    /* Global bounding box, for solvers that create another mesh */
+    /* Mesh data, for solvers that create another mesh */
     std::array<double, 6> global_bounding_box;
+    std::array<bool, 2> periodic;
 
     /* BR solver type */
     BRSolverType br_solver;
@@ -127,15 +126,14 @@ class Solver : public SolverBase
         , _time( 0.0 )
         , _params( params )
     {
-	std::array<bool, 2> periodic;
 
-        periodic[0] = (bc.boundary_type[0] == PERIODIC);
-        periodic[1] = (bc.boundary_type[1] == PERIODIC);
+        _params.periodic[0] = (bc.boundary_type[0] == PERIODIC);
+        _params.periodic[1] = (bc.boundary_type[1] == PERIODIC);
 
         // Create a mesh one which to do the solve and a problem manager to
         // handle state
         _surface_mesh = std::make_unique<SurfaceMesh<ExecutionSpace, MemorySpace>>(
-            _params.global_bounding_box, num_nodes, periodic, partitioner,
+            _params.global_bounding_box, num_nodes, _params.periodic, partitioner,
 	    _halo_min, comm );
 
         // Check that our timestep is small enough to handle the mesh size,
@@ -149,7 +147,7 @@ class Solver : public SolverBase
         // have the cell which wraps around
         std::array<int, 2> num_cells = num_nodes;
         for (int i = 0; i < 2; i++)
-            if (!periodic[i]) num_cells[i]--;
+            if (!_params.periodic[i]) num_cells[i]--;
 
         double dx = (_params.global_bounding_box[4] - _params.global_bounding_box[0]) 
             / (num_cells[0]);
@@ -172,16 +170,16 @@ class Solver : public SolverBase
 #endif
 
         // Create the spatial mesh
-        _spatial_mesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
-            _params.global_bounding_box, num_nodes, periodic,
-	        _params.cutoff_distance, comm );
+        // _spatial_mesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
+        //     _params.global_bounding_box, num_nodes, _params.periodic,
+	    //     _params.cutoff_distance, comm );
 
         // Create a problem manager to manage mesh state
         _pm = std::make_unique<pm_type>(
-            *_surface_mesh, *_spatial_mesh, _bc, create_functor );
+            *_surface_mesh, _bc, create_functor );
 
-        _migrator = std::make_unique<Migrator<ExecutionSpace, MemorySpace>>(
-            *_pm, *_spatial_mesh, _params.cutoff_distance);
+        // _migrator = std::make_unique<Migrator<ExecutionSpace, MemorySpace>>(
+        //     *_pm, *_spatial_mesh, _params.cutoff_distance);
 
         // Create the Birkhoff-Rott solver (XXX make this conditional on non-low 
         // order solve
@@ -247,14 +245,15 @@ class Solver : public SolverBase
     int _halo_min;
     double _atwood;
     double _g;
-    BoundaryCondition _bc;
     double _mu, _eps;
     double _dt;
     double _time;
-    const Params _params;
+    
+    BoundaryCondition _bc;
+    Params _params;
     
     std::unique_ptr<SurfaceMesh<ExecutionSpace, MemorySpace>> _surface_mesh;
-    std::unique_ptr<SpatialMesh<ExecutionSpace, MemorySpace>> _spatial_mesh;
+    //std::unique_ptr<SpatialMesh<ExecutionSpace, MemorySpace>> _spatial_mesh;
     std::unique_ptr<pm_type> _pm;
     std::unique_ptr<Migrator<ExecutionSpace, MemorySpace>> _migrator;
     //std::unique_ptr<brsolver_type> _br;

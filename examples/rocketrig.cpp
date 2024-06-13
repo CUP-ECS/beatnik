@@ -627,22 +627,19 @@ void rocketrig( ClArgs& cl )
     std::shared_ptr<Beatnik::SolverBase> solver;
     if (cl.order == SolverOrder::ORDER_LOW) {
         solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD,
-            cl.params.global_bounding_box, cl.num_nodes,
+            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
             bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t,
             cl.params );
     } else if (cl.order == SolverOrder::ORDER_MEDIUM) {
         solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD,
-            cl.global_bounding_box, cl.num_nodes,
+            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
             bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t,
             cl.params );
     } else if (cl.order == SolverOrder::ORDER_HIGH) {
         solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD,
-            cl.global_bounding_box, cl.num_nodes,
+            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
             bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t,
             cl.params );

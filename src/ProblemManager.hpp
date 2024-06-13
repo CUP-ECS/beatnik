@@ -91,9 +91,6 @@ class ProblemManager
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
     using surface_mesh_type = SurfaceMesh<exec_space, mem_space>;
 
-    // XXX Get this type out of the SpatialMesh class
-    using spatial_mesh_type = SpatialMesh<ExecutionSpace, MemorySpace>;
-
     template <class InitFunc>
     ProblemManager( const surface_mesh_type & surface_mesh,
                     const BoundaryCondition & bc, 

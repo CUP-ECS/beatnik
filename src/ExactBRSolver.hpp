@@ -40,7 +40,6 @@
 #include <SurfaceMesh.hpp>
 #include <ProblemManager.hpp>
 #include <Operators.hpp>
-#include <Migrator.hpp>
 #include <BRSolverBase.hpp>
 
 namespace Beatnik
@@ -51,6 +50,7 @@ namespace Beatnik
  * @class ExactBRSolver
  * @brief Directly solves the Birkhoff-Rott integral using brute-force 
  * all-pairs calculation
+ * XXX - Make all functions but computeInterfaceVelocity private?
  **/
 template <class ExecutionSpace, class MemorySpace, class Params>
 class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>

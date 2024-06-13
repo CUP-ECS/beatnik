@@ -49,30 +49,6 @@ class BRSolverBase
     virtual void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const = 0;
 };
 
-//---------------------------------------------------------------------------//
-// // Creation method.
-// template <class pm_type, class ExecutionSpace, class MemorySpace, class Params>
-// std::shared_ptr<BRSolverBase<ExecutionSpace, MemorySpace, Params>>
-// createBRSolver( const pm_type &pm, const BoundaryCondition &bc,
-//                 const double epsilon, const double dx, const double dy,
-//                 const Params params )
-// {
-//     if ( params.br_solver == BR_EXACT )
-//     {
-//         using br_type = Beatnik::ExactBRSolver<ExecutionSpace, MemorySpace, Params>;
-//         // *_pm, _bc, *_spatial_mesh, *_migrator, _eps, dx, dy, _params.cutoff_distance)
-//         // ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc,
-//         //            const double epsilon, const double dx, const double dy )
-
-//         return std::make_shared<br_type>(
-//             pm, bc, epsilon, dx, dy, params);
-//     }
-//     if ( params.br_solver = BR_CUTOFF )
-//     {
-//         using br_type = Beatnik::CutoffBRSolver<ExecutionSpace, MemorySpace, Params>
-//     }
-// }
-
 } // end namespace Beantik
 
 #endif // end BEATNIK_BRSOLVERBASE_HPP

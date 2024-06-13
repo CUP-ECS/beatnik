@@ -41,11 +41,9 @@ class SpatialMesh
 
     // Construct a mesh.
     SpatialMesh( const std::array<double, 6>& global_bounding_box,
-          const std::array<int, 2>& num_nodes,
 	      const std::array<bool, 2>& periodic,
           // const Cabana::Grid::BlockPartitioner<3>& partitioner,
           const double cutoff_distance, MPI_Comm comm )
-		  : _num_nodes( num_nodes )
     {
         MPI_Comm_rank( comm, &_rank );
         MPI_Comm_size( comm, &_comm_size );
@@ -254,12 +252,6 @@ class SpatialMesh
     {
         return _high_point;
     }
-	
-    // Get the mesh size
-    int get_surface_mesh_size() const
-    {
-        return _num_nodes[0];
-    }
 
     int halo_width() const
     {
@@ -301,7 +293,6 @@ class SpatialMesh
     std::shared_ptr<global_particle_comm_type> _global_particle_comm;
     int _rank, _comm_size, _halo_width;
     double _cell_size;
-	std::array<int, 2> _num_nodes;
 };
 
 //---------------------------------------------------------------------------//
