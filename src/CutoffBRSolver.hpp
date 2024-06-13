@@ -85,10 +85,14 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     // be aligned with the machine we are using
     using particle_array_type = Cabana::AoSoA<particle_node, device_type, 4>;
 
+    // XXX - Get these from SpatialMesh class?
+    using spatial_mesh_layout = Cabana::Grid::UniformMesh<double, 3>;
+    using local_grid_layout = Cabana::Grid::LocalGrid<spatial_mesh_layout>;
+
 
     CutoffBRSolver( const pm_type &pm, const BoundaryCondition &bc,
                     const double epsilon, const double dx, const double dy,
-                    Params params)
+                    const Params params)
         : _pm( pm )
         , _bc( bc )
         , _epsilon( epsilon )
@@ -103,8 +107,8 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
         // Create the spatial mesh
         _spatial_mesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
-            _params.global_bounding_box, _params.periodic,
-	        _params.cutoff_distance, _comm );
+            params.global_bounding_box, params.periodic,
+	        params.cutoff_distance, _comm );
     }
 
     static KOKKOS_INLINE_FUNCTION double simpsonWeight(int index, int len)
@@ -193,8 +197,8 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
         Kokkos::View<int*, memory_space> destination_ranks("destination_ranks", _particle_array.size());
         auto positions = Cabana::slice<0>(_particle_array, "positions");
-        auto particle_comm = Cabana::Grid::createGlobalParticleComm<memory_space>(*_spm.localGrid());
-        auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>(*_spm.localGrid());
+        auto particle_comm = Cabana::Grid::createGlobalParticleComm<memory_space>(*_spatial_mesh->localGrid());
+        auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>(*_spatial_mesh->localGrid());
         particle_comm->storeRanks(local_mesh);
         particle_comm->build(positions);
         particle_comm->migrate(_comm, _particle_array);
@@ -226,7 +230,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         Kokkos::Profiling::pushRegion("performHaloExchange3D");
 
         // Halo exchange done in Comm constructor
-        Comm<memory_space, particle_array_type, local_grid_type2>(_particle_array, *_spm.localGrid(), 40);
+        Comm<memory_space, particle_array_type, local_grid_layout>(_particle_array, *_spatial_mesh->localGrid(), 40);
 
         Kokkos::Profiling::popRegion();
     }
@@ -300,7 +304,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
         auto neighbor_list = Cabana::Experimental::makeNeighborList(
         Cabana::FullNeighborTag{}, positions, 0, num_particles,
-            _cutoff_distance);
+            _params.cutoff_distance);
 
         using list_type = decltype(neighbor_list);
         int rank = _rank;
@@ -432,13 +436,10 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
   private:
     const pm_type & _pm;
     const BoundaryCondition & _bc;
-    std::unique_ptr<spatial_mesh_type> _spatial_mesh;
     const Params _params;
+    std::unique_ptr<spatial_mesh_type> _spatial_mesh;
     double _epsilon, _dx, _dy;
-    const double _cutoff_distance;
     MPI_Comm _comm;
-    int _rank;
-    particle_array_type _particle_array;
     l2g_type _local_L2G;
     // XXX Communication views and extents to avoid allocations during each ring pass
 };
