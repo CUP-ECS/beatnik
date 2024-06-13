@@ -43,6 +43,9 @@ namespace Beatnik
  */
 struct Params
 {
+    /* Global bounding box, for solvers that create another mesh */
+    std::array<double, 6> global_bounding_box;
+
     /* BR solver type */
     BRSolverType br_solver;
 
@@ -108,7 +111,6 @@ class Solver : public SolverBase
 
     template <class InitFunc>
     Solver( MPI_Comm comm,
-            const std::array<double, 6>& global_bounding_box,
             const std::array<int, 2>& num_nodes,
             const Cabana::Grid::BlockPartitioner<2>& partitioner,
             const double atwood, const double g, const InitFunc& create_functor,
@@ -133,7 +135,7 @@ class Solver : public SolverBase
         // Create a mesh one which to do the solve and a problem manager to
         // handle state
         _surface_mesh = std::make_unique<SurfaceMesh<ExecutionSpace, MemorySpace>>(
-            global_bounding_box, num_nodes, periodic, partitioner,
+            _params.global_bounding_box, num_nodes, periodic, partitioner,
 	    _halo_min, comm );
 
         // Check that our timestep is small enough to handle the mesh size,
@@ -149,9 +151,9 @@ class Solver : public SolverBase
         for (int i = 0; i < 2; i++)
             if (!periodic[i]) num_cells[i]--;
 
-        double dx = (global_bounding_box[4] - global_bounding_box[0]) 
+        double dx = (_params.global_bounding_box[4] - _params.global_bounding_box[0]) 
             / (num_cells[0]);
-        double dy = (global_bounding_box[5] - global_bounding_box[1]) 
+        double dy = (_params.global_bounding_box[5] - _params.global_bounding_box[1]) 
             / (num_cells[1]);
 
         // Adjust down mu and epsilon by sqrt(dx * dy)
@@ -169,9 +171,9 @@ class Solver : public SolverBase
                   << "=============================\n";
 #endif
 
-         // Create the spatial mesh
+        // Create the spatial mesh
         _spatial_mesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
-            global_bounding_box, num_nodes, periodic,
+            _params.global_bounding_box, num_nodes, periodic,
 	        _params.cutoff_distance, comm );
 
         // Create a problem manager to manage mesh state
@@ -267,7 +269,6 @@ class Solver : public SolverBase
 template <class InitFunc, class ModelOrder, class Params>
 std::shared_ptr<SolverBase>
 createSolver( const std::string& device, MPI_Comm comm,
-              const std::array<double, 6>& global_bounding_box,
               const std::array<int, 2>& global_num_cell,
               const Cabana::Grid::BlockPartitioner<2> & partitioner,
               const double atwood, const double g, 
@@ -284,7 +285,7 @@ createSolver( const std::string& device, MPI_Comm comm,
 #if defined( KOKKOS_ENABLE_SERIAL )
         return std::make_shared<
             Beatnik::Solver<Kokkos::Serial, Kokkos::HostSpace, ModelOrder>>(
-            comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
+            comm, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t, params);
 #else
         throw std::runtime_error( "Serial Backend Not Enabled" );
@@ -295,7 +296,7 @@ createSolver( const std::string& device, MPI_Comm comm,
 #if defined( KOKKOS_ENABLE_THREADS )
         return std::make_shared<
             Beatnik::Solver<Kokkos::Threads, Kokkos::HostSpace, ModelOrder>>(
-            comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
+            comm, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t, params);
 #else
         throw std::runtime_error( "Threads Backend Not Enabled" );
@@ -306,7 +307,7 @@ createSolver( const std::string& device, MPI_Comm comm,
 #if defined( KOKKOS_ENABLE_OPENMP )
         return std::make_shared<
             Beatnik::Solver<Kokkos::OpenMP, Kokkos::HostSpace, ModelOrder>>(
-            comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
+            comm, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t, params);
 #else
         throw std::runtime_error( "OpenMP Backend Not Enabled" );
@@ -317,7 +318,7 @@ createSolver( const std::string& device, MPI_Comm comm,
 #if defined(KOKKOS_ENABLE_CUDA)
         return std::make_shared<
             Beatnik::Solver<Kokkos::Cuda, Kokkos::CudaSpace, ModelOrder>>(
-            comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
+            comm, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t, params);
 #else
         throw std::runtime_error( "CUDA Backend Not Enabled" );
@@ -328,7 +329,7 @@ createSolver( const std::string& device, MPI_Comm comm,
 #ifdef KOKKOS_ENABLE_HIP
         return std::make_shared<Beatnik::Solver<Kokkos::Experimental::HIP, 
             Kokkos::Experimental::HIPSpace, ModelOrder>>(
-                comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
+                comm, global_num_cell, partitioner, atwood, g, 
                 create_functor, bc, mu, epsilon, delta_t, params);
 #else
         throw std::runtime_error( "HIP Backend Not Enabled" );

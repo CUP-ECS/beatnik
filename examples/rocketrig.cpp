@@ -491,12 +491,12 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     }
 
     /* Physical setup of problem */
-    cl.global_bounding_box = {-1.0, -1.0, -1.0, 1.0, 1.0, 1.0};
+    cl.params.global_bounding_box = {-1.0, -1.0, -1.0, 1.0, 1.0, 1.0};
     cl.gravity = cl.gravity * 9.81;
 
     /* Scale up global bounding box and number of cells by weak scaling factor */
     for (int i = 0; i < 6; i++) {
-        cl.global_bounding_box[i] *= sqrt(cl.weak_scale);
+        cl.params.global_bounding_box[i] *= sqrt(cl.weak_scale);
     }
     for (int i = 0; i < 2; i++) {
         cl.num_nodes[i] *= sqrt(cl.weak_scale);
@@ -614,7 +614,10 @@ void rocketrig( ClArgs& cl )
     Cabana::Grid::DimBlockPartitioner<2> partitioner; // Create Cabana::Grid Partitioner
     Beatnik::BoundaryCondition bc;
     for (int i = 0; i < 6; i++)
+    {
         bc.bounding_box[i] = cl.global_bounding_box[i];
+        
+    }
     bc.boundary_type = {cl.boundary, cl.boundary, cl.boundary, cl.boundary};
 
     MeshInitFunc initializer( cl.global_bounding_box, cl.initial_condition,
@@ -625,7 +628,7 @@ void rocketrig( ClArgs& cl )
     if (cl.order == SolverOrder::ORDER_LOW) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD,
-            cl.global_bounding_box, cl.num_nodes,
+            cl.params.global_bounding_box, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
             bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t,
             cl.params );
