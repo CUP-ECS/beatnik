@@ -117,8 +117,11 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         else if (index % 3 == 0) return 3.0/4.0;
         else return 9.0/8.0;
     }
-
-    void initializeParticles(node_view z, node_view w, node_view o)
+    /**
+     * Creates a populates particle array
+     * @return Return an AoSoA of particles
+     **/
+    particle_array_type initializeParticles(particle_array_type particle_array, node_view z, node_view w, node_view o)
     {
         Kokkos::Profiling::pushRegion("initializeParticles");
 
@@ -130,22 +133,21 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
         // Create the AoSoA
         int array_size = (iend - istart) * (jend - jstart);
-        // printf("IN INIT: Before making particle_array\n");
 
         int rank = _rank;
 
         // Resize the particle array to hold all the mesh points we're migrating
-	    _particle_array.resize(array_size);
+	    particle_array.resize(array_size);
 
         // Get slices of each piece of the particle array
-        auto z_part = Cabana::slice<0>(_particle_array);
-        auto o_part = Cabana::slice<1>(_particle_array);
-        auto zdot_part = Cabana::slice<2>(_particle_array);
-        auto weight_part = Cabana::slice<3>(_particle_array);
-        auto idx_part = Cabana::slice<4>(_particle_array);
-        auto id_part = Cabana::slice<5>(_particle_array);
-        auto rank2d_part = Cabana::slice<6>(_particle_array);
-        auto rank3d_part = Cabana::slice<7>(_particle_array);
+        auto z_part = Cabana::slice<0>(particle_array);
+        auto o_part = Cabana::slice<1>(particle_array);
+        auto zdot_part = Cabana::slice<2>(particle_array);
+        auto weight_part = Cabana::slice<3>(particle_array);
+        auto idx_part = Cabana::slice<4>(particle_array);
+        auto id_part = Cabana::slice<5>(particle_array);
+        auto rank2d_part = Cabana::slice<6>(particle_array);
+        auto rank3d_part = Cabana::slice<7>(particle_array);
 
         int mesh_dimension = _pm.mesh().get_surface_mesh_size();
         l2g_type local_L2G = _local_L2G;
@@ -189,31 +191,34 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         Kokkos::fence();
 
         Kokkos::Profiling::popRegion();
+
+        return particle_array;
     }
 
-    void migrateParticlesTo3D()
+    /** 
+     * Move particles to their 3D rank of ownership. 
+     * @return Updated particle AoSoA
+     **/
+    particle_array_type migrateParticlesTo3D(particle_array_type particle_array)
     {
         Kokkos::Profiling::pushRegion("migrateParticlesTo3D");
 
-        Kokkos::View<int*, memory_space> destination_ranks("destination_ranks", _particle_array.size());
-        auto positions = Cabana::slice<0>(_particle_array, "positions");
+        Kokkos::View<int*, memory_space> destination_ranks("destination_ranks", particle_array.size());
+        auto positions = Cabana::slice<0>(particle_array, "positions");
         auto particle_comm = Cabana::Grid::createGlobalParticleComm<memory_space>(*_spatial_mesh->localGrid());
         auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>(*_spatial_mesh->localGrid());
         particle_comm->storeRanks(local_mesh);
         particle_comm->build(positions);
-        particle_comm->migrate(_comm, _particle_array);
+        particle_comm->migrate(_comm, particle_array);
 
         // Populate 3D rank of origin and ID
         int rank = _rank;
-        auto rank3d_part = Cabana::slice<7>(_particle_array);
-        auto id3d_part = Cabana::slice<8>(_particle_array);
-        Kokkos::parallel_for("3D origin rank", Kokkos::RangePolicy<exec_space>(0, _particle_array.size()), KOKKOS_LAMBDA(int i) {
+        auto rank3d_part = Cabana::slice<7>(particle_array);
+        auto id3d_part = Cabana::slice<8>(particle_array);
+        Kokkos::parallel_for("3D origin rank", Kokkos::RangePolicy<exec_space>(0, particle_array.size()), KOKKOS_LAMBDA(int i) {
             rank3d_part(i) = rank;
             id3d_part(i) = i;
         });
-
-        // Updated owned 3D count for migration back to 2D
-        _owned_3D_count = _particle_array.size();
 
         //printf("To 3D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
         // for (int i = 0; i < _particle_array.size(); i++)
@@ -223,30 +228,31 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         // }
 
         Kokkos::Profiling::popRegion();
+
+        return particle_array;
     }
 
-    void performHaloExchange3D()
+    particle_array_type performHaloExchange3D(particle_array_type particle_array)
     {
         Kokkos::Profiling::pushRegion("performHaloExchange3D");
 
         // Halo exchange done in Comm constructor
-        Comm<memory_space, particle_array_type, local_grid_layout>(_particle_array, *_spatial_mesh->localGrid(), 40);
+        Comm<memory_space, particle_array_type, local_grid_layout>(particle_array, *_spatial_mesh->localGrid(), 40);
 
         Kokkos::Profiling::popRegion();
     }
 
-    void migrateParticlesTo2D()
+    particle_array_type migrateParticlesTo2D(particle_array_type particle_array, int owned_3D_count)
     {
         Kokkos::Profiling::pushRegion("migrateParticlesTo2D");
+        int rank = _rank;
 
         // We only want to send back the non-ghosted particles to 2D
-        // XXX Assume all ghosted particles are at the end of the array
-        int rank = _rank;
-        
-        _particle_array.resize(_owned_3D_count);
-        auto destinations = Cabana::slice<6>(_particle_array, "destinations");
+        // Resize to original 3D size to remove ghosted particles
+        particle_array.resize(owned_3D_count);
+        auto destinations = Cabana::slice<6>(particle_array, "destinations");
         Cabana::Distributor<memory_space> distributor(_comm, destinations);
-        Cabana::migrate(distributor, _particle_array);
+        Cabana::migrate(distributor, particle_array);
         
         //printf("To 2D: R%d: owns %lu, _%lu particles\n", _rank, particle_array.size(), _particle_array.size());
         // for (int i = 0; i < _particle_array.size(); i++)
@@ -256,9 +262,12 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         // }
 
         Kokkos::Profiling::popRegion();
+
+        return particle_array;
     }
 
-    void computeInterfaceVelocityNeighbors(double dy, double dx, double epsilon)
+    particle_array_type computeInterfaceVelocityNeighbors(particle_array_type particle_array,
+            int owned_3D_count, double dy, double dx, double epsilon)
     {
         Kokkos::Profiling::pushRegion("computeInterfaceVelocityNeighbors");
 
@@ -293,7 +302,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
         // Find neighbors using ArborX
         //auto ids = Cabana::slice<3>(_particle_array);
-        auto positions = Cabana::slice<0>(_particle_array);
+        auto positions = Cabana::slice<0>(particle_array);
         // for (int i = 0; i < positions.size(); i++) {
         //     auto tp = _particle_array.getTuple( i );
         //     printf("R%d: ID %d: %0.5lf %0.5lf %0.5lf\n", rank, Cabana::get<4>(tp),
@@ -309,11 +318,11 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         using list_type = decltype(neighbor_list);
         int rank = _rank;
 
-        auto position_part = Cabana::slice<0>(_particle_array);
-        auto omega_part = Cabana::slice<1>(_particle_array);
-        auto zdot_part = Cabana::slice<2>(_particle_array);
-        auto weight_part = Cabana::slice<3>(_particle_array);
-        Kokkos::parallel_for("compute_BR_with_neighbors", Kokkos::RangePolicy<exec_space>(0, _owned_3D_count), 
+        auto position_part = Cabana::slice<0>(particle_array);
+        auto omega_part = Cabana::slice<1>(particle_array);
+        auto zdot_part = Cabana::slice<2>(particle_array);
+        auto weight_part = Cabana::slice<3>(particle_array);
+        Kokkos::parallel_for("compute_BR_with_neighbors", Kokkos::RangePolicy<exec_space>(0, owned_3D_count), 
                              KOKKOS_LAMBDA(int my_id) {
             int num_neighbors = Cabana::NeighborList<list_type>::numNeighbor(neighbor_list, my_id);
             double brsum[3] = {0.0, 0.0, 0.0};
@@ -349,18 +358,20 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         Kokkos::fence();
 
         Kokkos::Profiling::popRegion();
+
+        return particle_array;
     }
 
     template <class PositionView>
-    void populate_zdot(PositionView zdot)
+    void populate_zdot(particle_array_type particle_array, PositionView zdot)
     {
         Kokkos::Profiling::pushRegion("populate_zdot");
 
         int rank = _rank;
 
-        auto zdot_part = Cabana::slice<2>(_particle_array);
-        auto idx_part = Cabana::slice<4>(_particle_array);
-        Kokkos::parallel_for("update_zdot", Kokkos::RangePolicy<exec_space>(0, _particle_array.size()), 
+        auto zdot_part = Cabana::slice<2>(particle_array);
+        auto idx_part = Cabana::slice<4>(particle_array);
+        Kokkos::parallel_for("update_zdot", Kokkos::RangePolicy<exec_space>(0, particle_array.size()), 
             KOKKOS_LAMBDA(int i) {
             int i_index = idx_part(i, 0);
             int j_index = idx_part(i, 1);
@@ -383,12 +394,14 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
      */
     void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const override
     {
-        initializeParticles(z, w, o);
-        migrateParticlesTo3D();
-        performHaloExchange3D();
-        computeInterfaceVelocityNeighbors(_dy, _dx, _epsilon);
-        migrateParticlesTo2D();
-        populate_zdot(zdot);
+        particle_array_type particle_array;
+        particle_array = initializeParticles(particle_array, z, w, o);
+        particle_array = migrateParticlesTo3D(particle_array);
+        int owned_3D_count = particle_array.size();
+        particle_array = performHaloExchange3D(particle_array);
+        particle_array = computeInterfaceVelocityNeighbors(particle_array, owned_3D_count, _dy, _dx, _epsilon);
+        particle_array = migrateParticlesTo2D(particle_array, owned_3D_count);
+        populate_zdot(particle_array, zdot);
     }
     
     template <class l2g_type, class View>
@@ -437,6 +450,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     const pm_type & _pm;
     const BoundaryCondition & _bc;
     const Params _params;
+    int _rank;
     std::unique_ptr<spatial_mesh_type> _spatial_mesh;
     double _epsilon, _dx, _dy;
     MPI_Comm _comm;
