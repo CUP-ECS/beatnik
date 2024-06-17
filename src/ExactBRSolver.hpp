@@ -272,7 +272,7 @@ class ExactBRSolver
                 zsend_extents = zextents1; wsend_extents = wextents1; osend_extents = oextents1;
                 L2G_send = &L2G_remote1;
 
-                zrecv_view = &zremote2; wrecv_view = &wremote2; 
+                zrecv_view = &zremote2; wrecv_view = &wremote2; osend_view = &oremote2;
                 zrecv_extents = zextents2; wrecv_extents = wextents2; orecv_extents = oextents2;
                 L2G_recv = &L2G_remote2;
             } else {
