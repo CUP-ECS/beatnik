@@ -94,7 +94,7 @@ enum SolverOrder {ORDER_LOW = 0, ORDER_MEDIUM, ORDER_HIGH};
 struct ClArgs
 {
     /* Problem physical setup */
-    std::array<double, 6> global_bounding_box;    /**< Size of initial spatial domain */
+    // std::array<double, 6> global_bounding_box;    /**< Size of initial spatial domain: MOVED TO PARAMS */
     enum InitialConditionModel initial_condition; /**< Model used to set initial conditions */
     double tilt;    /**< Initial tilt of interface */
     double magnitude;/**< Magnitude of scale of initial interface */
@@ -204,7 +204,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.write_freq = 10;
 
     // Set default extra parameters
-    cl.params.cutoff_distance = 0.0;
+    cl.params.cutoff_distance = 0.5;
     cl.params.heffte_configuration = 6;
     cl.params.br_solver = BR_EXACT;
 
@@ -615,12 +615,12 @@ void rocketrig( ClArgs& cl )
     Beatnik::BoundaryCondition bc;
     for (int i = 0; i < 6; i++)
     {
-        bc.bounding_box[i] = cl.global_bounding_box[i];
+        bc.bounding_box[i] = cl.params.global_bounding_box[i];
         
     }
     bc.boundary_type = {cl.boundary, cl.boundary, cl.boundary, cl.boundary};
 
-    MeshInitFunc initializer( cl.global_bounding_box, cl.initial_condition,
+    MeshInitFunc initializer( cl.params.global_bounding_box, cl.initial_condition,
                               cl.tilt, cl.magnitude, cl.variation, cl.period,
                               cl.num_nodes, cl.boundary );
 
@@ -685,10 +685,28 @@ int main( int argc, char* argv[] )
                   << "\n"; // Number of Cells
         std::cout <<  std::left << std::setw( 30 ) << "Solver Order"
                   << ": " << std::setw( 8 ) << cl.order << "\n";
-        if (cl.order == SolverOrder::ORDER_HIGH || cl.order == SolverOrder::ORDER_MEDIUM)
+
+        // Solver-order specific arguments
+        if (cl.order == SolverOrder::ORDER_LOW)
         {
-            std::cout <<  std::left << std::setw( 30 ) << "BR Solver type"
-                  << ": " << std::setw( 8 ) << cl.br_solver << "\n";
+            std::cout << std::left << std::setw( 30 ) << "HeFFTe configuration"
+                  << ": " << std::setw( 8 ) << cl.params.heffte_configuration  << "\n";
+        }
+        else
+        {
+            // High or medium-order solver
+            if (cl.params.br_solver == BRSolverType::BR_EXACT)
+            {
+                std::cout <<  std::left << std::setw( 30 ) << "BR Solver type"
+                    << ": " << std::setw( 8 ) << "exact" << "\n";
+            }
+            else if (cl.params.br_solver == BRSolverType::BR_CUTOFF)
+            {
+                std::cout <<  std::left << std::setw( 30 ) << "BR Solver type"
+                    << ": " << std::setw( 8 ) << "cutoff" << "\n";
+                std::cout << std::left << std::setw( 30 ) << "Cutoff distance"
+                    << ": " << std::setw( 8 ) << cl.params.cutoff_distance  << "\n";
+            }
         }
         std::cout << std::left << std::setw( 30 ) << "Total Simulation Time"
                   << ": " << std::setw( 8 ) << cl.t_final << "\n";
@@ -705,21 +723,9 @@ int main( int argc, char* argv[] )
                   << ": " << std::setw( 8 ) << cl.mu << "\n";
         std::cout << std::left << std::setw( 30 ) << "Desingularization"
                   << ": " << std::setw( 8 ) << cl.eps  << "\n";
-        if ((cl.order == SolverOrder::ORDER_HIGH ||
-             cl.order == SolverOrder::ORDER_MEDIUM) &&
-             cl.br_solver == BRSolverType::BR_CUTOFF)
-        {
-            std::cout << std::left << std::setw( 30 ) << "Cutoff distance"
-                  << ": " << std::setw( 8 ) << cl.params.cutoff_distance  << "\n";
-        }
-        if (cl.order == SolverOrder::ORDER_LOW)
-        {
-            std::cout << std::left << std::setw( 30 ) << "HeFFTe configuration"
-                  << ": " << std::setw( 8 ) << cl.params.heffte_configuration  << "\n";
-        }
         std::cout << std::left << std::setw( 30 ) << "Bounding Box Low/High"
-                  << ": " << std::setw( 8 ) << cl.global_bounding_box[0]
-                  << ", " << cl.global_bounding_box[3] << "\n";
+                  << ": " << std::setw( 8 ) << cl.params.global_bounding_box[0]
+                  << ", " << cl.params.global_bounding_box[3] << "\n";
         std::cout << "==============================================\n";
     }
 
@@ -732,11 +738,6 @@ int main( int argc, char* argv[] )
     end = std::chrono::system_clock::now();
     std::chrono::duration<double> elapsed_seconds = end - start;
     std::cout << "measured_time: " << elapsed_seconds.count() << std::endl;
-    
-    if(rank == 0)
-    {
-        printf("FINISHED COMPUTING\n");
-    }
 
     return 0;
 };
