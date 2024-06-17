@@ -119,9 +119,8 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     }
     /**
      * Creates a populates particle array
-     * @return Return an AoSoA of particles
      **/
-    particle_array_type initializeParticles(particle_array_type particle_array, node_view z, node_view w, node_view o)
+    void initializeParticles(particle_array_type &particle_array, node_view z, node_view w, node_view o) const
     {
         Kokkos::Profiling::pushRegion("initializeParticles");
 
@@ -191,15 +190,13 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         Kokkos::fence();
 
         Kokkos::Profiling::popRegion();
-
-        return particle_array;
     }
 
     /** 
      * Move particles to their 3D rank of ownership. 
      * @return Updated particle AoSoA
      **/
-    particle_array_type migrateParticlesTo3D(particle_array_type particle_array)
+    void migrateParticlesTo3D(particle_array_type &particle_array) const
     {
         Kokkos::Profiling::pushRegion("migrateParticlesTo3D");
 
@@ -228,11 +225,9 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         // }
 
         Kokkos::Profiling::popRegion();
-
-        return particle_array;
     }
 
-    particle_array_type performHaloExchange3D(particle_array_type particle_array)
+    void performHaloExchange3D(particle_array_type &particle_array) const
     {
         Kokkos::Profiling::pushRegion("performHaloExchange3D");
 
@@ -242,7 +237,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         Kokkos::Profiling::popRegion();
     }
 
-    particle_array_type migrateParticlesTo2D(particle_array_type particle_array, int owned_3D_count)
+    void migrateParticlesTo2D(particle_array_type &particle_array, int owned_3D_count) const
     {
         Kokkos::Profiling::pushRegion("migrateParticlesTo2D");
         int rank = _rank;
@@ -262,12 +257,10 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         // }
 
         Kokkos::Profiling::popRegion();
-
-        return particle_array;
     }
 
-    particle_array_type computeInterfaceVelocityNeighbors(particle_array_type particle_array,
-            int owned_3D_count, double dy, double dx, double epsilon)
+    void computeInterfaceVelocityNeighbors(particle_array_type &particle_array,
+            int owned_3D_count, double dy, double dx, double epsilon) const
     {
         Kokkos::Profiling::pushRegion("computeInterfaceVelocityNeighbors");
 
@@ -358,12 +351,10 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         Kokkos::fence();
 
         Kokkos::Profiling::popRegion();
-
-        return particle_array;
     }
 
     template <class PositionView>
-    void populate_zdot(particle_array_type particle_array, PositionView zdot)
+    void populate_zdot(particle_array_type &particle_array, PositionView zdot) const
     {
         Kokkos::Profiling::pushRegion("populate_zdot");
 
@@ -395,12 +386,12 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const override
     {
         particle_array_type particle_array;
-        particle_array = initializeParticles(particle_array, z, w, o);
-        particle_array = migrateParticlesTo3D(particle_array);
+        initializeParticles(particle_array, z, w, o);
+        migrateParticlesTo3D(particle_array);
         int owned_3D_count = particle_array.size();
-        particle_array = performHaloExchange3D(particle_array);
-        particle_array = computeInterfaceVelocityNeighbors(particle_array, owned_3D_count, _dy, _dx, _epsilon);
-        particle_array = migrateParticlesTo2D(particle_array, owned_3D_count);
+        performHaloExchange3D(particle_array);
+        computeInterfaceVelocityNeighbors(particle_array, owned_3D_count, _dy, _dx, _epsilon);
+        migrateParticlesTo2D(particle_array, owned_3D_count);
         populate_zdot(particle_array, zdot);
     }
     
