@@ -32,7 +32,7 @@ auto vectorToArray( std::vector<Scalar> vector )
     return array;
 }
 
-// Functor to determine which particles should be ghosted with Cajita grid.
+// Functor to determine which particles should be ghosted with Cabana grid.
 template <class MemorySpace, class LocalGridType>
 struct HaloIds
 {
@@ -79,14 +79,6 @@ struct HaloIds
 
         int rank;
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
-        // if (rank == 0)
-        // {
-        //     for (int i = 0; i < topology_size; i++)
-        //     {
-        //         printf("Topo: R%d: i:%d: %d\n", rank, i, _device_topology[i]);
-        //     }
-        // }
 
         // Get the neighboring mesh bounds (only needed once unless load
         // balancing).
@@ -158,9 +150,6 @@ struct HaloIds
         int rank;
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-        // printf("Coords: (%0.3lf, %0.3lf, %0.3lf), (%0.3lf, %0.3lf, %0.3lf)\n",
-        //     min_coord[0][0], min_coord[0][1], min_coord[0][2], max_coord[0][0], max_coord[0][1], max_coord[0][2]);
-
         // Look for ghosts within the halo width of the local mesh boundary,
         // potentially for each of the 26 neighbors cells.
         // Do this one neighbor rank at a time so that sends are contiguous.
@@ -187,7 +176,7 @@ struct HaloIds
                     {
                         double px[3] = { positions( p, 0 ), positions( p, 1 ),
                                          positions( p, 2 ) };
-                        //printf("Within halo: %0.3lf, %0.3lf, %0.3lf\n", px[0], px[1], px[2]);
+                        
                         // Let the user restrict to a subset of the boundary.
                         bool create_ghost = user_functor( p, px );
                         if ( create_ghost )
@@ -201,7 +190,6 @@ struct HaloIds
                                 destinations( sc ) = device_topology[n];
                                 // Keep the particle ID.
                                 ids( sc ) = p;
-                                //printf("PID: %d, dest: %d\n", ids(sc), destinations(sc));
                             }
                         }
                     }
@@ -214,17 +202,6 @@ struct HaloIds
         Kokkos::parallel_for( "CabanaPD::Comm::GhostSearch", policy,
                               ghost_search );
         Kokkos::fence();
-        // std::size_t size = send_count();
-        // std::size_t psize = positions.size();
-        //printf("R%d: Positions size: %zu, send count: %zu\n", rank, psize, size);
-        // if (rank == 0)
-        // {
-        //     for (std::size_t i = 0; i < size; i++)
-        //     {
-        //         printf("R%d: %zu: (%d, %d)\n", rank, i, ids(i), destinations(i));
-        //     }
-        // }
-        //printf("Done building\n");
     }
 
     template <class PositionSliceType>
@@ -260,10 +237,6 @@ struct HaloIds
     }
 };
 
-// template <class ParticleType, class ModelType>
-// class Comm;
-
-// FIXME: extract model from ParticleType instead.
 template <class MemorySpace, class ParticleType, class LocalGridType>
 class Comm
 {
@@ -293,7 +266,7 @@ class Comm
         auto topology = Cabana::Grid::getTopology( local_grid );
 
         // Determine which particles need to be ghosted to neighbors.
-        // FIXME: set halo width based on cutoff distance.
+        // XXX: set halo width based on cutoff distance.
         auto halo_ids =
             createHaloIds( local_grid, positions, halo_width, max_export );
         // Rebuild if needed.
@@ -317,8 +290,8 @@ class Comm
     }
     ~Comm() {}
 
-//     // Determine which particles should be ghosted, reallocating and recounting
-//     // if needed.
+    // Determine which particles should be ghosted, reallocating and recounting
+    // if needed.
     template <class PositionSliceType>
     auto createHaloIds( const LocalGridType& local_grid,
                         const PositionSliceType& positions,
@@ -328,43 +301,6 @@ class Comm
             local_grid, positions, min_halo_width, max_export );
     }
 };
-//     // We assume here that the particle count has not changed and no resize
-//     // is necessary.
-//     void gatherDisplacement() { gather_u->apply(); }
-//     // No-op to make solvers simpler.
-//     void gatherDilatation() {}
-//     void gatherWeightedVolume() {}
-// };
-
-// template <class ParticleType>
-// class Comm<ParticleType> : public Comm<ParticleType>
-// {
-//   public:
-//     using base_type = Comm<ParticleType>;
-//     using memory_space = typename base_type::memory_space;
-//     using halo_type = typename base_type::halo_type;
-//     using base_type::gather_u;
-//     using base_type::halo;
-
-//     using gather_m_type =
-//         Cabana::Gather<halo_type, typename ParticleType::aosoa_m_type>;
-//     using gather_theta_type =
-//         Cabana::Gather<halo_type, typename ParticleType::aosoa_theta_type>;
-//     std::shared_ptr<gather_m_type> gather_m;
-//     std::shared_ptr<gather_theta_type> gather_theta;
-
-//     Comm( ParticleType& particles, int max_export_guess = 100 )
-//         : base_type( particles, max_export_guess )
-//     {
-//         gather_m = std::make_shared<gather_m_type>( *halo, particles._aosoa_m );
-//         gather_theta = std::make_shared<gather_theta_type>(
-//             *halo, particles._aosoa_theta );
-//     }
-//     ~Comm() {}
-
-//     void gatherDilatation() { gather_theta->apply(); }
-//     void gatherWeightedVolume() { gather_m->apply(); }
-// };
 
 } // namespace Beatnik
 
