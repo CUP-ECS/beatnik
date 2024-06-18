@@ -40,7 +40,7 @@
 #include <SurfaceMesh.hpp>
 #include <ProblemManager.hpp>
 #include <Operators.hpp>
-#include <Migrator.hpp>
+#include <BRSolverBase.hpp>
 
 namespace Beatnik
 {
@@ -50,9 +50,10 @@ namespace Beatnik
  * @class ExactBRSolver
  * @brief Directly solves the Birkhoff-Rott integral using brute-force 
  * all-pairs calculation
+ * XXX - Make all functions but computeInterfaceVelocity private?
  **/
-template <class ExecutionSpace, class MemorySpace>
-class ExactBRSolver
+template <class ExecutionSpace, class MemorySpace, class Params>
+class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 {
   public:
     using exec_space = ExecutionSpace;
@@ -64,6 +65,7 @@ class ExactBRSolver
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     
     using Node = Cabana::Grid::Node;
+    //using Params = Beatnik::Params;
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
     using node_array = typename pm_type::node_array;
     //using node_view = typename pm_type::node_view;
@@ -71,17 +73,15 @@ class ExactBRSolver
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
-    ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc, const spatial_mesh_type &spm,
-                migrator_type &migrator, const double epsilon, const double dx, const double dy,
-                const double cutoff_distance)
+    ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc,
+                   const double epsilon, const double dx, const double dy,
+                   const Params params)
         : _pm( pm )
         , _bc( bc )
-        , _spm( spm )
-        , _migrator( migrator )
         , _epsilon( epsilon )
         , _dx( dx )
         , _dy( dy )
-        , _cutoff_distance (cutoff_distance )
+        , _params( params )
         , _local_L2G( *_pm.mesh().localGrid() )
     {
 	    _comm = _pm.mesh().localGrid()->globalGrid().comm();
@@ -195,7 +195,7 @@ class ExactBRSolver
      * This function is called three times per time step to compute the initial, forward, and half-step
      * derivatives for velocity and vorticity.
      */
-    void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const
+    void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const override
     {
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
@@ -204,18 +204,7 @@ class ExactBRSolver
         MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
         MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-        if (_cutoff_distance)
-        {
-            // Perform cutoff solve
-            _migrator.initializeParticles(z, w, o);
-            _migrator.migrateParticlesTo3D();
-            _migrator.performHaloExchange3D();
-            _migrator.computeInterfaceVelocityNeighbors(_dy, _dx, _epsilon);
-            _migrator.migrateParticlesTo2D();
-            _migrator.populate_zdot(zdot);
-            //printView(_local_L2G, rank, zdot, 1, 2, 7);
-            return;
-        }
+        
 
         /* Start by zeroing the interface velocity */
         
@@ -397,10 +386,9 @@ class ExactBRSolver
   private:
     const pm_type & _pm;
     const BoundaryCondition & _bc;
-    const spatial_mesh_type &_spm;
-    migrator_type &_migrator;
+    const Params _params;
     double _epsilon, _dx, _dy;
-    const double _cutoff_distance;
+
     MPI_Comm _comm;
     l2g_type _local_L2G;
     // XXX Communication views and extents to avoid allocations during each ring pass
