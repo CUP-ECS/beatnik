@@ -89,7 +89,7 @@ class SpatialMesh
         _low_point[2] = -20;
         _high_point[2] = 20;
 
-        std::array<bool, 3> is_dim_periodic = { false, false, false };
+        std::array<bool, 3> is_dim_periodic = { periodic[0], periodic[1], false };
 
         // Finally, create the global mesh, global grid, and local grid.
         _cell_size = 0.05;
