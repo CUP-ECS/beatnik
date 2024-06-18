@@ -38,6 +38,7 @@
 #include <memory>
 
 #include <BRSolverBase.hpp>
+#include <HaloComm.hpp>
 #include <SurfaceMesh.hpp>
 #include <ProblemManager.hpp>
 #include <Operators.hpp>

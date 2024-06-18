@@ -99,10 +99,6 @@ class Solver : public SolverBase
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using node_array =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>, MemorySpace>;
-
-    // At some point we'll specify this when making the solver through a template argument.
-    // Still need to design that out XXX
-    //using brsolver_type = ExactBRSolver<ExecutionSpace, MemorySpace>;  // Single node currently
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
     using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder, Params>;
     using ti_type = TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>;
@@ -169,21 +165,12 @@ class Solver : public SolverBase
                   << "=============================\n";
 #endif
 
-        // Create the spatial mesh
-        // _spatial_mesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
-        //     _params.global_bounding_box, num_nodes, _params.periodic,
-	    //     _params.cutoff_distance, comm );
-
         // Create a problem manager to manage mesh state
         _pm = std::make_unique<pm_type>(
             *_surface_mesh, _bc, create_functor );
 
-        // _migrator = std::make_unique<Migrator<ExecutionSpace, MemorySpace>>(
-        //     *_pm, *_spatial_mesh, _params.cutoff_distance);
-
         // Create the Birkhoff-Rott solver (XXX make this conditional on non-low 
         // order solve
-        //_br = std::make_unique<ExactBRSolver>(*_pm, _bc, *_spatial_mesh, *_migrator, _eps, dx, dy, _params.cutoff_distance);
         _br = Beatnik::createBRSolver<pm_type, ExecutionSpace, MemorySpace, Params>(*_pm, _bc, _eps, dx, dy, _params);
 
         // Create the ZModel solver
@@ -253,10 +240,7 @@ class Solver : public SolverBase
     Params _params;
     
     std::unique_ptr<SurfaceMesh<ExecutionSpace, MemorySpace>> _surface_mesh;
-    //std::unique_ptr<SpatialMesh<ExecutionSpace, MemorySpace>> _spatial_mesh;
     std::unique_ptr<pm_type> _pm;
-    std::unique_ptr<Migrator<ExecutionSpace, MemorySpace>> _migrator;
-    //std::unique_ptr<brsolver_type> _br;
     std::unique_ptr<BRSolverBase<ExecutionSpace, MemorySpace, Params>> _br;
     std::unique_ptr<zmodel_type> _zm;
     std::unique_ptr<ti_type> _ti;
