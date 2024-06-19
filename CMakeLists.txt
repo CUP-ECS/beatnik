@@ -3,12 +3,11 @@ cmake_minimum_required(VERSION 3.18)
 
 project(Beatnik LANGUAGES C CXX VERSION 0.1.0)
 
-# Default to C++14 if not set so GTest/GMock can build
+# Default to C++17 so we can use if constexpr and [[maybe_unused]]
+# and so GTest/GMock can build
 if (NOT BLT_CXX_STD)
-    set(BLT_CXX_STD "c++14" CACHE STRING "")
+    set(BLT_CXX_STD "c++17" CACHE STRING "")
 endif()
-
-include(${BLT_SOURCE_DIR}/SetupBLT.cmake)
 
 include(GNUInstallDirs)
 
@@ -52,11 +51,6 @@ else()
             "    git submodule update\n"
             "Or add -DBLT_SOURCE_DIR=/path/to/blt to your CMake command." )
     endif()
-endif()
-
-# Default to C++17 so we can use if constexpr and [[maybe_unused]]
-if (NOT BLT_CXX_STD)
-    set(BLT_CXX_STD "c++17" CACHE STRING "")
 endif()
 
 include(${BLT_SOURCE_DIR}/SetupBLT.cmake)
