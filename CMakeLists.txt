@@ -3,6 +3,31 @@ cmake_minimum_required(VERSION 3.18)
 
 project(Beatnik LANGUAGES C CXX VERSION 0.1.0)
 
+if (DEFINED BLT_SOURCE_DIR)
+    # Support having a shared BLT outside of the repository if given a BLT_SOURCE_DIR
+    if (NOT EXISTS ${BLT_SOURCE_DIR}/SetupBLT.cmake)
+        message(FATAL_ERROR "Given BLT_SOURCE_DIR does not contain SetupBLT.cmake")
+    endif()
+else()
+    # Use internal BLT if no BLT_SOURCE_DIR is given
+    set(BLT_SOURCE_DIR "${PROJECT_SOURCE_DIR}/cmake/blt" CACHE PATH "")
+    if (NOT EXISTS ${BLT_SOURCE_DIR}/SetupBLT.cmake)
+        message(FATAL_ERROR
+            "The BLT git submodule is not present. "
+            "Either run the following two commands in your git repository: \n"
+            "    git submodule init\n"
+            "    git submodule update\n"
+            "Or add -DBLT_SOURCE_DIR=/path/to/blt to your CMake command." )
+    endif()
+endif()
+
+# Default to C++14 if not set so GTest/GMock can build
+if (NOT BLT_CXX_STD)
+    set(BLT_CXX_STD "c++14" CACHE STRING "")
+endif()
+
+include(${BLT_SOURCE_DIR}/SetupBLT.cmake)
+
 include(GNUInstallDirs)
 
 # find dependencies
@@ -45,8 +70,8 @@ add_subdirectory(src)
 # examples
 add_subdirectory(examples)
 
-# tests - currently disabled
-# add_subdirectory(tests)
+# tests
+add_subdirectory(tests)
 
 # Add a target for formatting the code using Clang
 if(CLANG_FORMAT_FOUND)
