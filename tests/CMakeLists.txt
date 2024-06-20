@@ -1,6 +1,8 @@
 blt_add_executable( NAME     multTest
                     SOURCES tstExactBRSolver.hpp
-                    DEPENDS_ON beatnik gtest)
+                    DEPENDS_ON beatnik gtest
+                    OUTPUT_DIR ${TEST_OUTPUT_DIRECTORY})
+                    
 blt_add_test(NAME multTest
             COMMAND multTest)
 
