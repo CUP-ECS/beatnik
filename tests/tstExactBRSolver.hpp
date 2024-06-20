@@ -7,21 +7,38 @@
 #include <Cajita.hpp>
 #include <Kokkos_Core.hpp>
 
-#include <Mesh.hpp>
+#include <Solver.hpp>
 
 #include <mpi.h>
 
+#include "tstExactBRSolverCorrect.hpp"
 #include "tstDriver.hpp"
 
 
-class CalcPi {
- public:
-  int mult(int a, int b);
-};
-
-TEST_F(CalcPi, multTest)
+class TestExactBRSolver : public testing::Test
 {
-  ASSERT_EQ(6, CalcPi::mult(2, 3));
+  protected:
+    
+
+    /* Init the classes required for the BR solver to work */
+    void SetUp() override
+    {
+        /* ExactBRSolver( const pm_type & pm, const BoundaryCondition &bc,
+                   const double epsilon, const double dx, const double dy)*/
+        
+    }
+
+
+    // Variables for needed testing ExactBRSolver
+    const ProblemManager & _pm;
+    const BoundaryCondition & _bc;
+    double _epsilon, _dx, _dy;
+    MPI_Comm _comm;
+}
+
+TEST_F(TestExactBRSolver, sampleTest)
+{
+  ASSERT_EQ(6, 6);
 }
 
 

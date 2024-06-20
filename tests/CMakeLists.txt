@@ -1,5 +1,5 @@
 blt_add_executable( NAME     multTest
-                    SOURCES tstExactBRSolver.cpp
+                    SOURCES tstExactBRSolver.hpp
                     DEPENDS_ON beatnik gtest)
 blt_add_test(NAME multTest
             COMMAND multTest)
