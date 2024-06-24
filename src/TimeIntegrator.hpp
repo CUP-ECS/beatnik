@@ -34,6 +34,11 @@ class TimeIntegrator
     using node_array =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
                       mem_space>;
+    
+    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
+    
+    using Node = Cabana::Grid::Node;
+    using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
 
 //    using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
@@ -44,7 +49,10 @@ class TimeIntegrator
     : _pm(pm)
     , _bc(bc)
     , _zm(zm)
+    , _local_L2G( *_pm.mesh().localGrid() )
     {
+        MPI_Comm_rank(MPI_COMM_WORLD, &_rank);
+        _timestep = 0;
        
         // Create a layout of the temporary arrays we'll need for velocity
         // intermediate positions, and change in vorticity
@@ -135,6 +143,81 @@ class TimeIntegrator
                     + ( 2.0 / 3.0 ) * delta_t * w_dot(i, j, d);
             }
         });
+
+        _timestep++;
+
+        if (!(_timestep % 10))
+        {
+            // 4 procs, 32 mesh, 10 timesteps
+
+            // Rank 0
+            printView(_local_L2G, _rank, z_orig, 2, 14, 0);
+            printView(_local_L2G, _rank, w_orig, 2, 14, 0);
+            printView(_local_L2G, _rank, z_orig, 2, 10, 12);
+            printView(_local_L2G, _rank, w_orig, 2, 10, 12);
+            
+            // Rank 1
+            printView(_local_L2G, _rank, z_orig, 2, 11, 20);
+            printView(_local_L2G, _rank, w_orig, 2, 11, 20);
+            printView(_local_L2G, _rank, z_orig, 2, 4, 24);
+            printView(_local_L2G, _rank, w_orig, 2, 4, 24);
+
+            // Rank 2
+            printView(_local_L2G, _rank, z_orig, 2, 21, 7);
+            printView(_local_L2G, _rank, w_orig, 2, 21, 7);
+            printView(_local_L2G, _rank, z_orig, 2, 18, 15);
+            printView(_local_L2G, _rank, w_orig, 2, 18, 15);
+
+            // Rank 3
+            printView(_local_L2G, _rank, z_orig, 2, 16, 16);
+            printView(_local_L2G, _rank, w_orig, 2, 16, 16);
+            printView(_local_L2G, _rank, z_orig, 2, 22, 27);
+            printView(_local_L2G, _rank, w_orig, 2, 22, 27);
+        
+        
+        }
+    }
+
+    template <class l2g_type, class View>
+    void printView(l2g_type local_L2G, int rank, View z, int option, int DEBUG_X, int DEBUG_Y) const
+    {
+        int dims = z.extent(2);
+
+        std::array<long, 2> rmin, rmax;
+        for (int d = 0; d < 2; d++) {
+            rmin[d] = local_L2G.local_own_min[d];
+            rmax[d] = local_L2G.local_own_max[d];
+        }
+	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
+
+        Kokkos::parallel_for("print views",
+            Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
+            KOKKOS_LAMBDA(int i, int j) {
+            
+            // local_gi = global versions of the local indicies, and convention for remote 
+            int local_li[2] = {i, j};
+            int local_gi[2] = {0, 0};   // i, j
+            local_L2G(local_li, local_gi);
+            //printf("global: %d %d\n", local_gi[0], local_gi[1]);
+            if (option == 1){
+                if (dims == 3) {
+                    printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
+                }
+                else if (dims == 2) {
+                    printf("R%d %d %d %d %d %.12lf %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
+                }
+            }
+            else if (option == 2) {
+                if (local_gi[0] == DEBUG_X && local_gi[1] == DEBUG_Y) {
+                    if (dims == 3) {
+                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf: %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
+                    }   
+                    else if (dims == 2) {
+                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
+                    }
+                }
+            }
+        });
     }
 
   private:
@@ -142,6 +225,9 @@ class TimeIntegrator
     const BoundaryCondition &_bc;
     const ZModelType & _zm;
     std::shared_ptr<node_array> _zdot, _wdot, _wtmp, _ztmp;
+
+    l2g_type _local_L2G;
+    int _timestep, _rank;
 };
 
 } // end namespace Beatnik
