@@ -1,10 +1,10 @@
-blt_add_executable( NAME     multTest
+blt_add_executable( NAME     testComputeInterfaceVelocityPeriodicBC
                     SOURCES tstExactBRSolver.hpp
                     DEPENDS_ON beatnik gtest
                     OUTPUT_DIR ${TEST_OUTPUT_DIRECTORY})
                     
-blt_add_test(NAME multTest
-            COMMAND multTest)
+blt_add_test(NAME testComputeInterfaceVelocityPeriodicBC
+            COMMAND testComputeInterfaceVelocityPeriodicBC)
 
 # blt_add_executable(NAME tstMesh
 #                    SOURCES tstMesh.cpp 
