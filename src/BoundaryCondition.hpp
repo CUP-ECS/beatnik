@@ -136,17 +136,30 @@ struct BoundaryCondition
                          * mesh than we want. We should instead figure out distance 
                          * to go just to the edge of the boundary and linearly 
                          * extrapolate from that. XXX */
+
                         int p1[2], p2[2];
-                        int dist = 2; 
-                        p1[0] = k - kdir[0]*(dist); 
+                        int dist = 2;
+
+                        // Get x and y indices to update - don't need to change
+                        p1[0] = k - kdir[0]*(dist); // one out
                         p1[1] = l - kdir[1]*(dist); 
-                        p2[0] = k - kdir[0]*(dist + 1); 
+                        p2[0] = k - kdir[0]*(dist + 1); // two out 
                         p2[1] = l - kdir[1]*(dist + 1); 
+
                         for (int d = 0; d < dof; d++) {
+                            double f_orig = f(k, l, d);
+
+                            // TODO: Linear extrapolation from the two points nearest the boundary
 			                f(k, l, d) = f(p1[0], p1[1], d) 
                                          + dist*(f(p2[0], p2[1], d) 
                                                      - f(p1[0], p1[1], d));
+
+                            // Get the slope in the d-direction
+                            double slope;
+                            
+                            printf("%d, %d, %d: %0.8lf -> %0.8lf\n", k, l, d, f_orig, f(k, l, d));
                         }
+                        
                     });
                 }
             }
