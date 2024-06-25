@@ -94,7 +94,7 @@ struct BoundaryCondition
                 if (i == 0 && j == 0) continue;
 
                 std::array<int, 2> dir = {i, j};
-		// In general, halo exchange takes care of periodic boundaries
+		        // In general, halo exchange takes care of periodic boundaries
 
                 /* For free boundaries, we linearly extrapolate the field into 
                  * the boundary */
@@ -126,8 +126,8 @@ struct BoundaryCondition
                                          Cabana::Grid::createExecutionPolicy(boundary_space, 
                                          exec_space()),
                                          KOKKOS_LAMBDA(int k, int l) {
-			/* Find the two points in the interior we want to 
-			 * extrapolate from based on the direction and how far 
+                        /* Find the two points in the interior we want to 
+                         * extrapolate from based on the direction and how far 
                          * we are from the interior.  
                          * 
                          * XXX Right now we always go two points aways since
@@ -143,7 +143,7 @@ struct BoundaryCondition
                         p2[0] = k - kdir[0]*(dist + 1); 
                         p2[1] = l - kdir[1]*(dist + 1); 
                         for (int d = 0; d < dof; d++) {
-			    f(k, l, d) = f(p1[0], p1[1], d) 
+			                f(k, l, d) = f(p1[0], p1[1], d) 
                                          + dist*(f(p2[0], p2[1], d) 
                                                      - f(p1[0], p1[1], d));
                         }
