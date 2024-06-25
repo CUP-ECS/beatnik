@@ -76,11 +76,10 @@ class ExactBRSolver
         , _dx( dx )
         , _dy( dy )
         , _local_L2G( *_pm.mesh().localGrid() )
+        , _comm( _pm.mesh().localGrid()->globalGrid().comm() )
     {
-	    _comm = _pm.mesh().localGrid()->globalGrid().comm();
-
-        MPI_Comm_size(_comm, &_num_procs);
-        MPI_Comm_rank(_comm, &_rank);
+        MPI_Comm_size(MPI_COMM_WORLD, &_num_procs);
+        MPI_Comm_rank(MPI_COMM_WORLD, &_rank);
     }
 
     static KOKKOS_INLINE_FUNCTION double simpsonWeight(int index, int len)
@@ -312,18 +311,18 @@ class ExactBRSolver
             // Send/receive the views
             MPI_Sendrecv(wsend_view->data(), int(wsend_view->size()), MPI_DOUBLE, next_rank, 2, 
                         wrecv_view->data(), int(wrecv_view->size()), MPI_DOUBLE, prev_rank, 2, 
-                        _comm, MPI_STATUS_IGNORE);
+                        MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             MPI_Sendrecv(zsend_view->data(), int(zsend_view->size()), MPI_DOUBLE, next_rank, 3, 
                         zrecv_view->data(), int(zrecv_view->size()), MPI_DOUBLE, prev_rank, 3, 
-                        _comm, MPI_STATUS_IGNORE);
+                        MPI_COMM_WORLD, MPI_STATUS_IGNORE);
             MPI_Sendrecv(osend_view->data(), int(osend_view->size()), MPI_DOUBLE, next_rank, 4, 
                         orecv_view->data(), int(orecv_view->size()), MPI_DOUBLE, prev_rank, 4, 
-                        _comm, MPI_STATUS_IGNORE);
+                        MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
             MPI_Sendrecv(L2G_send, int(sizeof(*L2G_send)), MPI_BYTE, next_rank, 5, 
                          L2G_recv, int(sizeof(*L2G_recv)), MPI_BYTE, prev_rank, 5, 
-                         _comm, MPI_STATUS_IGNORE);
+                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             // Do computations
             computeInterfaceVelocityPiece(atomic_zdot, z, *zrecv_view, *wrecv_view, *orecv_view, *L2G_recv);
