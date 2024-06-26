@@ -86,6 +86,16 @@ struct BoundaryCondition
         using exec_space = typename ArrayType::execution_space;
 
         auto local_grid = *(mesh.localGrid());
+        auto f = field.view();
+        auto index_space = local_grid.indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
+                    Kokkos::parallel_for("print bc orig", 
+                                         Cabana::Grid::createExecutionPolicy(index_space, 
+                                         exec_space()),
+                                         KOKKOS_LAMBDA(int k, int l) {
+                        
+                        printf("Orig: %d, %d: (%0.8lf, %0.8lf, %0.8lf)\n", k, l, f(k, l, 0), f(k, l, 1), f(k, l, 2));
+
+                    });
 
         /* Loop through the directions to correct boundary index spaces when
          * needed. */
@@ -104,7 +114,7 @@ struct BoundaryCondition
                      * laplacian calculations near the boundary. */
 		    
                     // Variables we'll want in the parallel for loop.
-                    auto f = field.view();
+                    // auto f = field.view();
                     Kokkos::Array<int, 2> kdir = {i, j};
 
                     /* We want the boundaryIndexSpace of ghosts to loop over. 
@@ -121,11 +131,15 @@ struct BoundaryCondition
                         max[d] = (boundary_space.max(d) > fext) 
                                      ? fext : boundary_space.max(d);
                     }
+                    printf("min: (%d, %d), max: (%d, %d)\n", min[0], min[1], max[0], max[1]);
                     boundary_space = Cabana::Grid::IndexSpace<2>(min, max);
                     Kokkos::parallel_for("Field boundary extrapolation", 
                                          Cabana::Grid::createExecutionPolicy(boundary_space, 
                                          exec_space()),
                                          KOKKOS_LAMBDA(int k, int l) {
+                        // f(k, l, 0) = k*l;
+                        // f(k, l, 1) = k*l;
+                        // f(k, l, 2) = k*l + dof;
                         /* Find the two points in the interior we want to 
                          * extrapolate from based on the direction and how far 
                          * we are from the interior.  
@@ -136,16 +150,20 @@ struct BoundaryCondition
                          * mesh than we want. We should instead figure out distance 
                          * to go just to the edge of the boundary and linearly 
                          * extrapolate from that. XXX */
-
+                        
                         int p1[2], p2[2];
                         int dist = 2;
 
-                        // Get x and y indices to update - don't need to change
-                        p1[0] = k - kdir[0]*(dist); // one out
-                        p1[1] = l - kdir[1]*(dist); 
-                        p2[0] = k - kdir[0]*(dist + 1); // two out 
-                        p2[1] = l - kdir[1]*(dist + 1); 
+                        // kdir = (-1, 0), k = 1, l = 2
+                        p1[0] = k - kdir[0]*(dist); // 1 - (-1)*2
+                        p1[1] = l - kdir[1]*(dist); // 2 - (0)*2
+                        // p1 = (3, 2)
 
+                        p2[0] = k - kdir[0]*(dist + 1); // 1 - (-1)*3
+                        p2[1] = l - kdir[1]*(dist + 1); // 2
+                        // p2 = (4, 2)
+                        
+                        //printf("Before: %d, %d: (%0.8lf, %0.8lf, %0.8lf)\n", k, l, f(k, l, 0), f(k, l, 1), f(k, l, 2));
                         for (int d = 0; d < dof; d++) {
                             double f_orig = f(k, l, d);
 
@@ -153,17 +171,31 @@ struct BoundaryCondition
 			                f(k, l, d) = f(p1[0], p1[1], d) 
                                          + dist*(f(p2[0], p2[1], d) 
                                                      - f(p1[0], p1[1], d));
+                            /*
+                                f(1, 2, 0) = f(3, 2, 0) + 2*f(4, 2, 0) - f(3, 2, 0)
+                                -0.4 =  -0.6 + 2*-0.2 - -0.6   
+                            */
 
                             // Get the slope in the d-direction
                             double slope;
                             
-                            printf("%d, %d, %d: %0.8lf -> %0.8lf\n", k, l, d, f_orig, f(k, l, d));
+                            //printf("%d, %d, %d: %0.8lf -> %0.8lf\n", k, l, d, f_orig, f(k, l, d));
                         }
-                        
+                        if (k == 1 && l == 1)
+                        {
+                            printf("i: %d, j: %d, p1: (%d, %d), p2: (%d, %d) -> (%0.8lf, %0.8lf, %0.8lf)\n", i, j, p1[0], p1[1], p2[0], p2[1], f(k, l, 0), f(k, l, 1), f(k, l, 2));
+                            for (int d = 0; d < dof; d++)
+                            {
+                                printf("%0.8lf = %0.8lf + %d* (%0.8lf - %0.8lf)\n", f(k, l, d), f(p1[0], p1[1], d), dist, f(p2[0], p2[1], d), f(p1[0], p1[1], d));
+                            }
+                        }
+                        //printf("After: %d, %d: (%0.8lf, %0.8lf, %0.8lf)\n", k, l, f(k, l, 0), f(k, l, 1), f(k, l, 2));
                     });
                 }
             }
         }
+        Kokkos::fence();
+        exit(0);
     } 
     /* Because we store a position field in the mesh, the position has to
      * be corrected after haloing if it's a periodic boundary */
