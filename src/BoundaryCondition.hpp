@@ -218,6 +218,57 @@ struct BoundaryCondition
                                     f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * 2;
                                 }
                             }
+                            else if (i == -1 && j == 1)
+                            {
+                                // Top right boundary
+                                if ((k == min[0] && l == max[1]-1) ||
+                                    (k == min[0]+1 && l == max[1]-2))
+                                {
+                                    p1[0] = max[0]; p1[1] = min[1]-1;
+                                    p2[0] = max[0]+1; p2[1] = min[1]-2;
+                                    slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (max[0]-k);
+                                }
+                                else
+                                {
+                                    p1[0] = k+2; p1[1] = l-2;
+                                    p2[0] = k+3; p2[1] = l-3;
+                                    slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * 2;
+                                }
+                            }
+                            else if (i == 1 && j == -1)
+                            {
+                                // Bottom left boundary
+                                if ((k == min[0] && l == max[1]-1) ||
+                                    (k == min[0]+1 && l == max[1]-2))
+                                {
+                                    p1[0] = min[0]-1; p1[1] = max[1];
+                                    p2[0] = min[0]+2; p2[1] = max[1]+1;
+                                    slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (k-min[0]+1);
+                                }
+                                else
+                                {
+                                    p1[0] = k-2; p1[1] = l+2;
+                                    p2[0] = k-3; p2[1] = l+3;
+                                    slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * 2;
+                                }
+                            }
+                            else if (i == 1 && j == 1)
+                            {
+                                // Bottom right boundary
+                                if (k == l)
+                                {
+                                    // TODO
+                                }
+                                else
+                                {
+                                    // TODO
+                                }
+                            }
+                        
                             
                             
                             
