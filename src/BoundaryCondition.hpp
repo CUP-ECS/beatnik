@@ -137,7 +137,7 @@ struct BoundaryCondition
                                          Cabana::Grid::createExecutionPolicy(boundary_space, 
                                          exec_space()),
                                          KOKKOS_LAMBDA(int k, int l) {
-                        // f(k, l, 0) = k*l;
+                        // printf("i: %d, j: %d, editing (%d, %d, x)\n", i, j, k, l);
                         // f(k, l, 1) = k*l;
                         // f(k, l, 2) = k*l + dof;
                         /* Find the two points in the interior we want to 
@@ -165,6 +165,64 @@ struct BoundaryCondition
                         
                         //printf("Before: %d, %d: (%0.8lf, %0.8lf, %0.8lf)\n", k, l, f(k, l, 0), f(k, l, 1), f(k, l, 2));
                         for (int d = 0; d < dof; d++) {
+                            double slope;
+                            if (i == -1 && j == 0)
+                            {
+                                // Top center boundary
+                                p1[0] = max[0]; p1[1] = l;
+                                p2[0] = max[0]+1; p2[1] = l;
+                                slope = f(p1[0], p1[1], d) - f(p2[0], p2[1], d);
+                                f(k, l, d) = f(p1[0], p1[1], d) + slope * abs(p1[0] - k)
+                            }
+                            else if (i == 1 && j == 0)
+                            {
+                                // Bottom center boundary
+                                p1[0] = min[0]-1; p1[1] = l;
+                                p2[0] = min[0]-2; p2[1] = l;
+                                slope = f(p1[0], p1[1], d) - f(p2[0], p2[1], d);
+                                f(k, l, d) = f(p1[0], p1[1], d) + slope * abs(p1[0] - k)
+                            }
+                            else if (i == 0 && j == -1)
+                            {
+                                // Left center boundary
+                                p1[0] = k; p1[1] = max[1];
+                                p2[0] = k; p2[1] = max[1]+1;
+                                slope = f(p1[0], p1[1], d) - f(p2[0], p2[1], d);
+                                f(k, l, d) = f(p1[0], p1[1], d) + slope * abs(p1[1] - l)
+                            }
+                            else if (i == 0 && j == 1)
+                            {
+                                // Right center boundary
+                                p1[0] = k; p1[1] = min[1]-1;
+                                p2[0] = k; p2[1] = min[1]-2;
+                                slope = f(p1[0], p1[1], d) - f(p2[0], p2[1], d);
+                                f(k, l, d) = f(p1[0], p1[1], d) + slope * abs(p1[1] - l)
+                            }
+
+                            // XXX - the following corner boundary adjustments are hard-coded for a halo width of 2 cells
+                            else if (i == -1 && j == -1)
+                            {
+                                // Top left boundary
+                                if (k == l)
+                                {
+                                    p1[0] = max[0]; p1[1] = max[1];
+                                    p2[0] = max[0]+1; p2[1] = max[1]+1;
+                                    slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (max[0]-k);
+                                }
+                                else 
+                                {
+                                    p1[0] = k+2; p1[1] = l+2;
+                                    p2[0] = k+3; p2[1] = l+3;
+                                    slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * 2;
+                                }
+                            }
+                            
+                            
+                            
+                            
+                            
                             double f_orig = f(k, l, d);
 
                             // TODO: Linear extrapolation from the two points nearest the boundary
@@ -181,7 +239,7 @@ struct BoundaryCondition
                             
                             //printf("%d, %d, %d: %0.8lf -> %0.8lf\n", k, l, d, f_orig, f(k, l, d));
                         }
-                        if (k == 1 && l == 1)
+                        if (k == 0 && l == 1)
                         {
                             printf("i: %d, j: %d, p1: (%d, %d), p2: (%d, %d) -> (%0.8lf, %0.8lf, %0.8lf)\n", i, j, p1[0], p1[1], p2[0], p2[1], f(k, l, 0), f(k, l, 1), f(k, l, 2));
                             for (int d = 0; d < dof; d++)
