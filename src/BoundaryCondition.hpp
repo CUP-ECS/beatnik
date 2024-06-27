@@ -131,6 +131,8 @@ struct BoundaryCondition
                         max[d] = (boundary_space.max(d) > fext) 
                                      ? fext : boundary_space.max(d);
                     }
+                    long min0 = min[0], min1 = min[1];
+                    long max0 = max[0], max1 = max[1];
                     printf("min: (%d, %d), max: (%d, %d)\n", min[0], min[1], max[0], max[1]);
                     boundary_space = Cabana::Grid::IndexSpace<2>(min, max);
                     Kokkos::parallel_for("Field boundary extrapolation", 
@@ -169,34 +171,34 @@ struct BoundaryCondition
                             if (i == -1 && j == 0)
                             {
                                 // Top center boundary
-                                p1[0] = max[0]; p1[1] = l;
-                                p2[0] = max[0]+1; p2[1] = l;
+                                p1[0] = max0; p1[1] = l;
+                                p2[0] = max0+1; p2[1] = l;
                                 slope = f(p1[0], p1[1], d) - f(p2[0], p2[1], d);
-                                f(k, l, d) = f(p1[0], p1[1], d) + slope * abs(p1[0] - k)
+                                f(k, l, d) = f(p1[0], p1[1], d) + slope * abs(p1[0] - k);
                             }
                             else if (i == 1 && j == 0)
                             {
                                 // Bottom center boundary
-                                p1[0] = min[0]-1; p1[1] = l;
-                                p2[0] = min[0]-2; p2[1] = l;
+                                p1[0] = min0-1; p1[1] = l;
+                                p2[0] = min0-2; p2[1] = l;
                                 slope = f(p1[0], p1[1], d) - f(p2[0], p2[1], d);
-                                f(k, l, d) = f(p1[0], p1[1], d) + slope * abs(p1[0] - k)
+                                f(k, l, d) = f(p1[0], p1[1], d) + slope * abs(p1[0] - k);
                             }
                             else if (i == 0 && j == -1)
                             {
                                 // Left center boundary
-                                p1[0] = k; p1[1] = max[1];
-                                p2[0] = k; p2[1] = max[1]+1;
+                                p1[0] = k; p1[1] = max1;
+                                p2[0] = k; p2[1] = max1+1;
                                 slope = f(p1[0], p1[1], d) - f(p2[0], p2[1], d);
-                                f(k, l, d) = f(p1[0], p1[1], d) + slope * abs(p1[1] - l)
+                                f(k, l, d) = f(p1[0], p1[1], d) + slope * abs(p1[1] - l);
                             }
                             else if (i == 0 && j == 1)
                             {
                                 // Right center boundary
-                                p1[0] = k; p1[1] = min[1]-1;
-                                p2[0] = k; p2[1] = min[1]-2;
+                                p1[0] = k; p1[1] = min1-1;
+                                p2[0] = k; p2[1] = min1-2;
                                 slope = f(p1[0], p1[1], d) - f(p2[0], p2[1], d);
-                                f(k, l, d) = f(p1[0], p1[1], d) + slope * abs(p1[1] - l)
+                                f(k, l, d) = f(p1[0], p1[1], d) + slope * abs(p1[1] - l);
                             }
 
                             // XXX - the following corner boundary adjustments are hard-coded for a halo width of 2 cells
@@ -205,10 +207,10 @@ struct BoundaryCondition
                                 // Top left boundary
                                 if (k == l)
                                 {
-                                    p1[0] = max[0]; p1[1] = max[1];
-                                    p2[0] = max[0]+1; p2[1] = max[1]+1;
+                                    p1[0] = max0; p1[1] = max1;
+                                    p2[0] = max0+1; p2[1] = max1+1;
                                     slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
-                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (max[0]-k);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (max0-k);
                                 }
                                 else 
                                 {
@@ -221,13 +223,13 @@ struct BoundaryCondition
                             else if (i == -1 && j == 1)
                             {
                                 // Top right boundary
-                                if ((k == min[0] && l == max[1]-1) ||
-                                    (k == min[0]+1 && l == max[1]-2))
+                                if ((k == min0 && l == max1-1) ||
+                                    (k == min0+1 && l == max1-2))
                                 {
-                                    p1[0] = max[0]; p1[1] = min[1]-1;
-                                    p2[0] = max[0]+1; p2[1] = min[1]-2;
+                                    p1[0] = max0; p1[1] = min1-1;
+                                    p2[0] = max0+1; p2[1] = min1-2;
                                     slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
-                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (max[0]-k);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (max0-k);
                                 }
                                 else
                                 {
@@ -240,13 +242,13 @@ struct BoundaryCondition
                             else if (i == 1 && j == -1)
                             {
                                 // Bottom left boundary
-                                if ((k == min[0] && l == max[1]-1) ||
-                                    (k == min[0]+1 && l == max[1]-2))
+                                if ((k == min0 && l == max1-1) ||
+                                    (k == min0+1 && l == max1-2))
                                 {
-                                    p1[0] = min[0]-1; p1[1] = max[1];
-                                    p2[0] = min[0]+2; p2[1] = max[1]+1;
+                                    p1[0] = min0-1; p1[1] = max1;
+                                    p2[0] = min0+2; p2[1] = max1+1;
                                     slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
-                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (k-min[0]+1);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (k-min0+1);
                                 }
                                 else
                                 {
@@ -261,35 +263,30 @@ struct BoundaryCondition
                                 // Bottom right boundary
                                 if (k == l)
                                 {
-                                    // TODO
+                                    p1[0] = min0-1; p1[1] = min0-1;
+                                    p2[0] = min0-2; p2[0] = min1-2;
+                                    slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (max1-k);
                                 }
                                 else
                                 {
-                                    // TODO
+                                    p1[0] = k-2; p1[1] = l-2;
+                                    p2[0] = k-3; p2[1] = l-3;
+                                    slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * 2;
                                 }
                             }
                         
-                            
-                            
-                            
-                            
-                            
-                            double f_orig = f(k, l, d);
+                            // double f_orig = f(k, l, d);
 
                             // TODO: Linear extrapolation from the two points nearest the boundary
-			                f(k, l, d) = f(p1[0], p1[1], d) 
-                                         + dist*(f(p2[0], p2[1], d) 
-                                                     - f(p1[0], p1[1], d));
-                            /*
-                                f(1, 2, 0) = f(3, 2, 0) + 2*f(4, 2, 0) - f(3, 2, 0)
-                                -0.4 =  -0.6 + 2*-0.2 - -0.6   
-                            */
-
-                            // Get the slope in the d-direction
-                            double slope;
+			                // f(k, l, d) = f(p1[0], p1[1], d) 
+                            //              + dist*(f(p2[0], p2[1], d) 
+                            //                          - f(p1[0], p1[1], d));
                             
-                            //printf("%d, %d, %d: %0.8lf -> %0.8lf\n", k, l, d, f_orig, f(k, l, d));
+                            // printf("%d, %d, %d: %0.8lf -> %0.8lf\n", k, l, d, f_orig, f(k, l, d));
                         }
+                        printf("%d, %d, %d -> %0.8lf\n", k, l, 0, f(k, l, 0));
                         if (k == 0 && l == 1)
                         {
                             printf("i: %d, j: %d, p1: (%d, %d), p2: (%d, %d) -> (%0.8lf, %0.8lf, %0.8lf)\n", i, j, p1[0], p1[1], p2[0], p2[1], f(k, l, 0), f(k, l, 1), f(k, l, 2));
