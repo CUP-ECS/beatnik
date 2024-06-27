@@ -87,15 +87,15 @@ struct BoundaryCondition
 
         auto local_grid = *(mesh.localGrid());
         auto f = field.view();
-        auto index_space = local_grid.indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
-                    Kokkos::parallel_for("print bc orig", 
-                                         Cabana::Grid::createExecutionPolicy(index_space, 
-                                         exec_space()),
-                                         KOKKOS_LAMBDA(int k, int l) {
+        // auto index_space = local_grid.indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
+        //             Kokkos::parallel_for("print bc orig", 
+        //                                  Cabana::Grid::createExecutionPolicy(index_space, 
+        //                                  exec_space()),
+        //                                  KOKKOS_LAMBDA(int k, int l) {
                         
-                        printf("Orig: %d, %d: (%0.8lf, %0.8lf, %0.8lf)\n", k, l, f(k, l, 0), f(k, l, 1), f(k, l, 2));
+        //                 printf("Orig: %d, %d: (%0.8lf, %0.8lf, %0.8lf)\n", k, l, f(k, l, 0), f(k, l, 1), f(k, l, 2));
 
-                    });
+        //             });
 
         /* Loop through the directions to correct boundary index spaces when
          * needed. */
@@ -133,7 +133,7 @@ struct BoundaryCondition
                     }
                     long min0 = min[0], min1 = min[1];
                     long max0 = max[0], max1 = max[1];
-                    printf("min: (%d, %d), max: (%d, %d)\n", min[0], min[1], max[0], max[1]);
+                    //printf("min: (%d, %d), max: (%d, %d)\n", min[0], min[1], max[0], max[1]);
                     boundary_space = Cabana::Grid::IndexSpace<2>(min, max);
                     Kokkos::parallel_for("Field boundary extrapolation", 
                                          Cabana::Grid::createExecutionPolicy(boundary_space, 
@@ -246,7 +246,7 @@ struct BoundaryCondition
                                     (k == min0+1 && l == max1-2))
                                 {
                                     p1[0] = min0-1; p1[1] = max1;
-                                    p2[0] = min0+2; p2[1] = max1+1;
+                                    p2[0] = min0-2; p2[1] = max1+1;
                                     slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
                                     f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (k-min0+1);
                                 }
@@ -266,7 +266,7 @@ struct BoundaryCondition
                                     p1[0] = min0-1; p1[1] = min0-1;
                                     p2[0] = min0-2; p2[0] = min1-2;
                                     slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
-                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (max1-k);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (k-min0+1);
                                 }
                                 else
                                 {
@@ -287,14 +287,14 @@ struct BoundaryCondition
                             // printf("%d, %d, %d: %0.8lf -> %0.8lf\n", k, l, d, f_orig, f(k, l, d));
                         }
                         printf("%d, %d, %d -> %0.8lf\n", k, l, 0, f(k, l, 0));
-                        if (k == 0 && l == 1)
-                        {
-                            printf("i: %d, j: %d, p1: (%d, %d), p2: (%d, %d) -> (%0.8lf, %0.8lf, %0.8lf)\n", i, j, p1[0], p1[1], p2[0], p2[1], f(k, l, 0), f(k, l, 1), f(k, l, 2));
-                            for (int d = 0; d < dof; d++)
-                            {
-                                printf("%0.8lf = %0.8lf + %d* (%0.8lf - %0.8lf)\n", f(k, l, d), f(p1[0], p1[1], d), dist, f(p2[0], p2[1], d), f(p1[0], p1[1], d));
-                            }
-                        }
+                        // if (k == 9 && l == 0)
+                        // {
+                        //     printf("i: %d, j: %d, p1: (%d, %d), p2: (%d, %d) -> (%0.8lf, %0.8lf, %0.8lf)\n", i, j, p1[0], p1[1], p2[0], p2[1], f(k, l, 0), f(k, l, 1), f(k, l, 2));
+                        //     for (int d = 0; d < dof; d++)
+                        //     {
+                        //         printf("%0.8lf = %0.8lf + %d* (%0.8lf - %0.8lf)\n", f(k, l, d), f(p1[0], p1[1], d), dist, f(p2[0], p2[1], d), f(p1[0], p1[1], d));
+                        //     }
+                        // }
                         //printf("After: %d, %d: (%0.8lf, %0.8lf, %0.8lf)\n", k, l, f(k, l, 0), f(k, l, 1), f(k, l, 2));
                     });
                 }
