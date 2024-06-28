@@ -84,19 +84,9 @@ struct BoundaryCondition
     void applyField(const MeshType &mesh, ArrayType field, int dof) const
     {
         using exec_space = typename ArrayType::execution_space;
-
         auto local_grid = *(mesh.localGrid());
         auto f = field.view();
-        // auto index_space = local_grid.indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
-        //             Kokkos::parallel_for("print bc orig", 
-        //                                  Cabana::Grid::createExecutionPolicy(index_space, 
-        //                                  exec_space()),
-        //                                  KOKKOS_LAMBDA(int k, int l) {
-                        
-        //                 printf("Orig: %d, %d: (%0.8lf, %0.8lf, %0.8lf)\n", k, l, f(k, l, 0), f(k, l, 1), f(k, l, 2));
-
-        //             });
-
+        
         /* Loop through the directions to correct boundary index spaces when
          * needed. */
         for (int i = -1; i < 2; i++) {
@@ -139,33 +129,12 @@ struct BoundaryCondition
                                          Cabana::Grid::createExecutionPolicy(boundary_space, 
                                          exec_space()),
                                          KOKKOS_LAMBDA(int k, int l) {
-                        // printf("i: %d, j: %d, editing (%d, %d, x)\n", i, j, k, l);
-                        // f(k, l, 1) = k*l;
-                        // f(k, l, 2) = k*l + dof;
-                        /* Find the two points in the interior we want to 
-                         * extrapolate from based on the direction and how far 
-                         * we are from the interior.  
-                         * 
-                         * XXX Right now we always go two points aways since
-                         * we have a 2-deep halo. This guarantees to get us out
-                         * of the boundary, but may take us further into the the
-                         * mesh than we want. We should instead figure out distance 
-                         * to go just to the edge of the boundary and linearly 
-                         * extrapolate from that. XXX */
+                        /* Linear extrapolation from the two points nearest to the boundary. 
+                         * XXX - Optimize the following code
+                         * XXX - Make this work for any halo distance, not just 2.
+                         */
                         
                         int p1[2], p2[2];
-                        int dist = 2;
-
-                        // kdir = (-1, 0), k = 1, l = 2
-                        p1[0] = k - kdir[0]*(dist); // 1 - (-1)*2
-                        p1[1] = l - kdir[1]*(dist); // 2 - (0)*2
-                        // p1 = (3, 2)
-
-                        p2[0] = k - kdir[0]*(dist + 1); // 1 - (-1)*3
-                        p2[1] = l - kdir[1]*(dist + 1); // 2
-                        // p2 = (4, 2)
-                        
-                        //printf("Before: %d, %d: (%0.8lf, %0.8lf, %0.8lf)\n", k, l, f(k, l, 0), f(k, l, 1), f(k, l, 2));
                         for (int d = 0; d < dof; d++) {
                             double slope;
                             if (i == -1 && j == 0)
@@ -264,7 +233,7 @@ struct BoundaryCondition
                                 if (k == l)
                                 {
                                     p1[0] = min0-1; p1[1] = min0-1;
-                                    p2[0] = min0-2; p2[0] = min1-2;
+                                    p2[0] = min0-2; p2[1] = min0-2;
                                     slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
                                     f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (k-min0+1);
                                 }
@@ -276,33 +245,13 @@ struct BoundaryCondition
                                     f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * 2;
                                 }
                             }
-                        
-                            // double f_orig = f(k, l, d);
-
-                            // TODO: Linear extrapolation from the two points nearest the boundary
-			                // f(k, l, d) = f(p1[0], p1[1], d) 
-                            //              + dist*(f(p2[0], p2[1], d) 
-                            //                          - f(p1[0], p1[1], d));
-                            
-                            // printf("%d, %d, %d: %0.8lf -> %0.8lf\n", k, l, d, f_orig, f(k, l, d));
-                        }
-                        printf("%d, %d, %d -> %0.8lf\n", k, l, 0, f(k, l, 0));
-                        // if (k == 9 && l == 0)
-                        // {
-                        //     printf("i: %d, j: %d, p1: (%d, %d), p2: (%d, %d) -> (%0.8lf, %0.8lf, %0.8lf)\n", i, j, p1[0], p1[1], p2[0], p2[1], f(k, l, 0), f(k, l, 1), f(k, l, 2));
-                        //     for (int d = 0; d < dof; d++)
-                        //     {
-                        //         printf("%0.8lf = %0.8lf + %d* (%0.8lf - %0.8lf)\n", f(k, l, d), f(p1[0], p1[1], d), dist, f(p2[0], p2[1], d), f(p1[0], p1[1], d));
-                        //     }
-                        // }
-                        //printf("After: %d, %d: (%0.8lf, %0.8lf, %0.8lf)\n", k, l, f(k, l, 0), f(k, l, 1), f(k, l, 2));
                     });
                 }
             }
         }
         Kokkos::fence();
-        exit(0);
     } 
+    
     /* Because we store a position field in the mesh, the position has to
      * be corrected after haloing if it's a periodic boundary */
     template <class MeshType, class ArrayType> 
