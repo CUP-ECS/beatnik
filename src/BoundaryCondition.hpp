@@ -89,8 +89,10 @@ struct BoundaryCondition
         
         /* Loop through the directions to correct boundary index spaces when
          * needed. */
-        for (int i = -1; i < 2; i++) {
-            for (int j = -1; j < 2; j++) {
+        for (int i = -1; i < 2; i++)
+        {
+            for (int j = -1; j < 2; j++)
+            {
                 if (i == 0 && j == 0) continue;
 
                 std::array<int, 2> dir = {i, j};
@@ -98,7 +100,8 @@ struct BoundaryCondition
 
                 /* For free boundaries, we linearly extrapolate the field into 
                  * the boundary */
-                if (isFreeBoundary(dir)) {
+                if (isFreeBoundary(dir))
+                {
                     /* For free boundaries, we have to extrapolate from the mesh
                      * into the boundary to support finite differencing and 
                      * laplacian calculations near the boundary. */
@@ -115,7 +118,8 @@ struct BoundaryCondition
                         = local_grid.boundaryIndexSpace(Cabana::Grid::Ghost(), 
                               Cabana::Grid::Node(), dir);
                     std::array<long,2> min, max;
-                    for (int d = 0; d < 2; d++) {
+                    for (int d = 0; d < 2; d++)
+                    {
                         int fext = f.extent(d);
                         min[d] = boundary_space.min(d);
                         max[d] = (boundary_space.max(d) > fext) 
@@ -245,6 +249,7 @@ struct BoundaryCondition
                                     f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * 2;
                                 }
                             }
+                        }
                     });
                 }
             }
