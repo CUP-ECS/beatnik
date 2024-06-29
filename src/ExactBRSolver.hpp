@@ -76,8 +76,10 @@ class ExactBRSolver
         , _dx( dx )
         , _dy( dy )
         , _local_L2G( *_pm.mesh().localGrid() )
+        , _comm( _pm.mesh().localGrid()->globalGrid().comm() )
     {
-	    _comm = _pm.mesh().localGrid()->globalGrid().comm();
+        MPI_Comm_size(MPI_COMM_WORLD, &_num_procs);
+        MPI_Comm_rank(MPI_COMM_WORLD, &_rank);
     }
 
     static KOKKOS_INLINE_FUNCTION double simpsonWeight(int index, int len)
@@ -192,11 +194,6 @@ class ExactBRSolver
     {
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
-        int num_procs = -1;
-        int rank = -1;
-        MPI_Comm_size(MPI_COMM_WORLD, &num_procs);
-        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
         /* Start by zeroing the interface velocity */
         
         /* Get an atomic view of the interface velocity, since each k/l point
@@ -218,8 +215,8 @@ class ExactBRSolver
 
         /* Perform a ring pass of data between each process to compute forces of nodes 
          * on other processes on he nodes owned by this process */
-        int next_rank = (rank + 1) % num_procs;
-        int prev_rank = (rank + num_procs - 1) % num_procs;
+        int next_rank = (_rank + 1) % _num_procs;
+        int prev_rank = (_rank + _num_procs - 1) % _num_procs;
 
         // Create views for receiving data. Alternate which views are being sent and received into
         // *remote2 sends first, so it needs to be deep copied. *remote1 can just be allocated
@@ -263,7 +260,7 @@ class ExactBRSolver
 
         // Perform the ring pass
         //int DEBUG_RANK = 1;
-        for (int i = 0; i < num_procs - 1; i++) {
+        for (int i = 0; i < _num_procs - 1; i++) {
 
             // Alternate between remote1 and remote2 sending and receiving data 
             // to avoid copying data across interations
@@ -272,7 +269,7 @@ class ExactBRSolver
                 zsend_extents = zextents1; wsend_extents = wextents1; osend_extents = oextents1;
                 L2G_send = &L2G_remote1;
 
-                zrecv_view = &zremote2; wrecv_view = &wremote2; 
+                zrecv_view = &zremote2; wrecv_view = &wremote2; osend_view = &oremote2;
                 zrecv_extents = zextents2; wrecv_extents = wextents2; orecv_extents = oextents2;
                 L2G_recv = &L2G_remote2;
             } else {
@@ -318,10 +315,13 @@ class ExactBRSolver
             MPI_Sendrecv(zsend_view->data(), int(zsend_view->size()), MPI_DOUBLE, next_rank, 3, 
                         zrecv_view->data(), int(zrecv_view->size()), MPI_DOUBLE, prev_rank, 3, 
                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+            MPI_Sendrecv(osend_view->data(), int(osend_view->size()), MPI_DOUBLE, next_rank, 4, 
+                        orecv_view->data(), int(orecv_view->size()), MPI_DOUBLE, prev_rank, 4, 
+                        MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
-            MPI_Sendrecv(L2G_send, int(sizeof(*L2G_send)), MPI_BYTE, next_rank, 4, 
-                         L2G_recv, int(sizeof(*L2G_recv)), MPI_BYTE, prev_rank, 4, 
+            MPI_Sendrecv(L2G_send, int(sizeof(*L2G_send)), MPI_BYTE, next_rank, 5, 
+                         L2G_recv, int(sizeof(*L2G_recv)), MPI_BYTE, prev_rank, 5, 
                          MPI_COMM_WORLD, MPI_STATUS_IGNORE);
 
             // Do computations
@@ -380,6 +380,8 @@ class ExactBRSolver
     double _epsilon, _dx, _dy;
     MPI_Comm _comm;
     l2g_type _local_L2G;
+
+    int _num_procs, _rank;
     // XXX Communication views and extents to avoid allocations during each ring pass
 };
 
