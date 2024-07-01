@@ -26,8 +26,8 @@
 #ifndef BEATNIK_CUTOFFBRSOLVER_HPP
 #define BEATNIK_CUTOFFBRSOLVER_HPP
 
-#ifndef DEBUG
-#define DEBUG 0
+#ifndef DEVELOP
+#define DEVELOP 1
 #endif
 
 // Include Statements
@@ -105,6 +105,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 	    _comm = _pm.mesh().localGrid()->globalGrid().comm();
 
         MPI_Comm_rank( _comm, &_rank );
+        MPI_Comm_size( _comm, &_comm_size );
 
         // Create the spatial mesh
         _spatial_mesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
@@ -221,6 +222,57 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         Comm<memory_space, particle_array_type, local_grid_layout>(particle_array, *_spatial_mesh->localGrid(), 40);
 
         Kokkos::Profiling::popRegion();
+    }
+
+    /** 
+     * Correct the x/y position of particles that are ghosted across x/y boundaries.
+     * 
+     * // XXX - Does not support periodic BCs with 1 process
+     * 
+     * To perform in 3D:
+     * 1. Determine if the ghosted particles came from a rank on an x/y boundary
+     * 2a. If so, depending on which x/y boundary, adjust the position as necessary
+     * 2b. If we only have 1 rank, this doesn't work because this rank sits on 
+     *      all boundaries so 1) is ambiguous.  
+     * 
+     * @return Updated particle AoSoA
+     **/
+    void correctPeriodicBoundaries(particle_array_type &particle_array, int local_count) const
+    {
+        if (_comm_size == 1)
+        {
+            std::cerr << "Error: Communicator size is " << _comm_size
+            << " < 4 to support periodic boundary conditions using the cutoff solver\n";
+            exit(-1);
+        }
+
+        // Get slices of each piece of the particle array
+        auto z_part = Cabana::slice<0>(particle_array);
+        auto o_part = Cabana::slice<1>(particle_array);
+        auto zdot_part = Cabana::slice<2>(particle_array);
+        auto weight_part = Cabana::slice<3>(particle_array);
+        auto idx_part = Cabana::slice<4>(particle_array);
+        auto id_part = Cabana::slice<5>(particle_array);
+        auto rank2d_part = Cabana::slice<6>(particle_array);
+        auto rank3d_part = Cabana::slice<7>(particle_array);
+
+        int total_size = particle_array.size();
+
+        auto global_grid = _spatial_mesh->globalGrid();
+        Kokkos::parallel_for("fix_haloed_particle_positions", Kokkos::RangePolicy<exec_space>(local_count, total_size), 
+                             KOKKOS_LAMBDA(int index) {
+
+            // Determine if particle comes from a rank on a boundary
+            int rank = rank3d_part(index);
+            int result[3] = {-1, -1, -1};
+            isRankOnBoundary(global_grid, rank, result);
+            if (_rank == rank)
+            {
+            printf("originating rank: %d, result: %d, %d\n", rank, result[0], result[1]);
+            }
+            
+        });
+
     }
 
     void migrateParticlesTo2D(particle_array_type &particle_array, int owned_3D_count) const
@@ -358,6 +410,26 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         migrateParticlesTo3D(particle_array);
         int owned_3D_count = particle_array.size();
         performHaloExchange3D(particle_array);
+
+        #if DEVELOP
+        int total_size = particle_array.size();
+        auto position_part = Cabana::slice<0>(particle_array);
+        auto rank2d_part = Cabana::slice<6>(particle_array);
+        auto rank3d_part = Cabana::slice<7>(particle_array);
+        auto id_part = Cabana::slice<5>(particle_array);
+        // printf("owned3d_count: %d, total: %d\n", owned_3D_count, total_size);
+        for (int i = 0; i < total_size; i++)
+        {
+            
+            // printf("i: %d 2D: %d, 3D: %d, ID: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
+            //     i, rank2d_part(i), rank3d_part(i), id_part(i),
+            //     position_part(i, 1), position_part(i, 1), position_part(i, 2));
+        }
+        #endif
+
+        correctPeriodicBoundaries(particle_array, owned_3D_count);
+
+
         computeInterfaceVelocityNeighbors(particle_array, owned_3D_count, _dy, _dx, _epsilon);
         migrateParticlesTo2D(particle_array, owned_3D_count);
         populate_zdot(particle_array, zdot);
@@ -409,7 +481,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     const pm_type & _pm;
     const BoundaryCondition & _bc;
     const Params _params;
-    int _rank;
+    int _rank, _comm_size;
     std::unique_ptr<spatial_mesh_type> _spatial_mesh;
     double _epsilon, _dx, _dy;
     MPI_Comm _comm;
