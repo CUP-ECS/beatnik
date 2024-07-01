@@ -101,6 +101,14 @@ class SpatialMesh
         // Build the local grid.
         //_halo_width = fmax(100000, min_halo_width);
         _halo_width = (int) (cutoff_distance / _cell_size);
+
+        // Halo width must be at least one
+        if (_halo_width < 1)
+        {
+            std::cerr << "Halo width is " << _halo_width << ", which must be at least 1. \n";
+            exit(-1);
+        }
+
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, _halo_width );
     }
 
