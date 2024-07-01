@@ -35,10 +35,6 @@ createBRSolver( const pm_type &pm, const BoundaryCondition &bc,
     if ( params.br_solver == BR_EXACT )
     {
         using br_type = Beatnik::ExactBRSolver<ExecutionSpace, MemorySpace, Params>;
-        // *_pm, _bc, *_spatial_mesh, *_migrator, _eps, dx, dy, _params.cutoff_distance)
-        // ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc,
-        //            const double epsilon, const double dx, const double dy )
-
         return std::make_unique<br_type>(pm, bc, epsilon, dx, dy, params);
     }
     if ( params.br_solver == BR_CUTOFF )

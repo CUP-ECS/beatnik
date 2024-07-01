@@ -125,14 +125,11 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     {
         Kokkos::Profiling::pushRegion("initializeParticles");
 
-        // printView(_local_L2G, _rank, z, 1, 3, 3);
-
         auto local_grid = _pm.mesh().localGrid();
         auto local_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
         int istart = local_space.min(0), jstart = local_space.min(1);
         int iend = local_space.max(0), jend = local_space.max(1);
-        //printf("start/end: (%d, %d), (%d, %d)\n", istart, iend, jstart, jend);
 
         // Create the AoSoA
         int array_size = (iend - istart) * (jend - jstart);
@@ -154,7 +151,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
         int mesh_dimension = _pm.mesh().get_surface_mesh_size();
         l2g_type local_L2G = _local_L2G;
-        // printf("IN INIT: Before parallel for\n");
 
 	    // We should convert this to a Cabana::simd_parallel_for at some point to get better write behavior
         Kokkos::parallel_for("populate_particles", Kokkos::MDRangePolicy<exec_space, Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
@@ -165,8 +161,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             int local_gi[2] = {0, 0};   // i, j
             local_L2G(local_li, local_gi);
             
-            //auto particle = particle_array.getTuple(particle_id);
-            //printf("id: %d, get #1\n", particle_id);
             // XYZ position, BR omega, zdot
             for (int dim = 0; dim < 3; dim++) {
                 z_part(particle_id, dim) = z(i, j, dim);
@@ -174,23 +168,17 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                 zdot_part(particle_id, dim) = 0.0;
             }
             weight_part(particle_id) = simpsonWeight(local_gi[0], mesh_dimension) * simpsonWeight(local_gi[1], mesh_dimension);
-            //printf("R%d: w(%d, %d), simp: %0.6lf\n", rank, local_gi[0], local_gi[1], Cabana::get<3>(particle));
 
             // Local index
-            //printf("id: %d, get #3\n", particle_id);
             idx_part(particle_id, 0) = i;
             idx_part(particle_id, 1) = j;
             
             // Particle ID and rank
-            //printf("id: %d, get #4\n", particle_id);
             id_part(particle_id) = particle_id;
             rank2d_part(particle_id) = rank;
             rank3d_part(particle_id) = -1;
 
-            //printf("R%d: (%d, %d), simpson: %0.6lf\n", rank, Cabana::get<4>(particle, 0), Cabana::get<4>(particle, 1), Cabana::get<3>(particle));
         });
-
-        // printf("Init part: R%d: owns %lu particles\n", _rank, particle_array.size());
 
         Kokkos::fence();
 
@@ -222,13 +210,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             id3d_part(i) = i;
         });
 
-        // printf("To 3D: R%d: owns %lu particles\n", _rank, particle_array.size());
-        // for (int i = 0; i < _particle_array.size(); i++)
-        // {
-        //     auto particle = _particle_array.getTuple(i);
-        //     printf("To 3D: R%d particle id: %d, 2D: %d, 3D: %d\n", _rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
-        // }
-
         Kokkos::Profiling::popRegion();
     }
 
@@ -238,8 +219,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
         // Halo exchange done in Comm constructor
         Comm<memory_space, particle_array_type, local_grid_layout>(particle_array, *_spatial_mesh->localGrid(), 40);
-
-        // printf("After halo: R%d: owns %lu particles\n", _rank, particle_array.size());
 
         Kokkos::Profiling::popRegion();
     }
@@ -255,13 +234,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         auto destinations = Cabana::slice<6>(particle_array, "destinations");
         Cabana::Distributor<memory_space> distributor(_comm, destinations);
         Cabana::migrate(distributor, particle_array);
-        
-        // printf("To 2D: R%d: owns %lu particles\n", _rank, particle_array.size());
-        // for (int i = 0; i < _particle_array.size(); i++)
-        // {
-        //     auto particle = _particle_array.getTuple(i);
-        //     printf("To 2D: R%d particle id: %d, 2D: %d, 3D: %d\n", _rank, Cabana::get<5>(particle), Cabana::get<6>(particle),  Cabana::get<7>(particle));
-        // }
 
         Kokkos::Profiling::popRegion();
     }
@@ -303,11 +275,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         // Find neighbors using ArborX
         //auto ids = Cabana::slice<3>(_particle_array);
         auto positions = Cabana::slice<0>(particle_array);
-        // for (int i = 0; i < positions.size(); i++) {
-        //     auto tp = _particle_array.getTuple( i );
-        //     printf("R%d: ID %d: %0.5lf %0.5lf %0.5lf\n", rank, Cabana::get<4>(tp),
-        //         Cabana::get<0>(tp, 0), Cabana::get<0>(tp, 1), Cabana::get<0>(tp, 2));
-        // }
 
         std::size_t num_particles = positions.size();
 
@@ -341,18 +308,12 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                 for (int d = 0; d < 3; d++) {
                     brsum[d] += br[d];
                 }
-                // if (i == 20) {
-                //     printf("R%d: neighbor %d, weight: %0.13lf\n", rank, neighbor_id, weight);
-                // }
             }
             
             // Update the AoSoA
             for (int n = 0; n < 3; n++) {
                 zdot_part(my_id, n) = brsum[n];
             }
-            // if (i == 20) {
-            //     printf("R%d: Particle %d/%lu (%d, %d),br_sum: %0.13lf %0.13lf %0.13lf\n", rank, i, num_particles, i_index, j_index, brsum[0], brsum[1], brsum[2]);
-            // }
         });
 
         Kokkos::fence();
