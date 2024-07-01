@@ -12,7 +12,7 @@ struct DeviceType
     using MemorySpace = M;
 };
 
-using MeshDeviceTypes = ::testing::Types<
+using DeviceTypes = ::testing::Types<
 #ifdef KOKKOS_ENABLE_OPENMP
 /   DeviceType<Kokkos::OpenMP, Kokkos::HostSpace>,
 #endif
@@ -23,9 +23,9 @@ using MeshDeviceTypes = ::testing::Types<
 
 int main( int argc, char* argv[] )
 {
+    ::testing::InitGoogleTest( &argc, argv );
     MPI_Init( &argc, &argv );
     Kokkos::initialize( argc, argv );
-    ::testing::InitGoogleTest( &argc, argv );
     int return_val = RUN_ALL_TESTS();
     Kokkos::finalize();
     MPI_Finalize();
