@@ -12,6 +12,7 @@
  * @file
  * @author Patrick Bridges <patrickb@unm.edu>
  * @author Jacob McCullough <jmccullough12@unm.edu>
+ * @author Jason Stewart <jastewart@unm.edu>
  *
  * @section DESCRIPTION
  * General rocket rig fluid interface example using the Beatnik z-model
@@ -47,7 +48,7 @@
 
 using namespace Beatnik;
 
-static char* shortargs = (char*)"n:t:d:x:F:o:I:b:g:a:T:m:v:p:i:w:O:M:e:h";
+static char* shortargs = (char*)"n:t:d:x:F:o:I:b:g:a:T:m:v:p:i:w:O:S:M:e:h:c:H:";
 
 static option longargs[] = {
     // Basic simulation parameters
@@ -57,6 +58,8 @@ static option longargs[] = {
     { "driver", required_argument, NULL, 'x' },
     { "write_frequency", required_argument, NULL, 'F' },
     { "outdir", required_argument, NULL, 'o' },
+    { "cutoff_distance", required_argument, NULL, 'c' },
+    { "heffte_configuration", required_argument, NULL, 'H'},
 
     // Z-model simulation parameters
     { "initial_condition", required_argument, NULL, 'I' },
@@ -72,6 +75,7 @@ static option longargs[] = {
 
     // Z-model simulation parameters
     { "order", required_argument, NULL, 'O' },
+    { "solver", required_argument, NULL, 'S' },
     { "mu", required_argument, NULL, 'M' },
     { "epsilon", required_argument, NULL, 'e' },
 
@@ -81,6 +85,7 @@ static option longargs[] = {
 
 enum InitialConditionModel {IC_COS = 0, IC_SECH2, IC_GAUSSIAN, IC_RANDOM, IC_FILE};
 enum SolverOrder {ORDER_LOW = 0, ORDER_MEDIUM, ORDER_HIGH};
+
 /**
  * @struct ClArgs
  * @brief Template struct to organize and keep track of parameters controlled by
@@ -89,7 +94,7 @@ enum SolverOrder {ORDER_LOW = 0, ORDER_MEDIUM, ORDER_HIGH};
 struct ClArgs
 {
     /* Problem physical setup */
-    std::array<double, 6> global_bounding_box;    /**< Size of initial spatial domain */
+    // std::array<double, 6> global_bounding_box;    /**< Size of initial spatial domain: MOVED TO PARAMS */
     enum InitialConditionModel initial_condition; /**< Model used to set initial conditions */
     double tilt;    /**< Initial tilt of interface */
     double magnitude;/**< Magnitude of scale of initial interface */
@@ -114,8 +119,12 @@ struct ClArgs
 
     /* Solution method constants */
     enum SolverOrder order;  /**< Order of z-model solver to use */
+    enum BRSolverType br_solver; /**< BRSolver to use */
     double mu;      /**< Artificial viscosity constant */
     double eps;     /**< Desingularization constant */
+
+    /* Parameters specific to solver order and BR solver type */
+    Params params;
 };
 
 /**
@@ -136,6 +145,10 @@ void help( const int rank, char* progname )
                   << "Number of points in each dimension (default 128)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-w" << std::setw( 40 )
                   << "Weak Scaling Factor (default 1)" << std::left << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-c" << std::setw( 40 )
+                  << "Cutoff distance (default 0.0)" << std::left << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-H" << std::setw( 40 )
+                  << "Heffte configuration (default 6)" << std::left << "\n";
      //   std::cout << std::left << std::setw( 10 ) << "-t" << std::setw( 40 )
      //             << "Amount of time to simulate" << std::left
      //             << "\n";
@@ -145,7 +158,8 @@ void help( const int rank, char* progname )
                   << "Write Frequency (default 10)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-O" << std::setw( 40 )
                   << "Solver Order (default \"low\")" << std::left << "\n";
-
+        std::cout << std::left << std::setw( 10 ) << "-S" << std::setw( 40 )
+                  << "BRSolver (default \"exact\")" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-I" << std::setw( 40 )
                   << "Initial Condition Model (default \"cos\")" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-m" << std::setw( 40 )
@@ -163,7 +177,7 @@ void help( const int rank, char* progname )
         std::cout << std::left << std::setw( 10 ) << "-M" << std::setw( 40 )
                   << "Artificial Viscosity Constant (default 1.0)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-e" << std::setw( 40 )
-		<< "Desingularization Constant (defailt 0.25)" << std::left << "\n";
+		<< "Desingularization Constant (default 0.25)" << std::left << "\n";
 
         std::cout << std::left << std::setw( 10 ) << "-h" << std::setw( 40 )
                   << "Print Help Message" << std::left << "\n";
@@ -185,9 +199,14 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 
     /// Set default values
     cl.driver = "serial"; // Default Thread Setting
-    cl.order = SolverOrder::ORDER_LOW;;
+    cl.order = SolverOrder::ORDER_LOW;
     cl.weak_scale = 1;
     cl.write_freq = 10;
+
+    // Set default extra parameters
+    cl.params.cutoff_distance = 0.5;
+    cl.params.heffte_configuration = 6;
+    cl.params.br_solver = BR_EXACT;
 
     /* Default problem is the cosine rocket rig */
     cl.num_nodes = { 128, 128 };
@@ -210,11 +229,50 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.t_final = -1.0;
 
     // Now parse any arguments
-    while ( ( ch = getopt_long( argc, argv, shortargs, longargs, NULL ) ) !=
-            -1 )
+    while ( ( ch = getopt_long( argc, argv, shortargs, longargs, NULL ) ) != -1 )
     {
         switch ( ch )
         {
+        case 'S':
+        {
+            std::string solver(optarg);
+            if (solver.compare("exact") == 0 ) {
+                cl.params.br_solver = BRSolverType::BR_EXACT;
+            } else if (solver.compare("cutoff") == 0 ) {
+                cl.params.br_solver = BRSolverType::BR_CUTOFF;
+            } else {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid BR solver argument.\n";
+                    help( rank, argv[0] );
+                }
+                exit( -1 );
+            }
+            break;
+        }
+        case 'c':
+        {
+            cl.params.cutoff_distance = std::atof( optarg );
+            if (cl.params.cutoff_distance <= 0.0 && rank == 0)
+            {
+                std::cerr << "Invalid cutoff distance: " << cl.params.cutoff_distance << "\n";
+                help( rank, argv[0] );
+                exit( -1 );
+            }
+            break;
+        }
+        case 'H':
+        {
+            cl.params.heffte_configuration = std::atoi( optarg );
+            if (cl.params.heffte_configuration < 0 || cl.params.heffte_configuration > 7 && rank == 0)
+            {
+                std::cerr << "Invalid heffte configuration: " << cl.params.heffte_configuration << "\n"
+                          << "Must be between 0 and 7." << "\n";
+                help( rank, argv[0] );
+                exit( -1 );
+            }
+            break;
+        }
         case 'n':
             cl.num_nodes[0] = atoi( optarg );
 
@@ -247,7 +305,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             }
             break;
         case 'F':
-            cl.write_freq = atoi( optarg) ;
+            cl.write_freq = atoi( optarg ) ;
             if ( cl.write_freq < 0 )
             {
                 if ( rank == 0 )
@@ -433,12 +491,12 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     }
 
     /* Physical setup of problem */
-    cl.global_bounding_box = {-1.0, -1.0, -1.0, 1.0, 1.0, 1.0};
+    cl.params.global_bounding_box = {-1.0, -1.0, -1.0, 1.0, 1.0, 1.0};
     cl.gravity = cl.gravity * 9.81;
 
     /* Scale up global bounding box and number of cells by weak scaling factor */
     for (int i = 0; i < 6; i++) {
-        cl.global_bounding_box[i] *= sqrt(cl.weak_scale);
+        cl.params.global_bounding_box[i] *= sqrt(cl.weak_scale);
     }
     for (int i = 0; i < 2; i++) {
         cl.num_nodes[i] *= sqrt(cl.weak_scale);
@@ -556,32 +614,35 @@ void rocketrig( ClArgs& cl )
     Cabana::Grid::DimBlockPartitioner<2> partitioner; // Create Cabana::Grid Partitioner
     Beatnik::BoundaryCondition bc;
     for (int i = 0; i < 6; i++)
-        bc.bounding_box[i] = cl.global_bounding_box[i];
+    {
+        bc.bounding_box[i] = cl.params.global_bounding_box[i];
+        
+    }
     bc.boundary_type = {cl.boundary, cl.boundary, cl.boundary, cl.boundary};
 
-    MeshInitFunc initializer( cl.global_bounding_box, cl.initial_condition,
+    MeshInitFunc initializer( cl.params.global_bounding_box, cl.initial_condition,
                               cl.tilt, cl.magnitude, cl.variation, cl.period,
                               cl.num_nodes, cl.boundary );
 
     std::shared_ptr<Beatnik::SolverBase> solver;
     if (cl.order == SolverOrder::ORDER_LOW) {
         solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD,
-            cl.global_bounding_box, cl.num_nodes,
+            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t );
+            bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t,
+            cl.params );
     } else if (cl.order == SolverOrder::ORDER_MEDIUM) {
         solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD,
-            cl.global_bounding_box, cl.num_nodes,
+            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t );
+            bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t,
+            cl.params );
     } else if (cl.order == SolverOrder::ORDER_HIGH) {
         solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD,
-            cl.global_bounding_box, cl.num_nodes,
+            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t );
+            bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t,
+            cl.params );
     } else {
         std::cerr << "Invalid Model Order parameter!\n";
         exit(-1);
@@ -593,6 +654,9 @@ void rocketrig( ClArgs& cl )
 
 int main( int argc, char* argv[] )
 {
+    std::chrono::time_point<std::chrono::system_clock> start, end;
+    start = std::chrono::system_clock::now();
+
     MPI_Init( &argc, &argv );         // Initialize MPI
     Kokkos::initialize( argc, argv ); // Initialize Kokkos
 
@@ -621,6 +685,29 @@ int main( int argc, char* argv[] )
                   << "\n"; // Number of Cells
         std::cout <<  std::left << std::setw( 30 ) << "Solver Order"
                   << ": " << std::setw( 8 ) << cl.order << "\n";
+
+        // Solver-order specific arguments
+        if (cl.order == SolverOrder::ORDER_LOW)
+        {
+            std::cout << std::left << std::setw( 30 ) << "HeFFTe configuration"
+                  << ": " << std::setw( 8 ) << cl.params.heffte_configuration  << "\n";
+        }
+        else
+        {
+            // High or medium-order solver
+            if (cl.params.br_solver == BRSolverType::BR_EXACT)
+            {
+                std::cout <<  std::left << std::setw( 30 ) << "BR Solver type"
+                    << ": " << std::setw( 8 ) << "exact" << "\n";
+            }
+            else if (cl.params.br_solver == BRSolverType::BR_CUTOFF)
+            {
+                std::cout <<  std::left << std::setw( 30 ) << "BR Solver type"
+                    << ": " << std::setw( 8 ) << "cutoff" << "\n";
+                std::cout << std::left << std::setw( 30 ) << "Cutoff distance"
+                    << ": " << std::setw( 8 ) << cl.params.cutoff_distance  << "\n";
+            }
+        }
         std::cout << std::left << std::setw( 30 ) << "Total Simulation Time"
                   << ": " << std::setw( 8 ) << cl.t_final << "\n";
         std::cout << std::left << std::setw( 30 ) << "Timestep Size"
@@ -636,6 +723,9 @@ int main( int argc, char* argv[] )
                   << ": " << std::setw( 8 ) << cl.mu << "\n";
         std::cout << std::left << std::setw( 30 ) << "Desingularization"
                   << ": " << std::setw( 8 ) << cl.eps  << "\n";
+        std::cout << std::left << std::setw( 30 ) << "Bounding Box Low/High"
+                  << ": " << std::setw( 8 ) << cl.params.global_bounding_box[0]
+                  << ", " << cl.params.global_bounding_box[3] << "\n";
         std::cout << "==============================================\n";
     }
 
@@ -644,6 +734,10 @@ int main( int argc, char* argv[] )
 
     Kokkos::finalize(); // Finalize Kokkos
     MPI_Finalize();     // Finalize MPI
+
+    end = std::chrono::system_clock::now();
+    std::chrono::duration<double> elapsed_seconds = end - start;
+    std::cout << "measured_time: " << elapsed_seconds.count() << std::endl;
 
     return 0;
 };

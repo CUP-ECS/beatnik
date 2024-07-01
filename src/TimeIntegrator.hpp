@@ -69,6 +69,8 @@ class TimeIntegrator
                                                        node_triple_layout);
         _wtmp = Cabana::Grid::createArray<double, mem_space>("vorticity temporary", 
                                                        node_pair_layout);
+
+        _counter = 0;
     }
 
     void step( const double delta_t ) 
@@ -144,43 +146,21 @@ class TimeIntegrator
             }
         });
 
-        _timestep++;
-
-        if (!(_timestep % 10))
-        {
-            // 4 procs, 32 mesh, 10 timesteps
-
-            // Rank 0
-            printView(_local_L2G, _rank, z_orig, 2, 14, 0);
-            printView(_local_L2G, _rank, w_orig, 2, 14, 0);
-            printView(_local_L2G, _rank, z_orig, 2, 10, 12);
-            printView(_local_L2G, _rank, w_orig, 2, 10, 12);
-            
-            // Rank 1
-            printView(_local_L2G, _rank, z_orig, 2, 11, 20);
-            printView(_local_L2G, _rank, w_orig, 2, 11, 20);
-            printView(_local_L2G, _rank, z_orig, 2, 4, 24);
-            printView(_local_L2G, _rank, w_orig, 2, 4, 24);
-
-            // Rank 2
-            printView(_local_L2G, _rank, z_orig, 2, 21, 7);
-            printView(_local_L2G, _rank, w_orig, 2, 21, 7);
-            printView(_local_L2G, _rank, z_orig, 2, 18, 15);
-            printView(_local_L2G, _rank, w_orig, 2, 18, 15);
-
-            // Rank 3
-            printView(_local_L2G, _rank, z_orig, 2, 16, 16);
-            printView(_local_L2G, _rank, w_orig, 2, 16, 16);
-            printView(_local_L2G, _rank, z_orig, 2, 22, 27);
-            printView(_local_L2G, _rank, w_orig, 2, 22, 27);
-        
-        
-        }
-    }
-
-    template <class l2g_type, class View>
-    void printView(l2g_type local_L2G, int rank, View z, int option, int DEBUG_X, int DEBUG_Y) const
+    template <class View>
+    void print_view(int timestep, View z)
     {
+        if (_counter != timestep) return;
+
+        int rank;
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        printf("\n\n\n\nR%d: t%d: printing view...\n", rank, _counter);
+        // std::string filename = "output_pos_rank" + std::to_string(rank) + ".txt";
+        // FILE *fptr;
+        // fptr = fopen(filename.c_str(), "w");
+
+        auto local_L2G = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cabana::Grid::Node());
+        // auto z = _zdot->view();
+
         int dims = z.extent(2);
 
         std::array<long, 2> rmin, rmax;
@@ -188,9 +168,9 @@ class TimeIntegrator
             rmin[d] = local_L2G.local_own_min[d];
             rmax[d] = local_L2G.local_own_max[d];
         }
-	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
+        Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
-        Kokkos::parallel_for("print views",
+       Kokkos::parallel_for("print views",
             Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {
             
@@ -225,10 +205,8 @@ class TimeIntegrator
     const BoundaryCondition &_bc;
     const ZModelType & _zm;
     std::shared_ptr<node_array> _zdot, _wdot, _wtmp, _ztmp;
-
     l2g_type _local_L2G;
     int _timestep, _rank;
-};
 
 } // end namespace Beatnik
 

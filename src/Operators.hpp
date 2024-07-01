@@ -130,6 +130,34 @@ namespace Operators
         }
     }
 
+    template <class PositionSlice, class OmegaSlice, class WeightSlice>
+    KOKKOS_INLINE_FUNCTION
+    void BR_with_slice(double out[3], int my_id, int neighbor_id,
+            PositionSlice p, OmegaSlice o, WeightSlice w, 
+            double epsilon, double dx, double dy,
+            double offset[3])
+    {
+        double omega[3], zdiff[3], zsize;
+        zsize = 0.0;
+        for (int d = 0; d < 3; d++) {
+            // omega[d] = wremote(k, l, 1) * Dx(zremote, k, l, d, dx) - wremote(k, l, 0) * Dy(zremote, k, l, d, dy);
+            // zdiff[d] = z(i, j, d) - (zremote(k, l, d) + offset[d]); 
+            omega[d] = o(neighbor_id, d);
+            zdiff[d] = p(my_id, d) - (p(neighbor_id, d) + offset[d]);
+            zsize += zdiff[d] * zdiff[d];
+        } 
+          
+        zsize = pow(zsize + epsilon, 1.5); // matlab code doesn't square epsilon
+        
+        for (int d = 0; d < 3; d++) {
+            zdiff[d] /= zsize;
+        }
+        cross(out, omega, zdiff);
+        for (int d = 0; d < 3; d++) {  
+            out[d] *= (dx * dy * w(neighbor_id)) / (-4.0 * Kokkos::numbers::pi_v<double>);
+        }
+    } 
+
     template <long M, long N>
     Cabana::Grid::IndexSpace<M + N> crossIndexSpace(
             const Cabana::Grid::IndexSpace<M>& index_space1,
