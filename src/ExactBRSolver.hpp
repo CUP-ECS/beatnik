@@ -40,6 +40,7 @@
 #include <SurfaceMesh.hpp>
 #include <ProblemManager.hpp>
 #include <Operators.hpp>
+#include <BRSolverBase.hpp>
 
 namespace Beatnik
 {
@@ -49,14 +50,16 @@ namespace Beatnik
  * @class ExactBRSolver
  * @brief Directly solves the Birkhoff-Rott integral using brute-force 
  * all-pairs calculation
+ * XXX - Make all functions but computeInterfaceVelocity private?
  **/
-template <class ExecutionSpace, class MemorySpace>
-class ExactBRSolver
+template <class ExecutionSpace, class MemorySpace, class Params>
+class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 {
   public:
     using exec_space = ExecutionSpace;
     using memory_space = MemorySpace;
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
+    using spatial_mesh_type = SpatialMesh<ExecutionSpace, MemorySpace>;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     
@@ -69,12 +72,14 @@ class ExactBRSolver
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
     ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc,
-                   const double epsilon, const double dx, const double dy)
+                   const double epsilon, const double dx, const double dy,
+                   const Params params)
         : _pm( pm )
         , _bc( bc )
         , _epsilon( epsilon )
         , _dx( dx )
         , _dy( dy )
+        , _params( params )
         , _local_L2G( *_pm.mesh().localGrid() )
         , _comm( _pm.mesh().localGrid()->globalGrid().comm() )
     {
@@ -190,7 +195,7 @@ class ExactBRSolver
      * This function is called three times per time step to compute the initial, forward, and half-step
      * derivatives for velocity and vorticity.
      */
-    void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const
+    void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const override
     {
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
@@ -377,7 +382,9 @@ class ExactBRSolver
   private:
     const pm_type & _pm;
     const BoundaryCondition & _bc;
+    const Params _params;
     double _epsilon, _dx, _dy;
+
     MPI_Comm _comm;
     l2g_type _local_L2G;
 
