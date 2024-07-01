@@ -65,8 +65,6 @@ class TimeIntegrator
                                                        node_triple_layout);
         _wtmp = Cabana::Grid::createArray<double, mem_space>("vorticity temporary", 
                                                        node_pair_layout);
-
-        _counter = 0;
     }
 
     void step( const double delta_t ) 
