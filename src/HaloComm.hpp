@@ -266,7 +266,6 @@ class Comm
         auto topology = Cabana::Grid::getTopology( local_grid );
 
         // Determine which particles need to be ghosted to neighbors.
-        // XXX: set halo width based on cutoff distance.
         auto halo_ids =
             createHaloIds( local_grid, positions, halo_width, max_export );
         // Rebuild if needed.
