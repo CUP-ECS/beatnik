@@ -65,6 +65,8 @@ class TimeIntegrator
                                                        node_triple_layout);
         _wtmp = Cabana::Grid::createArray<double, mem_space>("vorticity temporary", 
                                                        node_pair_layout);
+
+        _counter = 0;
     }
 
     void step( const double delta_t ) 
@@ -151,9 +153,9 @@ class TimeIntegrator
             rmin[d] = local_L2G.local_own_min[d];
             rmax[d] = local_L2G.local_own_max[d];
         }
-	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
+        Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
-        Kokkos::parallel_for("print views",
+       Kokkos::parallel_for("print views",
             Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {
             

@@ -21,7 +21,7 @@
 #include <ProblemManager.hpp>
 #include <SiloWriter.hpp>
 #include <TimeIntegrator.hpp>
-#include <ExactBRSolver.hpp>
+#include <CreateBRSolver.hpp>
 
 #include <ZModel.hpp>
 
@@ -33,6 +33,38 @@
 
 namespace Beatnik
 {
+
+
+/**
+ * @struct Params
+ * @brief Holds order and solver-specific parameters
+ */
+struct Params
+{
+    /* Mesh data, for solvers that create another mesh */
+    std::array<double, 6> global_bounding_box;
+    std::array<bool, 2> periodic;
+
+    /* BR solver type */
+    BRSolverType br_solver;
+
+    /* Cutoff distance for cutoff-based BRSolver */
+    double cutoff_distance;
+
+    /* Heffte configuration options for low-order model: 
+        Value	All-to-all	Pencils	Reorder
+        0	    False	    False	False
+        1	    False	    False	True
+        2	    False	    True	False
+        3	    False	    True	True
+        4	    True	    False	False
+        5	    True	    False	True
+        6	    True	    True	False (Default)
+        7	    True	    True	True
+    */
+    int heffte_configuration;
+};
+
 /*
  * Convenience base class so that examples that use this don't need to know
  * the details of the problem manager/mesh/etc templating.
@@ -67,23 +99,19 @@ class Solver : public SolverBase
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using node_array =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>, MemorySpace>;
-
-    // At some point we'll specify this when making the solver through a template argument.
-    // Still need to design that out XXX
-    using brsolver_type = ExactBRSolver<ExecutionSpace, MemorySpace>;  // Single node currently
-
-    using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>;
+    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
+    using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder, Params>;
     using ti_type = TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>;
     using Node = Cabana::Grid::Node;
 
     template <class InitFunc>
     Solver( MPI_Comm comm,
-            const std::array<double, 6>& global_bounding_box,
             const std::array<int, 2>& num_nodes,
             const Cabana::Grid::BlockPartitioner<2>& partitioner,
             const double atwood, const double g, const InitFunc& create_functor,
             const BoundaryCondition& bc, const double mu, 
-            const double epsilon, const double delta_t)
+            const double epsilon, const double delta_t,
+            const Params params)
         : _halo_min( 2 )
         , _atwood( atwood )
         , _g( g )
@@ -92,16 +120,16 @@ class Solver : public SolverBase
         , _eps( epsilon )
         , _dt( delta_t )
         , _time( 0.0 )
+        , _params( params )
     {
-	std::array<bool, 2> periodic;
 
-        periodic[0] = (bc.boundary_type[0] == PERIODIC);
-        periodic[1] = (bc.boundary_type[1] == PERIODIC);
+        _params.periodic[0] = (bc.boundary_type[0] == PERIODIC);
+        _params.periodic[1] = (bc.boundary_type[1] == PERIODIC);
 
         // Create a mesh one which to do the solve and a problem manager to
         // handle state
-        _mesh = std::make_unique<SurfaceMesh<ExecutionSpace, MemorySpace>>(
-            global_bounding_box, num_nodes, periodic, partitioner,
+        _surface_mesh = std::make_unique<SurfaceMesh<ExecutionSpace, MemorySpace>>(
+            _params.global_bounding_box, num_nodes, _params.periodic, partitioner,
 	    _halo_min, comm );
 
         // Check that our timestep is small enough to handle the mesh size,
@@ -115,11 +143,11 @@ class Solver : public SolverBase
         // have the cell which wraps around
         std::array<int, 2> num_cells = num_nodes;
         for (int i = 0; i < 2; i++)
-            if (!periodic[i]) num_cells[i]--;
+            if (!_params.periodic[i]) num_cells[i]--;
 
-        double dx = (global_bounding_box[4] - global_bounding_box[0]) 
+        double dx = (_params.global_bounding_box[4] - _params.global_bounding_box[0]) 
             / (num_cells[0]);
-        double dy = (global_bounding_box[5] - global_bounding_box[1]) 
+        double dy = (_params.global_bounding_box[5] - _params.global_bounding_box[1]) 
             / (num_cells[1]);
 
         // Adjust down mu and epsilon by sqrt(dx * dy)
@@ -136,17 +164,18 @@ class Solver : public SolverBase
                   << "eps = " << _eps << "\n"
                   << "=============================\n";
 #endif
+
         // Create a problem manager to manage mesh state
-        _pm = std::make_unique<ProblemManager<ExecutionSpace, MemorySpace>>(
-            *_mesh, _bc, create_functor );
+        _pm = std::make_unique<pm_type>(
+            *_surface_mesh, _bc, create_functor );
 
         // Create the Birkhoff-Rott solver (XXX make this conditional on non-low 
         // order solve
-        _br = std::make_unique<brsolver_type>(*_pm, _bc, _eps, dx, dy);
+        _br = Beatnik::createBRSolver<pm_type, ExecutionSpace, MemorySpace, Params>(*_pm, _bc, _eps, dx, dy, _params);
 
         // Create the ZModel solver
-        _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder, brsolver_type>>(
-            *_pm, _bc, _br.get(), dx, dy, _atwood, _g, _mu);
+        _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder, Params>>(
+            *_pm, _bc, _br.get(), dx, dy, _atwood, _g, _mu, _params.heffte_configuration);
 
         // Make a time integrator to move the zmodel forward
         _ti = std::make_unique<TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>>( *_pm, _bc, *_zm );
@@ -184,7 +213,7 @@ class Solver : public SolverBase
         // Start advancing time.
         do
         {
-            if ( 0 == _mesh->rank() )
+            if ( 0 == _surface_mesh->rank() )
                 printf( "Step %d / %d at time = %f\n", t, num_step, _time );
 
             step();
@@ -203,14 +232,16 @@ class Solver : public SolverBase
     int _halo_min;
     double _atwood;
     double _g;
-    BoundaryCondition _bc;
     double _mu, _eps;
     double _dt;
     double _time;
     
-    std::unique_ptr<SurfaceMesh<ExecutionSpace, MemorySpace>> _mesh;
-    std::unique_ptr<ProblemManager<ExecutionSpace, MemorySpace>> _pm;
-    std::unique_ptr<brsolver_type> _br;
+    BoundaryCondition _bc;
+    Params _params;
+    
+    std::unique_ptr<SurfaceMesh<ExecutionSpace, MemorySpace>> _surface_mesh;
+    std::unique_ptr<pm_type> _pm;
+    std::unique_ptr<BRSolverBase<ExecutionSpace, MemorySpace, Params>> _br;
     std::unique_ptr<zmodel_type> _zm;
     std::unique_ptr<ti_type> _ti;
     std::unique_ptr<SiloWriter<ExecutionSpace, MemorySpace>> _silo;
@@ -218,10 +249,9 @@ class Solver : public SolverBase
 
 //---------------------------------------------------------------------------//
 // Creation method.
-template <class InitFunc, class ModelOrder>
+template <class InitFunc, class ModelOrder, class Params>
 std::shared_ptr<SolverBase>
 createSolver( const std::string& device, MPI_Comm comm,
-              const std::array<double, 6>& global_bounding_box,
               const std::array<int, 2>& global_num_cell,
               const Cabana::Grid::BlockPartitioner<2> & partitioner,
               const double atwood, const double g, 
@@ -230,15 +260,16 @@ createSolver( const std::string& device, MPI_Comm comm,
               const ModelOrder,
               const double mu,
               const double epsilon, 
-              const double delta_t )
+              const double delta_t,
+              const Params params )
 {
     if ( 0 == device.compare( "serial" ) )
     {
 #if defined( KOKKOS_ENABLE_SERIAL )
         return std::make_shared<
             Beatnik::Solver<Kokkos::Serial, Kokkos::HostSpace, ModelOrder>>(
-            comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t);
+            comm, global_num_cell, partitioner, atwood, g, 
+            create_functor, bc, mu, epsilon, delta_t, params);
 #else
         throw std::runtime_error( "Serial Backend Not Enabled" );
 #endif
@@ -248,8 +279,8 @@ createSolver( const std::string& device, MPI_Comm comm,
 #if defined( KOKKOS_ENABLE_THREADS )
         return std::make_shared<
             Beatnik::Solver<Kokkos::Threads, Kokkos::HostSpace, ModelOrder>>(
-            comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t);
+            comm, global_num_cell, partitioner, atwood, g, 
+            create_functor, bc, mu, epsilon, delta_t, params);
 #else
         throw std::runtime_error( "Threads Backend Not Enabled" );
 #endif
@@ -259,8 +290,8 @@ createSolver( const std::string& device, MPI_Comm comm,
 #if defined( KOKKOS_ENABLE_OPENMP )
         return std::make_shared<
             Beatnik::Solver<Kokkos::OpenMP, Kokkos::HostSpace, ModelOrder>>(
-            comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t);
+            comm, global_num_cell, partitioner, atwood, g, 
+            create_functor, bc, mu, epsilon, delta_t, params);
 #else
         throw std::runtime_error( "OpenMP Backend Not Enabled" );
 #endif
@@ -270,8 +301,8 @@ createSolver( const std::string& device, MPI_Comm comm,
 #if defined(KOKKOS_ENABLE_CUDA)
         return std::make_shared<
             Beatnik::Solver<Kokkos::Cuda, Kokkos::CudaSpace, ModelOrder>>(
-            comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t);
+            comm, global_num_cell, partitioner, atwood, g, 
+            create_functor, bc, mu, epsilon, delta_t, params);
 #else
         throw std::runtime_error( "CUDA Backend Not Enabled" );
 #endif
@@ -281,8 +312,8 @@ createSolver( const std::string& device, MPI_Comm comm,
 #ifdef KOKKOS_ENABLE_HIP
         return std::make_shared<Beatnik::Solver<Kokkos::Experimental::HIP, 
             Kokkos::Experimental::HIPSpace, ModelOrder>>(
-                comm, global_bounding_box, global_num_cell, partitioner, atwood, g, 
-                create_functor, bc, mu, epsilon, delta_t);
+                comm, global_num_cell, partitioner, atwood, g, 
+                create_functor, bc, mu, epsilon, delta_t, params);
 #else
         throw std::runtime_error( "HIP Backend Not Enabled" );
 #endif

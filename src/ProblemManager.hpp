@@ -89,13 +89,13 @@ class ProblemManager
         typename node_array::view_type;
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
-    using mesh_type = SurfaceMesh<exec_space, mem_space>;
+    using surface_mesh_type = SurfaceMesh<exec_space, mem_space>;
 
     template <class InitFunc>
-    ProblemManager( const mesh_type & mesh,
+    ProblemManager( const surface_mesh_type & surface_mesh,
                     const BoundaryCondition & bc, 
                     const InitFunc& create_functor )
-        : _mesh( mesh )
+        : _surface_mesh( surface_mesh )
         , _bc( bc )
     // , other initializers
     {
@@ -103,9 +103,9 @@ class ProblemManager
         // and other associated data strutures. Do there need to be version with
         // halos associated with them?
         auto node_triple_layout =
-            Cabana::Grid::createArrayLayout( _mesh.localGrid(), 3, Cabana::Grid::Node() );
+            Cabana::Grid::createArrayLayout( _surface_mesh.localGrid(), 3, Cabana::Grid::Node() );
         auto node_pair_layout =
-            Cabana::Grid::createArrayLayout( _mesh.localGrid(), 2, Cabana::Grid::Node() );
+            Cabana::Grid::createArrayLayout( _surface_mesh.localGrid(), 2, Cabana::Grid::Node() );
 
         // The actual arrays storing mesh quantities
         // 1. The spatial positions of the interface
@@ -123,7 +123,7 @@ class ProblemManager
          * compute surface normals accurately. It's a Node (8 point) pattern 
          * as opposed to a Face (4 point) pattern so the vorticity laplacian 
          * can use a 9-point stencil. */
-        int halo_depth = _mesh.localGrid()->haloCellWidth();
+        int halo_depth = _surface_mesh.localGrid()->haloCellWidth();
         _surface_halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<2>(), 
                             halo_depth, *_position, *_vorticity);
 
@@ -141,12 +141,12 @@ class ProblemManager
     void initialize( const InitFunctor& create_functor )
     {
         // DEBUG: Trace State Initialization
-        if ( _mesh.rank() == 0 && DEBUG )
+        if ( _surface_mesh.rank() == 0 && DEBUG )
             std::cout << "Initializing Mesh State\n";
 
         // Get Local Grid and Local Mesh
-        auto local_grid = *( _mesh.localGrid() );
-        auto local_mesh = Cabana::Grid::createLocalMesh<mem_space>( local_grid );
+        auto local_grid = *( _surface_mesh.localGrid() );
+        auto local_mesh = Cabana::Grid::createLocalMesh<device_type>( local_grid );
 
 	// Get State Arrays
         auto z = get( Cabana::Grid::Node(), Field::Position() );
@@ -174,9 +174,9 @@ class ProblemManager
      * Return mesh
      * @return Returns Mesh object
      **/
-    const mesh_type & mesh() const
+    const surface_mesh_type & mesh() const
     {
-        return _mesh;
+        return _surface_mesh;
     };
 
     /**
@@ -207,8 +207,8 @@ class ProblemManager
     void gather( ) const
     {
         _surface_halo->gather( ExecutionSpace(), *_position, *_vorticity );
-        _bc.applyPosition(_mesh, *_position);
-        _bc.applyField(_mesh, *_vorticity, 2);
+        _bc.applyPosition(_surface_mesh, *_position);
+        _bc.applyField(_surface_mesh, *_vorticity, 2);
     };
 
     /**
@@ -218,8 +218,8 @@ class ProblemManager
     void gather( node_array &position, node_array &vorticity) const
     {
         _surface_halo->gather( ExecutionSpace(), position, vorticity );
-        _bc.applyPosition(_mesh, position);
-        _bc.applyField(_mesh, vorticity, 2);
+        _bc.applyPosition(_surface_mesh, position);
+        _bc.applyField(_surface_mesh, vorticity, 2);
     }
 
 #if 0
@@ -235,7 +235,7 @@ class ProblemManager
 
   private:
     // The mesh on which our data items are stored
-    const mesh_type &_mesh;
+    const surface_mesh_type &_surface_mesh;
     const BoundaryCondition &_bc;
 
     // Basic long-term quantities stored in the mesh and periodically written
