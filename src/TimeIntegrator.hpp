@@ -49,11 +49,7 @@ class TimeIntegrator
     : _pm(pm)
     , _bc(bc)
     , _zm(zm)
-    , _local_L2G( *_pm.mesh().localGrid() )
     {
-        MPI_Comm_rank(MPI_COMM_WORLD, &_rank);
-        _timestep = 0;
-       
         // Create a layout of the temporary arrays we'll need for velocity
         // intermediate positions, and change in vorticity
         auto node_triple_layout =
@@ -143,39 +139,6 @@ class TimeIntegrator
                     + ( 2.0 / 3.0 ) * delta_t * w_dot(i, j, d);
             }
         });
-
-        _timestep++;
-
-        if (!(_timestep % 10))
-        {
-            // 4 procs, 32 mesh, 10 timesteps
-
-            // Rank 0
-            printView(_local_L2G, _rank, z_orig, 2, 14, 0);
-            printView(_local_L2G, _rank, w_orig, 2, 14, 0);
-            printView(_local_L2G, _rank, z_orig, 2, 10, 12);
-            printView(_local_L2G, _rank, w_orig, 2, 10, 12);
-            
-            // Rank 1
-            printView(_local_L2G, _rank, z_orig, 2, 11, 20);
-            printView(_local_L2G, _rank, w_orig, 2, 11, 20);
-            printView(_local_L2G, _rank, z_orig, 2, 4, 24);
-            printView(_local_L2G, _rank, w_orig, 2, 4, 24);
-
-            // Rank 2
-            printView(_local_L2G, _rank, z_orig, 2, 21, 7);
-            printView(_local_L2G, _rank, w_orig, 2, 21, 7);
-            printView(_local_L2G, _rank, z_orig, 2, 18, 15);
-            printView(_local_L2G, _rank, w_orig, 2, 18, 15);
-
-            // Rank 3
-            printView(_local_L2G, _rank, z_orig, 2, 16, 16);
-            printView(_local_L2G, _rank, w_orig, 2, 16, 16);
-            printView(_local_L2G, _rank, z_orig, 2, 22, 27);
-            printView(_local_L2G, _rank, w_orig, 2, 22, 27);
-        
-        
-        }
     }
 
     template <class l2g_type, class View>
@@ -225,9 +188,6 @@ class TimeIntegrator
     const BoundaryCondition &_bc;
     const ZModelType & _zm;
     std::shared_ptr<node_array> _zdot, _wdot, _wtmp, _ztmp;
-
-    l2g_type _local_L2G;
-    int _timestep, _rank;
 };
 
 } // end namespace Beatnik
