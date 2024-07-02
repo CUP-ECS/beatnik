@@ -305,22 +305,6 @@ struct BoundaryCondition
     Kokkos::Array<int, 4> boundary_type; /* Boundary condition type on all surface edges  */
 };
 
-/* General helper function for determining if a rank is on a boundary
- *  result[0] = is on x boundary
- *  result[1] = is on y boundary
- */
-template <class GlobalGrid>
-void isRankOnBoundary(GlobalGrid &global_grid, int rank, int result[3])
-{
-    int cart_coords[3];
-    MPI_Cart_coords(global_grid->comm(), rank, 3, cart_coords);
-    for (int i = 0; i < 3; i++)
-    {
-        int k = cart_coords[i];
-        result[i] = (k == 0 || k == global_grid->dimNumBlock(0) - 1); // Check if on x boundary
-    }
-}
-
 } // namespace Beatnik
 
 #endif // BEATNIK_BOUNDARYCONDITIONS_HPP
