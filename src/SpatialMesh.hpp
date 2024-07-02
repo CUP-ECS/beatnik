@@ -22,6 +22,10 @@
 
 #include <limits>
 
+#ifndef DEVELOP
+#define DEVELOP 1
+#endif
+
 namespace Beatnik
 {
 //---------------------------------------------------------------------------//
@@ -36,7 +40,7 @@ class SpatialMesh
     using memory_space = MemorySpace;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 3>;
-    using global_grid_type = Cabana::Grid::GlobalGrid<mesh_type>;
+    // using global_grid_type = Cabana::Grid::GlobalGrid<mesh_type>;
     using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
     using global_particle_comm_type = Cabana::Grid::GlobalParticleComm<memory_space, local_grid_type>;
 
@@ -97,7 +101,7 @@ class SpatialMesh
         auto global_mesh = Cabana::Grid::createUniformGlobalMesh(
             _low_point, _high_point, _cell_size );
 
-        _global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
+        auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
                                                      is_dim_periodic, partitioner );
         // Build the local grid.
         //_halo_width = fmax(100000, min_halo_width);
@@ -110,13 +114,37 @@ class SpatialMesh
             exit(-1);
         }
 
-        _local_grid = Cabana::Grid::createLocalGrid( _global_grid, _halo_width );
+        _local_grid = Cabana::Grid::createLocalGrid( global_grid, _halo_width );
+
+        // Get which ranks are on the boundaries, for position correction
+        // when using periodic boundary conditions.
+        int cart_coords[4] = {_rank, -1, -1, -1};
+        MPI_Cart_coords(global_grid->comm(), _rank, 3, &cart_coords[1]);
+        for (int i = 0; i < 3; i++)
+        {
+            int k = cart_coords[i+1];
+            cart_coords[i+1] = (k == 0 || k == global_grid->dimNumBlock(i) - 1);
+        }
+
+        _boundary_topology = Kokkos::View<int*[4], Kokkos::HostSpace>("boundary topology", _comm_size);
+
+        MPI_Allgather(cart_coords, 4, MPI_INT, _boundary_topology.data(), 4, MPI_INT, comm);
+
+        #if DEVELOP
+        if (_rank == 0)
+        {
+            for (int i = 0; i < _comm_size; i++)
+            {
+                printf("R%d: %d, %d, %d\n", _boundary_topology(i, 0), _boundary_topology(i, 1), 
+                    _boundary_topology(i, 2), _boundary_topology(i, 3));
+            }
+        }
+        #endif
     }
 
-     // Get the global grid.
-    const std::shared_ptr<global_grid_type> globalGrid() const
+    const Kokkos::View<int*[4], Kokkos::HostSpace> getBoundaryInfo() const
     {
-        return _global_grid;
+        return _boundary_topology;
     }
 
     // Get the local grid.
@@ -145,34 +173,17 @@ class SpatialMesh
     }
 
 
-    // Get the boundary indexes on the periodic boundary. local_grid.boundaryIndexSpace()
-    // doesn't work on periodic boundaries.
-    // XXX Needs more error checking to make sure the boundary is in fact periodic
-    template <class DecompositionType, class EntityType>
-    Cabana::Grid::IndexSpace<2>
-    periodicIndexSpace(DecompositionType dt, EntityType et, std::array<int, 2> dir) const
-    {
-        auto & global_grid = _local_grid->globalGrid();
-        for ( int d = 0; d < 2; d++ ) {
-            if ((dir[d] == -1 && global_grid.onLowBoundary(d))
-                || (dir[d] == 1 && global_grid.onHighBoundary(d))) {
-                return _local_grid->sharedIndexSpace(dt, et, dir);
-            }
-        }
-
-        std::array<long, 2> zero_size;
-        for ( std::size_t d = 0; d < 2; ++d )
-            zero_size[d] = 0;
-        return Cabana::Grid::IndexSpace<2>( zero_size, zero_size );
-    }
-
+    
     int rank() const { return _rank; }
 
   private:
     std::array<double, 3> _low_point, _high_point;
-    std::shared_ptr<global_grid_type> _global_grid;
     std::shared_ptr<local_grid_type> _local_grid;
     std::shared_ptr<global_particle_comm_type> _global_particle_comm;
+
+    // (rank, is on x boundary, is on y boundary, is on z boundary)
+    Kokkos::View<int*[4], Kokkos::HostSpace> _boundary_topology;
+
     int _rank, _comm_size, _halo_width;
     double _cell_size;
 };
