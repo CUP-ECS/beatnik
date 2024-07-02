@@ -273,6 +273,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         }
         if (on_boundary)
         {
+            std::array<double, 6> global_bounding_box = _params.global_bounding_box;
             Kokkos::parallel_for("fix_haloed_particle_positions", Kokkos::RangePolicy<exec_space>(local_count, total_size), 
                              KOKKOS_LAMBDA(int index) {
 
@@ -286,12 +287,21 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             int remote_rank = rank3d_part(index);
             int remote_location[3] = {boundary_topology(remote_rank, 1), boundary_topology(remote_rank, 2), boundary_topology(remote_rank, 3)};
             int adjust_pos = 0;
-
-            for (int i = 0; i < 2; i++)
+            
+            // Do not consider remote ranks that sit on a boundary
+            if (!(remote_location[0] == 0 || remote_location[0] == max_location[0]-1 ||
+                  remote_location[1] == 0 || remote_location[1] == max_location[1]-1))
             {
-                // Only consider remote ranks that sit on a boundary
-                if (!(remote_location[i] == 0 || remote_location[i] == max_location[i]-1)) return;
+                return;
             }
+
+            // Do not consider ranks that are on a boundary but neighboring 
+            if (abs(local_location[0] - remote_location[0]) <= 1 &&
+                abs(local_location[1] - remote_location[1]) <= 1)
+            {
+                return;
+            }
+
             if (rank == 0)
             {
                 printf("From R%d: ll: %d, %d rl: %d, %d absdiff: %d, %d\n", remote_rank,
@@ -300,6 +310,10 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                     abs(local_location[0] - remote_location[0]),
                     abs(local_location[1] - remote_location[1]));
             }
+            
+            // Get the dimension being haloed across: 0 = x, 1 = y
+            int dim = (abs(local_location[0] - remote_location[0]) == 0) ? 0 : 1;
+            // int diff = (local_location[dim] - remote_location[dim]) * global_bounding_box;
 
             
             
