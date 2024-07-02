@@ -258,18 +258,80 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
         int total_size = particle_array.size();
         auto boundary_topology = _spatial_mesh->getBoundaryInfo();
-        int my_boundary_info[3] = {boundary_topology(_rank, 1), boundary_topology(_rank, 2), boundary_topology(_rank, 3)};
+        int local_location[3] = {boundary_topology(_rank, 1), boundary_topology(_rank, 2), boundary_topology(_rank, 3)};
+        int max_location[3] = {boundary_topology(_comm_size, 1), boundary_topology(_comm_size, 2), boundary_topology(_comm_size, 3)};
+        int rank = _rank;
 
-        Kokkos::parallel_for("fix_haloed_particle_positions", Kokkos::RangePolicy<exec_space>(local_count, total_size), 
+        int on_boundary = 0;
+        for (int i = 0; i < 2; i++)
+        {
+            if (local_location[i] == 0 || local_location[i] == max_location[i]-1)
+            {
+                on_boundary = 1;
+                break;
+            }
+        }
+        if (on_boundary)
+        {
+            Kokkos::parallel_for("fix_haloed_particle_positions", Kokkos::RangePolicy<exec_space>(local_count, total_size), 
                              KOKKOS_LAMBDA(int index) {
+
+            /* If local process is not on a boundary, exit. No particles
+             * accross the boundary would have been recieved.
+             * We only consider the x and y postions here because the
+             * z-direction will never be periodic.
+             */
 
             // Determine if particle comes from a rank on a boundary
             int remote_rank = rank3d_part(index);
-            int remote_boundary[3] = {boundary_topology(remote_rank, 1), boundary_topology(remote_rank, 2), boundary_topology(remote_rank, 3)};
-            
-            
-        });
+            int remote_location[3] = {boundary_topology(remote_rank, 1), boundary_topology(remote_rank, 2), boundary_topology(remote_rank, 3)};
+            int adjust_pos = 0;
 
+            for (int i = 0; i < 2; i++)
+            {
+                // Only consider remote ranks that sit on a boundary
+                if (!(remote_location[i] == 0 || remote_location[i] == max_location[i]-1)) return;
+            }
+            if (rank == 0)
+            {
+                printf("From R%d: ll: %d, %d rl: %d, %d absdiff: %d, %d\n", remote_rank,
+                    local_location[0], local_location[1],
+                    remote_location[0], remote_location[1],
+                    abs(local_location[0] - remote_location[0]),
+                    abs(local_location[1] - remote_location[1]));
+            }
+
+            
+            
+            // for (int i = 0; i < 2; i++)
+            // {
+                
+                
+            //     if ((remote_location[i] == 0 || remote_location[i] == max_location[i]-1) // Remote rank on boundary
+                    
+            //         && // If local rank and remote rank are on a boundary, the point can't be from a neighboring rank
+            //         (abs(local_location[i] - remote_location[i]) > 1))
+            //     {
+            //         if (rank == 0)
+            //         {
+            //             printf("Remote point from R%d on boundary: ll: %d, %d rm: %d, %d\n", 
+            //                 remote_rank, local_location[0], local_location[1],
+            //                 remote_location[0], remote_location[1]);
+            //             return;
+            //         }
+            //     }
+            // }
+            /* Condition:
+             * if (local_location - remote_location) less than 0:
+             *     reduce position by size of domain.
+             * otherwise increase position by size of domain. 
+             */
+
+            // Check x boundary
+            //if ()
+            
+            });
+        }
     }
 
     void migrateParticlesTo2D(particle_array_type &particle_array, int owned_3D_count) const
