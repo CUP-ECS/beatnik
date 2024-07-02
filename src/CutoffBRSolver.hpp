@@ -257,19 +257,16 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         auto rank3d_part = Cabana::slice<7>(particle_array);
 
         int total_size = particle_array.size();
+        auto boundary_topology = _spatial_mesh->getBoundaryInfo();
+        int my_boundary_info[3] = {boundary_topology(_rank, 1), boundary_topology(_rank, 2), boundary_topology(_rank, 3)};
 
-        auto global_grid = _spatial_mesh->globalGrid();
         Kokkos::parallel_for("fix_haloed_particle_positions", Kokkos::RangePolicy<exec_space>(local_count, total_size), 
                              KOKKOS_LAMBDA(int index) {
 
             // Determine if particle comes from a rank on a boundary
-            int rank = rank3d_part(index);
-            int result[3] = {-1, -1, -1};
-            isRankOnBoundary(global_grid, rank, result);
-            if (_rank == rank)
-            {
-            printf("originating rank: %d, result: %d, %d\n", rank, result[0], result[1]);
-            }
+            int remote_rank = rank3d_part(index);
+            int remote_boundary[3] = {boundary_topology(remote_rank, 1), boundary_topology(remote_rank, 2), boundary_topology(remote_rank, 3)};
+            
             
         });
 
