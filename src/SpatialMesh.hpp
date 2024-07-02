@@ -120,20 +120,39 @@ class SpatialMesh
         // when using periodic boundary conditions.
         int cart_coords[4] = {_rank, -1, -1, -1};
         MPI_Cart_coords(global_grid->comm(), _rank, 3, &cart_coords[1]);
-        for (int i = 0; i < 3; i++)
-        {
-            int k = cart_coords[i+1];
-            cart_coords[i+1] = (k == 0 || k == global_grid->dimNumBlock(i) - 1);
-        }
+        // for (int i = 0; i < 3; i++)
+        // {
+        //     int k = cart_coords[i+1];
+        //     cart_coords[i+1] = (k == 0 || k == global_grid->dimNumBlock(i) - 1);
+        // }
 
-        _boundary_topology = Kokkos::View<int*[4], Kokkos::HostSpace>("boundary topology", _comm_size);
+        _boundary_topology = Kokkos::View<int*[4], Kokkos::HostSpace>("boundary topology", _comm_size+1);
 
         MPI_Allgather(cart_coords, 4, MPI_INT, _boundary_topology.data(), 4, MPI_INT, comm);
+
+        // Get number of processes in x, y, and z
+        for (int i = 0; i < 4; i++)
+        {
+            _boundary_topology(_comm_size, i) = -1;
+        }
+        for (int i = 0; i < _comm_size; i++)
+        {
+            for (int j = 1; j < 4; j++)
+            {
+                if (_boundary_topology(_comm_size, j) < _boundary_topology(i, j))
+                {
+                    _boundary_topology(_comm_size, j) = _boundary_topology(i, j)+1;
+                }
+            }
+        }
+        
+
+
 
         #if DEVELOP
         if (_rank == 0)
         {
-            for (int i = 0; i < _comm_size; i++)
+            for (int i = 0; i <= _comm_size; i++)
             {
                 printf("R%d: %d, %d, %d\n", _boundary_topology(i, 0), _boundary_topology(i, 1), 
                     _boundary_topology(i, 2), _boundary_topology(i, 3));
@@ -182,6 +201,7 @@ class SpatialMesh
     std::shared_ptr<global_particle_comm_type> _global_particle_comm;
 
     // (rank, is on x boundary, is on y boundary, is on z boundary)
+    // _boundary_topology(_comm_size+1) holds the number of procs in each dimension
     Kokkos::View<int*[4], Kokkos::HostSpace> _boundary_topology;
 
     int _rank, _comm_size, _halo_width;
