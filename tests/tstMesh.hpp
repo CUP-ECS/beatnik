@@ -58,7 +58,7 @@ class MeshTest : public ::testing::Test
     std::array<int, 2> globalNumNodes_;
     const double boxWidth_ = 1.0;
     const int haloWidth_ = 2;
-    const int boxNodes_ = 6;
+    const int boxNodes_ = 64;
     Cabana::Grid::DimBlockPartitioner<2> partitioner_;
 
     std::unique_ptr<mesh_type> testMeshPeriodic_;
