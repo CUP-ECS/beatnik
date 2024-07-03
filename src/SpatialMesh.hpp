@@ -139,7 +139,7 @@ class SpatialMesh
         {
             for (int j = 1; j < 4; j++)
             {
-                if (_boundary_topology(_comm_size, j) < _boundary_topology(i, j))
+                if (_boundary_topology(_comm_size, j) <= _boundary_topology(i, j))
                 {
                     _boundary_topology(_comm_size, j) = _boundary_topology(i, j)+1;
                 }
