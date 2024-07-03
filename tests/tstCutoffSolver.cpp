@@ -15,7 +15,19 @@ TYPED_TEST_SUITE(CutoffSolverTest, DeviceTypes);
 
 TYPED_TEST(CutoffSolverTest, testFreeBoundary)
 { 
-    double result = this->br_->simpsonWeight(5, 5);
+    int rank, comm_size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
+    auto boundary_topology = this->br_->get_spatial_mesh()->getBoundaryInfo();
+    int local_location[3] = {boundary_topology(rank, 1), boundary_topology(rank, 2), boundary_topology(rank, 3)};
+    int max_location[3] = {boundary_topology(comm_size, 1), boundary_topology(comm_size, 2), boundary_topology(comm_size, 3)};
+    for (int i = 0; i < comm_size; i++)
+    {
+        int remote_location[3] = {boundary_topology(i, 1), boundary_topology(i, 2), boundary_topology(i, 3)};
+        bool result = this->br_->isValidRank(remote_location, local_location, max_location);
+        printf("R%d, valid: %d\n", rank, result);
+    }
+    
     ASSERT_EQ(0, 0);    
     // auto z = this->position_np_->view();
 
