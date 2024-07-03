@@ -94,7 +94,7 @@ class BoundaryConditionTest : public MeshTest<T>
                  * XXX - Fix calling the __host__ function from a __host__ __device__ function
                  * warning caused by using EXPECT_NEAR here.
                  */
-                EXPECT_NEAR(correct_value, z(i, j, 0), 0.00000000000001);
+                EXPECT_NEAR(correct_value, z(i, j, 0), 0.000000000001);
             });
     }
 };
