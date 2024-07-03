@@ -247,7 +247,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         }
 
         // Get slices of each piece of the particle array
-        auto z_part = Cabana::slice<0>(particle_array);
+        auto position_part = Cabana::slice<0>(particle_array);
         auto o_part = Cabana::slice<1>(particle_array);
         auto zdot_part = Cabana::slice<2>(particle_array);
         auto weight_part = Cabana::slice<3>(particle_array);
@@ -288,7 +288,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             int remote_location[3] = {boundary_topology(remote_rank, 1), boundary_topology(remote_rank, 2), boundary_topology(remote_rank, 3)};
             int adjust_pos = 0;
             
-            // Do not consider remote ranks that sit on a boundary
+            // Do not consider remote ranks that do not sit on a boundary
             if (!(remote_location[0] == 0 || remote_location[0] == max_location[0]-1 ||
                   remote_location[1] == 0 || remote_location[1] == max_location[1]-1))
             {
@@ -301,49 +301,26 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             {
                 return;
             }
+            
+            // Get the dimension of the halo move: 0 = x, 1 = y and magnitude of adjustment
+            int dim_const = (abs(local_location[0] - remote_location[0]) == 0) ? 0 : 1;
 
-            if (rank == 0)
+            // The opposite dimension is needed to calcuate the magnitde of the move
+            int dim_mag = !dim_const;
+            double diff = global_bounding_box[dim_mag+3] - global_bounding_box[dim_mag];
+            
+            // Adjust position
+            position_part(index, dim_const) = position_part(index, dim_const) - diff;
+
+            if (rank3d_part(index) == 3 && id_part(index) == 194)
             {
-                printf("From R%d: ll: %d, %d rl: %d, %d absdiff: %d, %d\n", remote_rank,
-                    local_location[0], local_location[1],
-                    remote_location[0], remote_location[1],
-                    abs(local_location[0] - remote_location[0]),
-                    abs(local_location[1] - remote_location[1]));
+                printf("IN: ll: %d, %d rl: %d, %d\n", local_location[0], local_location[1], remote_location[0], remote_location[1]);
+                //printf("IN: local-remote loc: %d - %d = %d\n", local_location[dim], remote_location[dim], local_location[dim] - remote_location[dim]);
+                printf("IN: On rank R%d, 3Did: %d, id: %d, dim_const: %d, dim_mag: %d, diff: %0.5lf\n\tpos: (%0.5lf, %0.5lf, %0.5lf)\n",
+                    _rank, rank3d_part(index), id_part(index), dim_const, dim_mag, diff,
+                    position_part(index, 0), position_part(index, 1), position_part(index, 2));
             }
-            
-            // Get the dimension being haloed across: 0 = x, 1 = y
-            int dim = (abs(local_location[0] - remote_location[0]) == 0) ? 0 : 1;
-            // int diff = (local_location[dim] - remote_location[dim]) * global_bounding_box;
 
-            
-            
-            // for (int i = 0; i < 2; i++)
-            // {
-                
-                
-            //     if ((remote_location[i] == 0 || remote_location[i] == max_location[i]-1) // Remote rank on boundary
-                    
-            //         && // If local rank and remote rank are on a boundary, the point can't be from a neighboring rank
-            //         (abs(local_location[i] - remote_location[i]) > 1))
-            //     {
-            //         if (rank == 0)
-            //         {
-            //             printf("Remote point from R%d on boundary: ll: %d, %d rm: %d, %d\n", 
-            //                 remote_rank, local_location[0], local_location[1],
-            //                 remote_location[0], remote_location[1]);
-            //             return;
-            //         }
-            //     }
-            // }
-            /* Condition:
-             * if (local_location - remote_location) less than 0:
-             *     reduce position by size of domain.
-             * otherwise increase position by size of domain. 
-             */
-
-            // Check x boundary
-            //if ()
-            
             });
         }
     }
@@ -491,16 +468,43 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         auto rank3d_part = Cabana::slice<7>(particle_array);
         auto id_part = Cabana::slice<5>(particle_array);
         // printf("owned3d_count: %d, total: %d\n", owned_3D_count, total_size);
+        
         for (int i = 0; i < total_size; i++)
         {
+            if (rank3d_part(i) == 3 && id_part(i) == 194)
+            {
+                printf("Before: On rank R%d, 3Did: %d, id: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
+                    _rank, rank3d_part(i), id_part(i),
+                    position_part(i, 1), position_part(i, 1), position_part(i, 2));
+            }
             
             // printf("i: %d 2D: %d, 3D: %d, ID: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
             //     i, rank2d_part(i), rank3d_part(i), id_part(i),
             //     position_part(i, 1), position_part(i, 1), position_part(i, 2));
         }
+        
         #endif
 
         correctPeriodicBoundaries(particle_array, owned_3D_count);
+
+        #if DEVELOP
+        if (_rank == 0)
+        {
+            for (int i = 0; i < total_size; i++)
+            {
+                if (rank3d_part(i) == 3 && id_part(i) == 194)
+                {
+                    printf("After: On rank R%d, 3Did: %d, id: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
+                        _rank, rank3d_part(i), id_part(i),
+                        position_part(i, 1), position_part(i, 1), position_part(i, 2));
+                }
+                
+                // printf("i: %d 2D: %d, 3D: %d, ID: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
+                //     i, rank2d_part(i), rank3d_part(i), id_part(i),
+                //     position_part(i, 1), position_part(i, 1), position_part(i, 2));
+            }
+        }
+        #endif
 
 
         computeInterfaceVelocityNeighbors(particle_array, owned_3D_count, _dy, _dx, _epsilon);
