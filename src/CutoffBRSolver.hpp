@@ -274,6 +274,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         if (on_boundary)
         {
             std::array<double, 6> global_bounding_box = _params.global_bounding_box;
+
             Kokkos::parallel_for("fix_haloed_particle_positions", Kokkos::RangePolicy<exec_space>(local_count, total_size), 
                              KOKKOS_LAMBDA(int index) {
 
@@ -282,6 +283,15 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
              * We only consider the x and y postions here because the
              * z-direction will never be periodic.
              */
+            if (index == local_count)
+            {
+                printf("Rank before: %d\n", rank);
+            }
+
+            if (rank == 3)
+            {
+                //printf("index: %d\n", index);
+            }
 
             // Determine if particle comes from a rank on a boundary
             int remote_rank = rank3d_part(index);
@@ -295,6 +305,11 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                 return;
             }
 
+            if (index == local_count)
+            {
+                printf("\tRank middle: %d\n", rank);
+            }
+
             // Do not consider ranks that are on a boundary but neighboring 
             if (abs(local_location[0] - remote_location[0]) <= 1 &&
                 abs(local_location[1] - remote_location[1]) <= 1)
@@ -302,6 +317,11 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                 return;
             }
             
+            if (index == local_count)
+            {
+                printf("\t\tRank after: %d\n", rank);
+            }
+
             // Get the dimension of the halo move: 0 = x, 1 = y and magnitude of adjustment
             int dim_const = (abs(local_location[0] - remote_location[0]) == 0) ? 0 : 1;
 
@@ -310,16 +330,20 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             double diff = global_bounding_box[dim_mag+3] - global_bounding_box[dim_mag];
             
             // Adjust position
-            position_part(index, dim_const) = position_part(index, dim_const) - diff;
+            double new_pos = position_part(index, dim_const) - diff;
+            // position_part(index, dim_const) = new_pos;
 
-            if (rank3d_part(index) == 3 && id_part(index) == 194)
-            {
-                printf("IN: ll: %d, %d rl: %d, %d\n", local_location[0], local_location[1], remote_location[0], remote_location[1]);
-                //printf("IN: local-remote loc: %d - %d = %d\n", local_location[dim], remote_location[dim], local_location[dim] - remote_location[dim]);
-                printf("IN: On rank R%d, 3Did: %d, id: %d, dim_const: %d, dim_mag: %d, diff: %0.5lf\n\tpos: (%0.5lf, %0.5lf, %0.5lf)\n",
-                    _rank, rank3d_part(index), id_part(index), dim_const, dim_mag, diff,
-                    position_part(index, 0), position_part(index, 1), position_part(index, 2));
-            }
+            // if (rank == 3 && index == 257)
+            // {
+            //     printf("IN: index: %d, pos: (%0.5lf, %0.5lf, %0.5lf), newpos: %0.5lf\n", position_part(index, 0), position_part(index, 1), position_part(index, 2), index, new_pos);
+            //     //printf("IN: pos: %0.5lf, pos_dim_const: %0.5lf, dim_const: %d\n", position_part(index, 0), position_part(index, dim_const), dim_const);
+            //     //printf("IN1: position: %0.5lf - %0.5lf = %0.5lf\n", position_part(index, dim_const), diff, position_part(index, dim_const) - diff);
+            //     //printf("IN: ll: %d, %d rl: %d, %d\n", local_location[0], local_location[1], remote_location[0], remote_location[1]);
+            //     //printf("IN: local-remote loc: %d - %d = %d\n", local_location[dim], remote_location[dim], local_location[dim] - remote_location[dim]);
+            //     // printf("IN: On rank R%d, 3Did: %d, id: %d, dim_const: %d, dim_mag: %d, diff: %0.5lf\n\tpos: (%0.5lf, %0.5lf, %0.5lf), new_pos: %0.5lf\n",
+            //     //     _rank, rank3d_part(index), id_part(index), dim_const, dim_mag, diff,
+            //     //     position_part(index, 0), position_part(index, 1), position_part(index, 2), new_pos);
+            // }
 
             });
         }
@@ -469,40 +493,37 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         auto id_part = Cabana::slice<5>(particle_array);
         // printf("owned3d_count: %d, total: %d\n", owned_3D_count, total_size);
         
-        for (int i = 0; i < total_size; i++)
+        if (_rank == 3)
         {
-            if (rank3d_part(i) == 3 && id_part(i) == 194)
-            {
-                printf("Before: On rank R%d, 3Did: %d, id: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
-                    _rank, rank3d_part(i), id_part(i),
-                    position_part(i, 1), position_part(i, 1), position_part(i, 2));
-            }
+                int i = 257;
+                // printf("owned3d_count: %d, total: %d\n", owned_3D_count, total_size);
+                // printf("Before: On rank R%d, index: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
+                //     _rank, i, position_part(i, 0), position_part(i, 1), position_part(i, 2));
             
-            // printf("i: %d 2D: %d, 3D: %d, ID: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
-            //     i, rank2d_part(i), rank3d_part(i), id_part(i),
-            //     position_part(i, 1), position_part(i, 1), position_part(i, 2));
+                
+                // printf("i: %d 2D: %d, 3D: %d, ID: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
+                //     i, rank2d_part(i), rank3d_part(i), id_part(i),
+                //     position_part(i, 1), position_part(i, 1), position_part(i, 2));
         }
+        
+        
         
         #endif
 
         correctPeriodicBoundaries(particle_array, owned_3D_count);
 
         #if DEVELOP
-        if (_rank == 0)
+        if (_rank == 3)
         {
-            for (int i = 0; i < total_size; i++)
-            {
-                if (rank3d_part(i) == 3 && id_part(i) == 194)
-                {
-                    printf("After: On rank R%d, 3Did: %d, id: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
-                        _rank, rank3d_part(i), id_part(i),
-                        position_part(i, 1), position_part(i, 1), position_part(i, 2));
-                }
+                int i = 257;
+                // printf("owned3d_count: %d, total: %d\n", owned_3D_count, total_size);
+                // printf("After: On rank R%d, index: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
+                //     _rank, i, position_part(i, 0), position_part(i, 1), position_part(i, 2));
+            
                 
                 // printf("i: %d 2D: %d, 3D: %d, ID: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
                 //     i, rank2d_part(i), rank3d_part(i), id_part(i),
                 //     position_part(i, 1), position_part(i, 1), position_part(i, 2));
-            }
         }
         #endif
 
