@@ -108,7 +108,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         MPI_Comm_size( _comm, &_comm_size );
 
         // Create the spatial mesh
-        _spatial_mesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
+        _spatial_mesh = std::make_shared<SpatialMesh<ExecutionSpace, MemorySpace>>(
             params.global_bounding_box, params.periodic,
 	        params.cutoff_distance, _comm );
     }
@@ -118,6 +118,27 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         if (index == (len - 1) || index == 0) return 3.0/8.0;
         else if (index % 3 == 0) return 3.0/4.0;
         else return 9.0/8.0;
+    }
+
+    static KOKKOS_INLINE_FUNCTION bool isValidRank(const int remote_location[3],
+                                                   const int local_location[3],
+                                                   const int max_location[3])
+    {
+        // Do not consider remote ranks that do not sit on a boundary
+        if (!(remote_location[0] == 0 || remote_location[0] == max_location[0]-1 ||
+                remote_location[1] == 0 || remote_location[1] == max_location[1]-1))
+        {
+            return false;
+        }
+
+        // Do not consider ranks that are on a boundary but neighboring 
+        if (abs(local_location[0] - remote_location[0]) <= 1 &&
+            abs(local_location[1] - remote_location[1]) <= 1)
+        {
+            return false;
+        }
+
+        return true;
     }
     /**
      * Creates a populates particle array
@@ -298,53 +319,54 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             int remote_location[3] = {boundary_topology(remote_rank, 1), boundary_topology(remote_rank, 2), boundary_topology(remote_rank, 3)};
             int adjust_pos = 0;
             
-            // Do not consider remote ranks that do not sit on a boundary
-            if (!(remote_location[0] == 0 || remote_location[0] == max_location[0]-1 ||
-                  remote_location[1] == 0 || remote_location[1] == max_location[1]-1))
-            {
-                return;
-            }
-
-            if (index == local_count)
-            {
-                printf("\tRank middle: %d\n", rank);
-            }
-
-            // Do not consider ranks that are on a boundary but neighboring 
-            if (abs(local_location[0] - remote_location[0]) <= 1 &&
-                abs(local_location[1] - remote_location[1]) <= 1)
-            {
-                return;
-            }
-            
-            if (index == local_count)
-            {
-                printf("\t\tRank after: %d\n", rank);
-            }
-
-            // Get the dimension of the halo move: 0 = x, 1 = y and magnitude of adjustment
-            int dim_const = (abs(local_location[0] - remote_location[0]) == 0) ? 0 : 1;
-
-            // The opposite dimension is needed to calcuate the magnitde of the move
-            int dim_mag = !dim_const;
-            double diff = global_bounding_box[dim_mag+3] - global_bounding_box[dim_mag];
-            
-            // Adjust position
-            double new_pos = position_part(index, dim_const) - diff;
-            // position_part(index, dim_const) = new_pos;
-
-            // if (rank == 3 && index == 257)
+            // // Do not consider remote ranks that do not sit on a boundary
+            // if (!(remote_location[0] == 0 || remote_location[0] == max_location[0]-1 ||
+            //       remote_location[1] == 0 || remote_location[1] == max_location[1]-1))
             // {
-            //     printf("IN: index: %d, pos: (%0.5lf, %0.5lf, %0.5lf), newpos: %0.5lf\n", position_part(index, 0), position_part(index, 1), position_part(index, 2), index, new_pos);
-            //     //printf("IN: pos: %0.5lf, pos_dim_const: %0.5lf, dim_const: %d\n", position_part(index, 0), position_part(index, dim_const), dim_const);
-            //     //printf("IN1: position: %0.5lf - %0.5lf = %0.5lf\n", position_part(index, dim_const), diff, position_part(index, dim_const) - diff);
-            //     //printf("IN: ll: %d, %d rl: %d, %d\n", local_location[0], local_location[1], remote_location[0], remote_location[1]);
-            //     //printf("IN: local-remote loc: %d - %d = %d\n", local_location[dim], remote_location[dim], local_location[dim] - remote_location[dim]);
-            //     // printf("IN: On rank R%d, 3Did: %d, id: %d, dim_const: %d, dim_mag: %d, diff: %0.5lf\n\tpos: (%0.5lf, %0.5lf, %0.5lf), new_pos: %0.5lf\n",
-            //     //     _rank, rank3d_part(index), id_part(index), dim_const, dim_mag, diff,
-            //     //     position_part(index, 0), position_part(index, 1), position_part(index, 2), new_pos);
+            //     return;
             // }
 
+            // if (index == local_count)
+            // {
+            //     printf("\tRank middle: %d\n", rank);
+            // }
+
+            // // Do not consider ranks that are on a boundary but neighboring 
+            // if (abs(local_location[0] - remote_location[0]) <= 1 &&
+            //     abs(local_location[1] - remote_location[1]) <= 1)
+            // {
+            //     return;
+            // }
+            
+            // if (index == local_count)
+            // {
+            //     printf("\t\tRank after: %d\n", rank);
+            // }
+            if (isValidRank(remote_location, local_location, max_location))
+            {
+                // Get the dimension of the halo move: 0 = x, 1 = y and magnitude of adjustment
+                int dim_const = (abs(local_location[0] - remote_location[0]) == 0) ? 0 : 1;
+
+                // The opposite dimension is needed to calcuate the magnitde of the move
+                int dim_mag = !dim_const;
+                double diff = global_bounding_box[dim_mag+3] - global_bounding_box[dim_mag];
+                
+                // Adjust position
+                double new_pos = position_part(index, dim_const) - diff;
+                // position_part(index, dim_const) = new_pos;
+
+                // if (rank == 3 && index == 257)
+                // {
+                //     printf("IN: index: %d, pos: (%0.5lf, %0.5lf, %0.5lf), newpos: %0.5lf\n", position_part(index, 0), position_part(index, 1), position_part(index, 2), index, new_pos);
+                //     //printf("IN: pos: %0.5lf, pos_dim_const: %0.5lf, dim_const: %d\n", position_part(index, 0), position_part(index, dim_const), dim_const);
+                //     //printf("IN1: position: %0.5lf - %0.5lf = %0.5lf\n", position_part(index, dim_const), diff, position_part(index, dim_const) - diff);
+                //     //printf("IN: ll: %d, %d rl: %d, %d\n", local_location[0], local_location[1], remote_location[0], remote_location[1]);
+                //     //printf("IN: local-remote loc: %d - %d = %d\n", local_location[dim], remote_location[dim], local_location[dim] - remote_location[dim]);
+                //     // printf("IN: On rank R%d, 3Did: %d, id: %d, dim_const: %d, dim_mag: %d, diff: %0.5lf\n\tpos: (%0.5lf, %0.5lf, %0.5lf), new_pos: %0.5lf\n",
+                //     //     _rank, rank3d_part(index), id_part(index), dim_const, dim_mag, diff,
+                //     //     position_part(index, 0), position_part(index, 1), position_part(index, 2), new_pos);
+                // }
+            }
             });
         }
     }
@@ -532,6 +554,11 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         migrateParticlesTo2D(particle_array, owned_3D_count);
         populate_zdot(particle_array, zdot);
     }
+
+    std::shared_ptr<spatial_mesh_type> get_spatial_mesh()
+    {
+        return _spatial_mesh;
+    }
     
     template <class l2g_type, class View>
     void printView(l2g_type local_L2G, int rank, View z, int option, int DEBUG_X, int DEBUG_Y) const
@@ -580,7 +607,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     const BoundaryCondition & _bc;
     const Params _params;
     int _rank, _comm_size;
-    std::unique_ptr<spatial_mesh_type> _spatial_mesh;
+    std::shared_ptr<spatial_mesh_type> _spatial_mesh;
     double _epsilon, _dx, _dy;
     MPI_Comm _comm;
     l2g_type _local_L2G;
