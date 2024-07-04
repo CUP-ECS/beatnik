@@ -17,7 +17,7 @@ namespace BeatnikTest
 {
 
 template <class T>
-class BoundaryConditionTest : public MeshTest<T>
+class BoundaryConditionTest : public TestingBase<T>
 {
     using ExecutionSpace = typename T::ExecutionSpace;
     using MemorySpace = typename T::MemorySpace;
@@ -29,31 +29,19 @@ class BoundaryConditionTest : public MeshTest<T>
     using node_array = std::shared_ptr<Cabana::Grid::Array<double, Cabana::Grid::Node, mesh_type, MemorySpace>>;
 
   protected:
-    Beatnik::BoundaryCondition bc_periodic_;
-    Beatnik::BoundaryCondition bc_non_periodic_;
-    node_array_layout node_layout_np_; 
-    node_array position_np_;
+    node_array_layout f_node_layout_; 
+    node_array f_position_;
     
     void SetUp() override
     {
-        MeshTest<T>::SetUp();
-        for (int i = 0; i < 6; i++)
-        {
-            bc_periodic_.bounding_box[i] = MeshTest<T>::globalBoundingBox_[i];
-            bc_non_periodic_.bounding_box[i] = MeshTest<T>::globalBoundingBox_[i];
-        }
-        for (int i = 0; i < 4; i++)
-        {
-            bc_periodic_.boundary_type[i] = Beatnik::BoundaryType::PERIODIC;
-            bc_non_periodic_.boundary_type[i] = Beatnik::BoundaryType::FREE;
-        }
-        node_layout_np_ = Cabana::Grid::createArrayLayout(this->testMeshNonPeriodic_->localGrid(), 1, Cabana::Grid::Node());
-        position_np_ = Cabana::Grid::createArray<double, MemorySpace>("position", node_layout_np_);
+        TestingBase<T>::SetUp();
+        f_node_layout_ = Cabana::Grid::createArrayLayout(this->f_mesh_->localGrid(), 1, Cabana::Grid::Node());
+        f_position_ = Cabana::Grid::createArray<double, MemorySpace>("position", f_node_layout_);
     }
 
     void TearDown() override
-    {
-        MeshTest<T>::TearDown();
+    { 
+        TestingBase<T>::TearDown();
     }
 
   public:
@@ -67,8 +55,8 @@ class BoundaryConditionTest : public MeshTest<T>
 
         auto policy = Cabana::Grid::createExecutionPolicy( own_nodes );
         **************/
-        int range = MeshTest<T>::boxNodes_;
-        int min = MeshTest<T>::haloWidth_;
+        int range = TestingBase<T>::meshSize_;
+        int min = TestingBase<T>::haloWidth_;
         using range_policy = Kokkos::MDRangePolicy<Kokkos::Rank<2>, ExecutionSpace>;
         range_policy policy({min, min}, {min+range, min+range});
         double dx = 0.3, dy = 0.4;
@@ -81,8 +69,8 @@ class BoundaryConditionTest : public MeshTest<T>
     template <class View>
     void testFreeBC(View z)
     {
-        int range = MeshTest<T>::boxNodes_;
-        int min = MeshTest<T>::haloWidth_;
+        int range = TestingBase<T>::meshSize_;
+        int min = TestingBase<T>::haloWidth_;
         using range_policy = Kokkos::MDRangePolicy<Kokkos::Rank<2>, ExecutionSpace>;
         range_policy policy({0, 0}, {min+range+min, min+range+min});
         double dx = 0.3, dy = 0.4;
