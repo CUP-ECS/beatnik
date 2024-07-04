@@ -18,7 +18,7 @@ TYPED_TEST(CutoffSolverTest, testNeighboringRanks)
     int rank, comm_size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
-    auto boundary_topology = this->br_->get_spatial_mesh()->getBoundaryInfo();
+    auto boundary_topology = this->p_br_cutoff_->get_spatial_mesh()->getBoundaryInfo();
     int local_location[3] = {boundary_topology(rank, 1), boundary_topology(rank, 2), boundary_topology(rank, 3)};
     int max_location[3] = {boundary_topology(comm_size, 1), boundary_topology(comm_size, 2), boundary_topology(comm_size, 3)};
     int remote_location[3] = {-1, -1, -1};

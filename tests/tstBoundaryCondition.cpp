@@ -15,11 +15,11 @@ TYPED_TEST_SUITE(BoundaryConditionTest, DeviceTypes);
 
 TYPED_TEST(BoundaryConditionTest, testFreeBoundary)
 { 
-    auto z = this->position_np_->view();
+    auto z = this->f_position_->view();
 
     this->populateArray(z);
 
-    this->bc_non_periodic_.applyField(*this->testMeshNonPeriodic_, *this->position_np_, 1);
+    this->f_bc_.applyField(*this->f_mesh_, *this->f_position_, 1);
 
     this->testFreeBC(z);
 }
