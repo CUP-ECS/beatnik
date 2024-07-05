@@ -11,7 +11,7 @@ if (ENABLE_TESTS)
 
     blt_add_executable(NAME tstMesh
                        SOURCES tstMesh.cpp 
-                       HEADERS tstMesh.hpp 
+                       HEADERS tstMesh.hpp TestingBase.hpp 
                        DEPENDS_ON beatnik gtest
                        OUTPUT_DIR ${TEST_OUTPUT_DIRECTORY})
     blt_add_test(NAME MeshTests
@@ -19,7 +19,7 @@ if (ENABLE_TESTS)
     
     blt_add_executable( NAME     tstBoundaryCondition
                  SOURCES tstBoundaryCondition.cpp
-                 HEADERS tstBoundaryCondition.hpp tstMesh.hpp
+                 HEADERS tstBoundaryCondition.hpp TestingBase.hpp
                  DEPENDS_ON beatnik gtest
                  OUTPUT_DIR ${TEST_OUTPUT_DIRECTORY})
 
@@ -28,7 +28,7 @@ if (ENABLE_TESTS)
     
     blt_add_executable(NAME tstCutoffSolver
                       SOURCES tstCutoffSolver.cpp 
-                      HEADERS tstCutoffSolver.hpp tstMesh.hpp 
+                      HEADERS tstCutoffSolver.hpp TestingBase.hpp
                       DEPENDS_ON beatnik gtest
                       OUTPUT_DIR ${TEST_OUTPUT_DIRECTORY})
     blt_add_test(NAME CutoffSolverTests
