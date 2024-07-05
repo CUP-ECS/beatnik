@@ -154,20 +154,18 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         return 0;
     }
 
-    template <class LocalGrid, class Topology>
-    void getNeighbors(const int my_rank, const LocalGrid local_grid, const Topology topology, int is_neighbor[26])
+    void getNeighbors(int is_neighbor[26][4]) const
     {
         for (int i = 0; i < 26; i++)
         {
-            is_neighbor[i] = -1;
+            is_neighbor[i][0] = 0;
+            is_neighbor[i][1] = 999;
+            is_neighbor[i][2] = 999;
+            is_neighbor[i][3] = 999;
         }
 
-        const auto local_grid = _spatial_mesh->get_spatial_mesh()->localGrid();
-        const auto local_mesh =
-            Cabana::Grid::createLocalMesh<Kokkos::HostSpace>( *local_grid );
-        
-
-
+        const auto local_grid = _spatial_mesh->localGrid();
+        auto topology = _spatial_mesh->getBoundaryInfo();
         //Kokkos::Array<Cabana::Grid::IndexSpace<4>, topology_size> index_spaces;
 
         // Store all neighboring shared index space mesh bounds so we only have
@@ -186,12 +184,13 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                         {
                             for (int w = 1; w < 3; w++)
                             {
-                                if (abs(topology(my_rank, w) - topology(neighbor_rank, w)) > 1)
+                                if (abs(topology(_rank, w) - topology(neighbor_rank, w)) > 1)
                                 {
-                                    if (my_rank == 3)
-                                    {
-                                        printf("R%d: (%d, %d, %d) Neighbor rank: %d\n", my_rank, i, j, k, neighbor_rank);
-                                    }
+                                    is_neighbor[neighbor_rank][0] = 1;
+                                    is_neighbor[neighbor_rank][1] = i;
+                                    is_neighbor[neighbor_rank][2] = j;
+                                    is_neighbor[neighbor_rank][3] = k;
+                                    break;
                                 }
                             }
                         }
@@ -364,82 +363,82 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         if (isOnBoundary(local_location, max_location))
         {
             std::array<double, 6> global_bounding_box = _params.global_bounding_box;
-            const auto local_grid = _spatial_mesh->get_spatial_mesh()->localGrid();
-            int is_neighbor[26];
-            getNeighbors(_rank, local_grid, boundary_topology, is_neighbor);
-
-            // Kokkos::parallel_for("fix_haloed_particle_positions", Kokkos::RangePolicy<exec_space>(local_count, total_size), 
-            //                  KOKKOS_LAMBDA(int index) {
-
-            // /* If local process is not on a boundary, exit. No particles
-            //  * accross the boundary would have been recieved.
-            //  * We only consider the x and y postions here because the
-            //  * z-direction will never be periodic.
-            //  */
-            // if (index == local_count)
+            auto local_grid = _spatial_mesh->localGrid();
+            int is_neighbor[26][4];
+            getNeighbors(is_neighbor);
+            // for (int i = 0; i < 26; i++)
             // {
-            //     printf("Rank before: %d\n", rank);
+            //     if (is_neighbor[i] == 1)
+            //     {
+            //         printf("R%d: neighbor %d: %d\n", _rank, i, is_neighbor[i]);
+            //     }   
             // }
 
-            // if (rank == 3)
-            // {
-            //     //printf("index: %d\n", index);
-            // }
+            //Kokkos::View<int*[4], device_type> boundary_topology_device("boundary_topology_device", _comm_size+1);
 
-            // // Determine if particle comes from a rank on a boundary
-            // int remote_rank = rank3d_part(index);
-            // int remote_location[3] = {boundary_topology(remote_rank, 1), boundary_topology(remote_rank, 2), boundary_topology(remote_rank, 3)};
-            // int adjust_pos = 0;
-            
-            // // // Do not consider remote ranks that do not sit on a boundary
-            // // if (!(remote_location[0] == 0 || remote_location[0] == max_location[0]-1 ||
-            // //       remote_location[1] == 0 || remote_location[1] == max_location[1]-1))
-            // // {
-            // //     return;
-            // // }
+            // Step 3: Deep copy the data from host view to device view
+            //Kokkos::deep_copy(boundary_topology_device, boundary_topology);
 
-            // // if (index == local_count)
-            // // {
-            // //     printf("\tRank middle: %d\n", rank);
-            // // }
 
-            // // // Do not consider ranks that are on a boundary but neighboring 
-            // // if (abs(local_location[0] - remote_location[0]) <= 1 &&
-            // //     abs(local_location[1] - remote_location[1]) <= 1)
-            // // {
-            // //     return;
-            // // }
-            
-            // // if (index == local_count)
-            // // {
-            // //     printf("\t\tRank after: %d\n", rank);
-            // // }
-            // if (areNeighbors(remote_location, local_location, max_location))
-            // {
-            //     // Get the dimension of the halo move: 0 = x, 1 = y and magnitude of adjustment
-            //     int dim_const = (abs(local_location[0] - remote_location[0]) == 0) ? 0 : 1;
+            Kokkos::parallel_for("fix_haloed_particle_positions", Kokkos::RangePolicy<exec_space>(local_count, total_size), 
+                             KOKKOS_LAMBDA(int index) {
 
-            //     // The opposite dimension is needed to calcuate the magnitde of the move
-            //     int dim_mag = !dim_const;
-            //     double diff = global_bounding_box[dim_mag+3] - global_bounding_box[dim_mag];
-                
-            //     // Adjust position
-            //     double new_pos = position_part(index, dim_const) - diff;
-            //     // position_part(index, dim_const) = new_pos;
+                /* If local process is not on a boundary, exit. No particles
+                * accross the boundary would have been recieved.
+                * We only consider the x and y postions here because the
+                * z-direction will never be periodic.
+                */
+                int remote_rank = rank3d_part(index);
+                if (is_neighbor[remote_rank][0] == 1)
+                {
+                    // int remote_location[3] = {boundary_topology_device(remote_rank, 1),
+                    //                         boundary_topology_device(remote_rank, 2),
+                    //                         boundary_topology_device(remote_rank, 3)};
 
-            //     // if (rank == 3 && index == 257)
-            //     // {
-            //     //     printf("IN: index: %d, pos: (%0.5lf, %0.5lf, %0.5lf), newpos: %0.5lf\n", position_part(index, 0), position_part(index, 1), position_part(index, 2), index, new_pos);
-            //     //     //printf("IN: pos: %0.5lf, pos_dim_const: %0.5lf, dim_const: %d\n", position_part(index, 0), position_part(index, dim_const), dim_const);
-            //     //     //printf("IN1: position: %0.5lf - %0.5lf = %0.5lf\n", position_part(index, dim_const), diff, position_part(index, dim_const) - diff);
-            //     //     //printf("IN: ll: %d, %d rl: %d, %d\n", local_location[0], local_location[1], remote_location[0], remote_location[1]);
-            //     //     //printf("IN: local-remote loc: %d - %d = %d\n", local_location[dim], remote_location[dim], local_location[dim] - remote_location[dim]);
-            //     //     // printf("IN: On rank R%d, 3Did: %d, id: %d, dim_const: %d, dim_mag: %d, diff: %0.5lf\n\tpos: (%0.5lf, %0.5lf, %0.5lf), new_pos: %0.5lf\n",
-            //     //     //     _rank, rank3d_part(index), id_part(index), dim_const, dim_mag, diff,
-            //     //     //     position_part(index, 0), position_part(index, 1), position_part(index, 2), new_pos);
-            //     // }
-            // }
-            // });
+                    // Get the dimension of the halo move: 0 = x, 1 = y and magnitude of adjustment
+                    // int dim_const = (abs(local_location[0] - remote_location[0]) == 0) ? 0 : 1;
+                    // if (rank == 3 && index == 350)
+                    // {
+                    //     int i = index;
+                    //     printf("IN BEFORE: On rank R%d, from R%d, index: %d, pos: (%0.5lf, %0.5lf, %0.5lf) from: (%d, %d, %d)\n",
+                    // _rank, rank3d_part(i), i, position_part(i, 0), position_part(i, 1), position_part(i, 2), is_neighbor[remote_rank][1], is_neighbor[remote_rank][2], is_neighbor[remote_rank][3]);
+                    // }
+                    // Get the dimenions to adjust
+                    for (int dim = 1; dim < 4; dim++)
+                    {
+                        // i=1; j=2; k=3
+                        if (is_neighbor[remote_rank][dim] != 0)
+                        {
+                            // -1, -1, -1, 1, 1, 1
+                            double diff = global_bounding_box[dim-1+3] - global_bounding_box[dim-1];
+                            // Adjust position
+                            double new_pos = position_part(index, dim-1) + diff * is_neighbor[remote_rank][dim];
+                            position_part(index, dim-1) = new_pos;
+                            // if (rank == 3 && index == 350)
+                            // {
+                            //     printf("Adjusting pos dim %d: diff: %0.5lf, new: %0.5lf\n", dim-1, diff, new_pos);
+                            // }
+                        }
+                    }   
+
+
+                    
+                    
+                    
+
+                    // if (rank == 3 && index == 257)
+                    // {
+                    //     printf("IN: index: %d, pos: (%0.5lf, %0.5lf, %0.5lf), newpos: %0.5lf\n", position_part(index, 0), position_part(index, 1), position_part(index, 2), index, new_pos);
+                    //     //printf("IN: pos: %0.5lf, pos_dim_const: %0.5lf, dim_const: %d\n", position_part(index, 0), position_part(index, dim_const), dim_const);
+                    //     //printf("IN1: position: %0.5lf - %0.5lf = %0.5lf\n", position_part(index, dim_const), diff, position_part(index, dim_const) - diff);
+                    //     //printf("IN: ll: %d, %d rl: %d, %d\n", local_location[0], local_location[1], remote_location[0], remote_location[1]);
+                    //     //printf("IN: local-remote loc: %d - %d = %d\n", local_location[dim], remote_location[dim], local_location[dim] - remote_location[dim]);
+                    //     // printf("IN: On rank R%d, 3Did: %d, id: %d, dim_const: %d, dim_mag: %d, diff: %0.5lf\n\tpos: (%0.5lf, %0.5lf, %0.5lf), new_pos: %0.5lf\n",
+                    //     //     _rank, rank3d_part(index), id_part(index), dim_const, dim_mag, diff,
+                    //     //     position_part(index, 0), position_part(index, 1), position_part(index, 2), new_pos);
+                    // }
+                }
+            });
         }
     }
 
@@ -589,10 +588,14 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         
         if (_rank == 3)
         {
-                int i = 257;
+            for (int i = 257; i < total_size; i++)
+            {
+                printf("Before: On rank R%d, from R%d, index: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
+                    _rank, rank3d_part(i), i, position_part(i, 0), position_part(i, 1), position_part(i, 2));
+            }
+                //int i = 350;
                 // printf("owned3d_count: %d, total: %d\n", owned_3D_count, total_size);
-                // printf("Before: On rank R%d, index: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
-                //     _rank, i, position_part(i, 0), position_part(i, 1), position_part(i, 2));
+                
             
                 
                 // printf("i: %d 2D: %d, 3D: %d, ID: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
@@ -609,15 +612,11 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         #if DEVELOP
         if (_rank == 3)
         {
-                int i = 257;
-                // printf("owned3d_count: %d, total: %d\n", owned_3D_count, total_size);
-                // printf("After: On rank R%d, index: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
-                //     _rank, i, position_part(i, 0), position_part(i, 1), position_part(i, 2));
-            
-                
-                // printf("i: %d 2D: %d, 3D: %d, ID: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
-                //     i, rank2d_part(i), rank3d_part(i), id_part(i),
-                //     position_part(i, 1), position_part(i, 1), position_part(i, 2));
+            for (int i = 257; i < total_size; i++)
+            {
+                printf("After: On rank R%d, from R%d, index: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
+                    _rank, rank3d_part(i), i, position_part(i, 0), position_part(i, 1), position_part(i, 2));
+            }
         }
         #endif
 
