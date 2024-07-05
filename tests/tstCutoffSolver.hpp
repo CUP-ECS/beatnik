@@ -41,21 +41,57 @@ class CutoffSolverTest : public TestingBase<T>
 
     void TearDown() override
     { 
+        printf("***************BEGIN TEARDOWN**********");
         TestingBase<T>::TearDown();
+        printf("***************FINISHED TEARDOWN***************");
     }
 
   public:
+    // XXX: Note: Curently identical to the function in the code. Manually checked it works for 16 processes.
+    int isOnBoundaryCorrect(const int local_location[3],
+                            const int max_location[3])
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            if (local_location[i] == 0 || local_location[i] == max_location[i]-1)
+            {
+                return 1;
+            }
+        }
+        return 0;
+    }
+
     int areNeighbors(const int remote_location[3], const int local_location[3], const int num_procs[3])
     {
-        // Handle corners differently
-        // if ((local_location[0] == 0 && local_location[1] == 0) ||
-        //             (local_location[0] == num_procs[0]-1 &&
-        //              local_location[1] == num_procs[1]-1)) // Top left and bottom right corners
-        // {
-        //     //int n1 = 
-        // }
+        for (int i = -1; i < 2; i++)
+        {
+            for (int j = -1, j < 2; j++)
+            {
+                for (int k = -1; k < 2; k++)
+                {
+                    
+                }
+            }
+        }
 
-    return 0;
+        return 0;
+    }
+
+    void correctLocPeriodicXY(const int location[3], const int num_procs[3], int new_location[3])
+    {
+        new_location = {location[0], location[1], location[2]};
+        // z-location never corrected because only periodic in X/Y
+        for (int i = 0; i < 2; i++)
+        {
+            for (int j = -1; j < 2; j++)
+            {
+                // loc: 0, 0, 0;      loc: 0, 3, 0;     num_procs: 4, 4, 1
+                if (location[i] + j >= num_procs[i])
+                {
+                    new_location[i] = location[i] - (num_procs[i]-1);
+                }
+            }
+        }
     }
 };
 

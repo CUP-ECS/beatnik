@@ -120,7 +120,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         else return 9.0/8.0;
     }
 
-    static KOKKOS_INLINE_FUNCTION bool isValidRank(const int remote_location[3],
+    static KOKKOS_INLINE_FUNCTION bool areNeighbors(const int remote_location[3],
                                                    const int local_location[3],
                                                    const int max_location[3])
     {
@@ -139,6 +139,19 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         }
 
         return true;
+    }
+
+    static KOKKOS_INLINE_FUNCTION int isOnBoundary(const int local_location[3],
+                                                   const int max_location[3])
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            if (local_location[i] == 0 || local_location[i] == max_location[i]-1)
+            {
+                return 1;
+            }
+        }
+        return 0;
     }
     /**
      * Creates a populates particle array
@@ -283,16 +296,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         int max_location[3] = {boundary_topology(_comm_size, 1), boundary_topology(_comm_size, 2), boundary_topology(_comm_size, 3)};
         int rank = _rank;
 
-        int on_boundary = 0;
-        for (int i = 0; i < 2; i++)
-        {
-            if (local_location[i] == 0 || local_location[i] == max_location[i]-1)
-            {
-                on_boundary = 1;
-                break;
-            }
-        }
-        if (on_boundary)
+        if (isOnBoundary(local_location, max_location))
         {
             std::array<double, 6> global_bounding_box = _params.global_bounding_box;
 
@@ -342,7 +346,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             // {
             //     printf("\t\tRank after: %d\n", rank);
             // }
-            if (isValidRank(remote_location, local_location, max_location))
+            if (areNeighbors(remote_location, local_location, max_location))
             {
                 // Get the dimension of the halo move: 0 = x, 1 = y and magnitude of adjustment
                 int dim_const = (abs(local_location[0] - remote_location[0]) == 0) ? 0 : 1;

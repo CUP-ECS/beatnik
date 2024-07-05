@@ -35,14 +35,14 @@ class BoundaryConditionTest : public TestingBase<T>
     void SetUp() override
     {
         TestingBase<T>::SetUp();
-        f_node_layout_ = Cabana::Grid::createArrayLayout(this->f_mesh_->localGrid(), 1, Cabana::Grid::Node());
-        f_position_ = Cabana::Grid::createArray<double, MemorySpace>("position", f_node_layout_);
+        this->f_node_layout_ = Cabana::Grid::createArrayLayout(this->f_mesh_->localGrid(), 1, Cabana::Grid::Node());
+        this->f_position_ = Cabana::Grid::createArray<double, MemorySpace>("position", f_node_layout_);
     }
 
     void TearDown() override
     { 
-        f_position_ = NULL;
-        f_node_layout_ = NULL;
+        this->f_position_ = NULL;
+        this->f_node_layout_ = NULL;
         TestingBase<T>::TearDown();
     }
 
