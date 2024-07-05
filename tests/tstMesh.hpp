@@ -9,7 +9,7 @@
 
 #include <mpi.h>
 
-#include "testingBase.hpp"
+#include "TestingBase.hpp"
 
 namespace BeatnikTest
 {

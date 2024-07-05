@@ -10,7 +10,7 @@
 
 #include <mpi.h>
 
-#include "testingBase.hpp"
+#include "TestingBase.hpp"
 
 namespace BeatnikTest
 {
@@ -48,12 +48,12 @@ class CutoffSolverTest : public TestingBase<T>
     int areNeighbors(const int remote_location[3], const int local_location[3], const int num_procs[3])
     {
         // Handle corners differently
-        if ((local_location[0] == 0 && local_location[1] == 0) ||
-                    (local_location[0] == num_procs[0]-1 &&
-                     local_location[1] == num_procs[1]-1)) // Top left and bottom right corners
-        {
-            //int n1 = 
-        }
+        // if ((local_location[0] == 0 && local_location[1] == 0) ||
+        //             (local_location[0] == num_procs[0]-1 &&
+        //              local_location[1] == num_procs[1]-1)) // Top left and bottom right corners
+        // {
+        //     //int n1 = 
+        // }
 
     return 0;
     }

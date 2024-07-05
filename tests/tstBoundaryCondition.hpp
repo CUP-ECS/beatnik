@@ -10,7 +10,7 @@
 
 #include <mpi.h>
 
-#include "tstMesh.hpp"
+#include "TestingBase.hpp"
 #include "tstDriver.hpp"
 
 namespace BeatnikTest
@@ -41,6 +41,8 @@ class BoundaryConditionTest : public TestingBase<T>
 
     void TearDown() override
     { 
+        f_position_ = NULL;
+        f_node_layout_ = NULL;
         TestingBase<T>::TearDown();
     }
 

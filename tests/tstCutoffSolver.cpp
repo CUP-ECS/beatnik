@@ -19,11 +19,11 @@ TYPED_TEST(CutoffSolverTest, testNeighboringRanks)
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
     auto boundary_topology = this->p_br_cutoff_->get_spatial_mesh()->getBoundaryInfo();
-    int local_location[3] = {boundary_topology(rank, 1), boundary_topology(rank, 2), boundary_topology(rank, 3)};
-    int max_location[3] = {boundary_topology(comm_size, 1), boundary_topology(comm_size, 2), boundary_topology(comm_size, 3)};
-    int remote_location[3] = {-1, -1, -1};
-    int correct = this->areNeighbors(remote_location, local_location, max_location);
-    printf("R%d, %d, %d, %d, is_n: %d\n", rank, local_location[0], local_location[1], local_location[2], correct);
+    // int local_location[3] = {boundary_topology(rank, 1), boundary_topology(rank, 2), boundary_topology(rank, 3)};
+    // int max_location[3] = {boundary_topology(comm_size, 1), boundary_topology(comm_size, 2), boundary_topology(comm_size, 3)};
+    // int remote_location[3] = {-1, -1, -1};
+    // int correct = this->areNeighbors(remote_location, local_location, max_location);
+    //printf("R%d, %d, %d, %d, is_n: %d\n", rank, local_location[0], local_location[1], local_location[2], correct);
 
     // if (rank == 0)
     // {
