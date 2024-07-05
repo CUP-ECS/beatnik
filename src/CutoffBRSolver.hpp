@@ -374,10 +374,10 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             //     }   
             // }
 
-            //Kokkos::View<int*[4], device_type> boundary_topology_device("boundary_topology_device", _comm_size+1);
+            Kokkos::View<int*[4], device_type> boundary_topology_device("boundary_topology_device", _comm_size+1);
 
             // Step 3: Deep copy the data from host view to device view
-            //Kokkos::deep_copy(boundary_topology_device, boundary_topology);
+            Kokkos::deep_copy(boundary_topology_device, boundary_topology);
 
 
             Kokkos::parallel_for("fix_haloed_particle_positions", Kokkos::RangePolicy<exec_space>(local_count, total_size), 
@@ -391,9 +391,9 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                 int remote_rank = rank3d_part(index);
                 if (is_neighbor[remote_rank][0] == 1)
                 {
-                    // int remote_location[3] = {boundary_topology_device(remote_rank, 1),
-                    //                         boundary_topology_device(remote_rank, 2),
-                    //                         boundary_topology_device(remote_rank, 3)};
+                    int remote_location[3] = {boundary_topology_device(remote_rank, 1),
+                                            boundary_topology_device(remote_rank, 2),
+                                            boundary_topology_device(remote_rank, 3)};
 
                     // Get the dimension of the halo move: 0 = x, 1 = y and magnitude of adjustment
                     // int dim_const = (abs(local_location[0] - remote_location[0]) == 0) ? 0 : 1;
@@ -404,22 +404,38 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                     // _rank, rank3d_part(i), i, position_part(i, 0), position_part(i, 1), position_part(i, 2), is_neighbor[remote_rank][1], is_neighbor[remote_rank][2], is_neighbor[remote_rank][3]);
                     // }
                     // Get the dimenions to adjust
-                    for (int dim = 1; dim < 4; dim++)
+                    for (int dim = 0; dim < 3; dim++)
                     {
-                        // i=1; j=2; k=3
-                        if (is_neighbor[remote_rank][dim] != 0)
+                        if (abs(local_location[dim] - remote_location[dim] != 0))
                         {
                             // -1, -1, -1, 1, 1, 1
-                            double diff = global_bounding_box[dim-1+3] - global_bounding_box[dim-1];
+                            double diff = global_bounding_box[dim+3] - global_bounding_box[dim];
                             // Adjust position
-                            double new_pos = position_part(index, dim-1) + diff * is_neighbor[remote_rank][dim];
-                            position_part(index, dim-1) = new_pos;
+                            double new_pos = position_part(index, dim) + diff * is_neighbor[remote_rank][dim];
+                            position_part(index, dim) = new_pos;
                             // if (rank == 3 && index == 350)
                             // {
                             //     printf("Adjusting pos dim %d: diff: %0.5lf, new: %0.5lf\n", dim-1, diff, new_pos);
                             // }
                         }
-                    }   
+                    }
+
+                    // for (int dim = 1; dim < 4; dim++)
+                    // {
+                    //     // i=1; j=2; k=3
+                    //     if (is_neighbor[remote_rank][dim] != 0)
+                    //     {
+                    //         // -1, -1, -1, 1, 1, 1
+                    //         double diff = global_bounding_box[dim-1+3] - global_bounding_box[dim-1];
+                    //         // Adjust position
+                    //         double new_pos = position_part(index, dim-1) + diff * is_neighbor[remote_rank][dim];
+                    //         position_part(index, dim-1) = new_pos;
+                    //         // if (rank == 3 && index == 350)
+                    //         // {
+                    //         //     printf("Adjusting pos dim %d: diff: %0.5lf, new: %0.5lf\n", dim-1, diff, new_pos);
+                    //         // }
+                    //     }
+                    // }   
 
 
                     
