@@ -581,6 +581,13 @@ struct MeshInitFunc
             // z3 = _m * (2*drand48() - 1.0);
             break;
         case IC_GAUSSIAN:
+            std::normal_distribution<double> distribution(0.0, 1.0);
+            Kokkos::Random_XorShift64_Pool<> random_pool(_p);
+            auto generator = random_pool.get_state();
+            double rand_num = generator.drand(0., 1.);
+            z3 = _m * distribution(rand_num);
+            random_pool.free_state(generator);
+            break;
         case IC_FILE:
             break;
         }
