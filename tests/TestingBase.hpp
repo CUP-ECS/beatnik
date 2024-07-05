@@ -129,14 +129,14 @@ class TestingBase : public ::testing::Test
 
     void TearDown() override
     {
-        p_mesh_ = NULL;
-        f_mesh_ = NULL;
+        p_br_cutoff_ = NULL;
+        f_br_cutoff_ = NULL;
 
         p_pm_ = NULL;
         f_pm_ = NULL;
 
-        p_br_cutoff_ = NULL;
-        f_br_cutoff_ = NULL;
+        p_mesh_ = NULL;
+        f_mesh_ = NULL;
     }
 
 };
