@@ -61,25 +61,73 @@ class CutoffSolverTest : public TestingBase<T>
         return 0;
     }
 
-    int areNeighbors(const int remote_location[3], const int local_location[3], const int num_procs[3])
+    template <class Topology>
+    void getNeighbors(const int my_rank, const Topology topology, int is_neighbor[26])
     {
-        for (int i = -1; i < 2; i++)
+        for (int i = 0; i < 26; i++)
         {
-            for (int j = -1, j < 2; j++)
+            is_neighbor[i] = -1;
+        }
+
+        const auto local_grid = this->p_br_cutoff_->get_spatial_mesh()->localGrid();
+        const auto local_mesh =
+            Cabana::Grid::createLocalMesh<Kokkos::HostSpace>( *local_grid );
+        
+
+
+        //Kokkos::Array<Cabana::Grid::IndexSpace<4>, topology_size> index_spaces;
+
+        // Store all neighboring shared index space mesh bounds so we only have
+        // to launch one kernel during the actual ghost search.
+        int n = 0;
+        for ( int k = -1; k < 2; ++k )
+        {
+            for ( int j = -1; j < 2; ++j )
             {
-                for (int k = -1; k < 2; k++)
+                for ( int i = -1; i < 2; ++i, ++n )
                 {
-                    
+                    if ( i != 0 || j != 0 || k != 0 )
+                    {
+                        int neighbor_rank = local_grid->neighborRank( i, j, k );
+                        if (neighbor_rank != -1)
+                        {
+                            for (int w = 1; w < 3; w++)
+                            {
+                                if (abs(topology(my_rank, w) - topology(neighbor_rank, w)) > 1)
+                                {
+                                    if (my_rank == 3)
+                                    {
+                                        printf("R%d: (%d, %d, %d) Neighbor rank: %d\n", my_rank, i, j, k, neighbor_rank);
+                                    }
+                                }
+                            }
+                        }
+                        // Potentially invalid neighbor ranks (non-periodic
+                        // global boundary)
+                        
+                        // if ( neighbor_rank != -1 )
+                        // {
+                        //     auto sis = local_grid.sharedIndexSpace(
+                        //         Cabana::Grid::Own(), Cabana::Grid::Cell(), i, j, k,
+                        //         _min_halo );
+                        //     auto min_ind = sis.min();
+                        //     auto max_ind = sis.max();
+                        //     local_mesh.coordinates( Cabana::Grid::Node(),
+                        //                             min_ind.data(),
+                        //                             _min_coord[n].data() );
+                        //     local_mesh.coordinates( Cabana::Grid::Node(),
+                        //                             max_ind.data(),
+                        //                             _max_coord[n].data() );
+                        // }
+                    }
                 }
             }
         }
-
-        return 0;
     }
 
     void correctLocPeriodicXY(const int location[3], const int num_procs[3], int new_location[3])
     {
-        new_location = {location[0], location[1], location[2]};
+        // new_location = {location[0], location[1], location[2]};
         // z-location never corrected because only periodic in X/Y
         for (int i = 0; i < 2; i++)
         {

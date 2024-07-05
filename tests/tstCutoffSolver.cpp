@@ -39,13 +39,15 @@ TYPED_TEST(CutoffSolverTest, testAreNeighbors)
 
     // Each rank will test if all any ranks share a periodic boundary in 3D x/y space
     // Defined as one of its 26 neighboring ranks in 3D space.
+    int is_neighbor[26];
     if (rank == 0)
     {
-    for (int other_rank = 0; other_rank < comm_size; other_rank++)
-    {
-        int remote_location[3] = {boundary_topology(other_rank, 1), boundary_topology(other_rank, 2), boundary_topology(other_rank, 3)};
-        int correct_result = this->areNeighbors(remote_location, local_location, max_location);
-    }
+        this->getNeighbors(rank, boundary_topology, is_neighbor);
+    // for (int other_rank = 0; other_rank < comm_size; other_rank++)
+    // {
+    //     int remote_location[3] = {boundary_topology(other_rank, 1), boundary_topology(other_rank, 2), boundary_topology(other_rank, 3)};
+    //     int correct_result = this->getNeighbors();
+    // }
     }
     // if (rank == 0)
     // {
