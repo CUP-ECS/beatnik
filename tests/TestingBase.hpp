@@ -115,28 +115,28 @@ class TestingBase : public ::testing::Test
         f_params_.cutoff_distance = 0.1;
 
         // Periodic
-        p_mesh_ = std::make_shared<surface_mesh_type>( globalBoundingBox_, globalNumNodes_, p_params_.periodic, 
+        this->p_mesh_ = std::make_shared<surface_mesh_type>( globalBoundingBox_, globalNumNodes_, p_params_.periodic, 
                                 partitioner_, haloWidth_, MPI_COMM_WORLD );
-        p_pm_ = std::make_shared<pm_type>( *p_mesh_, p_bc_, createFunctor_ );
-        p_br_cutoff_ = std::make_shared<br_type>(*p_pm_, p_bc_, 1.0, 1.0, 1.0, p_params_);
+        this->p_pm_ = std::make_shared<pm_type>( *p_mesh_, p_bc_, createFunctor_ );
+        this->p_br_cutoff_ = std::make_shared<br_type>(*p_pm_, p_bc_, 1.0, 1.0, 1.0, p_params_);
 
         // Free
-        f_mesh_ = std::make_shared<surface_mesh_type>( globalBoundingBox_, globalNumNodes_, f_params_.periodic, 
+        this->f_mesh_ = std::make_shared<surface_mesh_type>( globalBoundingBox_, globalNumNodes_, f_params_.periodic, 
                                 partitioner_, haloWidth_, MPI_COMM_WORLD );
-        f_pm_ = std::make_shared<pm_type>( *f_mesh_, f_bc_, createFunctor_ );
-        f_br_cutoff_ = std::make_shared<br_type>(*f_pm_, f_bc_, 1.0, 1.0, 1.0, f_params_);
+        this->f_pm_ = std::make_shared<pm_type>( *f_mesh_, f_bc_, createFunctor_ );
+        this->f_br_cutoff_ = std::make_shared<br_type>(*f_pm_, f_bc_, 1.0, 1.0, 1.0, f_params_);
     }
 
     void TearDown() override
     {
-        p_br_cutoff_ = NULL;
-        f_br_cutoff_ = NULL;
+        this->p_br_cutoff_ = NULL;
+        this->f_br_cutoff_ = NULL;
 
-        p_pm_ = NULL;
-        f_pm_ = NULL;
+        this->p_pm_ = NULL;
+        this->f_pm_ = NULL;
 
-        p_mesh_ = NULL;
-        f_mesh_ = NULL;
+        this->p_mesh_ = NULL;
+        this->f_mesh_ = NULL;
     }
 
 };
