@@ -45,7 +45,12 @@ TYPED_TEST( ProblemManagerTest, StateArrayTest )
 	//     for (int d = 0; d < 2; d++)
     //             w( i, j, d ) = rank * 1000 + i * 100 + j * 10 + d;
     //     } );
+    /*
+    Kokkos::View<int*[4], device_type> boundary_topology_device("boundary_topology_device", _comm_size+1);
 
+            // Step 3: Deep copy the data from host view to device view
+            Kokkos::deep_copy(boundary_topology_device, boundary_topology);
+    */
     // auto zcopy =
     //     Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), z );
     // auto wcopy =
