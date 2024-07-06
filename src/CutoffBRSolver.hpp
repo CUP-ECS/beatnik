@@ -293,6 +293,8 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
      **/
     void correctPeriodicBoundaries(particle_array_type &particle_array, int local_count) const
     {
+        Kokkos::Profiling::pushRegion("correctPeriodicBoundaries");
+
         if (!_params.periodic[0])
         {
             return;
@@ -378,12 +380,14 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                 }
             });
         }
+        Kokkos::fence();
+
+        Kokkos::Profiling::popRegion();
     }
 
     void migrateParticlesTo2D(particle_array_type &particle_array, int owned_3D_count) const
     {
         Kokkos::Profiling::pushRegion("migrateParticlesTo2D");
-        int rank = _rank;
 
         // We only want to send back the non-ghosted particles to 2D
         // Resize to original 3D size to remove ghosted particles
@@ -440,7 +444,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             _params.cutoff_distance);
 
         using list_type = decltype(neighbor_list);
-        int rank = _rank;
 
         auto position_part = Cabana::slice<0>(particle_array);
         auto omega_part = Cabana::slice<1>(particle_array);
