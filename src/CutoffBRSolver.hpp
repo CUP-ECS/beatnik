@@ -217,6 +217,28 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         }
     }
 
+    void getTraveledBoundaries(const int my_rank, const int other_rank, int traveled[3]) const
+    {
+        auto topology = _spatial_mesh->getBoundaryInfo();
+
+        // Dimensions across a boundary will be more than one distance away in x/y/z space
+        for (int dim = 1; dim < 4; dim++)
+        {
+            if (topology(other_rank, dim) - topology(my_rank, dim) > 1)
+            {
+                traveled[dim-1] = -1;
+            }
+            else if (topology(other_rank, dim) - topology(my_rank, dim) < -1)
+            {
+                traveled[dim-1] = 1;
+            }
+            else
+            {
+                traveled[dim-1] = 0;
+            }
+        }
+    }
+
     /**
      * Creates a populates particle array
      **/
@@ -404,21 +426,32 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                     // _rank, rank3d_part(i), i, position_part(i, 0), position_part(i, 1), position_part(i, 2), is_neighbor[remote_rank][1], is_neighbor[remote_rank][2], is_neighbor[remote_rank][3]);
                     // }
                     // Get the dimenions to adjust
+                    int traveled[3];
+                    getTraveledBoundaries(rank, remote_rank, traveled);
+                    if (rank == 3)
+                        {
+                            printf("R%d: from R%d (index %d): traveled: %d, %d, %d, ", rank, remote_rank, index, traveled[0], traveled[1], traveled[2]);
+                            printf("old pos: %0.5lf, %0.5lf, %0.5lf, ", position_part(index, 0), position_part(index, 1), position_part(index, 2));
+                            //printf("Adjusting pos dim %d: diff: %0.5lf, old: %0.5lf new: %0.5lf\n", dim, diff, new_pos);
+                        }
                     for (int dim = 0; dim < 3; dim++)
                     {
-                        if (abs(local_location[dim] - remote_location[dim] != 0))
+                        if (traveled[dim] != 0)
                         {
                             // -1, -1, -1, 1, 1, 1
                             double diff = global_bounding_box[dim+3] - global_bounding_box[dim];
                             // Adjust position
-                            double new_pos = position_part(index, dim) + diff * is_neighbor[remote_rank][dim];
+                            double new_pos = position_part(index, dim) + diff * traveled[dim];
                             position_part(index, dim) = new_pos;
-                            // if (rank == 3 && index == 350)
-                            // {
-                            //     printf("Adjusting pos dim %d: diff: %0.5lf, new: %0.5lf\n", dim-1, diff, new_pos);
-                            // }
                         }
                     }
+                    if (rank == 3)
+                        {
+                            //printf("R%d: from R%d (index %d): traveled: %d, %d, %d\n", rank, remote_rank, index, traveled[0], traveled[1], traveled[2]);
+                            printf("new pos: %0.5lf, %0.5lf, %0.5lf\n", 
+                            position_part(index, 0), position_part(index, 1), position_part(index, 2));
+                            //printf("Adjusting pos dim %d: diff: %0.5lf, old: %0.5lf new: %0.5lf\n", dim, diff, new_pos);
+                        }
 
                     // for (int dim = 1; dim < 4; dim++)
                     // {
@@ -606,8 +639,8 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         {
             for (int i = 257; i < total_size; i++)
             {
-                printf("Before: On rank R%d, from R%d, index: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
-                    _rank, rank3d_part(i), i, position_part(i, 0), position_part(i, 1), position_part(i, 2));
+                // printf("Before: On rank R%d, from R%d, index: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
+                //     _rank, rank3d_part(i), i, position_part(i, 0), position_part(i, 1), position_part(i, 2));
             }
                 //int i = 350;
                 // printf("owned3d_count: %d, total: %d\n", owned_3D_count, total_size);
@@ -630,8 +663,8 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         {
             for (int i = 257; i < total_size; i++)
             {
-                printf("After: On rank R%d, from R%d, index: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
-                    _rank, rank3d_part(i), i, position_part(i, 0), position_part(i, 1), position_part(i, 2));
+                // printf("After: On rank R%d, from R%d, index: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
+                //     _rank, rank3d_part(i), i, position_part(i, 0), position_part(i, 1), position_part(i, 2));
             }
         }
         #endif
