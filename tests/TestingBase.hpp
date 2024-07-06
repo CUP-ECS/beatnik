@@ -42,6 +42,60 @@ class NullInitFunctor
     };
 };
 
+class DefaultInitFunctor
+{
+  public:
+    KOKKOS_INLINE_FUNCTION
+    bool operator()( Cabana::Grid::Node, Beatnik::Field::Position,
+                     [[maybe_unused]] const int index[2],
+                     const double coord[2],
+                     double &z1, double &z2, double &z3) const
+    {
+        double lcoord[2];
+        /* Compute the physical position of the interface from its global
+         * coordinate in mesh space */
+        for (int i = 0; i < 2; i++) {
+            lcoord[i] = coord[i];
+            if (_b == BoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
+                lcoord[i] += 0.5;
+            }
+        }
+        z1 = _dx * lcoord[0];
+        z2 = _dy * lcoord[1];
+
+        // We don't currently support tilting the initial interface
+        switch (_i) {
+        case IC_COS:
+            z3 = _m * cos(z1 * (2 * M_PI / _p)) * cos(z2 * (2 * M_PI / _p));
+            break;
+        case IC_SECH2:
+            z3 = _m * pow(1.0 / cosh(_p * (z1 * z1 + z2 * z2)), 2);
+            break;
+        case IC_RANDOM:
+            /* XXX Use p to seed the random number generator XXX */
+            /* Also need to use the Kokkos random number generator, not
+             * drand48 */
+            // z3 = _m * (2*drand48() - 1.0);
+            break;
+        case IC_GAUSSIAN:
+        case IC_FILE:
+            break;
+        }
+        return true;
+    };
+
+    KOKKOS_INLINE_FUNCTION
+    bool operator()( Cabana::Grid::Node, Beatnik::Field::Vorticity,
+                     [[maybe_unused]] const int index[2],
+                     [[maybe_unused]] const double coord[2],
+                     double& w1, double &w2 ) const
+    {
+        // Initial vorticity along the interface is 0.
+        w1 = 0; w2 = 0;
+        return true;
+    };
+};
+
 /*
  * Parent class to hold all the objects we want to test in one place.
  * Since so many objects depend on one another, it makes sense to initialize
