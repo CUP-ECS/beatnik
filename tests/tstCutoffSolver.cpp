@@ -35,10 +35,14 @@ TYPED_TEST(CutoffSolverTest, testIsOnBoundary)
  */
 TYPED_TEST(CutoffSolverTest, testPeriodicHalo)
 { 
-    int rank, comm_size;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
-    auto boundary_topology = this->p_br_cutoff_->get_spatial_mesh()->getBoundaryInfo();
+
+    this->p_pm_->gather();
+    auto z = this->p_pm_->get( Cabana::Grid::Node(), Beatnik::Field::Position() );
+    auto w = this->p_pm_->get( Cabana::Grid::Node(), Beatnik::Field::Vorticity() );
+
+    this->p_br_cutoff_->initializeParticles(this->particle_array_, z, w, this->omega_);
+
+    
     
 }
 

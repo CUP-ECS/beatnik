@@ -42,9 +42,26 @@ class NullInitFunctor
     };
 };
 
-class DefaultInitFunctor
+struct MeshInitFunc
 {
-  public:
+    // Initialize Variables
+
+    MeshInitFunc( std::array<double, 6> box,
+                  double t, double m, double v, double p, 
+                  const std::array<int, 2> nodes, enum Beatnik::BoundaryType boundary )
+        : _t( t )
+        , _m( m )
+        , _v( v)
+        , _p( p )
+        , _b( boundary )
+    {
+	_ncells[0] = nodes[0] - 1;
+        _ncells[1] = nodes[1] - 1;
+
+        _dx = (box[3] - box[0]) / _ncells[0];
+        _dy = (box[4] - box[1]) / _ncells[1];
+    };
+
     KOKKOS_INLINE_FUNCTION
     bool operator()( Cabana::Grid::Node, Beatnik::Field::Position,
                      [[maybe_unused]] const int index[2],
@@ -56,31 +73,14 @@ class DefaultInitFunctor
          * coordinate in mesh space */
         for (int i = 0; i < 2; i++) {
             lcoord[i] = coord[i];
-            if (_b == BoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
+            if (_b == Beatnik::BoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
                 lcoord[i] += 0.5;
             }
         }
         z1 = _dx * lcoord[0];
         z2 = _dy * lcoord[1];
+        z3 = _m * cos(z1 * (2 * M_PI / _p)) * cos(z2 * (2 * M_PI / _p));
 
-        // We don't currently support tilting the initial interface
-        switch (_i) {
-        case IC_COS:
-            z3 = _m * cos(z1 * (2 * M_PI / _p)) * cos(z2 * (2 * M_PI / _p));
-            break;
-        case IC_SECH2:
-            z3 = _m * pow(1.0 / cosh(_p * (z1 * z1 + z2 * z2)), 2);
-            break;
-        case IC_RANDOM:
-            /* XXX Use p to seed the random number generator XXX */
-            /* Also need to use the Kokkos random number generator, not
-             * drand48 */
-            // z3 = _m * (2*drand48() - 1.0);
-            break;
-        case IC_GAUSSIAN:
-        case IC_FILE:
-            break;
-        }
         return true;
     };
 
@@ -94,6 +94,10 @@ class DefaultInitFunctor
         w1 = 0; w2 = 0;
         return true;
     };
+    double _t, _m, _v, _p;
+    Kokkos::Array<int, 3> _ncells;
+    double _dx, _dy;
+    enum Beatnik::BoundaryType _b;
 };
 
 /*
@@ -136,15 +140,15 @@ class TestingBase : public ::testing::Test
     Beatnik::BoundaryCondition p_bc_;
     Beatnik::BoundaryCondition f_bc_;
 
-    std::shared_ptr<surface_mesh_type> p_mesh_;
-    std::shared_ptr<surface_mesh_type> f_mesh_;
+    std::unique_ptr<surface_mesh_type> p_mesh_;
+    std::unique_ptr<surface_mesh_type> f_mesh_;
 
-    NullInitFunctor<2> createFunctor_;
-    std::shared_ptr<pm_type> p_pm_;
-    std::shared_ptr<pm_type> f_pm_;
+    NullInitFunctor<2> createFunctorNull_;
+    std::unique_ptr<pm_type> p_pm_;
+    std::unique_ptr<pm_type> f_pm_;
 
-    std::shared_ptr<br_type> p_br_cutoff_;
-    std::shared_ptr<br_type> f_br_cutoff_;
+    std::unique_ptr<br_type> p_br_cutoff_;
+    std::unique_ptr<br_type> f_br_cutoff_;
 
     void SetUp() override
     {
@@ -168,17 +172,21 @@ class TestingBase : public ::testing::Test
         f_params_.periodic = {false, false};
         f_params_.cutoff_distance = 0.1;
 
+        // Init mesh
+        MeshInitFunc p_MeshInitFunc_(globalBoundingBox_, 0.0, 0.05, 0.00, 1.0, globalNumNodes_, Beatnik::BoundaryType::PERIODIC);
+        MeshInitFunc f_MeshInitFunc_(globalBoundingBox_, 0.0, 0.05, 0.00, 1.0, globalNumNodes_, Beatnik::BoundaryType::FREE);
+
         // Periodic
-        this->p_mesh_ = std::make_shared<surface_mesh_type>( globalBoundingBox_, globalNumNodes_, p_params_.periodic, 
+        this->p_mesh_ = std::make_unique<surface_mesh_type>( globalBoundingBox_, globalNumNodes_, p_params_.periodic, 
                                 partitioner_, haloWidth_, MPI_COMM_WORLD );
-        this->p_pm_ = std::make_shared<pm_type>( *p_mesh_, p_bc_, createFunctor_ );
-        this->p_br_cutoff_ = std::make_shared<br_type>(*p_pm_, p_bc_, 1.0, 1.0, 1.0, p_params_);
+        this->p_pm_ = std::make_unique<pm_type>( *p_mesh_, p_bc_, p_MeshInitFunc_ );
+        this->p_br_cutoff_ = std::make_unique<br_type>(*p_pm_, p_bc_, 1.0, 1.0, 1.0, p_params_);
 
         // Free
-        this->f_mesh_ = std::make_shared<surface_mesh_type>( globalBoundingBox_, globalNumNodes_, f_params_.periodic, 
+        this->f_mesh_ = std::make_unique<surface_mesh_type>( globalBoundingBox_, globalNumNodes_, f_params_.periodic, 
                                 partitioner_, haloWidth_, MPI_COMM_WORLD );
-        this->f_pm_ = std::make_shared<pm_type>( *f_mesh_, f_bc_, createFunctor_ );
-        this->f_br_cutoff_ = std::make_shared<br_type>(*f_pm_, f_bc_, 1.0, 1.0, 1.0, f_params_);
+        this->f_pm_ = std::make_unique<pm_type>( *f_mesh_, f_bc_, f_MeshInitFunc_ );
+        this->f_br_cutoff_ = std::make_unique<br_type>(*f_pm_, f_bc_, 1.0, 1.0, 1.0, f_params_);
     }
 
     void TearDown() override
