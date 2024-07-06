@@ -120,27 +120,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         else return 9.0/8.0;
     }
 
-    static KOKKOS_INLINE_FUNCTION bool areNeighbors(const int remote_location[3],
-                                                   const int local_location[3],
-                                                   const int max_location[3])
-    {
-        // Do not consider remote ranks that do not sit on a boundary
-        if (!(remote_location[0] == 0 || remote_location[0] == max_location[0]-1 ||
-                remote_location[1] == 0 || remote_location[1] == max_location[1]-1))
-        {
-            return false;
-        }
-
-        // Do not consider ranks that are on a boundary but neighboring 
-        if (abs(local_location[0] - remote_location[0]) <= 1 &&
-            abs(local_location[1] - remote_location[1]) <= 1)
-        {
-            return false;
-        }
-
-        return true;
-    }
-
     static KOKKOS_INLINE_FUNCTION int isOnBoundary(const int local_location[3],
                                                    const int max_location[3])
     {
@@ -154,14 +133,11 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         return 0;
     }
 
-    void getNeighbors(int is_neighbor[26][4]) const
+    void getNeighbors(int is_neighbor[26]) const
     {
         for (int i = 0; i < 26; i++)
         {
-            is_neighbor[i][0] = 0;
-            is_neighbor[i][1] = 999;
-            is_neighbor[i][2] = 999;
-            is_neighbor[i][3] = 999;
+            is_neighbor[i] = 0;
         }
 
         const auto local_grid = _spatial_mesh->localGrid();
@@ -186,55 +162,13 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                             {
                                 if (abs(topology(_rank, w) - topology(neighbor_rank, w)) > 1)
                                 {
-                                    is_neighbor[neighbor_rank][0] = 1;
-                                    is_neighbor[neighbor_rank][1] = i;
-                                    is_neighbor[neighbor_rank][2] = j;
-                                    is_neighbor[neighbor_rank][3] = k;
+                                    is_neighbor[neighbor_rank] = 1;
                                     break;
                                 }
                             }
                         }
-                        // Potentially invalid neighbor ranks (non-periodic
-                        // global boundary)
-                        
-                        // if ( neighbor_rank != -1 )
-                        // {
-                        //     auto sis = local_grid.sharedIndexSpace(
-                        //         Cabana::Grid::Own(), Cabana::Grid::Cell(), i, j, k,
-                        //         _min_halo );
-                        //     auto min_ind = sis.min();
-                        //     auto max_ind = sis.max();
-                        //     local_mesh.coordinates( Cabana::Grid::Node(),
-                        //                             min_ind.data(),
-                        //                             _min_coord[n].data() );
-                        //     local_mesh.coordinates( Cabana::Grid::Node(),
-                        //                             max_ind.data(),
-                        //                             _max_coord[n].data() );
-                        // }
                     }
                 }
-            }
-        }
-    }
-
-    void getTraveledBoundaries(const int my_rank, const int other_rank, int traveled[3]) const
-    {
-        auto topology = _spatial_mesh->getBoundaryInfo();
-
-        // Dimensions across a boundary will be more than one distance away in x/y/z space
-        for (int dim = 1; dim < 4; dim++)
-        {
-            if (topology(other_rank, dim) - topology(my_rank, dim) > 1)
-            {
-                traveled[dim-1] = -1;
-            }
-            else if (topology(other_rank, dim) - topology(my_rank, dim) < -1)
-            {
-                traveled[dim-1] = 1;
-            }
-            else
-            {
-                traveled[dim-1] = 0;
             }
         }
     }
@@ -359,6 +293,10 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
      **/
     void correctPeriodicBoundaries(particle_array_type &particle_array, int local_count) const
     {
+        if (!_params.periodic[0])
+        {
+            return;
+        }
         if (_comm_size == 1)
         {
             std::cerr << "Error: Communicator size is " << _comm_size
@@ -366,14 +304,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             exit(-1);
         }
 
-        // Get slices of each piece of the particle array
         auto position_part = Cabana::slice<0>(particle_array);
-        auto o_part = Cabana::slice<1>(particle_array);
-        auto zdot_part = Cabana::slice<2>(particle_array);
-        auto weight_part = Cabana::slice<3>(particle_array);
-        auto idx_part = Cabana::slice<4>(particle_array);
-        auto id_part = Cabana::slice<5>(particle_array);
-        auto rank2d_part = Cabana::slice<6>(particle_array);
         auto rank3d_part = Cabana::slice<7>(particle_array);
 
         int total_size = particle_array.size();
@@ -386,20 +317,8 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         {
             std::array<double, 6> global_bounding_box = _params.global_bounding_box;
             auto local_grid = _spatial_mesh->localGrid();
-            int is_neighbor[26][4];
+            int is_neighbor[26];
             getNeighbors(is_neighbor);
-            // for (int i = 0; i < 26; i++)
-            // {
-            //     if (is_neighbor[i] == 1)
-            //     {
-            //         printf("R%d: neighbor %d: %d\n", _rank, i, is_neighbor[i]);
-            //     }   
-            // }
-
-            Kokkos::View<int*[4], device_type> boundary_topology_device("boundary_topology_device", _comm_size+1);
-
-            // Step 3: Deep copy the data from host view to device view
-            Kokkos::deep_copy(boundary_topology_device, boundary_topology);
 
 
             Kokkos::parallel_for("fix_haloed_particle_positions", Kokkos::RangePolicy<exec_space>(local_count, total_size), 
@@ -411,24 +330,28 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                 * z-direction will never be periodic.
                 */
                 int remote_rank = rank3d_part(index);
-                if (is_neighbor[remote_rank][0] == 1)
+                if (is_neighbor[remote_rank] == 1)
                 {
-                    int remote_location[3] = {boundary_topology_device(remote_rank, 1),
-                                            boundary_topology_device(remote_rank, 2),
-                                            boundary_topology_device(remote_rank, 3)};
-
-                    // Get the dimension of the halo move: 0 = x, 1 = y and magnitude of adjustment
-                    // int dim_const = (abs(local_location[0] - remote_location[0]) == 0) ? 0 : 1;
-                    // if (rank == 3 && index == 350)
-                    // {
-                    //     int i = index;
-                    //     printf("IN BEFORE: On rank R%d, from R%d, index: %d, pos: (%0.5lf, %0.5lf, %0.5lf) from: (%d, %d, %d)\n",
-                    // _rank, rank3d_part(i), i, position_part(i, 0), position_part(i, 1), position_part(i, 2), is_neighbor[remote_rank][1], is_neighbor[remote_rank][2], is_neighbor[remote_rank][3]);
-                    // }
                     // Get the dimenions to adjust
+                    // Dimensions across a boundary will be more than one distance away in x/y/z space
                     int traveled[3];
-                    getTraveledBoundaries(rank, remote_rank, traveled);
-                    if (rank == 3)
+                    for (int dim = 1; dim < 4; dim++)
+                    {
+                        if (boundary_topology(remote_rank, dim) - boundary_topology(rank, dim) > 1)
+                        {
+                            traveled[dim-1] = -1;
+                        }
+                        else if (boundary_topology(remote_rank, dim) - boundary_topology(rank, dim) < -1)
+                        {
+                            traveled[dim-1] = 1;
+                        }
+                        else
+                        {
+                            traveled[dim-1] = 0;
+                        }
+                    }
+
+                    if (rank == 12)
                         {
                             printf("R%d: from R%d (index %d): traveled: %d, %d, %d, ", rank, remote_rank, index, traveled[0], traveled[1], traveled[2]);
                             printf("old pos: %0.5lf, %0.5lf, %0.5lf, ", position_part(index, 0), position_part(index, 1), position_part(index, 2));
@@ -445,47 +368,13 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                             position_part(index, dim) = new_pos;
                         }
                     }
-                    if (rank == 3)
+                    if (rank == 12)
                         {
                             //printf("R%d: from R%d (index %d): traveled: %d, %d, %d\n", rank, remote_rank, index, traveled[0], traveled[1], traveled[2]);
                             printf("new pos: %0.5lf, %0.5lf, %0.5lf\n", 
                             position_part(index, 0), position_part(index, 1), position_part(index, 2));
                             //printf("Adjusting pos dim %d: diff: %0.5lf, old: %0.5lf new: %0.5lf\n", dim, diff, new_pos);
                         }
-
-                    // for (int dim = 1; dim < 4; dim++)
-                    // {
-                    //     // i=1; j=2; k=3
-                    //     if (is_neighbor[remote_rank][dim] != 0)
-                    //     {
-                    //         // -1, -1, -1, 1, 1, 1
-                    //         double diff = global_bounding_box[dim-1+3] - global_bounding_box[dim-1];
-                    //         // Adjust position
-                    //         double new_pos = position_part(index, dim-1) + diff * is_neighbor[remote_rank][dim];
-                    //         position_part(index, dim-1) = new_pos;
-                    //         // if (rank == 3 && index == 350)
-                    //         // {
-                    //         //     printf("Adjusting pos dim %d: diff: %0.5lf, new: %0.5lf\n", dim-1, diff, new_pos);
-                    //         // }
-                    //     }
-                    // }   
-
-
-                    
-                    
-                    
-
-                    // if (rank == 3 && index == 257)
-                    // {
-                    //     printf("IN: index: %d, pos: (%0.5lf, %0.5lf, %0.5lf), newpos: %0.5lf\n", position_part(index, 0), position_part(index, 1), position_part(index, 2), index, new_pos);
-                    //     //printf("IN: pos: %0.5lf, pos_dim_const: %0.5lf, dim_const: %d\n", position_part(index, 0), position_part(index, dim_const), dim_const);
-                    //     //printf("IN1: position: %0.5lf - %0.5lf = %0.5lf\n", position_part(index, dim_const), diff, position_part(index, dim_const) - diff);
-                    //     //printf("IN: ll: %d, %d rl: %d, %d\n", local_location[0], local_location[1], remote_location[0], remote_location[1]);
-                    //     //printf("IN: local-remote loc: %d - %d = %d\n", local_location[dim], remote_location[dim], local_location[dim] - remote_location[dim]);
-                    //     // printf("IN: On rank R%d, 3Did: %d, id: %d, dim_const: %d, dim_mag: %d, diff: %0.5lf\n\tpos: (%0.5lf, %0.5lf, %0.5lf), new_pos: %0.5lf\n",
-                    //     //     _rank, rank3d_part(index), id_part(index), dim_const, dim_mag, diff,
-                    //     //     position_part(index, 0), position_part(index, 1), position_part(index, 2), new_pos);
-                    // }
                 }
             });
         }
@@ -626,50 +515,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         migrateParticlesTo3D(particle_array);
         int owned_3D_count = particle_array.size();
         performHaloExchange3D(particle_array);
-
-        #if DEVELOP
-        int total_size = particle_array.size();
-        auto position_part = Cabana::slice<0>(particle_array);
-        auto rank2d_part = Cabana::slice<6>(particle_array);
-        auto rank3d_part = Cabana::slice<7>(particle_array);
-        auto id_part = Cabana::slice<5>(particle_array);
-        // printf("owned3d_count: %d, total: %d\n", owned_3D_count, total_size);
-        
-        if (_rank == 3)
-        {
-            for (int i = 257; i < total_size; i++)
-            {
-                // printf("Before: On rank R%d, from R%d, index: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
-                //     _rank, rank3d_part(i), i, position_part(i, 0), position_part(i, 1), position_part(i, 2));
-            }
-                //int i = 350;
-                // printf("owned3d_count: %d, total: %d\n", owned_3D_count, total_size);
-                
-            
-                
-                // printf("i: %d 2D: %d, 3D: %d, ID: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
-                //     i, rank2d_part(i), rank3d_part(i), id_part(i),
-                //     position_part(i, 1), position_part(i, 1), position_part(i, 2));
-        }
-        
-        
-        
-        #endif
-
         correctPeriodicBoundaries(particle_array, owned_3D_count);
-
-        #if DEVELOP
-        if (_rank == 3)
-        {
-            for (int i = 257; i < total_size; i++)
-            {
-                // printf("After: On rank R%d, from R%d, index: %d, pos: (%0.5lf, %0.5lf, %0.5lf)\n",
-                //     _rank, rank3d_part(i), i, position_part(i, 0), position_part(i, 1), position_part(i, 2));
-            }
-        }
-        #endif
-
-
         computeInterfaceVelocityNeighbors(particle_array, owned_3D_count, _dy, _dx, _epsilon);
         migrateParticlesTo2D(particle_array, owned_3D_count);
         populate_zdot(particle_array, zdot);
