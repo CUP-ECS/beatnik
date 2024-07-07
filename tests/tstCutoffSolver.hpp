@@ -103,15 +103,19 @@ class CutoffSolverTest : public TestingBase<T>
         int total_size = particle_array_.size();
         auto boundary_topology = this->p_br_cutoff_->get_spatial_mesh()->getBoundaryInfo();
         int local_location[3] = {boundary_topology(rank_, 1), boundary_topology(rank_, 2), boundary_topology(rank_, 3)};
-        int max_location[3] = {boundary_topology(comm_size_, 1), boundary_topology(comm_size_, 2), boundary_topology(comm_size_, 3)};
+        int num_procs[3] = {boundary_topology(comm_size_, 1), boundary_topology(comm_size_, 2), boundary_topology(comm_size_, 3)};
         int is_neighbor[26];
         this->p_br_cutoff_->getPeriodicNeighbors(is_neighbor);
-        int isOnBoundary = this->p_br_cutoff_->isOnBoundary(local_location, max_location);
+        int isOnBoundary = this->p_br_cutoff_->isOnBoundary(local_location, num_procs);
         /* End setup */
 
         /* Iterate over each haloed particle recieved and check the following conditions:
          * 
          */
+        int num_periodic_recieved = 0;
+        int procs_recv_in_xy = 0;
+        int procs_recv_in_x = 0;
+        int procs_recv_in_y = 0;
         for (int index = owned_3D_count; index < total_size; index++)
         {
             int remote_rank = rank3d_part(index);
@@ -120,78 +124,81 @@ class CutoffSolverTest : public TestingBase<T>
                 // If the rank is not on a boundary, none of the particles it recieves
                 // should be from ranks marked as a periodic neighbor
                 EXPECT_EQ(is_neighbor[remote_rank], 0) << "Rank " << rank_
-                    << " incorrectly marked rank " << remote_rank << " as a periodic neighbor in x/y.";
+                    << " incorrectly marked rank " << remote_rank << " as a periodic neighbor in x/y.\n";
             }
+            else
+            {
+                // Make sure the process recieved particles across its periodic boundary
+                // XXX - Don't use the getPeriodicNeighbors function in CutoffBRSolver to do this?
+                if (is_neighbor[remote_rank] == 1)
+                {
+                    num_periodic_recieved++;
+
+                    /* Check general mechanics of the halo */
+                    int traveled[3];
+                    for (int dim = 1; dim < 4; dim++)
+                    {
+                        if (boundary_topology(remote_rank, dim) - boundary_topology(rank_, dim) > 1)
+                        {
+                            traveled[dim-1] = -1;
+                        }
+                        else if (boundary_topology(remote_rank, dim) - boundary_topology(rank_, dim) < -1)
+                        {
+                            traveled[dim-1] = 1;
+                        }
+                        else
+                        {
+                            traveled[dim-1] = 0;
+                        }
+                    }
+                    if (traveled[0] != 0 && traveled[1] != 0) procs_recv_in_xy++;
+                    else if (traveled[0] != 0 && traveled[1] == 0) procs_recv_in_x++;
+                    else if (traveled[0] == 0 && traveled[1] != 0) procs_recv_in_y++;
+                    
+
+                    /* Test if the coordinates were adjusted correctly:
+                     * The traveled dimension(s) have coordinates outside
+                     * of the bounding box but inside the cutoff distance.
+                     */
+                    for (int dim = 0; dim < 2; dim++)
+                    {
+                        double abs_pos = abs(position_part(index, dim));
+                        double max_dim = this->globalBoundingBox_[dim+3];
+                        double max_coord = max_dim + this->cutoff_distance_;
+                        if (traveled[dim])
+                        {
+                            EXPECT_GE(max_dim, abs_pos) << "Rank " << rank_ << ": Absolute value of adjusted coordinate (index " 
+                                << index << ") in dimension " << dim << " is not outside of the bounding box.\n";
+                            EXPECT_LE(abs_pos, max_coord) << "Rank " << rank_ << ": Absolute value of adjusted coordinate (index " 
+                                << index << ") in dimension " << dim << " is outside of the bounding box + cutoff distance.\n";
+                        }
+                        else 
+                        {
+                            EXPECT_LE(max_dim, abs_pos) << "Rank " << rank_ << ": Absolute value of non-adjusted coordinate (index " 
+                                << index << ") in dimension " << dim << " is not inside of the bounding box.\n";
+                        }
+                        
+                    }
+                }
+            } 
         }
 
+        if (isOnBoundary)
+        {
+            EXPECT_GT(num_periodic_recieved, 0) << "Rank " << rank_ 
+                << " is on a periodic boundary and did not recieve any particles across the boundary.\n";
+        }
 
-
-
-    //     if (isOnBoundaryCorrect(local_location, max_location))
-    //     {
-    //         std::array<double, 6> global_bounding_box = this->p_params_.global_bounding_box;
-    //         int is_neighbor[26];
-    //         this->p_br_cutoff->getPeriodicNeighborsCorrect(is_neighbor);
-
-    //         for (int index = owned_3D_count; index < total_size; index++)
-    //         {
-    //             /* If local process is not on a boundary, exit. No particles
-    //             * accross the boundary would have been recieved.
-    //             * We only consider the x and y postions here because the
-    //             * z-direction will never be periodic.
-    //             */
-    //             int remote_rank = rank3d_part(index);
-    //             if (is_neighbor[remote_rank] == 1)
-    //             {
-    //                 // Get the dimenions to adjust
-    //                 // Dimensions across a boundary will be more than one distance away in x/y/z space
-    //                 int traveled[3];
-    //                 for (int dim = 1; dim < 4; dim++)
-    //                 {
-    //                     if (boundary_topology(remote_rank, dim) - boundary_topology(rank, dim) > 1)
-    //                     {
-    //                         traveled[dim-1] = -1;
-    //                     }
-    //                     else if (boundary_topology(remote_rank, dim) - boundary_topology(rank, dim) < -1)
-    //                     {
-    //                         traveled[dim-1] = 1;
-    //                     }
-    //                     else
-    //                     {
-    //                         traveled[dim-1] = 0;
-    //                     }
-    //                 }
-
-    //                 if (rank == 12)
-    //                     {
-    //                         printf("R%d: from R%d (index %d): traveled: %d, %d, %d, ", rank, remote_rank, index, traveled[0], traveled[1], traveled[2]);
-    //                         printf("old pos: %0.5lf, %0.5lf, %0.5lf, ", position_part(index, 0), position_part(index, 1), position_part(index, 2));
-    //                         //printf("Adjusting pos dim %d: diff: %0.5lf, old: %0.5lf new: %0.5lf\n", dim, diff, new_pos);
-    //                     }
-    //                 for (int dim = 0; dim < 3; dim++)
-    //                 {
-    //                     if (traveled[dim] != 0)
-    //                     {
-    //                         // -1, -1, -1, 1, 1, 1
-    //                         double diff = global_bounding_box[dim+3] - global_bounding_box[dim];
-    //                         // Adjust position
-    //                         double new_pos = position_part(index, dim) + diff * traveled[dim];
-    //                         position_part(index, dim) = new_pos;
-    //                     }
-    //                 }
-    //                 if (rank == 12)
-    //                     {
-    //                         //printf("R%d: from R%d (index %d): traveled: %d, %d, %d\n", rank, remote_rank, index, traveled[0], traveled[1], traveled[2]);
-    //                         printf("new pos: %0.5lf, %0.5lf, %0.5lf\n", 
-    //                         position_part(index, 0), position_part(index, 1), position_part(index, 2));
-    //                         //printf("Adjusting pos dim %d: diff: %0.5lf, old: %0.5lf new: %0.5lf\n", dim, diff, new_pos);
-    //                     }
-    //             }
-
-    //         }
-
-                
-    //     }
+        /* Make sure that the number of ranks that recieved particles across
+         * both the x and y dimensions equals the number of processes in
+         * the z-dimension times four. 
+         */ 
+        int xy_procs = num_procs[2] * 4;
+        int x_procs = num_procs[0] * num_procs[2] * 2 - xy_procs;
+        int y_procs = num_procs[1] * num_procs[2] * 2 - xy_procs;
+        EXPECT_EQ(procs_recv_in_xy, xy_procs) << "The number of processes recieving points across the x/y dimensions is not as expected.\n";
+        EXPECT_EQ(procs_recv_in_x, x_procs) << "The number of processes recieving points across the x dimension is not as expected.\n";
+        EXPECT_EQ(procs_recv_in_y, y_procs) << "The number of processes recieving points across the y dimension is not as expected.\n";
     }
 };
 
