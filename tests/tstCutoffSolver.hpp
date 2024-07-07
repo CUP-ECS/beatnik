@@ -30,6 +30,9 @@ class CutoffSolverTest : public TestingBase<T>
 
     using br_type = Beatnik::CutoffBRSolver<ExecutionSpace, MemorySpace, Beatnik::Params>;
     using pm_type = Beatnik::ProblemManager<ExecutionSpace, MemorySpace>;
+
+    // XXX - Can we get particle_node and particle_array_type from the CutoffBRSolver class
+    // instead of re-copying them here?
     using particle_node = Cabana::MemberTypes<double[3], // xyz position in space                           0
                                               double[3], // Own omega for BR                                1
                                               double[3], // zdot                                            2
@@ -40,8 +43,6 @@ class CutoffSolverTest : public TestingBase<T>
                                               int,       // Owning rank in 3D space                         7
                                               int        // Point ID in 3D                                  8
                                               >;
-    // XXX Change the final parameter of particle_array_type, vector type, to
-    // be aligned with the machine we are using
     using particle_array_type = Cabana::AoSoA<particle_node, device_type, 4>;
    
 
@@ -82,7 +83,7 @@ class CutoffSolverTest : public TestingBase<T>
 
     void tstPeriodicHalo()
     {
-        /* Setup */
+        /* Start setup */
         this->p_pm_->gather();
         auto z = this->p_pm_->get( Cabana::Grid::Node(), Beatnik::Field::Position() );
         auto w = this->p_pm_->get( Cabana::Grid::Node(), Beatnik::Field::Vorticity() );
@@ -105,7 +106,8 @@ class CutoffSolverTest : public TestingBase<T>
         int max_location[3] = {boundary_topology(comm_size_, 1), boundary_topology(comm_size_, 2), boundary_topology(comm_size_, 3)};
         int is_neighbor[26];
         this->p_br_cutoff_->getPeriodicNeighbors(is_neighbor);
-        int isOnBoundary = this->isOnBoundaryCorrect(local_location, max_location);
+        int isOnBoundary = this->p_br_cutoff_->isOnBoundary(local_location, max_location);
+        /* End setup */
 
         /* Iterate over each haloed particle recieved and check the following conditions:
          * 
