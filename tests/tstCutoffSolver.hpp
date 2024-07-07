@@ -97,10 +97,13 @@ class CutoffSolverTest : public TestingBase<T>
         this->p_br_cutoff_->performHaloExchange3D(particle_array_);
         this->p_br_cutoff_->correctPeriodicBoundaries(particle_array_, owned_3D_count);
 
-        auto position_part = Cabana::slice<0>(particle_array_);
-        auto rank3d_part = Cabana::slice<7>(particle_array_);
+        // Copy particle_array_ to host memory
+        auto host_particle_array = Cabana::create_mirror_view_and_copy(Kokkos::HostSpace(), particle_array_);
 
-        int total_size = particle_array_.size();
+        auto position_part = Cabana::slice<0>(host_particle_array);
+        auto rank3d_part = Cabana::slice<7>(host_particle_array);
+
+        int total_size = host_particle_array.size();
         auto boundary_topology = this->p_br_cutoff_->get_spatial_mesh()->getBoundaryInfo();
         int local_location[3] = {boundary_topology(rank_, 1), boundary_topology(rank_, 2), boundary_topology(rank_, 3)};
         int num_procs[3] = {boundary_topology(comm_size_, 1), boundary_topology(comm_size_, 2), boundary_topology(comm_size_, 3)};
