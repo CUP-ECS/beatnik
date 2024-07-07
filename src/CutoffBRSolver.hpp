@@ -133,7 +133,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         return 0;
     }
 
-    void getNeighbors(int is_neighbor[26]) const
+    void getPeriodicNeighbors(int is_neighbor[26]) const
     {
         for (int i = 0; i < 26; i++)
         {
@@ -318,9 +318,8 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         if (isOnBoundary(local_location, max_location))
         {
             std::array<double, 6> global_bounding_box = _params.global_bounding_box;
-            auto local_grid = _spatial_mesh->localGrid();
             int is_neighbor[26];
-            getNeighbors(is_neighbor);
+            getPeriodicNeighbors(is_neighbor);
 
 
             Kokkos::parallel_for("fix_haloed_particle_positions", Kokkos::RangePolicy<exec_space>(local_count, total_size), 
