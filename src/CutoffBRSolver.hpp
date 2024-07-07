@@ -315,6 +315,10 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         int max_location[3] = {boundary_topology(_comm_size, 1), boundary_topology(_comm_size, 2), boundary_topology(_comm_size, 3)};
         int rank = _rank;
 
+        // Copy Boundary_topology to execution space
+        Kokkos::View<int*[4], device_type> boundary_topology_device("boundary_topology_device", _comm_size+1);
+        Kokkos::deep_copy(boundary_topology_device, boundary_topology);
+
         if (isOnBoundary(local_location, max_location))
         {
             std::array<double, 6> global_bounding_box = _params.global_bounding_box;
@@ -338,11 +342,11 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                     int traveled[3];
                     for (int dim = 1; dim < 4; dim++)
                     {
-                        if (boundary_topology(remote_rank, dim) - boundary_topology(rank, dim) > 1)
+                        if (boundary_topology_device(remote_rank, dim) - boundary_topology_device(rank, dim) > 1)
                         {
                             traveled[dim-1] = -1;
                         }
-                        else if (boundary_topology(remote_rank, dim) - boundary_topology(rank, dim) < -1)
+                        else if (boundary_topology_device(remote_rank, dim) - boundary_topology_device(rank, dim) < -1)
                         {
                             traveled[dim-1] = 1;
                         }
