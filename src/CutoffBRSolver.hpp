@@ -310,13 +310,13 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         auto rank3d_part = Cabana::slice<7>(particle_array);
 
         int total_size = particle_array.size();
-        Kokkos::View<int*[4], device_type> boundary_topology = _spatial_mesh->getBoundaryInfo();
+        Kokkos::View<int*[4], Kokkos::LayoutRight, Kokkos::HostSpace> boundary_topology = _spatial_mesh->getBoundaryInfo();
         int local_location[3] = {boundary_topology(_rank, 1), boundary_topology(_rank, 2), boundary_topology(_rank, 3)};
         int max_location[3] = {boundary_topology(_comm_size, 1), boundary_topology(_comm_size, 2), boundary_topology(_comm_size, 3)};
         int rank = _rank;
 
         // Copy Boundary_topology to execution space
-        Kokkos::View<int*[4], device_type> boundary_topology_device("boundary_topology_device", _comm_size+1);
+        Kokkos::View<int*[4], Kokkos::LayoutRight, device_type> boundary_topology_device("boundary_topology_device", _comm_size+1);
         Kokkos::deep_copy(boundary_topology_device, boundary_topology);
 
         if (isOnBoundary(local_location, max_location))
