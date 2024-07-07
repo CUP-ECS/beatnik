@@ -35,15 +35,7 @@ TYPED_TEST(CutoffSolverTest, testIsOnBoundary)
  */
 TYPED_TEST(CutoffSolverTest, testPeriodicHalo)
 { 
-
-    this->p_pm_->gather();
-    auto z = this->p_pm_->get( Cabana::Grid::Node(), Beatnik::Field::Position() );
-    auto w = this->p_pm_->get( Cabana::Grid::Node(), Beatnik::Field::Vorticity() );
-
-    this->p_br_cutoff_->initializeParticles(this->particle_array_, z, w, this->omega_);
-
-    
-    
+    this->tstPeriodicHalo();
 }
 
 } // end namespace BeatnikTest
