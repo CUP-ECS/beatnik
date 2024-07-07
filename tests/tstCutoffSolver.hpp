@@ -170,14 +170,14 @@ class CutoffSolverTest : public TestingBase<T>
                         double max_coord = max_dim + this->cutoff_distance_;
                         if (traveled[dim])
                         {
-                            EXPECT_GE(max_dim, abs_pos) << "Rank " << rank_ << ": Absolute value of adjusted coordinate (index " 
+                            EXPECT_GE(abs_pos, max_dim) << "Rank " << rank_ << ": Absolute value of adjusted coordinate (index " 
                                 << index << ") in dimension " << dim << " is not outside of the bounding box.\n";
                             EXPECT_LE(abs_pos, max_coord) << "Rank " << rank_ << ": Absolute value of adjusted coordinate (index " 
                                 << index << ") in dimension " << dim << " is outside of the bounding box + cutoff distance.\n";
                         }
                         else 
                         {
-                            EXPECT_LE(max_dim, abs_pos) << "Rank " << rank_ << ": Absolute value of non-adjusted coordinate (index " 
+                            EXPECT_LE(abs_pos, max_dim) << "Rank " << rank_ << ": Absolute value of non-adjusted coordinate (index " 
                                 << index << ") in dimension " << dim << " is not inside of the bounding box.\n";
                         }
                         
