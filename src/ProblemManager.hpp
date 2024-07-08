@@ -94,9 +94,11 @@ class ProblemManager
     template <class InitFunc>
     ProblemManager( const surface_mesh_type & surface_mesh,
                     const BoundaryCondition & bc, 
+                    const double period,
                     const InitFunc& create_functor )
         : _surface_mesh( surface_mesh )
         , _bc( bc )
+        , _period( period )
     // , other initializers
     {
         // The layouts of our various arrays for values on the staggered mesh
@@ -156,7 +158,8 @@ class ProblemManager
         auto own_nodes = local_grid.indexSpace( Cabana::Grid::Own(), Cabana::Grid::Node(),
                                                 Cabana::Grid::Local() );
         
-        Kokkos::Random_XorShift64_Pool<mem_space> random_pool(12345);
+        int seed = (int) 10000000 * _period;
+        Kokkos::Random_XorShift64_Pool<mem_space> random_pool(seed);
 
         Kokkos::parallel_for(
             "Initialize Cells`",
@@ -240,6 +243,9 @@ class ProblemManager
     // The mesh on which our data items are stored
     const surface_mesh_type &_surface_mesh;
     const BoundaryCondition &_bc;
+
+    // Used to seed the random number generator
+    const double _period;
 
     // Basic long-term quantities stored in the mesh and periodically written
     // to storage (specific computiontional methods may store additional state)

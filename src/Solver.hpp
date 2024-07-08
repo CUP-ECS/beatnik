@@ -41,6 +41,12 @@ namespace Beatnik
  */
 struct Params
 {
+    /* Save the period from command-line args to pass to 
+     * ProblemManager to seed the random number generator
+     * to initialize position
+     */
+    double period;
+
     /* Mesh data, for solvers that create another mesh */
     std::array<double, 6> global_bounding_box;
     std::array<bool, 2> periodic;
@@ -167,7 +173,7 @@ class Solver : public SolverBase
 
         // Create a problem manager to manage mesh state
         _pm = std::make_unique<pm_type>(
-            *_surface_mesh, _bc, create_functor );
+            *_surface_mesh, _bc, _params.period, create_functor );
 
         // Create the Birkhoff-Rott solver (XXX make this conditional on non-low 
         // order solve

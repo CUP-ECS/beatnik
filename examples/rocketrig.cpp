@@ -208,6 +208,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.params.cutoff_distance = 0.5;
     cl.params.heffte_configuration = 6;
     cl.params.br_solver = BR_EXACT;
+    // cl.params.period below
 
     /* Default problem is the cosine rocket rig */
     cl.num_nodes = { 128, 128 };
@@ -216,7 +217,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.tilt = 0.0;
     cl.magnitude = 0.05;
     cl.variation = 0.00;
-    cl.period = 1.0;
+    cl.params.period = 1.0;
     cl.gravity = 25.0;
     cl.atwood = 0.5;
 
@@ -409,8 +410,8 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             }
             break;
         case 'p':
-            cl.period = atof( optarg );
-            if ( cl.period <= 0.0 )
+            cl.params.period = atof( optarg );
+            if ( cl.params.period <= 0.0 )
             {
                 if ( rank == 0 )
                 {
@@ -695,7 +696,7 @@ void rocketrig( ClArgs& cl )
     bc.boundary_type = {cl.boundary, cl.boundary, cl.boundary, cl.boundary};
 
     MeshInitFunc initializer( cl.params.global_bounding_box, cl.initial_condition,
-                              cl.tilt, cl.magnitude, cl.variation, cl.period,
+                              cl.tilt, cl.magnitude, cl.variation, cl.params.period,
                               cl.num_nodes, cl.boundary );
 
     std::shared_ptr<Beatnik::SolverBase> solver;
