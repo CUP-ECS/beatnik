@@ -358,8 +358,8 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
                     if (rank == 12)
                         {
-                            printf("R%d: from R%d (index %d): traveled: %d, %d, %d, ", rank, remote_rank, index, traveled[0], traveled[1], traveled[2]);
-                            printf("old pos: %0.5lf, %0.5lf, %0.5lf, ", position_part(index, 0), position_part(index, 1), position_part(index, 2));
+                            //printf("R%d: from R%d (index %d): traveled: %d, %d, %d, ", rank, remote_rank, index, traveled[0], traveled[1], traveled[2]);
+                            printf("R%d: old pos: %0.5lf, %0.5lf, %0.5lf\n", rank, position_part(index, 0), position_part(index, 1), position_part(index, 2));
                             //printf("Adjusting pos dim %d: diff: %0.5lf, old: %0.5lf new: %0.5lf\n", dim, diff, new_pos);
                         }
                     for (int dim = 0; dim < 3; dim++)
@@ -376,7 +376,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                     if (rank == 12)
                         {
                             //printf("R%d: from R%d (index %d): traveled: %d, %d, %d\n", rank, remote_rank, index, traveled[0], traveled[1], traveled[2]);
-                            printf("new pos: %0.5lf, %0.5lf, %0.5lf\n", 
+                            printf("R%d: new pos: %0.5lf, %0.5lf, %0.5lf\n", rank, 
                             position_part(index, 0), position_part(index, 1), position_part(index, 2));
                             //printf("Adjusting pos dim %d: diff: %0.5lf, old: %0.5lf new: %0.5lf\n", dim, diff, new_pos);
                         }
