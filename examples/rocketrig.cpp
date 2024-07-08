@@ -32,6 +32,7 @@
 #include <Cabana_Core.hpp>
 #include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
+#include <Kokkos_Random.hpp>
 
 #include <mpi.h>
 
@@ -541,11 +542,14 @@ struct MeshInitFunc
         , _p( p )
         , _b( boundary )
     {
-	_ncells[0] = nodes[0] - 1;
+	    _ncells[0] = nodes[0] - 1;
         _ncells[1] = nodes[1] - 1;
 
         _dx = (box[3] - box[0]) / _ncells[0];
         _dy = (box[4] - box[1]) / _ncells[1];
+
+        /* Use p to seed the random number generator */
+        Kokkos::Random_XorShift64_Pool<> _random_pool(_p);
     };
 
     KOKKOS_INLINE_FUNCTION
@@ -567,6 +571,15 @@ struct MeshInitFunc
         z2 = _dy * lcoord[1];
 
         // We don't currently support tilting the initial interface
+
+        /* Need to initialize these values here to avoid "jump to case label "case IC_FILE:"
+         * crosses initialization of ‘double gaussian’, etc." errors */
+        auto generator = _random_pool.get_state();
+        double rand_num = generator.drand(0., 1.);
+        double mean = 0.0;
+        double std_dev = 1.0;
+        double gaussian = (1 / (std_dev * Kokkos::sqrt(2 * Kokkos::numbers::pi_v<double>))) *
+            Kokkos::exp(-0.5 * Kokkos::pow(((rand_num - mean) / std_dev), 2));
         switch (_i) {
         case IC_COS:
             z3 = _m * cos(z1 * (2 * M_PI / _p)) * cos(z2 * (2 * M_PI / _p));
@@ -575,22 +588,20 @@ struct MeshInitFunc
             z3 = _m * pow(1.0 / cosh(_p * (z1 * z1 + z2 * z2)), 2);
             break;
         case IC_RANDOM:
-            /* XXX Use p to seed the random number generator XXX */
-            /* Also need to use the Kokkos random number generator, not
-             * drand48 */
-            // z3 = _m * (2*drand48() - 1.0);
+            z3 = _m * (2*rand_num - 1.0);
             break;
         case IC_GAUSSIAN:
-            std::normal_distribution<double> distribution(0.0, 1.0);
-            Kokkos::Random_XorShift64_Pool<> random_pool(_p);
-            auto generator = random_pool.get_state();
-            double rand_num = generator.drand(0., 1.);
-            z3 = _m * distribution(rand_num);
-            random_pool.free_state(generator);
+            /* The built-in C++ std::normal_distribution<double> doesn't
+             * work here, so coding the gaussian distribution itself.
+             */
+            z3 = _m * gaussian;
             break;
         case IC_FILE:
             break;
         }
+        
+        _random_pool.free_state(generator);
+
         return true;
     };
 
@@ -609,6 +620,7 @@ struct MeshInitFunc
     Kokkos::Array<int, 3> _ncells;
     double _dx, _dy;
     enum Beatnik::BoundaryType _b;
+    Kokkos::Random_XorShift64_Pool<> _random_pool;
 };
 
 // Create Solver and Run
