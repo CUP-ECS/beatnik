@@ -150,7 +150,7 @@ class ProblemManager
         auto local_grid = *( _surface_mesh.localGrid() );
         auto local_mesh = Cabana::Grid::createLocalMesh<device_type>( local_grid );
 
-	// Get State Arrays
+	    // Get State Arrays
         auto z = get( Cabana::Grid::Node(), Field::Position() );
         auto w = get( Cabana::Grid::Node(), Field::Vorticity() );
 
@@ -158,7 +158,7 @@ class ProblemManager
         auto own_nodes = local_grid.indexSpace( Cabana::Grid::Own(), Cabana::Grid::Node(),
                                                 Cabana::Grid::Local() );
         
-        int seed = (int) 10000000 * _period;
+        int seed = (int) (10000000 * _period);
         Kokkos::Random_XorShift64_Pool<mem_space> random_pool(seed);
 
         Kokkos::parallel_for(
