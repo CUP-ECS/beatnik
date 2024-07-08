@@ -164,6 +164,10 @@ class CutoffSolverTest : public TestingBase<T>
                      * The traveled dimension(s) have coordinates outside
                      * of the bounding box but inside the cutoff distance.
                      */
+                    if (rank_ == 3)
+                    {
+                        printf("R%d: from R%d (index %d): pos: %0.5lf, %0.5lf, %0.5lf\n", rank_, remote_rank, index, position_part(index, 0), position_part(index, 1), position_part(index, 2));
+                    }
                     for (int dim = 0; dim < 2; dim++)
                     {
                         double abs_pos = abs(position_part(index, dim));
@@ -207,8 +211,8 @@ class CutoffSolverTest : public TestingBase<T>
         if (rank_ == 0)
         {
             int xy_procs = num_procs[2] * 4;
-            int x_procs = num_procs[0] * num_procs[2] * 2 - xy_procs;
-            int y_procs = num_procs[1] * num_procs[2] * 2 - xy_procs;
+            int x_procs = num_procs[0] * num_procs[2] * 2;
+            int y_procs = num_procs[1] * num_procs[2] * 2;
             EXPECT_EQ(procs_recv_in_xy, xy_procs) << "The number of processes recieving points across the x/y dimensions is not as expected.\n";
             EXPECT_EQ(procs_recv_in_x, x_procs) << "The number of processes recieving points across the x dimension is not as expected.\n";
             EXPECT_EQ(procs_recv_in_y, y_procs) << "The number of processes recieving points across the y dimension is not as expected.\n";
