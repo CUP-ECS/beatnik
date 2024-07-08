@@ -116,9 +116,9 @@ class CutoffSolverTest : public TestingBase<T>
          * 
          */
         int num_periodic_recieved = 0;
-        int procs_recv_in_xy = 0;
-        int procs_recv_in_x = 0;
-        int procs_recv_in_y = 0;
+        int recv_in_xy = 0;
+        int recv_in_x = 0;
+        int recv_in_y = 0;
         for (int index = owned_3D_count; index < total_size; index++)
         {
             int remote_rank = rank3d_part(index);
@@ -154,9 +154,9 @@ class CutoffSolverTest : public TestingBase<T>
                             traveled[dim-1] = 0;
                         }
                     }
-                    if (traveled[0] != 0 && traveled[1] != 0) procs_recv_in_xy++;
-                    else if (traveled[0] != 0 && traveled[1] == 0) procs_recv_in_x++;
-                    else if (traveled[0] == 0 && traveled[1] != 0) procs_recv_in_y++;
+                    if (traveled[0] != 0 && traveled[1] != 0) recv_in_xy = 1;
+                    else if (traveled[0] != 0 && traveled[1] == 0) recv_in_x = 1;
+                    else if (traveled[0] == 0 && traveled[1] != 0) recv_in_y = 1;
                     
 
                     /* Test if the coordinates were adjusted correctly:
@@ -186,6 +186,13 @@ class CutoffSolverTest : public TestingBase<T>
             } 
         }
 
+        int procs_recv_in_x = 0;
+        int procs_recv_in_y = 0;
+        int procs_recv_in_xy = 0;
+        MPI_Reduce(&recv_in_x, &procs_recv_in_x, 1, MPI_INT, MPI_SUM, 0, comm_);
+        MPI_Reduce(&recv_in_y, &procs_recv_in_y, 1, MPI_INT, MPI_SUM, 0, comm_);
+        MPI_Reduce(&recv_in_xy, &procs_recv_in_xy, 1, MPI_INT, MPI_SUM, 0, comm_);
+
         if (isOnBoundary)
         {
             EXPECT_GT(num_periodic_recieved, 0) << "Rank " << rank_ 
@@ -196,12 +203,15 @@ class CutoffSolverTest : public TestingBase<T>
          * both the x and y dimensions equals the number of processes in
          * the z-dimension times four. 
          */ 
-        int xy_procs = num_procs[2] * 4;
-        int x_procs = num_procs[0] * num_procs[2] * 2 - xy_procs;
-        int y_procs = num_procs[1] * num_procs[2] * 2 - xy_procs;
-        EXPECT_EQ(procs_recv_in_xy, xy_procs) << "The number of processes recieving points across the x/y dimensions is not as expected.\n";
-        EXPECT_EQ(procs_recv_in_x, x_procs) << "The number of processes recieving points across the x dimension is not as expected.\n";
-        EXPECT_EQ(procs_recv_in_y, y_procs) << "The number of processes recieving points across the y dimension is not as expected.\n";
+        if (rank_ == 0)
+        {
+            int xy_procs = num_procs[2] * 4;
+            int x_procs = num_procs[0] * num_procs[2] * 2 - xy_procs;
+            int y_procs = num_procs[1] * num_procs[2] * 2 - xy_procs;
+            EXPECT_EQ(procs_recv_in_xy, xy_procs) << "The number of processes recieving points across the x/y dimensions is not as expected.\n";
+            EXPECT_EQ(procs_recv_in_x, x_procs) << "The number of processes recieving points across the x dimension is not as expected.\n";
+            EXPECT_EQ(procs_recv_in_y, y_procs) << "The number of processes recieving points across the y dimension is not as expected.\n";
+        }
     }
 };
 
