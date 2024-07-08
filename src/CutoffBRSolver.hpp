@@ -310,18 +310,27 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         auto rank3d_part = Cabana::slice<7>(particle_array);
 
         int total_size = particle_array.size();
-        Kokkos::View<int*[4], Kokkos::LayoutRight, Kokkos::HostSpace> boundary_topology = _spatial_mesh->getBoundaryInfo();
+        Kokkos::View<int*[4], Kokkos::HostSpace> boundary_topology = _spatial_mesh->getBoundaryInfo();
         int local_location[3] = {boundary_topology(_rank, 1), boundary_topology(_rank, 2), boundary_topology(_rank, 3)};
         int max_location[3] = {boundary_topology(_comm_size, 1), boundary_topology(_comm_size, 2), boundary_topology(_comm_size, 3)};
         int rank = _rank;
 
         // Copy Boundary_topology to execution space
-        Kokkos::View<int*[4], Kokkos::LayoutRight, device_type> boundary_topology_device("boundary_topology_device", _comm_size+1);
-        Kokkos::deep_copy(boundary_topology_device, boundary_topology);
+        // https://kokkos.org/kokkos-core-wiki/API/core/view/deep_copy.html
+        // "How to get layout incompatiable views copied"
+        Kokkos::View<int*[4], device_type> boundary_topology_device("boundary_topology_device", _comm_size+1);
+        auto h_boundary_topology_device_tmp = Kokkos::create_mirror_view(boundary_topology_device);
+        Kokkos::deep_copy(h_boundary_topology_device_tmp, boundary_topology);
+        Kokkos::deep_copy(boundary_topology_device, h_boundary_topology_device_tmp);
+        //auto boundary_topology_device = Cabana::create_mirror_view_and_copy(, boundary_topology);
 
         if (isOnBoundary(local_location, max_location))
         {
-            std::array<double, 6> global_bounding_box = _params.global_bounding_box;
+            double global_bounding_box[6];
+            for (int i = 0; i < 6; i++)
+            {
+              global_bounding_box[i] = _params.global_bounding_box[i];
+            }
             int is_neighbor[26];
             getPeriodicNeighbors(is_neighbor);
 
@@ -342,11 +351,13 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                     int traveled[3];
                     for (int dim = 1; dim < 4; dim++)
                     {
-                        if (boundary_topology_device(remote_rank, dim) - boundary_topology_device(rank, dim) > 1)
+                        int remote_info = boundary_topology_device(remote_rank, dim);
+                        int local_info = boundary_topology_device(rank, dim);
+                        if (remote_info - local_info > 1)
                         {
                             traveled[dim-1] = -1;
                         }
-                        else if (boundary_topology_device(remote_rank, dim) - boundary_topology_device(rank, dim) < -1)
+                        else if (remote_info - local_info < -1)
                         {
                             traveled[dim-1] = 1;
                         }

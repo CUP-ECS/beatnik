@@ -182,7 +182,7 @@ class CutoffSolverTest : public TestingBase<T>
                             //         position_part(index, 0), position_part(index, 1), position_part(index, 2),
                             //         abs_pos, max_dim, max_coord);
                             // }
-                            EXPECT_GE(abs_pos, max_dim) << "Rank " << rank_ << 
+                            EXPECT_GE(abs_pos, max_dim) << "Rank " << rank_
                                 << "from rank " << remote_rank << ": coords: " << position_part(index, 0) << ", " << position_part(index, 1) << ", " << position_part(index, 2)
                                 << ": Absolute value of adjusted coordinate (index " 
                                 << index << ") in dimension " << dim << " is not outside of the bounding box.\n";
