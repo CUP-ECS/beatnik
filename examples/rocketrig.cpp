@@ -553,7 +553,7 @@ struct MeshInitFunc
         _dy = (box[4] - box[1]) / _ncells[1];
 
         /* Use p to seed the random number generator */
-        Kokkos::Random_XorShift64_Pool<> _random_pool(_p);
+        _random_pool = Kokkos::Random_XorShift64_Pool<>(12345); 
     };
 
     KOKKOS_INLINE_FUNCTION
