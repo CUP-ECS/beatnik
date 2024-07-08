@@ -370,6 +370,10 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 cl.initial_condition = InitialConditionModel::IC_COS;
             } else if (model.compare("sech2") == 0 ) {
                 cl.initial_condition =  InitialConditionModel::IC_SECH2;
+            } else if (model.compare("random") == 0 ) {
+                cl.initial_condition =  InitialConditionModel::IC_RANDOM;
+            } else if (model.compare("gaussian") == 0 ) {
+                cl.initial_condition =  InitialConditionModel::IC_GAUSSIAN;
             } else {
                 if ( rank == 0 )
                 {
