@@ -550,14 +550,12 @@ struct MeshInitFunc
         _ncells[1] = nodes[1] - 1;
 
         _dx = (box[3] - box[0]) / _ncells[0];
-        _dy = (box[4] - box[1]) / _ncells[1];
-
-        /* Use p to seed the random number generator */
-        _random_pool = Kokkos::Random_XorShift64_Pool<>(12345); 
+        _dy = (box[4] - box[1]) / _ncells[1]; 
     };
 
     KOKKOS_INLINE_FUNCTION
     bool operator()( Cabana::Grid::Node, Beatnik::Field::Position,
+                     Kokkos::Random_XorShift64_Pool<Kokkos::HostSpace> random_pool,
                      [[maybe_unused]] const int index[2],
                      const double coord[2],
                      double &z1, double &z2, double &z3) const
@@ -578,7 +576,7 @@ struct MeshInitFunc
 
         /* Need to initialize these values here to avoid "jump to case label "case IC_FILE:"
          * crosses initialization of ‘double gaussian’, etc." errors */
-        auto generator = _random_pool.get_state();
+        auto generator = random_pool.get_state();
         double rand_num = generator.drand(0., 1.);
         double mean = 0.0;
         double std_dev = 1.0;
@@ -604,7 +602,61 @@ struct MeshInitFunc
             break;
         }
         
-        _random_pool.free_state(generator);
+        random_pool.free_state(generator);
+
+        return true;
+    };
+
+    KOKKOS_INLINE_FUNCTION
+    bool operator()( Cabana::Grid::Node, Beatnik::Field::Position,
+                     Kokkos::Random_XorShift64_Pool<Kokkos::CudaSpace> random_pool,
+                     [[maybe_unused]] const int index[2],
+                     const double coord[2],
+                     double &z1, double &z2, double &z3) const
+    {
+        double lcoord[2];
+        /* Compute the physical position of the interface from its global
+         * coordinate in mesh space */
+        for (int i = 0; i < 2; i++) {
+            lcoord[i] = coord[i];
+            if (_b == BoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
+                lcoord[i] += 0.5;
+            }
+        }
+        z1 = _dx * lcoord[0];
+        z2 = _dy * lcoord[1];
+
+        // We don't currently support tilting the initial interface
+
+        /* Need to initialize these values here to avoid "jump to case label "case IC_FILE:"
+         * crosses initialization of ‘double gaussian’, etc." errors */
+        auto generator = random_pool.get_state();
+        double rand_num = generator.drand(0., 1.);
+        double mean = 0.0;
+        double std_dev = 1.0;
+        double gaussian = (1 / (std_dev * Kokkos::sqrt(2 * Kokkos::numbers::pi_v<double>))) *
+            Kokkos::exp(-0.5 * Kokkos::pow(((rand_num - mean) / std_dev), 2));
+        switch (_i) {
+        case IC_COS:
+            z3 = _m * cos(z1 * (2 * M_PI / _p)) * cos(z2 * (2 * M_PI / _p));
+            break;
+        case IC_SECH2:
+            z3 = _m * pow(1.0 / cosh(_p * (z1 * z1 + z2 * z2)), 2);
+            break;
+        case IC_RANDOM:
+            z3 = _m * (2*rand_num - 1.0);
+            break;
+        case IC_GAUSSIAN:
+            /* The built-in C++ std::normal_distribution<double> doesn't
+             * work here, so coding the gaussian distribution itself.
+             */
+            z3 = _m * gaussian;
+            break;
+        case IC_FILE:
+            break;
+        }
+        
+        random_pool.free_state(generator);
 
         return true;
     };
@@ -624,7 +676,6 @@ struct MeshInitFunc
     Kokkos::Array<int, 3> _ncells;
     double _dx, _dy;
     enum Beatnik::BoundaryType _b;
-    Kokkos::Random_XorShift64_Pool<> _random_pool;
 };
 
 // Create Solver and Run

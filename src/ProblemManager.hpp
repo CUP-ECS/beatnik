@@ -155,6 +155,9 @@ class ProblemManager
         // Loop Over All Owned Nodes ( i, j )
         auto own_nodes = local_grid.indexSpace( Cabana::Grid::Own(), Cabana::Grid::Node(),
                                                 Cabana::Grid::Local() );
+        
+        Kokkos::Random_XorShift64_Pool<mem_space> random_pool(12345);
+
         Kokkos::parallel_for(
             "Initialize Cells`",
             Cabana::Grid::createExecutionPolicy( own_nodes, ExecutionSpace() ),
@@ -163,7 +166,7 @@ class ProblemManager
                 double coords[2];
                 local_mesh.coordinates( Cabana::Grid::Node(), index, coords);
 
-                create_functor( Cabana::Grid::Node(), Field::Position(), index, 
+                create_functor( Cabana::Grid::Node(), Field::Position(), random_pool, index, 
                                 coords, z(i, j, 0), z(i, j, 1), z(i, j, 2) );
                 create_functor( Cabana::Grid::Node(), Field::Vorticity(), index, 
                                 coords, w(i, j, 0), w(i, j, 1) );
