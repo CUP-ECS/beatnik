@@ -22,10 +22,6 @@
 
 #include <limits>
 
-#ifndef DEVELOP
-#define DEVELOP 1
-#endif
-
 namespace Beatnik
 {
 //---------------------------------------------------------------------------//
@@ -145,20 +141,6 @@ class SpatialMesh
                 }
             }
         }
-        
-
-
-
-        #if DEVELOP
-        if (_rank == 0)
-        {
-            for (int i = 0; i <= _comm_size; i++)
-            {
-                printf("R%d: %d, %d, %d\n", _boundary_topology(i, 0), _boundary_topology(i, 1), 
-                    _boundary_topology(i, 2), _boundary_topology(i, 3));
-            }
-        }
-        #endif
     }
 
     const Kokkos::View<int*[4], Kokkos::HostSpace> getBoundaryInfo() const
