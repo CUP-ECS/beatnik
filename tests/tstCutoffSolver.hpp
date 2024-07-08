@@ -173,6 +173,12 @@ class CutoffSolverTest : public TestingBase<T>
                         double abs_pos = abs(position_part(index, dim));
                         double max_dim = this->globalBoundingBox_[dim+3];
                         double max_coord = max_dim + this->cutoff_distance_;
+                        if (rank_ == 3)
+                    {
+                        printf("R%d: from R%d (index %d): pos: %0.5lf, %0.5lf, %0.5lf, abs_pos: %0.5lf, max_dim: %0.5lf, max_coord: %0.5lf\n",
+                            rank_, remote_rank, index, position_part(index, 0), position_part(index, 1), position_part(index, 2),
+                            abs_pos, max_dim, max_coord);
+                    }
                         if (traveled[dim])
                         {
                             EXPECT_GE(abs_pos, max_dim) << "Rank " << rank_ << ": Absolute value of adjusted coordinate (index " 
