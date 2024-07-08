@@ -110,6 +110,7 @@ class CutoffSolverTest : public TestingBase<T>
         int is_neighbor[26];
         this->p_br_cutoff_->getPeriodicNeighbors(is_neighbor);
         int isOnBoundary = this->p_br_cutoff_->isOnBoundary(local_location, num_procs);
+        MPI_Barrier(comm_);
         /* End setup */
 
         /* Iterate over each haloed particle recieved and check the following conditions:
