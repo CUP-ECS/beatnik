@@ -132,7 +132,13 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         }
         return 0;
     }
-
+     /** 
+     * Get which ranks are neighbors accross a periodic boundary.
+     * The original code for this functions comes from CabanaPD:
+     * https://github.com/ORNL/CabanaPD
+     * src/CabanaPD_Comm.hpp
+     * @return populates is_nighbors
+     **/
     void getPeriodicNeighbors(int is_neighbor[26]) const
     {
         for (int i = 0; i < 26; i++)
@@ -142,10 +148,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
         const auto local_grid = _spatial_mesh->localGrid();
         auto topology = _spatial_mesh->getBoundaryInfo();
-        //Kokkos::Array<Cabana::Grid::IndexSpace<4>, topology_size> index_spaces;
-
-        // Store all neighboring shared index space mesh bounds so we only have
-        // to launch one kernel during the actual ghost search.
         int n = 0;
         for ( int k = -1; k < 2; ++k )
         {
@@ -322,7 +324,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         auto h_boundary_topology_device_tmp = Kokkos::create_mirror_view(boundary_topology_device);
         Kokkos::deep_copy(h_boundary_topology_device_tmp, boundary_topology);
         Kokkos::deep_copy(boundary_topology_device, h_boundary_topology_device_tmp);
-        //auto boundary_topology_device = Cabana::create_mirror_view_and_copy(, boundary_topology);
 
         if (isOnBoundary(local_location, max_location))
         {
@@ -367,12 +368,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                         }
                     }
 
-                    if (rank == 12)
-                        {
-                            //printf("R%d: from R%d (index %d): traveled: %d, %d, %d, ", rank, remote_rank, index, traveled[0], traveled[1], traveled[2]);
-                            //printf("R%d: old pos: %0.5lf, %0.5lf, %0.5lf\n", rank, position_part(index, 0), position_part(index, 1), position_part(index, 2));
-                            //printf("Adjusting pos dim %d: diff: %0.5lf, old: %0.5lf new: %0.5lf\n", dim, diff, new_pos);
-                        }
                     for (int dim = 0; dim < 3; dim++)
                     {
                         if (traveled[dim] != 0)
@@ -384,13 +379,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                             position_part(index, dim) = new_pos;
                         }
                     }
-                    if (rank == 12)
-                        {
-                            //printf("R%d: from R%d (index %d): traveled: %d, %d, %d\n", rank, remote_rank, index, traveled[0], traveled[1], traveled[2]);
-                            // printf("R%d: new pos: %0.5lf, %0.5lf, %0.5lf\n", rank, 
-                            // position_part(index, 0), position_part(index, 1), position_part(index, 2));
-                            //printf("Adjusting pos dim %d: diff: %0.5lf, old: %0.5lf new: %0.5lf\n", dim, diff, new_pos);
-                        }
                 }
             });
         }
@@ -468,12 +456,10 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             int num_neighbors = Cabana::NeighborList<list_type>::numNeighbor(neighbor_list, my_id);
             double brsum[3] = {0.0, 0.0, 0.0};
 
-            // printf("Neighbors: R%d: particle %d/%lu, num neighbors %d\n", rank, my_id, num_particles, num_neighbors);
-
             for (int j = 0; j < num_neighbors; j++) {
                 int neighbor_id = Cabana::NeighborList<list_type>::getNeighbor(neighbor_list, my_id, j);
 
-                // XXX Offset initializtion not correct for periodic boundaries
+                // XXX Offset initialization not correct for periodic boundaries
                 double offset[3] = {0.0, 0.0, 0.0}, br[3];
                 
                 /* Do the Birkhoff-Rott evaluation for this point */
@@ -563,7 +549,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             int local_li[2] = {i, j};
             int local_gi[2] = {0, 0};   // i, j
             local_L2G(local_li, local_gi);
-            //printf("global: %d %d\n", local_gi[0], local_gi[1]);
             if (option == 1){
                 if (dims == 3) {
                     printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
@@ -594,7 +579,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     double _epsilon, _dx, _dy;
     MPI_Comm _comm;
     l2g_type _local_L2G;
-    // XXX Communication views and extents to avoid allocations during each ring pass
 };
 
 }; // namespace Beatnik

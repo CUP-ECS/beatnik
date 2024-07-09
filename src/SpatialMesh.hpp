@@ -36,24 +36,16 @@ class SpatialMesh
     using memory_space = MemorySpace;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 3>;
-    // using global_grid_type = Cabana::Grid::GlobalGrid<mesh_type>;
     using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
     using global_particle_comm_type = Cabana::Grid::GlobalParticleComm<memory_space, local_grid_type>;
 
     SpatialMesh( const std::array<double, 6>& global_bounding_box,
 	      const std::array<bool, 2>& periodic,
-          // const Cabana::Grid::BlockPartitioner<3>& partitioner,
           const double cutoff_distance, MPI_Comm comm )
     {
         MPI_Comm_rank( comm, &_rank );
         MPI_Comm_size( comm, &_comm_size );
-        // Declare the partioner here for now
-        // Put particle type here
-        // Make a cuttoff BRSolver and declare the spatial mesh inside the cuttoff BRSolver class
-        // Make a migration.hpp class, declare spatialmesh in solver.hpp, put all 
-        // the spatial mesh stuff in migration
-        //Cabana::Grid::DimBlockPartitioner<3> partitioner;
-
+        
         // Partition in x and y only
         // Try to partition evenly, otherwise set the x-dim to have sqrt(_comm_size)
         // ranks and the y-dim to have the remaining ranks.
@@ -68,20 +60,6 @@ class SpatialMesh
         // Create the manual partitioner in 2D.
         Cabana::Grid::ManualBlockPartitioner<3> partitioner(
             input_ranks_per_dim );
-
-        std::array<int, 3> ranks_per_dim_manual =
-            partitioner.ranksPerDimension( MPI_COMM_WORLD, { 0, 0, 0 } );
-
-        // Print the created decomposition.
-        if ( _rank == 0 )
-        {
-            std::cout << "Ranks per dimension (manual): ";
-            for ( int d = 0; d < 3; ++d )
-                std::cout << ranks_per_dim_manual[d] << " ";
-            std::cout << std::endl;
-        }
-        
-        
 
         for (int i = 0; i < 3; i++) {
             _low_point[i] = global_bounding_box[i];
@@ -100,7 +78,6 @@ class SpatialMesh
         auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
                                                      is_dim_periodic, partitioner );
         // Build the local grid.
-        //_halo_width = fmax(100000, min_halo_width);
         _halo_width = (int) (cutoff_distance / _cell_size);
 
         // Halo width must be at least one
@@ -116,11 +93,6 @@ class SpatialMesh
         // when using periodic boundary conditions.
         int cart_coords[4] = {_rank, -1, -1, -1};
         MPI_Cart_coords(global_grid->comm(), _rank, 3, &cart_coords[1]);
-        // for (int i = 0; i < 3; i++)
-        // {
-        //     int k = cart_coords[i+1];
-        //     cart_coords[i+1] = (k == 0 || k == global_grid->dimNumBlock(i) - 1);
-        // }
 
         _boundary_topology = Kokkos::View<int*[4], Kokkos::HostSpace>("boundary topology", _comm_size+1);
 
