@@ -16,6 +16,7 @@
 namespace BeatnikTest
 {
 
+// XXX - Fix memory space issues in this test so it works on national labs machines
 template <class T>
 class BoundaryConditionTest : public TestingBase<T>
 {
