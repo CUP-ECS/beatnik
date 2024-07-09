@@ -494,6 +494,11 @@ class ZModel
 
     }
 
+    typename node_array::view_type getOmega()
+    {
+        return _omega->view();
+    }
+
   private:
     const pm_type & _pm;
     const BoundaryCondition & _bc;
