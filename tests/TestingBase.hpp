@@ -190,6 +190,13 @@ class TestingBase : public ::testing::Test
 
     void SetUp() override
     {
+        dx_ = (globalBoundingBox_[4] - globalBoundingBox_[0]) / meshSize_;
+        dy_ = (globalBoundingBox_[5] - globalBoundingBox_[1]) / meshSize_;
+
+        // Adjust down mu and epsilon by sqrt(dx * dy)
+        mu_ = mu_ * sqrt(dx_ * dy_);
+        epsilon_ = epsilon_ * sqrt(dx_ * dy_);
+
         // Init boundary conditions
         for (int i = 0; i < 6; i++)
         {

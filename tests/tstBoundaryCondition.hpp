@@ -58,12 +58,17 @@ class BoundaryConditionTest : public TestingBase<T>
 
         auto policy = Cabana::Grid::createExecutionPolicy( own_nodes );
         **************/
+        auto local_grid = this->f_pm_->mesh().localGrid();
+        auto own_nodes = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(),
+                                                 Cabana::Grid::Local());
+
+        auto policy = Cabana::Grid::createExecutionPolicy(own_nodes, ExecutionSpace());
         auto z = this->f_position_->view();
-        int halo_width = TestingBase<T>::haloWidth_;
-        int dim0 = z.extent(0);
-        int dim1 = z.extent(1);
-        using range_policy = Kokkos::MDRangePolicy<Kokkos::Rank<2>, ExecutionSpace>;
-        range_policy policy({halo_width, halo_width}, {dim0-halo_width, dim1-halo_width});
+        // int halo_width = TestingBase<T>::haloWidth_;
+        // int dim0 = z.extent(0);
+        // int dim1 = z.extent(1);
+        // using range_policy = Kokkos::MDRangePolicy<Kokkos::Rank<2>, ExecutionSpace>;
+        // range_policy policy({halo_width, halo_width}, {dim0-halo_width, dim1-halo_width});
         double dx = 0.3, dy = 0.4;
         Kokkos::parallel_for("Initialize Cells", policy,
             KOKKOS_LAMBDA( const int i, const int j ) {
