@@ -27,7 +27,7 @@
 #define BEATNIK_CUTOFFBRSOLVER_HPP
 
 #ifndef DEVELOP
-#define DEVELOP 1
+#define DEVELOP 0
 #endif
 
 // Include Statements
