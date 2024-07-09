@@ -15,13 +15,11 @@ TYPED_TEST_SUITE(BoundaryConditionTest, DeviceTypes);
 
 TYPED_TEST(BoundaryConditionTest, testFreeBoundary)
 { 
-    auto z = this->f_position_->view();
-
-    this->populateArray(z);
+    this->populateArray();
 
     this->f_bc_.applyField(*this->f_mesh_, *this->f_position_, 1);
 
-    this->testFreeBC(z);
+    this->testFreeBC();
 }
 
 } // end namespace BeatnikTest
