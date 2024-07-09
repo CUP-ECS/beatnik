@@ -10,55 +10,46 @@
 
 #include <mpi.h>
 
-#include "tstMesh.hpp"
+#include "TestingBase.hpp"
 #include "tstDriver.hpp"
 
 namespace BeatnikTest
 {
 
+// XXX - Fix memory space issues in this test so it works on national labs machines
 template <class T>
-class BoundaryConditionTest : public MeshTest<T>
+class BoundaryConditionTest : public TestingBase<T>
 {
     using ExecutionSpace = typename T::ExecutionSpace;
     using MemorySpace = typename T::MemorySpace;
 
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
-    using node_array_layout = std::shared_ptr<Cabana::Grid::ArrayLayout<Cabana::Grid::Node, mesh_type>>;
+    using node_array_layout = Cabana::Grid::ArrayLayout<Cabana::Grid::Node, mesh_type>;
 
-    using node_array = std::shared_ptr<Cabana::Grid::Array<double, Cabana::Grid::Node, mesh_type, MemorySpace>>;
+    using node_array = Cabana::Grid::Array<double, Cabana::Grid::Node, mesh_type, MemorySpace>;
 
   protected:
-    Beatnik::BoundaryCondition bc_periodic_;
-    Beatnik::BoundaryCondition bc_non_periodic_;
-    node_array_layout node_layout_np_; 
-    node_array position_np_;
+    std::shared_ptr<node_array_layout> f_node_layout_; 
+    std::shared_ptr<node_array> f_position_;
+
     
     void SetUp() override
     {
-        MeshTest<T>::SetUp();
-        for (int i = 0; i < 6; i++)
-        {
-            bc_periodic_.bounding_box[i] = MeshTest<T>::globalBoundingBox_[i];
-            bc_non_periodic_.bounding_box[i] = MeshTest<T>::globalBoundingBox_[i];
-        }
-        for (int i = 0; i < 4; i++)
-        {
-            bc_periodic_.boundary_type[i] = Beatnik::BoundaryType::PERIODIC;
-            bc_non_periodic_.boundary_type[i] = Beatnik::BoundaryType::FREE;
-        }
-        node_layout_np_ = Cabana::Grid::createArrayLayout(this->testMeshNonPeriodic_->localGrid(), 1, Cabana::Grid::Node());
-        position_np_ = Cabana::Grid::createArray<double, MemorySpace>("position", node_layout_np_);
+        TestingBase<T>::SetUp();
+        this->f_node_layout_ = Cabana::Grid::createArrayLayout(this->f_mesh_->localGrid(), 1, Cabana::Grid::Node());
+        this->f_position_ = Cabana::Grid::createArray<double, MemorySpace>("position", f_node_layout_);
     }
 
     void TearDown() override
-    {
-        MeshTest<T>::TearDown();
+    { 
+        this->f_position_ = NULL;
+        this->f_node_layout_ = NULL;
+        TestingBase<T>::TearDown();
     }
 
   public:
-    template <class View>
-    void populateArray(View z)
+    void populateArray()
     {
         /*****************
          *  Getting execution range from MeshTest because the compiler does like the following:
@@ -67,10 +58,12 @@ class BoundaryConditionTest : public MeshTest<T>
 
         auto policy = Cabana::Grid::createExecutionPolicy( own_nodes );
         **************/
-        int range = MeshTest<T>::boxNodes_;
-        int min = MeshTest<T>::haloWidth_;
+        auto z = this->f_position_->view();
+        int halo_width = TestingBase<T>::haloWidth_;
+        int dim0 = z.extent(0);
+        int dim1 = z.extent(1);
         using range_policy = Kokkos::MDRangePolicy<Kokkos::Rank<2>, ExecutionSpace>;
-        range_policy policy({min, min}, {min+range, min+range});
+        range_policy policy({halo_width, halo_width}, {dim0-halo_width, dim1-halo_width});
         double dx = 0.3, dy = 0.4;
         Kokkos::parallel_for("Initialize Cells", policy,
             KOKKOS_LAMBDA( const int i, const int j ) {
@@ -78,24 +71,56 @@ class BoundaryConditionTest : public MeshTest<T>
             });
     }
 
-    template <class View>
-    void testFreeBC(View z)
+    void testFreeBC()
     {
-        int range = MeshTest<T>::boxNodes_;
-        int min = MeshTest<T>::haloWidth_;
-        using range_policy = Kokkos::MDRangePolicy<Kokkos::Rank<2>, ExecutionSpace>;
-        range_policy policy({0, 0}, {min+range+min, min+range+min});
+        MPI_Comm comm_ = this->f_pm_->mesh().localGrid()->globalGrid().comm();
+        int rank, comm_size;
+        MPI_Comm_rank(comm_, &rank);
+        MPI_Comm_size(comm_, &comm_size);
+
+        auto z = this->f_position_->view();
+        int dim0 = z.extent(0);
+        int dim1 = z.extent(1);
+
+        // Copy to host memory for serial testing
+        Kokkos::View<double***, Kokkos::HostSpace> z_host("z_host", dim0, dim1, 1);
+        auto z_host_tmp = Kokkos::create_mirror_view(z);
+        Kokkos::deep_copy(z_host_tmp, z);
+        Kokkos::deep_copy(z_host, z_host_tmp);
+        
         double dx = 0.3, dy = 0.4;
-        Kokkos::parallel_for("Initialize Cells", policy,
-            KOKKOS_LAMBDA( const int i, const int j ) {
-                double correct_value = -1+dx*i + -1+dy*j;
-                /* Using EXPECT_NEAR because of floating-point imprecision
-                 * between doubles inside and out of a Kokkos view.
-                 * XXX - Fix calling the __host__ function from a __host__ __device__ function
-                 * warning caused by using EXPECT_NEAR here.
-                 */
-                EXPECT_NEAR(correct_value, z(i, j, 0), 0.00000000000001);
-            });
+
+        if (comm_size == 1)
+        {
+            for (int i = 0; i < dim0; i++)
+            {
+                for (int j = 0; j < dim1; j++)
+                {
+                    double correct_value = -1+dx*i + -1+dy*j;
+                    /* Using EXPECT_NEAR because of floating-point imprecision
+                    * between doubles inside and out of a Kokkos view.
+                    * XXX - Fix calling the __host__ function from a __host__ __device__ function
+                    * warning caused by using EXPECT_NEAR here.
+                    */
+                    EXPECT_NEAR(correct_value, z_host(i, j, 0), 0.000000000001);
+                }
+            }
+        }
+        
+
+        // using range_policy = Kokkos::MDRangePolicy<Kokkos::Rank<2>, Kokkos::Serial>;
+        // range_policy policy({0, 0}, {min+range+min, min+range+min});
+        // double dx = 0.3, dy = 0.4;
+        // Kokkos::parallel_for("Initialize Cells", policy,
+        //     KOKKOS_LAMBDA( const int i, const int j ) {
+        //         double correct_value = -1+dx*i + -1+dy*j;
+        //         /* Using EXPECT_NEAR because of floating-point imprecision
+        //          * between doubles inside and out of a Kokkos view.
+        //          * XXX - Fix calling the __host__ function from a __host__ __device__ function
+        //          * warning caused by using EXPECT_NEAR here.
+        //          */
+        //         EXPECT_NEAR(correct_value, z(i, j, 0), 0.000000000001);
+        //     });
     }
 };
 

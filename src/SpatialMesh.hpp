@@ -41,18 +41,11 @@ class SpatialMesh
 
     SpatialMesh( const std::array<double, 6>& global_bounding_box,
 	      const std::array<bool, 2>& periodic,
-          // const Cabana::Grid::BlockPartitioner<3>& partitioner,
           const double cutoff_distance, MPI_Comm comm )
     {
         MPI_Comm_rank( comm, &_rank );
         MPI_Comm_size( comm, &_comm_size );
-        // Declare the partioner here for now
-        // Put particle type here
-        // Make a cuttoff BRSolver and declare the spatial mesh inside the cuttoff BRSolver class
-        // Make a migration.hpp class, declare spatialmesh in solver.hpp, put all 
-        // the spatial mesh stuff in migration
-        //Cabana::Grid::DimBlockPartitioner<3> partitioner;
-
+        
         // Partition in x and y only
         // Try to partition evenly, otherwise set the x-dim to have sqrt(_comm_size)
         // ranks and the y-dim to have the remaining ranks.
@@ -67,20 +60,6 @@ class SpatialMesh
         // Create the manual partitioner in 2D.
         Cabana::Grid::ManualBlockPartitioner<3> partitioner(
             input_ranks_per_dim );
-
-        std::array<int, 3> ranks_per_dim_manual =
-            partitioner.ranksPerDimension( MPI_COMM_WORLD, { 0, 0, 0 } );
-
-        // Print the created decomposition.
-        if ( _rank == 0 )
-        {
-            std::cout << "Ranks per dimension (manual): ";
-            for ( int d = 0; d < 3; ++d )
-                std::cout << ranks_per_dim_manual[d] << " ";
-            std::cout << std::endl;
-        }
-        
-        
 
         for (int i = 0; i < 3; i++) {
             _low_point[i] = global_bounding_box[i];
@@ -99,7 +78,6 @@ class SpatialMesh
         auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
                                                      is_dim_periodic, partitioner );
         // Build the local grid.
-        //_halo_width = fmax(100000, min_halo_width);
         _halo_width = (int) (cutoff_distance / _cell_size);
 
         // Halo width must be at least one
@@ -110,10 +88,40 @@ class SpatialMesh
         }
 
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, _halo_width );
+
+        // Get which ranks are on the boundaries, for position correction
+        // when using periodic boundary conditions.
+        int cart_coords[4] = {_rank, -1, -1, -1};
+        MPI_Cart_coords(global_grid->comm(), _rank, 3, &cart_coords[1]);
+
+        _boundary_topology = Kokkos::View<int*[4], Kokkos::HostSpace>("boundary topology", _comm_size+1);
+
+        MPI_Allgather(cart_coords, 4, MPI_INT, _boundary_topology.data(), 4, MPI_INT, comm);
+
+        // Get number of processes in x, y, and z
+        for (int i = 0; i < 4; i++)
+        {
+            _boundary_topology(_comm_size, i) = -1;
+        }
+        for (int i = 0; i < _comm_size; i++)
+        {
+            for (int j = 1; j < 4; j++)
+            {
+                if (_boundary_topology(_comm_size, j) <= _boundary_topology(i, j))
+                {
+                    _boundary_topology(_comm_size, j) = _boundary_topology(i, j)+1;
+                }
+            }
+        }
+    }
+
+    const Kokkos::View<int*[4], Kokkos::HostSpace> getBoundaryInfo() const
+    {
+        return _boundary_topology;
     }
 
     // Get the local grid.
-    const std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> localGrid() const
+    const std::shared_ptr<local_grid_type> localGrid() const
     {
         return _local_grid;
     }
@@ -138,33 +146,18 @@ class SpatialMesh
     }
 
 
-    // Get the boundary indexes on the periodic boundary. local_grid.boundaryIndexSpace()
-    // doesn't work on periodic boundaries.
-    // XXX Needs more error checking to make sure the boundary is in fact periodic
-    template <class DecompositionType, class EntityType>
-    Cabana::Grid::IndexSpace<2>
-    periodicIndexSpace(DecompositionType dt, EntityType et, std::array<int, 2> dir) const
-    {
-        auto & global_grid = _local_grid->globalGrid();
-        for ( int d = 0; d < 2; d++ ) {
-            if ((dir[d] == -1 && global_grid.onLowBoundary(d))
-                || (dir[d] == 1 && global_grid.onHighBoundary(d))) {
-                return _local_grid->sharedIndexSpace(dt, et, dir);
-            }
-        }
-
-        std::array<long, 2> zero_size;
-        for ( std::size_t d = 0; d < 2; ++d )
-            zero_size[d] = 0;
-        return Cabana::Grid::IndexSpace<2>( zero_size, zero_size );
-    }
-
+    
     int rank() const { return _rank; }
 
   private:
     std::array<double, 3> _low_point, _high_point;
     std::shared_ptr<local_grid_type> _local_grid;
     std::shared_ptr<global_particle_comm_type> _global_particle_comm;
+
+    // (rank, is on x boundary, is on y boundary, is on z boundary)
+    // _boundary_topology(_comm_size+1) holds the number of procs in each dimension
+    Kokkos::View<int*[4], Kokkos::HostSpace> _boundary_topology;
+
     int _rank, _comm_size, _halo_width;
     double _cell_size;
 };

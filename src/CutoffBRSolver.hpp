@@ -26,8 +26,8 @@
 #ifndef BEATNIK_CUTOFFBRSOLVER_HPP
 #define BEATNIK_CUTOFFBRSOLVER_HPP
 
-#ifndef DEBUG
-#define DEBUG 0
+#ifndef DEVELOP
+#define DEVELOP 0
 #endif
 
 // Include Statements
@@ -105,9 +105,10 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 	    _comm = _pm.mesh().localGrid()->globalGrid().comm();
 
         MPI_Comm_rank( _comm, &_rank );
+        MPI_Comm_size( _comm, &_comm_size );
 
         // Create the spatial mesh
-        _spatial_mesh = std::make_unique<SpatialMesh<ExecutionSpace, MemorySpace>>(
+        _spatial_mesh = std::make_shared<SpatialMesh<ExecutionSpace, MemorySpace>>(
             params.global_bounding_box, params.periodic,
 	        params.cutoff_distance, _comm );
     }
@@ -118,6 +119,62 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         else if (index % 3 == 0) return 3.0/4.0;
         else return 9.0/8.0;
     }
+
+    static KOKKOS_INLINE_FUNCTION int isOnBoundary(const int local_location[3],
+                                                   const int max_location[3])
+    {
+        for (int i = 0; i < 2; i++)
+        {
+            if (local_location[i] == 0 || local_location[i] == max_location[i]-1)
+            {
+                return 1;
+            }
+        }
+        return 0;
+    }
+     /** 
+     * Get which ranks are neighbors accross a periodic boundary.
+     * The original code for this functions comes from CabanaPD:
+     * https://github.com/ORNL/CabanaPD
+     * src/CabanaPD_Comm.hpp
+     * @return populates is_nighbors
+     **/
+    void getPeriodicNeighbors(int is_neighbor[26]) const
+    {
+        for (int i = 0; i < 26; i++)
+        {
+            is_neighbor[i] = 0;
+        }
+
+        const auto local_grid = _spatial_mesh->localGrid();
+        auto topology = _spatial_mesh->getBoundaryInfo();
+        int n = 0;
+        for ( int k = -1; k < 2; ++k )
+        {
+            for ( int j = -1; j < 2; ++j )
+            {
+                for ( int i = -1; i < 2; ++i, ++n )
+                {
+                    if ( i != 0 || j != 0 || k != 0 )
+                    {
+                        int neighbor_rank = local_grid->neighborRank( i, j, k );
+                        if (neighbor_rank != -1)
+                        {
+                            for (int w = 1; w < 3; w++)
+                            {
+                                if (abs(topology(_rank, w) - topology(neighbor_rank, w)) > 1)
+                                {
+                                    is_neighbor[neighbor_rank] = 1;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /**
      * Creates a populates particle array
      **/
@@ -223,10 +280,116 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         Kokkos::Profiling::popRegion();
     }
 
+    /** 
+     * Correct the x/y position of particles that are ghosted across x/y boundaries.
+     * 
+     * // XXX - Does not support periodic BCs with 1 process
+     * 
+     * To perform in 3D:
+     * 1. Determine if the ghosted particles came from a rank on an x/y boundary
+     * 2a. If so, depending on which x/y boundary, adjust the position as necessary
+     * 2b. If we only have 1 rank, this doesn't work because this rank sits on 
+     *      all boundaries so 1) is ambiguous.  
+     * 
+     * @return Updated particle AoSoA
+     **/
+    void correctPeriodicBoundaries(particle_array_type &particle_array, int local_count) const
+    {
+        Kokkos::Profiling::pushRegion("correctPeriodicBoundaries");
+
+        if (!_params.periodic[0])
+        {
+            return;
+        }
+        if (_comm_size == 1)
+        {
+            std::cerr << "Error: Communicator size is " << _comm_size
+            << " < 4 to support periodic boundary conditions using the cutoff solver\n";
+            exit(-1);
+        }
+
+        auto position_part = Cabana::slice<0>(particle_array);
+        auto rank3d_part = Cabana::slice<7>(particle_array);
+
+        int total_size = particle_array.size();
+        Kokkos::View<int*[4], Kokkos::HostSpace> boundary_topology = _spatial_mesh->getBoundaryInfo();
+        int local_location[3] = {boundary_topology(_rank, 1), boundary_topology(_rank, 2), boundary_topology(_rank, 3)};
+        int max_location[3] = {boundary_topology(_comm_size, 1), boundary_topology(_comm_size, 2), boundary_topology(_comm_size, 3)};
+        int rank = _rank;
+
+        // Copy Boundary_topology to execution space
+        // https://kokkos.org/kokkos-core-wiki/API/core/view/deep_copy.html
+        // "How to get layout incompatiable views copied"
+        Kokkos::View<int*[4], device_type> boundary_topology_device("boundary_topology_device", _comm_size+1);
+        auto h_boundary_topology_device_tmp = Kokkos::create_mirror_view(boundary_topology_device);
+        Kokkos::deep_copy(h_boundary_topology_device_tmp, boundary_topology);
+        Kokkos::deep_copy(boundary_topology_device, h_boundary_topology_device_tmp);
+
+        if (isOnBoundary(local_location, max_location))
+        {
+            double global_bounding_box[6];
+            for (int i = 0; i < 6; i++)
+            {
+              global_bounding_box[i] = _params.global_bounding_box[i];
+            }
+            int is_neighbor[26];
+            getPeriodicNeighbors(is_neighbor);
+
+
+            Kokkos::parallel_for("fix_haloed_particle_positions", Kokkos::RangePolicy<exec_space>(local_count, total_size), 
+                             KOKKOS_LAMBDA(int index) {
+
+                /* If local process is not on a boundary, exit. No particles
+                * accross the boundary would have been recieved.
+                * We only consider the x and y postions here because the
+                * z-direction will never be periodic.
+                */
+                int remote_rank = rank3d_part(index);
+                if (is_neighbor[remote_rank] == 1)
+                {
+                    // Get the dimenions to adjust
+                    // Dimensions across a boundary will be more than one distance away in x/y/z space
+                    int traveled[3];
+                    for (int dim = 1; dim < 4; dim++)
+                    {
+                        int remote_info = boundary_topology_device(remote_rank, dim);
+                        int local_info = boundary_topology_device(rank, dim);
+                        if (remote_info - local_info > 1)
+                        {
+                            traveled[dim-1] = -1;
+                        }
+                        else if (remote_info - local_info < -1)
+                        {
+                            traveled[dim-1] = 1;
+                        }
+                        else
+                        {
+                            traveled[dim-1] = 0;
+                        }
+                    }
+
+                    for (int dim = 0; dim < 3; dim++)
+                    {
+                        if (traveled[dim] != 0)
+                        {
+                            // -1, -1, -1, 1, 1, 1
+                            double diff = global_bounding_box[dim+3] - global_bounding_box[dim];
+                            // Adjust position
+                            double new_pos = position_part(index, dim) + diff * traveled[dim];
+                            position_part(index, dim) = new_pos;
+                        }
+                    }
+                }
+            });
+        }
+        Kokkos::fence();
+
+        Kokkos::Profiling::popRegion();
+    }
+
     void migrateParticlesTo2D(particle_array_type &particle_array, int owned_3D_count) const
     {
         Kokkos::Profiling::pushRegion("migrateParticlesTo2D");
-        int rank = _rank;
 
         // We only want to send back the non-ghosted particles to 2D
         // Resize to original 3D size to remove ghosted particles
@@ -283,7 +446,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             _params.cutoff_distance);
 
         using list_type = decltype(neighbor_list);
-        int rank = _rank;
 
         auto position_part = Cabana::slice<0>(particle_array);
         auto omega_part = Cabana::slice<1>(particle_array);
@@ -294,12 +456,10 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             int num_neighbors = Cabana::NeighborList<list_type>::numNeighbor(neighbor_list, my_id);
             double brsum[3] = {0.0, 0.0, 0.0};
 
-            // printf("Neighbors: R%d: particle %d/%lu, num neighbors %d\n", rank, my_id, num_particles, num_neighbors);
-
             for (int j = 0; j < num_neighbors; j++) {
                 int neighbor_id = Cabana::NeighborList<list_type>::getNeighbor(neighbor_list, my_id, j);
 
-                // XXX Offset initializtion not correct for periodic boundaries
+                // XXX Offset initialization not correct for periodic boundaries
                 double offset[3] = {0.0, 0.0, 0.0}, br[3];
                 
                 /* Do the Birkhoff-Rott evaluation for this point */
@@ -358,9 +518,15 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         migrateParticlesTo3D(particle_array);
         int owned_3D_count = particle_array.size();
         performHaloExchange3D(particle_array);
+        correctPeriodicBoundaries(particle_array, owned_3D_count);
         computeInterfaceVelocityNeighbors(particle_array, owned_3D_count, _dy, _dx, _epsilon);
         migrateParticlesTo2D(particle_array, owned_3D_count);
         populate_zdot(particle_array, zdot);
+    }
+
+    std::shared_ptr<spatial_mesh_type> get_spatial_mesh()
+    {
+        return _spatial_mesh;
     }
     
     template <class l2g_type, class View>
@@ -383,7 +549,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             int local_li[2] = {i, j};
             int local_gi[2] = {0, 0};   // i, j
             local_L2G(local_li, local_gi);
-            //printf("global: %d %d\n", local_gi[0], local_gi[1]);
             if (option == 1){
                 if (dims == 3) {
                     printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
@@ -409,12 +574,11 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     const pm_type & _pm;
     const BoundaryCondition & _bc;
     const Params _params;
-    int _rank;
-    std::unique_ptr<spatial_mesh_type> _spatial_mesh;
+    int _rank, _comm_size;
+    std::shared_ptr<spatial_mesh_type> _spatial_mesh;
     double _epsilon, _dx, _dy;
     MPI_Comm _comm;
     l2g_type _local_L2G;
-    // XXX Communication views and extents to avoid allocations during each ring pass
 };
 
 }; // namespace Beatnik
