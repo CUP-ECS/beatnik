@@ -94,9 +94,11 @@ class ProblemManager
     template <class InitFunc>
     ProblemManager( const surface_mesh_type & surface_mesh,
                     const BoundaryCondition & bc, 
+                    const double period,
                     const InitFunc& create_functor )
         : _surface_mesh( surface_mesh )
         , _bc( bc )
+        , _period( period )
     // , other initializers
     {
         // The layouts of our various arrays for values on the staggered mesh
@@ -148,13 +150,17 @@ class ProblemManager
         auto local_grid = *( _surface_mesh.localGrid() );
         auto local_mesh = Cabana::Grid::createLocalMesh<device_type>( local_grid );
 
-	// Get State Arrays
+	    // Get State Arrays
         auto z = get( Cabana::Grid::Node(), Field::Position() );
         auto w = get( Cabana::Grid::Node(), Field::Vorticity() );
 
         // Loop Over All Owned Nodes ( i, j )
         auto own_nodes = local_grid.indexSpace( Cabana::Grid::Own(), Cabana::Grid::Node(),
                                                 Cabana::Grid::Local() );
+        
+        int seed = (int) (10000000 * _period);
+        Kokkos::Random_XorShift64_Pool<mem_space> random_pool(seed);
+
         Kokkos::parallel_for(
             "Initialize Cells`",
             Cabana::Grid::createExecutionPolicy( own_nodes, ExecutionSpace() ),
@@ -163,7 +169,7 @@ class ProblemManager
                 double coords[2];
                 local_mesh.coordinates( Cabana::Grid::Node(), index, coords);
 
-                create_functor( Cabana::Grid::Node(), Field::Position(), index, 
+                create_functor( Cabana::Grid::Node(), Field::Position(), random_pool, index, 
                                 coords, z(i, j, 0), z(i, j, 1), z(i, j, 2) );
                 create_functor( Cabana::Grid::Node(), Field::Vorticity(), index, 
                                 coords, w(i, j, 0), w(i, j, 1) );
@@ -237,6 +243,9 @@ class ProblemManager
     // The mesh on which our data items are stored
     const surface_mesh_type &_surface_mesh;
     const BoundaryCondition &_bc;
+
+    // Used to seed the random number generator
+    const double _period;
 
     // Basic long-term quantities stored in the mesh and periodically written
     // to storage (specific computiontional methods may store additional state)

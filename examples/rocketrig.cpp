@@ -32,6 +32,7 @@
 #include <Cabana_Core.hpp>
 #include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
+#include <Kokkos_Random.hpp>
 
 #include <mpi.h>
 
@@ -207,6 +208,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.params.cutoff_distance = 0.5;
     cl.params.heffte_configuration = 6;
     cl.params.br_solver = BR_EXACT;
+    // cl.params.period below
 
     /* Default problem is the cosine rocket rig */
     cl.num_nodes = { 128, 128 };
@@ -215,7 +217,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.tilt = 0.0;
     cl.magnitude = 0.05;
     cl.variation = 0.00;
-    cl.period = 1.0;
+    cl.params.period = 1.0;
     cl.gravity = 25.0;
     cl.atwood = 0.5;
 
@@ -369,6 +371,10 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 cl.initial_condition = InitialConditionModel::IC_COS;
             } else if (model.compare("sech2") == 0 ) {
                 cl.initial_condition =  InitialConditionModel::IC_SECH2;
+            } else if (model.compare("random") == 0 ) {
+                cl.initial_condition =  InitialConditionModel::IC_RANDOM;
+            } else if (model.compare("gaussian") == 0 ) {
+                cl.initial_condition =  InitialConditionModel::IC_GAUSSIAN;
             } else {
                 if ( rank == 0 )
                 {
@@ -404,8 +410,8 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             }
             break;
         case 'p':
-            cl.period = atof( optarg );
-            if ( cl.period <= 0.0 )
+            cl.params.period = atof( optarg );
+            if ( cl.params.period <= 0.0 )
             {
                 if ( rank == 0 )
                 {
@@ -541,15 +547,19 @@ struct MeshInitFunc
         , _p( p )
         , _b( boundary )
     {
-	_ncells[0] = nodes[0] - 1;
+	    _ncells[0] = nodes[0] - 1;
         _ncells[1] = nodes[1] - 1;
 
         _dx = (box[3] - box[0]) / _ncells[0];
-        _dy = (box[4] - box[1]) / _ncells[1];
+        _dy = (box[4] - box[1]) / _ncells[1]; 
+
+
     };
 
+    template <class RandNumGenType>
     KOKKOS_INLINE_FUNCTION
     bool operator()( Cabana::Grid::Node, Beatnik::Field::Position,
+                     RandNumGenType random_pool,
                      [[maybe_unused]] const int index[2],
                      const double coord[2],
                      double &z1, double &z2, double &z3) const
@@ -567,6 +577,15 @@ struct MeshInitFunc
         z2 = _dy * lcoord[1];
 
         // We don't currently support tilting the initial interface
+
+        /* Need to initialize these values here to avoid "jump to case label "case IC_FILE:"
+         * crosses initialization of ‘double gaussian’, etc." errors */
+        auto generator = random_pool.get_state();
+        double rand_num = generator.drand(-1.0, 1.0);
+        double mean = 0.0;
+        double std_dev = 1.0;
+        double gaussian = (1 / (std_dev * Kokkos::sqrt(2 * Kokkos::numbers::pi_v<double>))) *
+            Kokkos::exp(-0.5 * Kokkos::pow(((rand_num - mean) / std_dev), 2));
         switch (_i) {
         case IC_COS:
             z3 = _m * cos(z1 * (2 * M_PI / _p)) * cos(z2 * (2 * M_PI / _p));
@@ -575,15 +594,20 @@ struct MeshInitFunc
             z3 = _m * pow(1.0 / cosh(_p * (z1 * z1 + z2 * z2)), 2);
             break;
         case IC_RANDOM:
-            /* XXX Use p to seed the random number generator XXX */
-            /* Also need to use the Kokkos random number generator, not
-             * drand48 */
-            // z3 = _m * (2*drand48() - 1.0);
+            z3 = _m * (2*rand_num - 1.0);
             break;
         case IC_GAUSSIAN:
+            /* The built-in C++ std::normal_distribution<double> doesn't
+             * work here, so coding the gaussian distribution itself.
+             */
+            z3 = _m * gaussian;
+            break;
         case IC_FILE:
             break;
         }
+        
+        random_pool.free_state(generator);
+
         return true;
     };
 
@@ -621,7 +645,7 @@ void rocketrig( ClArgs& cl )
     bc.boundary_type = {cl.boundary, cl.boundary, cl.boundary, cl.boundary};
 
     MeshInitFunc initializer( cl.params.global_bounding_box, cl.initial_condition,
-                              cl.tilt, cl.magnitude, cl.variation, cl.period,
+                              cl.tilt, cl.magnitude, cl.variation, cl.params.period,
                               cl.num_nodes, cl.boundary );
 
     std::shared_ptr<Beatnik::SolverBase> solver;
