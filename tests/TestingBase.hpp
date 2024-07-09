@@ -45,7 +45,6 @@ class NullInitFunctor
 struct MeshInitFunc
 {
     // Initialize Variables
-
     MeshInitFunc( std::array<double, 6> box,
                   double t, double m, double v, double p, 
                   const std::array<int, 2> nodes, enum Beatnik::BoundaryType boundary )
@@ -55,15 +54,17 @@ struct MeshInitFunc
         , _p( p )
         , _b( boundary )
     {
-	_ncells[0] = nodes[0] - 1;
+	    _ncells[0] = nodes[0] - 1;
         _ncells[1] = nodes[1] - 1;
 
         _dx = (box[3] - box[0]) / _ncells[0];
         _dy = (box[4] - box[1]) / _ncells[1];
     };
 
+    template <class RandNumGenType>
     KOKKOS_INLINE_FUNCTION
     bool operator()( Cabana::Grid::Node, Beatnik::Field::Position,
+                     RandNumGenType random_pool,
                      [[maybe_unused]] const int index[2],
                      const double coord[2],
                      double &z1, double &z2, double &z3) const
@@ -79,7 +80,21 @@ struct MeshInitFunc
         }
         z1 = _dx * lcoord[0];
         z2 = _dy * lcoord[1];
+
+        // We don't currently support tilting the initial interface
+
+        /* Need to initialize these values here to avoid "jump to case label "case IC_FILE:"
+         * crosses initialization of ‘double gaussian’, etc." errors */
+        auto generator = random_pool.get_state();
+        double rand_num = generator.drand(-1.0, 1.0);
+        double mean = 0.0;
+        double std_dev = 1.0;
+        double gaussian = (1 / (std_dev * Kokkos::sqrt(2 * Kokkos::numbers::pi_v<double>))) *
+            Kokkos::exp(-0.5 * Kokkos::pow(((rand_num - mean) / std_dev), 2));
+        
         z3 = _m * cos(z1 * (2 * M_PI / _p)) * cos(z2 * (2 * M_PI / _p));
+        
+        random_pool.free_state(generator);
 
         return true;
     };
@@ -121,11 +136,26 @@ class TestingBase : public ::testing::Test
 
     using surface_mesh_type = Beatnik::SurfaceMesh<ExecutionSpace,MemorySpace>;
     using pm_type = Beatnik::ProblemManager<ExecutionSpace, MemorySpace>;
-    using br_type = Beatnik::CutoffBRSolver<ExecutionSpace, MemorySpace, Beatnik::Params>;
+    using br_cutoff_type = Beatnik::CutoffBRSolver<ExecutionSpace, MemorySpace, Beatnik::Params>;
+    using br_exact_type = Beatnik::ExactBRSolver<ExecutionSpace, MemorySpace, Beatnik::Params>;
+    using SolverOrderHigh = Beatnik::Order::High;
+    using zm_type_h = Beatnik::ZModel<ExecutionSpace, MemorySpace, SolverOrderHigh, Beatnik::Params>;
 
 
   protected:
-    // Propterties
+    // Solver variables. Default values from rocketrig
+    double dx_ = 1.0, dy_ = 1.0;
+    double epsilon_ = 0.25;
+    double A_ = 0.0;        // Atwood
+    double g_ = 1.0;        // gravity
+    double mu_ = 1.0;       // mu
+    double p_ = 1.0;        // period
+    double m_ = 0.05;       // magnitude
+    double v_ = 0.00;       // variation
+    double tilt_ = 0.00;    // tilt
+    int heffte_configuration_ = 6;
+
+    // Mesh propterties
     const int meshSize_ = 64;
     const double boxWidth_ = 1.0;
     const int haloWidth_ = 2;
@@ -147,8 +177,16 @@ class TestingBase : public ::testing::Test
     std::unique_ptr<pm_type> p_pm_;
     std::unique_ptr<pm_type> f_pm_;
 
-    std::unique_ptr<br_type> p_br_cutoff_;
-    std::unique_ptr<br_type> f_br_cutoff_;
+    std::unique_ptr<br_cutoff_type> p_br_cutoff_;
+    std::unique_ptr<br_cutoff_type> f_br_cutoff_;
+
+    std::unique_ptr<br_exact_type> p_br_exact_;
+    std::unique_ptr<br_exact_type> f_br_exact_;
+
+    std::unique_ptr<zm_type_h> p_zm_cutoff_;
+    std::unique_ptr<zm_type_h> f_zm_cutoff_;
+    std::unique_ptr<zm_type_h> p_zm_exact_;
+    std::unique_ptr<zm_type_h> f_zm_exact_;
 
     void SetUp() override
     {
@@ -173,26 +211,32 @@ class TestingBase : public ::testing::Test
         f_params_.cutoff_distance = 0.1;
 
         // Init mesh
-        MeshInitFunc p_MeshInitFunc_(globalBoundingBox_, 0.0, 0.05, 0.00, 1.0, globalNumNodes_, Beatnik::BoundaryType::PERIODIC);
-        MeshInitFunc f_MeshInitFunc_(globalBoundingBox_, 0.0, 0.05, 0.00, 1.0, globalNumNodes_, Beatnik::BoundaryType::FREE);
+        MeshInitFunc p_MeshInitFunc_(globalBoundingBox_, tilt_, m_, v_, p_, globalNumNodes_, Beatnik::BoundaryType::PERIODIC);
+        MeshInitFunc f_MeshInitFunc_(globalBoundingBox_, tilt_, m_, v_, p_, globalNumNodes_, Beatnik::BoundaryType::FREE);
 
-        // Periodic
+        // Periodic object init
         this->p_mesh_ = std::make_unique<surface_mesh_type>( globalBoundingBox_, globalNumNodes_, p_params_.periodic, 
                                 partitioner_, haloWidth_, MPI_COMM_WORLD );
-        this->p_pm_ = std::make_unique<pm_type>( *p_mesh_, p_bc_, p_MeshInitFunc_ );
-        this->p_br_cutoff_ = std::make_unique<br_type>(*p_pm_, p_bc_, 1.0, 1.0, 1.0, p_params_);
+        this->p_pm_ = std::make_unique<pm_type>( *p_mesh_, p_bc_, p_, p_MeshInitFunc_ );
+        this->p_br_cutoff_ = std::make_unique<br_cutoff_type>(*p_pm_, p_bc_, epsilon_, dx_, dy_, p_params_);
+        this->p_br_exact_ = std::make_unique<br_exact_type>(*p_pm_, p_bc_, epsilon_, dx_, dy_, p_params_);
+        this->p_zm_exact_ = std::make_unique<zm_type_h>(*p_pm_, p_bc_, p_br_exact_.get(), dx_, dy_, A_, g_, mu_, heffte_configuration_);
 
-        // Free
+        // Free object init
         this->f_mesh_ = std::make_unique<surface_mesh_type>( globalBoundingBox_, globalNumNodes_, f_params_.periodic, 
                                 partitioner_, haloWidth_, MPI_COMM_WORLD );
-        this->f_pm_ = std::make_unique<pm_type>( *f_mesh_, f_bc_, f_MeshInitFunc_ );
-        this->f_br_cutoff_ = std::make_unique<br_type>(*f_pm_, f_bc_, 1.0, 1.0, 1.0, f_params_);
+        this->f_pm_ = std::make_unique<pm_type>( *f_mesh_, f_bc_, p_, f_MeshInitFunc_ );
+        this->f_br_cutoff_ = std::make_unique<br_cutoff_type>(*f_pm_, f_bc_, 1.0, 1.0, 1.0, f_params_);
     }
 
     void TearDown() override
     {
+        this->p_zm_exact_ = NULL;
+
         this->p_br_cutoff_ = NULL;
         this->f_br_cutoff_ = NULL;
+        this->p_br_exact_ = NULL;
+        this->p_br_exact_ = NULL;
 
         this->p_pm_ = NULL;
         this->f_pm_ = NULL;

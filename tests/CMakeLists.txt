@@ -33,6 +33,16 @@ if (ENABLE_TESTS)
                       OUTPUT_DIR ${TEST_OUTPUT_DIRECTORY})
     blt_add_test(NAME CutoffSolverTests
                  COMMAND tstCutoffSolver)
+    
+    
+    blt_add_executable( NAME     tstZModel
+                        SOURCES  tstZModel.cpp
+                        HEADERS  tstZModel.hpp TestingBase.hpp
+                        DEPENDS_ON beatnik gtest
+                        OUTPUT_DIR ${TEST_OUTPUT_DIRECTORY})
+
+    blt_add_test(NAME ZModelTests
+                 COMMAND tstZModel)
 
     # blt_add_executable(NAME tstProblemManager
     #                   SOURCES tstProblemManager.cpp 
