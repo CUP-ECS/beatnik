@@ -321,9 +321,10 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         // https://kokkos.org/kokkos-core-wiki/API/core/view/deep_copy.html
         // "How to get layout incompatiable views copied"
         Kokkos::View<int*[4], device_type> boundary_topology_device("boundary_topology_device", _comm_size+1);
-        auto h_boundary_topology_device_tmp = Kokkos::create_mirror_view(boundary_topology_device);
-        Kokkos::deep_copy(h_boundary_topology_device_tmp, boundary_topology);
-        Kokkos::deep_copy(boundary_topology_device, h_boundary_topology_device_tmp);
+        Operators::copy_to_device(boundary_topology_device, boundary_topology);
+        // auto h_boundary_topology_device_tmp = Kokkos::create_mirror_view(boundary_topology_device);
+        // Kokkos::deep_copy(h_boundary_topology_device_tmp, boundary_topology);
+        // Kokkos::deep_copy(boundary_topology_device, h_boundary_topology_device_tmp);
 
         if (isOnBoundary(local_location, max_location))
         {
