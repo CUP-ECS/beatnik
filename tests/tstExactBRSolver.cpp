@@ -1,0 +1,22 @@
+#include "gtest/gtest.h"
+
+#include <Cabana_Grid.hpp>
+#include <Kokkos_Core.hpp>
+
+#include "tstExactBRSolver.hpp"
+#include "tstDriver.hpp"
+
+#include <mpi.h>
+
+namespace BeatnikTest
+{
+
+TYPED_TEST_SUITE(ExactBRSolverTest, DeviceTypes);
+
+TYPED_TEST(ExactBRSolverTest, testComputeInterfaceVelocity)
+{
+    this->populateCorrectOmega(this->p_pm_);
+    this->testOmega(this->p_pm_, this->p_zm_exact_);
+}
+
+} // end namespace BeatnikTest
