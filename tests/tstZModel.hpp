@@ -28,9 +28,6 @@ class ZModelTest : public TestingBase<T>
     using node_view = typename node_array::view_type;
 
   protected:
-    MPI_Comm comm_;
-    int rank_, comm_size_;
-
     std::shared_ptr<node_array> omega_correct_;
 
     void SetUp() override
