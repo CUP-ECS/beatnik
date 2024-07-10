@@ -154,6 +154,7 @@ class TestingBase : public ::testing::Test
     double v_ = 0.00;       // variation
     double tilt_ = 0.00;    // tilt
     int heffte_configuration_ = 6;
+    double cutoff_distance = 0.3;
 
     // Mesh propterties
     const int meshSize_ = 64;
@@ -213,9 +214,9 @@ class TestingBase : public ::testing::Test
             f_bc_.boundary_type[i] = Beatnik::BoundaryType::FREE;
         }
         p_params_.periodic = {true, true};
-        p_params_.cutoff_distance = 0.1;
+        p_params_.cutoff_distance = cutoff_distance;
         f_params_.periodic = {false, false};
-        f_params_.cutoff_distance = 0.1;
+        f_params_.cutoff_distance = cutoff_distance;
 
         // Init mesh
         MeshInitFunc p_MeshInitFunc_(globalBoundingBox_, tilt_, m_, v_, p_, globalNumNodes_, Beatnik::BoundaryType::PERIODIC);
