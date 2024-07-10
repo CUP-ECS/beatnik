@@ -13,10 +13,10 @@ namespace BeatnikTest
 
 TYPED_TEST_SUITE(ExactBRSolverTest, DeviceTypes);
 
-TYPED_TEST(ExactBRSolverTest, testComputeInterfaceVelocity)
+TYPED_TEST(ExactBRSolverTest, testComputeInterfaceVelocityPeriodic)
 {
-    this->populateCorrectOmega(this->p_pm_);
-    this->testOmega(this->p_pm_, this->p_zm_exact_);
+    this->Init(this->p_pm_);
+    this->populateSingleCorrectZdot();
 }
 
 } // end namespace BeatnikTest
