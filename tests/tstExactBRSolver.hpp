@@ -15,6 +15,37 @@
 namespace BeatnikTest
 {
 
+/* Helpers */
+static KOKKOS_INLINE_FUNCTION double simpsonWeight(int index, int len)
+{
+    if (index == (len - 1) || index == 0) return 3.0/8.0;
+    else if (index % 3 == 0) return 3.0/4.0;
+    else return 9.0/8.0;
+}
+
+template <class VorticityView, class PositionView>
+KOKKOS_INLINE_FUNCTION
+void BR(double out[3], PositionView z, PositionView z2, VorticityView w2,
+        double epsilon, double dx, double dy, double weight, int i, int j, int k, int l,
+        double offset[3])
+{
+    double omega[3], zdiff[3], zsize;
+    zsize = 0.0;
+    for (int d = 0; d < 3; d++) {
+        omega[d] = w2(k, l, 1) * Beatnik::Operators::Dx(z2, k, l, d, dx) - w2(k, l, 0) * Beatnik::Operators::Dy(z2, k, l, d, dy);
+        zdiff[d] = z(i, j, d) - (z2(k, l, d) + offset[d]);
+        zsize += zdiff[d] * zdiff[d];
+    }  
+    zsize = pow(zsize + epsilon, 1.5); // matlab code doesn't square epsilon
+    for (int d = 0; d < 3; d++) {
+        zdiff[d] /= zsize;
+    }
+    Beatnik::Operators::cross(out, omega, zdiff);
+    for (int d = 0; d < 3; d++) {  
+        out[d] *= (dx * dy * weight) / (-4.0 * Kokkos::numbers::pi_v<double>);
+    }
+}
+
 template <class T>
 class ExactBRSolverTest : public TestingBase<T>
 {
@@ -42,6 +73,7 @@ class ExactBRSolverTest : public TestingBase<T>
     std::shared_ptr<surface_mesh_type> single_mesh_;
     std::shared_ptr<pm_type> single_pm_;
     std::shared_ptr<node_array> zdot_correct_;
+    std::shared_ptr<node_array> zdot_test_;
 
     void SetUp() override
     {
@@ -68,10 +100,10 @@ class ExactBRSolverTest : public TestingBase<T>
         // as the global one, but only split amoungst one process
         for (int i = 0; i < 6; i++)
         {
-            this->single_bc_.bounding_box[i] = this->globalBoundingBox_[i];
-            this->single_params_.global_bounding_box[i] = this->globalBoundingBox_[i];
+            single_bc_.bounding_box[i] = this->globalBoundingBox_[i];
+            single_params_.global_bounding_box[i] = this->globalBoundingBox_[i];
         }
-        int is_periodic = single_pm_->mesh().is_periodic(); // 1 if periodic
+        int is_periodic = pm_->mesh().is_periodic(); // 1 if periodic
         for (int i = 0; i < 4; i++)
         {
             // variable = (condition) ? expressionTrue : expressionFalse;
@@ -79,7 +111,6 @@ class ExactBRSolverTest : public TestingBase<T>
             this->single_bc_.boundary_type[i] = (is_periodic) ? Beatnik::BoundaryType::PERIODIC : Beatnik::BoundaryType::FREE;
         }
         this->single_params_.periodic = {(bool) is_periodic, (bool) is_periodic};
-
         MeshInitFunc single_MeshInitFunc_(this->globalBoundingBox_, this->tilt_, this->m_, this->v_, this->p_, this->globalNumNodes_, Beatnik::BoundaryType::FREE);
         this->single_mesh_ = std::make_shared<surface_mesh_type>( this->globalBoundingBox_, this->globalNumNodes_, single_params_.periodic, 
                                 this->partitioner_, this->haloWidth_, comm_single_ );
@@ -88,31 +119,9 @@ class ExactBRSolverTest : public TestingBase<T>
     }
 
   public:
-    template <class VorticityView, class PositionView>
-    KOKKOS_INLINE_FUNCTION
-    void BR(double out[3], PositionView z, PositionView z2, VorticityView w2,
-            double epsilon, double dx, double dy, double weight, int i, int j, int k, int l,
-            double offset[3])
-    {
-        double omega[3], zdiff[3], zsize;
-        zsize = 0.0;
-        for (int d = 0; d < 3; d++) {
-            omega[d] = w2(k, l, 1) * Beatnik::Operators::Dx(z2, k, l, d, dx) - w2(k, l, 0) * Beatnik::Operators::Dy(z2, k, l, d, dy);
-            zdiff[d] = z(i, j, d) - (z2(k, l, d) + offset[d]);
-            zsize += zdiff[d] * zdiff[d];
-        }  
-        zsize = pow(zsize + epsilon, 1.5); // matlab code doesn't square epsilon
-        for (int d = 0; d < 3; d++) {
-            zdiff[d] /= zsize;
-        }
-        Beatnik::Operators::cross(out, omega, zdiff);
-        for (int d = 0; d < 3; d++) {  
-            out[d] *= (dx * dy * weight) / (-4.0 * Kokkos::numbers::pi_v<double>);
-        }
-    }
     /** Calculate zdot on the original mesh but only with one process
      */
-    void populateSingleCorrectZdot()
+    void calculateSingleCorrectZdot()
     {
         // Setup
         auto node_triple_layout =
@@ -122,9 +131,6 @@ class ExactBRSolverTest : public TestingBase<T>
         
         auto z = single_pm_->get(Cabana::Grid::Node(), Beatnik::Field::Position());
         auto w = single_pm_->get(Cabana::Grid::Node(), Beatnik::Field::Vorticity());
-
-        double dx = this->dx_;
-        double dy = this->dy_;
 
         auto zdot_ = this->zdot_correct_->view();
 
@@ -142,15 +148,6 @@ class ExactBRSolverTest : public TestingBase<T>
             for (int n = 0; n < 3; n++)
                 atomic_zdot(i, j, n) = 0.0;
         });
-
-
-        // Calculations
-        std::array<long, 2> rmin, rmax;
-        for (int d = 0; d < 2; d++) {
-            rmin[d] = single_l2g_.local_own_min[d];
-            rmax[d] = single_l2g_.local_own_max[d];
-        }
-	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
         /* Figure out which directions we need to project the k/l point to
          * for any periodic boundary conditions */
@@ -176,14 +173,14 @@ class ExactBRSolverTest : public TestingBase<T>
 
         /* Local temporaries for any instance variables we need so that we
          * don't have to lambda-capture "this" */
-        double epsilon = this->_epsilon;
-        double dx = this->_dx, dy = this->_dy;
+        double epsilon = this->epsilon_;
+        double dx = this->dx_, dy = this->dy_;
 
         // Mesh dimensions for Simpson weight calc
-        int num_nodes = single_pm_->mesh().get_mesh_size();
+        int num_nodes = single_pm_->mesh().get_surface_mesh_size();
 
         /* Now loop over the cross product of all the node on the interface */
-        auto pair_space = Operators::crossIndexSpace(local_node_space, remote_space);
+        auto pair_space = Beatnik::Operators::crossIndexSpace(local_node_space, local_node_space);
         Kokkos::parallel_for("Exact BR Force Loop",
             Cabana::Grid::createExecutionPolicy(pair_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j, int k, int l) {
@@ -196,8 +193,8 @@ class ExactBRSolverTest : public TestingBase<T>
 
             /* Compute Simpson's 3/8 quadrature weight for this index */
             double weight;
-            weight = Beatnik::simpsonWeight(remote_gi[0], num_nodes)
-                        * Beatnik::simpsonWeight(remote_gi[1], num_nodes);
+            weight = simpsonWeight(remote_gi[0], num_nodes)
+                        * simpsonWeight(remote_gi[1], num_nodes);
             
             /* We already have N^4 parallelism, so no need to parallelize on 
              * the BR periodic points. Instead we serialize this in each thread
@@ -209,7 +206,7 @@ class ExactBRSolverTest : public TestingBase<T>
                     offset[1] = ldir * width[1];
 
                     /* Do the Birkhoff-Rott evaluation for this point */
-                    Beatnik::Operators::BR(br, z, z, w, epsilon, dx, dy, weight,
+                    BR(br, z, z, w, epsilon, dx, dy, weight,
                                   i, j, k, l, offset);
                     for (int d = 0; d < 3; d++) {
                         brsum[d] += br[d];
@@ -222,6 +219,34 @@ class ExactBRSolverTest : public TestingBase<T>
                 atomic_zdot(i, j, n) += brsum[n];
             }
         });
+    }
+    
+    template <class pm_bc_type, class zm_type>
+    void calculateDistributedZdot(pm_bc_type pm_, zm_type zm_)
+    {
+        // Get z, w, o views
+        auto z = pm_->get(Cabana::Grid::Node(), Beatnik::Field::Position());
+        auto w = pm_->get(Cabana::Grid::Node(), Beatnik::Field::Vorticity());
+        zm_->prepareOmega(z, w);
+        auto o = zm_->getOmega();
+
+        auto node_triple_layout =
+            Cabana::Grid::createArrayLayout( pm_->mesh().localGrid(), 3, Cabana::Grid::Node() );
+        zdot_test_ = Cabana::Grid::createArray<double, MemorySpace>(
+            "zdot_test_", node_triple_layout );
+        auto zdot = this->zdot_test_->view();
+
+        int is_periodic = pm_->mesh().is_periodic(); // 1 if periodic
+        if (is_periodic)
+        {
+            this->p_br_exact_->computeInterfaceVelocity(zdot, z, w, o);
+        }
+        else 
+        {
+            this->f_br_exact_->computeInterfaceVelocity(zdot, z, w, o);
+        }
+
+
     }
 };
 
