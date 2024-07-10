@@ -1,5 +1,5 @@
-#ifndef _TSTCUTOFFSOLVER_HPP_
-#define _TSTCUTOFFSOLVER_HPP_
+#ifndef _TSTCUTOFF_BRSOLVER_HPP_
+#define _TSTCUTOFF_BRSOLVER_HPP_
 
 #include "gtest/gtest.h"
 
@@ -16,7 +16,7 @@ namespace BeatnikTest
 {
 
 template <class T>
-class CutoffSolverTest : public TestingBase<T>
+class CutoffBRSolverTest : public TestingBase<T>
 {
     using ExecutionSpace = typename T::ExecutionSpace;
     using MemorySpace = typename T::MemorySpace;
@@ -231,4 +231,4 @@ class CutoffSolverTest : public TestingBase<T>
 
 } // end namespace BeatnikTest
 
-#endif // _TSTCUTOFFSOLVER_HPP_
+#endif // _TSTCUTOFF_BRSOLVER_HPP_
