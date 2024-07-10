@@ -487,8 +487,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     {
         Kokkos::Profiling::pushRegion("populate_zdot");
 
-        int rank = _rank;
-
         auto zdot_part = Cabana::slice<2>(particle_array);
         auto idx_part = Cabana::slice<4>(particle_array);
         Kokkos::parallel_for("update_zdot", Kokkos::RangePolicy<exec_space>(0, particle_array.size()), 
