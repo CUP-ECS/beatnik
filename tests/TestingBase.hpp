@@ -171,23 +171,23 @@ class TestingBase : public ::testing::Test
     Beatnik::BoundaryCondition p_bc_;
     Beatnik::BoundaryCondition f_bc_;
 
-    std::unique_ptr<surface_mesh_type> p_mesh_;
-    std::unique_ptr<surface_mesh_type> f_mesh_;
+    std::shared_ptr<surface_mesh_type> p_mesh_;
+    std::shared_ptr<surface_mesh_type> f_mesh_;
 
     NullInitFunctor<2> createFunctorNull_;
-    std::unique_ptr<pm_type> p_pm_;
-    std::unique_ptr<pm_type> f_pm_;
+    std::shared_ptr<pm_type> p_pm_;
+    std::shared_ptr<pm_type> f_pm_;
 
-    std::unique_ptr<br_cutoff_type> p_br_cutoff_;
-    std::unique_ptr<br_cutoff_type> f_br_cutoff_;
+    std::shared_ptr<br_cutoff_type> p_br_cutoff_;
+    std::shared_ptr<br_cutoff_type> f_br_cutoff_;
 
-    std::unique_ptr<br_exact_type> p_br_exact_;
-    std::unique_ptr<br_exact_type> f_br_exact_;
+    std::shared_ptr<br_exact_type> p_br_exact_;
+    std::shared_ptr<br_exact_type> f_br_exact_;
 
-    std::unique_ptr<zm_type_h> p_zm_cutoff_;
-    std::unique_ptr<zm_type_h> f_zm_cutoff_;
-    std::unique_ptr<zm_type_h> p_zm_exact_;
-    std::unique_ptr<zm_type_h> f_zm_exact_;
+    std::shared_ptr<zm_type_h> p_zm_cutoff_;
+    std::shared_ptr<zm_type_h> f_zm_cutoff_;
+    std::shared_ptr<zm_type_h> p_zm_exact_;
+    std::shared_ptr<zm_type_h> f_zm_exact_;
 
     void SetUp() override
     {
@@ -223,18 +223,18 @@ class TestingBase : public ::testing::Test
         MeshInitFunc f_MeshInitFunc_(globalBoundingBox_, tilt_, m_, v_, p_, globalNumNodes_, Beatnik::BoundaryType::FREE);
 
         // Periodic object init
-        this->p_mesh_ = std::make_unique<surface_mesh_type>( globalBoundingBox_, globalNumNodes_, p_params_.periodic, 
+        this->p_mesh_ = std::make_shared<surface_mesh_type>( globalBoundingBox_, globalNumNodes_, p_params_.periodic, 
                                 partitioner_, haloWidth_, MPI_COMM_WORLD );
-        this->p_pm_ = std::make_unique<pm_type>( *p_mesh_, p_bc_, p_, p_MeshInitFunc_ );
-        this->p_br_cutoff_ = std::make_unique<br_cutoff_type>(*p_pm_, p_bc_, epsilon_, dx_, dy_, p_params_);
-        this->p_br_exact_ = std::make_unique<br_exact_type>(*p_pm_, p_bc_, epsilon_, dx_, dy_, p_params_);
-        this->p_zm_exact_ = std::make_unique<zm_type_h>(*p_pm_, p_bc_, p_br_exact_.get(), dx_, dy_, A_, g_, mu_, heffte_configuration_);
+        this->p_pm_ = std::make_shared<pm_type>( *p_mesh_, p_bc_, p_, p_MeshInitFunc_ );
+        this->p_br_cutoff_ = std::make_shared<br_cutoff_type>(*p_pm_, p_bc_, epsilon_, dx_, dy_, p_params_);
+        this->p_br_exact_ = std::make_shared<br_exact_type>(*p_pm_, p_bc_, epsilon_, dx_, dy_, p_params_);
+        this->p_zm_exact_ = std::make_shared<zm_type_h>(*p_pm_, p_bc_, p_br_exact_.get(), dx_, dy_, A_, g_, mu_, heffte_configuration_);
 
         // Free object init
-        this->f_mesh_ = std::make_unique<surface_mesh_type>( globalBoundingBox_, globalNumNodes_, f_params_.periodic, 
+        this->f_mesh_ = std::make_shared<surface_mesh_type>( globalBoundingBox_, globalNumNodes_, f_params_.periodic, 
                                 partitioner_, haloWidth_, MPI_COMM_WORLD );
-        this->f_pm_ = std::make_unique<pm_type>( *f_mesh_, f_bc_, p_, f_MeshInitFunc_ );
-        this->f_br_cutoff_ = std::make_unique<br_cutoff_type>(*f_pm_, f_bc_, 1.0, 1.0, 1.0, f_params_);
+        this->f_pm_ = std::make_shared<pm_type>( *f_mesh_, f_bc_, p_, f_MeshInitFunc_ );
+        this->f_br_cutoff_ = std::make_shared<br_cutoff_type>(*f_pm_, f_bc_, 1.0, 1.0, 1.0, f_params_);
     }
 
     void TearDown() override
