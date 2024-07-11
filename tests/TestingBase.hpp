@@ -138,8 +138,7 @@ class TestingBase : public ::testing::Test
     using pm_type = Beatnik::ProblemManager<ExecutionSpace, MemorySpace>;
     using br_cutoff_type = Beatnik::CutoffBRSolver<ExecutionSpace, MemorySpace, Beatnik::Params>;
     using br_exact_type = Beatnik::ExactBRSolver<ExecutionSpace, MemorySpace, Beatnik::Params>;
-    using SolverOrderHigh = Beatnik::Order::High;
-    using zm_type_h = Beatnik::ZModel<ExecutionSpace, MemorySpace, SolverOrderHigh, Beatnik::Params>;
+    using zm_type_h = Beatnik::ZModel<ExecutionSpace, MemorySpace, Beatnik::Order::High, Beatnik::Params>;
 
 
   protected:
