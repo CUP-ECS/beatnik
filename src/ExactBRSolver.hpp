@@ -164,7 +164,6 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             double weight;
             weight = simpsonWeight(remote_gi[0], num_nodes)
                         * simpsonWeight(remote_gi[1], num_nodes);
-            
             /* We already have N^4 parallelism, so no need to parallelize on 
              * the BR periodic points. Instead we serialize this in each thread
              * and reuse the fetch of the i/j and k/l points */
@@ -217,6 +216,7 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         
         // Compute forces for all owned nodes on this process
         computeInterfaceVelocityPiece(atomic_zdot, z, z, w, o, _local_L2G);
+        // printView(_local_L2G, _rank, zdot, 1, 5, 5);
 
         /* Perform a ring pass of data between each process to compute forces of nodes 
          * on other processes on he nodes owned by this process */

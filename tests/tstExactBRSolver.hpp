@@ -25,14 +25,15 @@ static KOKKOS_INLINE_FUNCTION double simpsonWeight(int index, int len)
 
 template <class VorticityView, class PositionView>
 KOKKOS_INLINE_FUNCTION
-void BR(double out[3], PositionView z, PositionView z2, VorticityView w2,
+void BR(double out[3], PositionView z, PositionView z2, VorticityView w2, PositionView omega_view,
         double epsilon, double dx, double dy, double weight, int i, int j, int k, int l,
-        double offset[3])
+        double offset[3]) 
 {
     double omega[3], zdiff[3], zsize;
     zsize = 0.0;
     for (int d = 0; d < 3; d++) {
-        omega[d] = w2(k, l, 1) * Beatnik::Operators::Dx(z2, k, l, d, dx) - w2(k, l, 0) * Beatnik::Operators::Dy(z2, k, l, d, dy);
+        // omega[d] = w2(k, l, 1) * Dx(z2, k, l, d, dx) - w2(k, l, 0) * Dy(z2, k, l, d, dy);
+        omega[d] = omega_view(k, l, d);
         zdiff[d] = z(i, j, d) - (z2(k, l, d) + offset[d]);
         zsize += zdiff[d] * zdiff[d];
     }  
@@ -56,6 +57,7 @@ class ExactBRSolverTest : public TestingBase<T>
     using surface_mesh_type = Beatnik::SurfaceMesh<ExecutionSpace,MemorySpace>;
     using pm_type = Beatnik::ProblemManager<ExecutionSpace, MemorySpace>;
     using br_exact_type = Beatnik::ExactBRSolver<ExecutionSpace, MemorySpace, Beatnik::Params>;
+    using zm_type_h = Beatnik::ZModel<ExecutionSpace, MemorySpace, Beatnik::Order::High, Beatnik::Params>;
 
     using l2g_type = Cabana::Grid::IndexConversion::L2G<Cabana::Grid::UniformMesh<double, 2>, Cabana::Grid::Node>;
 
@@ -72,8 +74,10 @@ class ExactBRSolverTest : public TestingBase<T>
     Beatnik::Params single_params_;
     std::shared_ptr<surface_mesh_type> single_mesh_;
     std::shared_ptr<pm_type> single_pm_;
+    std::shared_ptr<zm_type_h> single_zm_;
     std::shared_ptr<node_array> zdot_correct_;
     std::shared_ptr<node_array> zdot_test_;
+
 
     void SetUp() override
     {
@@ -116,8 +120,7 @@ class ExactBRSolverTest : public TestingBase<T>
                                 this->partitioner_, this->haloWidth_, comm_single_ );
         this->single_pm_ = std::make_shared<pm_type>( *single_mesh_, single_bc_, this->p_, single_MeshInitFunc_ );
         this->p_br_exact_ = std::make_shared<br_exact_type>(*single_pm_, single_bc_, this->epsilon_, this->dx_, this->dy_, single_params_);
-
-        // XXX - Make initial vorticity (w) non-zero
+        this->single_zm_ = std::make_shared<zm_type_h>(*single_pm_, single_bc_, this->p_br_exact_.get(), this->dx_, this->dy_, this->A_, this->g_, this->mu_, this->heffte_configuration_);
     }
 
   public:
@@ -144,10 +147,10 @@ class ExactBRSolverTest : public TestingBase<T>
             //printf("global: %d %d\n", local_gi[0], local_gi[1]);
             if (option == 1){
                 if (dims == 3) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
+                    printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
                 }
                 else if (dims == 2) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
+                    printf("R%d %d %d %d %d %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
                 }
             }
             else if (option == 2) {
@@ -207,6 +210,102 @@ class ExactBRSolverTest : public TestingBase<T>
         // });
     }
 
+    template <class pm_bc_type, class BoundaryCondition, class AtomicView>
+    void computeInterfaceVelocityPieceCorrect(pm_bc_type pm_,
+                                              BoundaryCondition boundary_cond_,
+                                              AtomicView atomic_zdot, node_view z, 
+                                              node_view zremote, node_view wremote,
+                                              node_view oremote, 
+                                              l2g_type remote_L2G)
+    {
+        /* Project the Birkhoff-Rott calculation between all pairs of points on the 
+         * interface, including accounting for any periodic boundary conditions.
+         * Right now we brute force all of the points with no tiling to improve
+         * memory access or optimizations to remove duplicate calculations. */
+
+        // Get the local index spaces of pieces we're working with. For the local surface piece
+        // this is just the nodes we own. For the remote surface piece, we extract it from the
+        // L2G converter they sent us.
+        auto local_grid = pm_->mesh().localGrid();
+        auto local_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
+        std::array<long, 2> rmin, rmax;
+        for (int d = 0; d < 2; d++) {
+            rmin[d] = remote_L2G.local_own_min[d];
+            rmax[d] = remote_L2G.local_own_max[d];
+        }
+	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
+
+        /* Figure out which directions we need to project the k/l point to
+         * for any periodic boundary conditions */
+        int kstart, lstart, kend, lend;
+        if (boundary_cond_.isPeriodicBoundary({0, 1})) {
+            kstart = -1; kend = 1;
+        } else {
+            kstart = kend = 0;
+        }
+        if (boundary_cond_.isPeriodicBoundary({1, 1})) {
+            lstart = -1; lend = 1;
+        } else {
+            lstart = lend = 0;
+        }
+
+        /* Figure out how wide the bounding box is in each direction */
+        auto low = pm_->mesh().boundingBoxMin();
+        auto high = pm_->mesh().boundingBoxMax();;
+        double width[3];
+        for (int d = 0; d < 3; d++) {
+            width[d] = high[d] - low[d];
+        }
+
+        /* Local temporaries for any instance variables we need so that we
+         * don't have to lambda-capture "this" */
+        double epsilon = this->epsilon_;
+        double dx = this->dx_, dy = this->dy_;
+
+        // Mesh dimensions for Simpson weight calc
+        int num_nodes = pm_->mesh().get_surface_mesh_size();
+
+        /* Now loop over the cross product of all the node on the interface */
+        auto pair_space = Beatnik::Operators::crossIndexSpace(local_space, remote_space);
+        Kokkos::parallel_for("Exact BR Force Loop",
+            Cabana::Grid::createExecutionPolicy(pair_space, ExecutionSpace()),
+            KOKKOS_LAMBDA(int i, int j, int k, int l) {
+
+            // We need the global indicies of the (k, l) point for Simpson's weight
+            int remote_li[2] = {k, l};
+            int remote_gi[2] = {0, 0};  // k, l
+            remote_L2G(remote_li, remote_gi);
+            
+            double brsum[3] = {0.0, 0.0, 0.0};
+
+            /* Compute Simpson's 3/8 quadrature weight for this index */
+            double weight;
+            weight = simpsonWeight(remote_gi[0], num_nodes)
+                        * simpsonWeight(remote_gi[1], num_nodes);            
+            /* We already have N^4 parallelism, so no need to parallelize on 
+             * the BR periodic points. Instead we serialize this in each thread
+             * and reuse the fetch of the i/j and k/l points */
+            for (int kdir = kstart; kdir <= kend; kdir++) {
+                for (int ldir = lstart; ldir <= lend; ldir++) {
+                    double offset[3] = {0.0, 0.0, 0.0}, br[3];
+                    offset[0] = kdir * width[0];
+                    offset[1] = ldir * width[1];
+
+                    /* Do the Birkhoff-Rott evaluation for this point */
+                    BR(br, z, zremote, wremote, oremote, epsilon, dx, dy, weight,
+                                  i, j, k, l, offset);
+                    for (int d = 0; d < 3; d++) {
+                        brsum[d] += br[d];
+                    }
+                }
+            }
+
+            /* Add it its contribution to the integral */
+            for (int n = 0; n < 3; n++) {
+                atomic_zdot(i, j, n) += brsum[n];
+            }
+        });
+    }
     /** Calculate zdot on the original mesh but only with one process
      */
     void calculateSingleCorrectZdot()
@@ -219,105 +318,34 @@ class ExactBRSolverTest : public TestingBase<T>
         
         auto z = single_pm_->get(Cabana::Grid::Node(), Beatnik::Field::Position());
         auto w = single_pm_->get(Cabana::Grid::Node(), Beatnik::Field::Vorticity());
+        single_zm_->prepareOmega(z, w);
+        auto o = single_zm_->getOmega();
 
         auto zdot_ = this->zdot_correct_->view();
 
         auto local_grid = single_pm_->mesh().localGrid();
         auto local_L2G = Cabana::Grid::IndexConversion::createL2G<Cabana::Grid::UniformMesh<double, 2>, Cabana::Grid::Node>(*local_grid, Cabana::Grid::Node());
+        auto local_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
-
+        /* Start by zeroing the interface velocity */
+        
+        /* Get an atomic view of the interface velocity, since each k/l point
+         * is going to be updating it in parallel */
         Kokkos::View<double ***,
              typename node_view::device_type,
              Kokkos::MemoryTraits<Kokkos::Atomic>> atomic_zdot = zdot_;
     
         /* Zero out all of the i/j points - XXX Is this needed are is this already zeroed somewhere else? */
-        auto local_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         Kokkos::parallel_for("Exact BR Zero Loop",
             Cabana::Grid::createExecutionPolicy(local_node_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {
             for (int n = 0; n < 3; n++)
                 atomic_zdot(i, j, n) = 0.0;
         });
-
-        /* Figure out which directions we need to project the k/l point to
-         * for any periodic boundary conditions */
-        int kstart, lstart, kend, lend;
-        if (single_bc_.isPeriodicBoundary({0, 1})) {
-            kstart = -1; kend = 1;
-        } else {
-            kstart = kend = 0;
-        }
-        if (single_bc_.isPeriodicBoundary({1, 1})) {
-            lstart = -1; lend = 1;
-        } else {
-            lstart = lend = 0;
-        }
-
-        /* Figure out how wide the bounding box is in each direction */
-        auto low = single_pm_->mesh().boundingBoxMin();
-        auto high = single_pm_->mesh().boundingBoxMax();;
-        double width[3];
-        for (int d = 0; d < 3; d++) {
-            width[d] = high[d] - low[d];
-        }
-
-        /* Local temporaries for any instance variables we need so that we
-         * don't have to lambda-capture "this" */
-        double epsilon = this->epsilon_;
-        double dx = this->dx_, dy = this->dy_;
-
-        // Mesh dimensions for Simpson weight calc
-        int num_nodes = single_pm_->mesh().get_surface_mesh_size();
-        // int sr = single_rank_;
-        /* Now loop over the cross product of all the node on the interface */
-        int halo_width = this->haloWidth_;
-        auto pair_space = Beatnik::Operators::crossIndexSpace(local_node_space, local_node_space);
-        Kokkos::parallel_for("Exact BR Force Loop",
-            Cabana::Grid::createExecutionPolicy(pair_space, ExecutionSpace()),
-            KOKKOS_LAMBDA(int i, int j, int k, int l) {
-
-            // printf("R%d: ijlk: %d, %d, %d, %d\n", sr, i, j, k, l);
-
-            // We need the global indicies of the (k, l) point for Simpson's weight
-            int remote_gi[2] = {k-halo_width, l-halo_width};
-            
-            
-            double brsum[3] = {0.0, 0.0, 0.0};
-
-            /* Compute Simpson's 3/8 quadrature weight for this index */
-            double weight;
-            weight = simpsonWeight(remote_gi[0], num_nodes)
-                        * simpsonWeight(remote_gi[1], num_nodes);
-            
-            /* We already have N^4 parallelism, so no need to parallelize on 
-             * the BR periodic points. Instead we serialize this in each thread
-             * and reuse the fetch of the i/j and k/l points */
-            for (int kdir = kstart; kdir <= kend; kdir++) {
-                for (int ldir = lstart; ldir <= lend; ldir++) {
-                    double offset[3] = {0.0, 0.0, 0.0}, br[3];
-                    offset[0] = kdir * width[0];
-                    offset[1] = ldir * width[1];
-
-                    /* Do the Birkhoff-Rott evaluation for this point */
-                    BR(br, z, z, w, epsilon, dx, dy, weight,
-                                  i, j, k, l, offset);
-                    // printf("z: %0.8lf, %0.8lf, %0.8lf, w:, %0.8lf, %0.8lf, %0.8lf\n", z(k, l, 0), z(k, l, 1), z(k, l, 2),
-                    //     w(k, l, 0), w(k, l, 1), w(k, l, 2));
-                    printf("ijkl: %d %d %d %d weight: %0.3lf, offset: %0.5lf, %0.5lf, br: %0.8lf, %0.8lf, %0.8lf\n",
-                        i, j, k, l, weight, offset[0], offset[1], br[0], br[1], br[2]);
-                    for (int d = 0; d < 3; d++) {
-                        brsum[d] += br[d];
-                    }
-                }
-            }
-
-            /* Add it its contribution to the integral */
-            for (int n = 0; n < 3; n++) {
-                atomic_zdot(i, j, n) += brsum[n];
-            }
-            //printf("R%d: br: %05.lf, %0.5lf, %05.lf\n", sr, brsum[0], brsum[1], brsum[2]);
-        });
-        printView(local_L2G, 0, zdot_, 1, 5, 5);
+        
+        // Compute forces for all owned nodes on this process
+        computeInterfaceVelocityPieceCorrect(single_pm_, single_bc_, atomic_zdot, z, z, w, o, local_L2G);
+        //printView(local_L2G, 0, zdot_, 1, 5, 5);
     }
     
     template <class pm_bc_type, class zm_type>
@@ -386,7 +414,7 @@ class ExactBRSolverTest : public TestingBase<T>
                 {
                     double zdot_test = zdot_h_test(k, l, dim);
                     double zdot_correct = zdot_h_correct(gi[0]+halo_width, gi[1]+halo_width, dim);
-                    //EXPECT_DOUBLE_EQ(zdot_test, zdot_correct);
+                    EXPECT_DOUBLE_EQ(zdot_test, zdot_correct);
                 }
                 
         });
