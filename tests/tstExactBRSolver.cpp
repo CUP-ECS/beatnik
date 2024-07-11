@@ -17,7 +17,8 @@ TYPED_TEST(ExactBRSolverTest, testComputeInterfaceVelocityPeriodic)
 {
     this->Init(this->p_pm_);
     this->calculateSingleCorrectZdot();
-    this->calculateDistributedZdot(this->p_pm_, this->p_zm_exact_);
+    //this->calculateDistributedZdot(this->p_pm_, this->p_zm_exact_);
+    //this->testZdot(this->p_pm_);
 }
 
 } // end namespace BeatnikTest

@@ -1,5 +1,5 @@
-#ifndef _TSTZMODEL_HPP_
-#define _TSTZMODEL_HPP_
+#ifndef _TSTEXACT_BRSOLVER_HPP_
+#define _TSTEXACT_BRSOLVER_HPP_
 
 #include "gtest/gtest.h"
 
@@ -116,6 +116,8 @@ class ExactBRSolverTest : public TestingBase<T>
                                 this->partitioner_, this->haloWidth_, comm_single_ );
         this->single_pm_ = std::make_shared<pm_type>( *single_mesh_, single_bc_, this->p_, single_MeshInitFunc_ );
         this->p_br_exact_ = std::make_shared<br_exact_type>(*single_pm_, single_bc_, this->epsilon_, this->dx_, this->dy_, single_params_);
+
+        // XXX - Make initial vorticity (w) non-zero
     }
 
   public:
@@ -178,12 +180,14 @@ class ExactBRSolverTest : public TestingBase<T>
 
         // Mesh dimensions for Simpson weight calc
         int num_nodes = single_pm_->mesh().get_surface_mesh_size();
-
+        int sr = single_rank_;
         /* Now loop over the cross product of all the node on the interface */
         auto pair_space = Beatnik::Operators::crossIndexSpace(local_node_space, local_node_space);
         Kokkos::parallel_for("Exact BR Force Loop",
             Cabana::Grid::createExecutionPolicy(pair_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j, int k, int l) {
+
+            // printf("R%d: ijlk: %d, %d, %d, %d\n", sr, i, j, k, l);
 
             // We need the global indicies of the (k, l) point for Simpson's weight
             int remote_gi[2] = {k, l};  // k, l
@@ -208,6 +212,8 @@ class ExactBRSolverTest : public TestingBase<T>
                     /* Do the Birkhoff-Rott evaluation for this point */
                     BR(br, z, z, w, epsilon, dx, dy, weight,
                                   i, j, k, l, offset);
+                    printf("esp: %0.3lf, dx: %0.3lf, dy: %0.3lf, weight: %0.3lf, offset: %0.5lf, %0.5lf, br: %0.13lf, %0.13lf, %0.13lf\n",
+                        epsilon, dx, dy, weight, offset[0], offset[1], br[0], br[1], br[2]);
                     for (int d = 0; d < 3; d++) {
                         brsum[d] += br[d];
                     }
@@ -218,6 +224,7 @@ class ExactBRSolverTest : public TestingBase<T>
             for (int n = 0; n < 3; n++) {
                 atomic_zdot(i, j, n) += brsum[n];
             }
+            //printf("R%d: br: %05.lf, %0.5lf, %05.lf\n", sr, brsum[0], brsum[1], brsum[2]);
         });
     }
     
@@ -248,8 +255,53 @@ class ExactBRSolverTest : public TestingBase<T>
 
 
     }
+    template <class pm_bc_type>
+    void testZdot(pm_bc_type pm_)
+    {
+        auto zdot_d_test = this->zdot_test_->view();
+        auto zdot_d_correct = this->zdot_correct_->view();
+
+        auto local_grid = pm_->mesh().localGrid();
+        auto local_L2G = Cabana::Grid::IndexConversion::createL2G<Cabana::Grid::UniformMesh<double, 2>, Cabana::Grid::Node>(*local_grid, Cabana::Grid::Node());
+
+        // Copy views to host memory
+        int tdim0 = zdot_d_test.extent(0);
+        int tdim1 = zdot_d_test.extent(1);
+        int tdim2 = zdot_d_test.extent(2);
+        int cdim0 = zdot_d_correct.extent(0);
+        int cdim1 = zdot_d_correct.extent(1);
+        int cdim2 = zdot_d_correct.extent(2);
+        Kokkos::View<double***, Kokkos::HostSpace> zdot_h_test("zdot_h_test", tdim0, tdim1, tdim2);
+        Kokkos::View<double***, Kokkos::HostSpace> zdot_h_correct("zdot_h_correct", cdim0, cdim1, cdim2);
+        Beatnik::Operators::copy_to_host(zdot_h_test, zdot_d_test);
+        Beatnik::Operators::copy_to_host(zdot_h_correct, zdot_d_correct);
+
+        const int halo_width = 2; // XXX - For some reason this->haloWidth_ is not working
+        auto own_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
+        Kokkos::parallel_for( "Check zdot",  
+            createExecutionPolicy(own_node_space, Kokkos::DefaultHostExecutionSpace()), 
+            KOKKOS_LAMBDA(int k, int l) {
+
+                // We want the global coordinates of the distributed zdot so we
+                // can properly index into the single zdot
+                int li[2] = {k, l};
+                int gi[2] = {0, 0}; // Holds global k, l
+                local_L2G(li, gi);
+                printf("R%d: l: %d, %d, g: %d, %d, ztest: %05.lf, %0.5lf, %05.lf, zcor: %05.lf, %0.5lf, %05.lf\n",
+                    rank_, k, l, gi[0]+halo_width, gi[1]+halo_width, zdot_h_test(k, l, 0), zdot_h_test(k, l, 1), zdot_h_test(k, l, 2),
+                    zdot_h_correct(gi[0]+halo_width, gi[1]+halo_width, 0), zdot_h_correct(gi[0]+halo_width, gi[1]+halo_width, 1), zdot_h_correct(gi[0]+halo_width, gi[1]+halo_width, 2));
+                for (int dim = 0; dim < cdim2; dim++)
+                {
+                    double zdot_test = zdot_h_test(k, l, dim);
+                    double zdot_correct = zdot_h_correct(gi[0]+halo_width, gi[1]+halo_width, dim);
+                    EXPECT_DOUBLE_EQ(zdot_test, zdot_correct);
+                }
+                
+        });
+
+    }
 };
 
 } // end namespace BeatnikTest
 
-#endif // _TSTZMODEL_HPP_
+#endif // _TSTEXACT_BRSOLVER_HPP_
