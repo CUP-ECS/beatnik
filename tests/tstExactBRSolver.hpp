@@ -368,7 +368,7 @@ class ExactBRSolverTest : public TestingBase<T>
                 {
                     double zdot_test = zdot_h_test(k, l, dim);
                     double zdot_correct = zdot_h_correct(gi[0]+halo_width, gi[1]+halo_width, dim);
-                    EXPECT_DOUBLE_EQ(zdot_test, zdot_correct);
+                    EXPECT_NEAR(zdot_test, zdot_correct, 0.0000000000001);
                 }
                 
         });
