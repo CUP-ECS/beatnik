@@ -353,7 +353,7 @@ class ExactBRSolverTest : public TestingBase<T>
         Beatnik::Operators::copy_to_host(zdot_h_test, zdot_d_test);
         Beatnik::Operators::copy_to_host(zdot_h_correct, zdot_d_correct);
 
-        const int halo_width = 2; // XXX - For some reason this->haloWidth_ is not working
+        const int halo_width = this->haloWidth_;
         auto own_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         Kokkos::parallel_for( "Check zdot",  
             createExecutionPolicy(own_node_space, Kokkos::DefaultHostExecutionSpace()), 
