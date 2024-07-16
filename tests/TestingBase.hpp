@@ -156,7 +156,7 @@ class TestingBase : public ::testing::Test
     double cutoff_distance = 0.3;
 
     // Mesh propterties
-    const int meshSize_ = 8;
+    const int meshSize_ = 64;
     const double boxWidth_ = 1.0;
     const int haloWidth_ = 2;
     std::array<double, 6> globalBoundingBox_ = {-1, -1, -1, 1, 1, 1};
@@ -174,6 +174,9 @@ class TestingBase : public ::testing::Test
     std::shared_ptr<surface_mesh_type> f_mesh_;
 
     NullInitFunctor<2> createFunctorNull_;
+    MeshInitFunc p_MeshInitFunc_ = MeshInitFunc(globalBoundingBox_, tilt_, m_, v_, p_, globalNumNodes_, Beatnik::BoundaryType::PERIODIC);
+    MeshInitFunc f_MeshInitFunc_ = MeshInitFunc(globalBoundingBox_, tilt_, m_, v_, p_, globalNumNodes_, Beatnik::BoundaryType::FREE);
+
     std::shared_ptr<pm_type> p_pm_;
     std::shared_ptr<pm_type> f_pm_;
 
@@ -218,8 +221,6 @@ class TestingBase : public ::testing::Test
         f_params_.cutoff_distance = cutoff_distance;
 
         // Init mesh
-        MeshInitFunc p_MeshInitFunc_(globalBoundingBox_, tilt_, m_, v_, p_, globalNumNodes_, Beatnik::BoundaryType::PERIODIC);
-        MeshInitFunc f_MeshInitFunc_(globalBoundingBox_, tilt_, m_, v_, p_, globalNumNodes_, Beatnik::BoundaryType::FREE);
 
         // Periodic object init
         this->p_mesh_ = std::make_shared<surface_mesh_type>( globalBoundingBox_, globalNumNodes_, p_params_.periodic, 

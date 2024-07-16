@@ -25,15 +25,15 @@ static KOKKOS_INLINE_FUNCTION double simpsonWeight(int index, int len)
 
 template <class VorticityView, class PositionView>
 KOKKOS_INLINE_FUNCTION
-void BR(double out[3], PositionView z, PositionView z2, VorticityView w2, PositionView omega_view,
+void BR(double out[3], PositionView z, PositionView z2, VorticityView w2,
         double epsilon, double dx, double dy, double weight, int i, int j, int k, int l,
         double offset[3]) 
 {
     double omega[3], zdiff[3], zsize;
     zsize = 0.0;
     for (int d = 0; d < 3; d++) {
-        // omega[d] = w2(k, l, 1) * Dx(z2, k, l, d, dx) - w2(k, l, 0) * Dy(z2, k, l, d, dy);
-        omega[d] = omega_view(k, l, d);
+        omega[d] = w2(k, l, 1) * Beatnik::Operators::Dx(z2, k, l, d, dx) - w2(k, l, 0) * Beatnik::Operators::Dy(z2, k, l, d, dy);
+        //omega[d] = omega_view(k, l, d);
         zdiff[d] = z(i, j, d) - (z2(k, l, d) + offset[d]);
         zsize += zdiff[d] * zdiff[d];
     }  
@@ -115,56 +115,19 @@ class ExactBRSolverTest : public TestingBase<T>
             this->single_bc_.boundary_type[i] = (is_periodic) ? Beatnik::BoundaryType::PERIODIC : Beatnik::BoundaryType::FREE;
         }
         this->single_params_.periodic = {(bool) is_periodic, (bool) is_periodic};
-        MeshInitFunc single_MeshInitFunc_(this->globalBoundingBox_, this->tilt_, this->m_, this->v_, this->p_, this->globalNumNodes_, Beatnik::BoundaryType::FREE);
         this->single_mesh_ = std::make_shared<surface_mesh_type>( this->globalBoundingBox_, this->globalNumNodes_, single_params_.periodic, 
                                 this->partitioner_, this->haloWidth_, comm_single_ );
-        this->single_pm_ = std::make_shared<pm_type>( *single_mesh_, single_bc_, this->p_, single_MeshInitFunc_ );
-        this->p_br_exact_ = std::make_shared<br_exact_type>(*single_pm_, single_bc_, this->epsilon_, this->dx_, this->dy_, single_params_);
-        this->single_zm_ = std::make_shared<zm_type_h>(*single_pm_, single_bc_, this->p_br_exact_.get(), this->dx_, this->dy_, this->A_, this->g_, this->mu_, this->heffte_configuration_);
+        if (is_periodic)
+        {
+            this->single_pm_ = std::make_shared<pm_type>( *single_mesh_, single_bc_, this->p_, this->p_MeshInitFunc_ );
+        }
+        else 
+        {
+            this->single_pm_ = std::make_shared<pm_type>( *single_mesh_, single_bc_, this->p_, this->f_MeshInitFunc_ );
+        }
     }
 
   public:
-    template <class l2g_type, class View>
-    void printView(l2g_type local_L2G, int rank, View z, int option, int DEBUG_X, int DEBUG_Y) const
-    {
-        int dims = z.extent(2);
-
-        std::array<long, 2> rmin, rmax;
-        for (int d = 0; d < 2; d++) {
-            rmin[d] = local_L2G.local_own_min[d];
-            rmax[d] = local_L2G.local_own_max[d];
-        }
-	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
-
-        Kokkos::parallel_for("print views",
-            Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
-            KOKKOS_LAMBDA(int i, int j) {
-            
-            // local_gi = global versions of the local indicies, and convention for remote 
-            int local_li[2] = {i, j};
-            int local_gi[2] = {0, 0};   // i, j
-            local_L2G(local_li, local_gi);
-            //printf("global: %d %d\n", local_gi[0], local_gi[1]);
-            if (option == 1){
-                if (dims == 3) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
-                }
-                else if (dims == 2) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
-                }
-            }
-            else if (option == 2) {
-                if (local_gi[0] == DEBUG_X && local_gi[1] == DEBUG_Y) {
-                    if (dims == 3) {
-                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf: %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
-                    }   
-                    else if (dims == 2) {
-                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
-                    }
-                }
-            }
-        });
-    }
     /* Vorticity is initlized to zero in ProblemManager. Set the single and distributed
      * vorticities to non-zero values based on global index to keep
      * the values the same in the single and distributed versions.
@@ -215,7 +178,6 @@ class ExactBRSolverTest : public TestingBase<T>
                                               BoundaryCondition boundary_cond_,
                                               AtomicView atomic_zdot, node_view z, 
                                               node_view zremote, node_view wremote,
-                                              node_view oremote, 
                                               l2g_type remote_L2G)
     {
         /* Project the Birkhoff-Rott calculation between all pairs of points on the 
@@ -292,7 +254,7 @@ class ExactBRSolverTest : public TestingBase<T>
                     offset[1] = ldir * width[1];
 
                     /* Do the Birkhoff-Rott evaluation for this point */
-                    BR(br, z, zremote, wremote, oremote, epsilon, dx, dy, weight,
+                    BR(br, z, zremote, wremote, epsilon, dx, dy, weight,
                                   i, j, k, l, offset);
                     for (int d = 0; d < 3; d++) {
                         brsum[d] += br[d];
@@ -318,16 +280,12 @@ class ExactBRSolverTest : public TestingBase<T>
         
         auto z = single_pm_->get(Cabana::Grid::Node(), Beatnik::Field::Position());
         auto w = single_pm_->get(Cabana::Grid::Node(), Beatnik::Field::Vorticity());
-        single_zm_->prepareOmega(z, w);
-        auto o = single_zm_->getOmega();
 
         auto zdot_ = this->zdot_correct_->view();
 
         auto local_grid = single_pm_->mesh().localGrid();
         auto local_L2G = Cabana::Grid::IndexConversion::createL2G<Cabana::Grid::UniformMesh<double, 2>, Cabana::Grid::Node>(*local_grid, Cabana::Grid::Node());
         auto local_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
-
-        /* Start by zeroing the interface velocity */
         
         /* Get an atomic view of the interface velocity, since each k/l point
          * is going to be updating it in parallel */
@@ -344,8 +302,7 @@ class ExactBRSolverTest : public TestingBase<T>
         });
         
         // Compute forces for all owned nodes on this process
-        computeInterfaceVelocityPieceCorrect(single_pm_, single_bc_, atomic_zdot, z, z, w, o, local_L2G);
-        //printView(local_L2G, 0, zdot_, 1, 5, 5);
+        computeInterfaceVelocityPieceCorrect(single_pm_, single_bc_, atomic_zdot, z, z, w, local_L2G);
     }
     
     template <class pm_bc_type, class zm_type>
@@ -407,9 +364,6 @@ class ExactBRSolverTest : public TestingBase<T>
                 int li[2] = {k, l};
                 int gi[2] = {0, 0}; // Holds global k, l
                 local_L2G(li, gi);
-                // printf("R%d: l: %d, %d, g: %d, %d, ztest: %05.lf, %0.5lf, %05.lf, zcor: %05.lf, %0.5lf, %05.lf\n",
-                //     rank_, k, l, gi[0]+halo_width, gi[1]+halo_width, zdot_h_test(k, l, 0), zdot_h_test(k, l, 1), zdot_h_test(k, l, 2),
-                //     zdot_h_correct(gi[0]+halo_width, gi[1]+halo_width, 0), zdot_h_correct(gi[0]+halo_width, gi[1]+halo_width, 1), zdot_h_correct(gi[0]+halo_width, gi[1]+halo_width, 2));
                 for (int dim = 0; dim < cdim2; dim++)
                 {
                     double zdot_test = zdot_h_test(k, l, dim);
