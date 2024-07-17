@@ -83,8 +83,8 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         , _local_L2G( *_pm.mesh().localGrid() )
         , _comm( _pm.mesh().localGrid()->globalGrid().comm() )
     {
-        MPI_Comm_size(MPI_COMM_WORLD, &_num_procs);
-        MPI_Comm_rank(MPI_COMM_WORLD, &_rank);
+        MPI_Comm_size(_comm, &_num_procs);
+        MPI_Comm_rank(_comm, &_rank);
     }
 
     static KOKKOS_INLINE_FUNCTION double simpsonWeight(int index, int len)
@@ -164,7 +164,6 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             double weight;
             weight = simpsonWeight(remote_gi[0], num_nodes)
                         * simpsonWeight(remote_gi[1], num_nodes);
-            
             /* We already have N^4 parallelism, so no need to parallelize on 
              * the BR periodic points. Instead we serialize this in each thread
              * and reuse the fetch of the i/j and k/l points */
@@ -217,6 +216,7 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         
         // Compute forces for all owned nodes on this process
         computeInterfaceVelocityPiece(atomic_zdot, z, z, w, o, _local_L2G);
+        // printView(_local_L2G, _rank, zdot, 1, 5, 5);
 
         /* Perform a ring pass of data between each process to compute forces of nodes 
          * on other processes on he nodes owned by this process */
@@ -302,11 +302,11 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                 
             // Send w and z view sizes
             MPI_Sendrecv(wsend_extents, 3, MPI_INT, next_rank, 0, 
-                        wrecv_extents, 3, MPI_INT, prev_rank, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                        wrecv_extents, 3, MPI_INT, prev_rank, 0, _comm, MPI_STATUS_IGNORE);
             MPI_Sendrecv(zsend_extents, 3, MPI_INT, next_rank, 1, 
-                        zrecv_extents, 3, MPI_INT, prev_rank, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                        zrecv_extents, 3, MPI_INT, prev_rank, 1, _comm, MPI_STATUS_IGNORE);
             MPI_Sendrecv(osend_extents, 3, MPI_INT, next_rank, 6, 
-                        orecv_extents, 3, MPI_INT, prev_rank, 6, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                        orecv_extents, 3, MPI_INT, prev_rank, 6, _comm, MPI_STATUS_IGNORE);
 
             // Resize *remote2, which is receiving data
             Kokkos::resize(*wrecv_view, wrecv_extents[0], wrecv_extents[1], wrecv_extents[2]);
@@ -316,18 +316,18 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             // Send/receive the views
             MPI_Sendrecv(wsend_view->data(), int(wsend_view->size()), MPI_DOUBLE, next_rank, 2, 
                         wrecv_view->data(), int(wrecv_view->size()), MPI_DOUBLE, prev_rank, 2, 
-                        MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                        _comm, MPI_STATUS_IGNORE);
             MPI_Sendrecv(zsend_view->data(), int(zsend_view->size()), MPI_DOUBLE, next_rank, 3, 
                         zrecv_view->data(), int(zrecv_view->size()), MPI_DOUBLE, prev_rank, 3, 
-                        MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                        _comm, MPI_STATUS_IGNORE);
             MPI_Sendrecv(osend_view->data(), int(osend_view->size()), MPI_DOUBLE, next_rank, 4, 
                         orecv_view->data(), int(orecv_view->size()), MPI_DOUBLE, prev_rank, 4, 
-                        MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                        _comm, MPI_STATUS_IGNORE);
 
             // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
             MPI_Sendrecv(L2G_send, int(sizeof(*L2G_send)), MPI_BYTE, next_rank, 5, 
                          L2G_recv, int(sizeof(*L2G_recv)), MPI_BYTE, prev_rank, 5, 
-                         MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+                         _comm, MPI_STATUS_IGNORE);
 
             // Do computations
             computeInterfaceVelocityPiece(atomic_zdot, z, *zrecv_view, *wrecv_view, *orecv_view, *L2G_recv);

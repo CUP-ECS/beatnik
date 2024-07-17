@@ -3,7 +3,7 @@
 #include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
 
-#include "tstCutoffSolver.hpp"
+#include "tstCutoffBRSolver.hpp"
 #include "tstDriver.hpp"
 
 #include <mpi.h>
@@ -11,9 +11,9 @@
 namespace BeatnikTest
 {
 
-TYPED_TEST_SUITE(CutoffSolverTest, DeviceTypes);
+TYPED_TEST_SUITE(CutoffBRSolverTest, DeviceTypes);
 
-TYPED_TEST(CutoffSolverTest, testIsOnBoundary)
+TYPED_TEST(CutoffBRSolverTest, testIsOnBoundary)
 {
     int rank, comm_size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -33,7 +33,7 @@ TYPED_TEST(CutoffSolverTest, testIsOnBoundary)
  * and that the adjusted position is no more than
  * bounding box limit + cutoff distance outside of the mesh.
  */
-TYPED_TEST(CutoffSolverTest, testPeriodicHalo)
+TYPED_TEST(CutoffBRSolverTest, testPeriodicHalo)
 { 
     this->tstPeriodicHalo();
 }

@@ -44,6 +44,7 @@ class SurfaceMesh
           const Cabana::Grid::BlockPartitioner<2>& partitioner,
           const int min_halo_width, MPI_Comm comm )
 		  : _num_nodes( num_nodes )
+          , _periodic( periodic )
     {
         MPI_Comm_rank( comm, &_rank );
 
@@ -139,6 +140,14 @@ class SurfaceMesh
         return _num_nodes[0];
     }
 
+    // Get whether the mesh is periodic
+    // XXX - Assumes if the x-boundary is periodic, the mesh
+    // is also periodic along the y-boundary
+    int is_periodic() const
+    {
+        return _periodic[0];
+    }
+
     // Get the boundary indexes on the periodic boundary. local_grid.boundaryIndexSpace()
     // doesn't work on periodic boundaries.
     // XXX Needs more error checking to make sure the boundary is in fact periodic
@@ -164,6 +173,7 @@ class SurfaceMesh
 
   private:
     std::array<double, 3> _low_point, _high_point;
+    const std::array<bool, 2> _periodic;
     std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> _local_grid;
     int _rank;
 	std::array<int, 2> _num_nodes;

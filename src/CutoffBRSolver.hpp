@@ -317,13 +317,8 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         int max_location[3] = {boundary_topology(_comm_size, 1), boundary_topology(_comm_size, 2), boundary_topology(_comm_size, 3)};
         int rank = _rank;
 
-        // Copy Boundary_topology to execution space
-        // https://kokkos.org/kokkos-core-wiki/API/core/view/deep_copy.html
-        // "How to get layout incompatiable views copied"
         Kokkos::View<int*[4], device_type> boundary_topology_device("boundary_topology_device", _comm_size+1);
-        auto h_boundary_topology_device_tmp = Kokkos::create_mirror_view(boundary_topology_device);
-        Kokkos::deep_copy(h_boundary_topology_device_tmp, boundary_topology);
-        Kokkos::deep_copy(boundary_topology_device, h_boundary_topology_device_tmp);
+        Operators::copy_to_device(boundary_topology_device, boundary_topology);
 
         if (isOnBoundary(local_location, max_location))
         {
@@ -485,8 +480,6 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     void populate_zdot(particle_array_type &particle_array, PositionView zdot) const
     {
         Kokkos::Profiling::pushRegion("populate_zdot");
-
-        int rank = _rank;
 
         auto zdot_part = Cabana::slice<2>(particle_array);
         auto idx_part = Cabana::slice<4>(particle_array);
