@@ -94,8 +94,8 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         else return 9.0/8.0;
     }
 
-    template <class AtomicView>
-    void computeInterfaceVelocityPiece(AtomicView atomic_zdot, node_view z, 
+    template <class ScatterView>
+    void computeInterfaceVelocityPiece(ScatterView scatter_zdot, node_view zdot, node_view z, 
                                        node_view zremote, node_view wremote, 
                                        node_view oremote,
                                        l2g_type remote_L2G) const
@@ -182,11 +182,15 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                 }
             }
 
-            /* Add it its contribution to the integral */
+            /* Add its contribution to the integral using ScatterView */
+            auto scatter_access = scatter_zdot.access();
             for (int n = 0; n < 3; n++) {
-                atomic_zdot(i, j, n) += brsum[n];
+                scatter_access(i, j, n) += brsum[n];
             }
         });
+
+        /* Combine the results after the parallel loop */
+        Kokkos::Experimental::contribute(zdot, scatter_zdot);
     }
 
     /* Directly compute the interface velocity by integrating the vorticity 
@@ -198,24 +202,40 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     {
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
-        /* Start by zeroing the interface velocity */
+        /* Get a scatter view of the interface velocity, since each k/l point
+         * is going to be updating it in parallel.
+         * Need temps to create the ScatterView, which has an incompatable
+         * layout with zdot.
+         */
+         // To copy two views with incompatible layouts between devices we need a temporary
+        auto h_view_tmp = Kokkos::create_mirror_view(d_view);
+
+        // This inherits the Layout from d_view
+        static_assert(std::is_same<decltype(h_view_tmp)::array_layout,
+                                   Kokkos::LayoutLeft>::value);
+
+        // This now works since h_view_tmp and h_view are both accessible
+        // from HostSpace::execution_space
+        Kokkos::deep_copy(h_view_tmp,h_view);
+
+        // Now we can copy from h_view_tmp to d_view since they are Layout compatible
+        // If we just compiled for OpenMP this is a no-op since h_view_tmp and d_view
+        // would reference the same data.
+        Kokkos::deep_copy(d_view,h_view_tmp);
+        Kokkos::Experimental::ScatterView<double***, typename node_view::device_type> scatter_zdot(zdot);
         
-        /* Get an atomic view of the interface velocity, since each k/l point
-         * is going to be updating it in parallel */
-        Kokkos::View<double ***,
-             typename node_view::device_type,
-             Kokkos::MemoryTraits<Kokkos::Atomic>> atomic_zdot = zdot;
+
     
         /* Zero out all of the i/j points - XXX Is this needed are is this already zeroed somewhere else? */
-        Kokkos::parallel_for("Exact BR Zero Loop",
-            Cabana::Grid::createExecutionPolicy(local_node_space, ExecutionSpace()),
-            KOKKOS_LAMBDA(int i, int j) {
-            for (int n = 0; n < 3; n++)
-                atomic_zdot(i, j, n) = 0.0;
-        });
+        // Kokkos::parallel_for("Exact BR Zero Loop",
+        //     Cabana::Grid::createExecutionPolicy(local_node_space, ExecutionSpace()),
+        //     KOKKOS_LAMBDA(int i, int j) {
+        //     for (int n = 0; n < 3; n++)
+        //         scatter_zdot(i, j, n) = 0.0;
+        // });
         
         // Compute forces for all owned nodes on this process
-        computeInterfaceVelocityPiece(atomic_zdot, z, z, w, o, _local_L2G);
+        computeInterfaceVelocityPiece(scatter_zdot, zdot, z, z, w, o, _local_L2G);
         // printView(_local_L2G, _rank, zdot, 1, 5, 5);
 
         /* Perform a ring pass of data between each process to compute forces of nodes 
@@ -330,7 +350,7 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                          _comm, MPI_STATUS_IGNORE);
 
             // Do computations
-            computeInterfaceVelocityPiece(atomic_zdot, z, *zrecv_view, *wrecv_view, *orecv_view, *L2G_recv);
+            computeInterfaceVelocityPiece(scatter_zdot, z, *zrecv_view, *wrecv_view, *orecv_view, *L2G_recv);
 	    }
 
         // printf("\n\n*********************\n");
