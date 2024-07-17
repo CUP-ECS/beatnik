@@ -235,6 +235,8 @@ class TestingBase : public ::testing::Test
                                 partitioner_, haloWidth_, MPI_COMM_WORLD );
         this->f_pm_ = std::make_shared<pm_type>( *f_mesh_, f_bc_, p_, f_MeshInitFunc_ );
         this->f_br_cutoff_ = std::make_shared<br_cutoff_type>(*f_pm_, f_bc_, 1.0, 1.0, 1.0, f_params_);
+        this->f_br_exact_ = std::make_shared<br_exact_type>(*f_pm_, f_bc_, epsilon_, dx_, dy_, p_params_);
+        this->f_zm_exact_ = std::make_shared<zm_type_h>(*f_pm_, f_bc_, f_br_exact_.get(), dx_, dy_, A_, g_, mu_, heffte_configuration_);
     }
 
     void TearDown() override

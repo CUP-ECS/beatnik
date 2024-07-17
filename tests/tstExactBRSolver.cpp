@@ -22,4 +22,13 @@ TYPED_TEST(ExactBRSolverTest, testComputeInterfaceVelocityPeriodic)
     this->testZdot(this->p_pm_);
 }
 
+TYPED_TEST(ExactBRSolverTest, testComputeInterfaceVelocityFree)
+{
+    this->Init(this->f_pm_);
+    this->initializeVorticity(this->f_pm_);
+    this->calculateSingleCorrectZdot();
+    this->calculateDistributedZdot(this->f_pm_, this->f_zm_exact_);
+    this->testZdot(this->f_pm_);
+}
+
 } // end namespace BeatnikTest
