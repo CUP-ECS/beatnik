@@ -91,7 +91,7 @@ class CutoffBRSolverTest : public TestingBase<T>
 
         int dim = this->comm_size_ + this->haloWidth_*2;
         Kokkos::View<double**[2], device_type> omega_("omega_", dim, dim);
-        this->p_br_cutoff_->initializeParticles(particle_array_, z, w, omega_);
+        this->p_br_cutoff_->initializeParticles(particle_array_, z, omega_);
         this->p_br_cutoff_->migrateParticlesTo3D(particle_array_);
         int owned_3D_count = particle_array_.size();
         this->p_br_cutoff_->performHaloExchange3D(particle_array_);

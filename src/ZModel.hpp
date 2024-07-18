@@ -337,15 +337,16 @@ class ZModel
                            node_view omega_view) const
     {
         computeReiszTransform(w);
-        _br->computeInterfaceVelocity(zdot, z, w, omega_view);
+        _br->computeInterfaceVelocity(zdot, z, omega_view);
     }
 
     /* For high order, we just directly compute the interface velocity (zdot)
      * using a far field method and later normalize that for use in the vorticity 
      * calculation. */
-    void prepareVelocities(Order::High, node_view zdot, node_view z, node_view w, node_view omega_view) const
+    void prepareVelocities(Order::High, node_view zdot, node_view z,
+                           [[maybe_unused]]node_view w, node_view omega_view) const
     {
-        _br->computeInterfaceVelocity(zdot, z, w, omega_view);
+        _br->computeInterfaceVelocity(zdot, z, omega_view);
     }
 
     // Compute the final interface velocities and normalized BR velocities
