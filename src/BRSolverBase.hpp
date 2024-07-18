@@ -45,7 +45,7 @@ class BRSolverBase
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using node_view = Kokkos::View<double***, device_type>;
     virtual ~BRSolverBase() = default;
-    virtual void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const = 0;
+    virtual void computeInterfaceVelocity(node_view zdot, node_view z, node_view o) const = 0;
 };
 
 } // end namespace Beantik

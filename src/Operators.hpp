@@ -106,9 +106,9 @@ namespace Operators
     /* Compute the Birchorff Rott force exerted on an i/j point with given location
      * by a k/l point with given vorticity, with an additional position offset 
      * (to * take care of periodic boundary contitions) */
-    template <class VorticityView, class PositionView>
+    template <class PositionView>
     KOKKOS_INLINE_FUNCTION
-    void BR(double out[3], PositionView z, PositionView z2, VorticityView w2, PositionView omega_view,
+    void BR(double out[3], PositionView z, PositionView z2, PositionView omega_view,
             double epsilon, double dx, double dy, double weight, int i, int j, int k, int l,
             double offset[3]) 
     {

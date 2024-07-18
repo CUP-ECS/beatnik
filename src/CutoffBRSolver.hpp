@@ -178,7 +178,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     /**
      * Creates a populates particle array
      **/
-    void initializeParticles(particle_array_type &particle_array, node_view z, node_view w, node_view o) const
+    void initializeParticles(particle_array_type &particle_array, node_view z, node_view o) const
     {
         Kokkos::Profiling::pushRegion("initializeParticles");
 
@@ -504,10 +504,10 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
      * This function is called three times per time step to compute the initial, forward, and half-step
      * derivatives for velocity and vorticity.
      */
-    void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const override
+    void computeInterfaceVelocity(node_view zdot, node_view z, node_view o) const override
     {
         particle_array_type particle_array;
-        initializeParticles(particle_array, z, w, o);
+        initializeParticles(particle_array, z, o);
         migrateParticlesTo3D(particle_array);
         int owned_3D_count = particle_array.size();
         performHaloExchange3D(particle_array);
