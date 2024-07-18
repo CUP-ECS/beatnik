@@ -266,13 +266,14 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             // to avoid copying data across interations
             if (i % 2) {
                 zsend_view = &zremote1;
-                osend_view = &oremote1;
+                osend_view = &oremote1; 
+                
                 zsend_extents = zextents1;
                 osend_extents = oextents1;
                 L2G_send = &L2G_remote1;
 
-                zrecv_view = &zremote2; 
-                osend_view = &oremote2;
+                zrecv_view = &zremote2;
+                orecv_view = &oremote2;
                 zrecv_extents = zextents2;
                 orecv_extents = oextents2;
                 L2G_recv = &L2G_remote2;
