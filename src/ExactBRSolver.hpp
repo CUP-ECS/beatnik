@@ -202,38 +202,21 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     {
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
+        /* Zero out all of the i/j points */
+        Kokkos::parallel_for("Exact BR Zero Loop",
+            Cabana::Grid::createExecutionPolicy(local_node_space, ExecutionSpace()),
+            KOKKOS_LAMBDA(int i, int j) {
+            for (int n = 0; n < 3; n++)
+               zdot(i, j, n) = 0.0;
+        });
+
         /* Get a scatter view of the interface velocity, since each k/l point
          * is going to be updating it in parallel.
          * Need temps to create the ScatterView, which has an incompatable
          * layout with zdot.
          */
-         // To copy two views with incompatible layouts between devices we need a temporary
-        auto h_view_tmp = Kokkos::create_mirror_view(d_view);
-
-        // This inherits the Layout from d_view
-        static_assert(std::is_same<decltype(h_view_tmp)::array_layout,
-                                   Kokkos::LayoutLeft>::value);
-
-        // This now works since h_view_tmp and h_view are both accessible
-        // from HostSpace::execution_space
-        Kokkos::deep_copy(h_view_tmp,h_view);
-
-        // Now we can copy from h_view_tmp to d_view since they are Layout compatible
-        // If we just compiled for OpenMP this is a no-op since h_view_tmp and d_view
-        // would reference the same data.
-        Kokkos::deep_copy(d_view,h_view_tmp);
-        Kokkos::Experimental::ScatterView<double***, typename node_view::device_type> scatter_zdot(zdot);
-        
-
+        auto scatter_zdot = Kokkos::Experimental::create_scatter_view(zdot);
     
-        /* Zero out all of the i/j points - XXX Is this needed are is this already zeroed somewhere else? */
-        // Kokkos::parallel_for("Exact BR Zero Loop",
-        //     Cabana::Grid::createExecutionPolicy(local_node_space, ExecutionSpace()),
-        //     KOKKOS_LAMBDA(int i, int j) {
-        //     for (int n = 0; n < 3; n++)
-        //         scatter_zdot(i, j, n) = 0.0;
-        // });
-        
         // Compute forces for all owned nodes on this process
         computeInterfaceVelocityPiece(scatter_zdot, zdot, z, z, w, o, _local_L2G);
         // printView(_local_L2G, _rank, zdot, 1, 5, 5);
@@ -350,7 +333,7 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                          _comm, MPI_STATUS_IGNORE);
 
             // Do computations
-            computeInterfaceVelocityPiece(scatter_zdot, z, *zrecv_view, *wrecv_view, *orecv_view, *L2G_recv);
+           computeInterfaceVelocityPiece(scatter_zdot, zdot, z, *zrecv_view, *wrecv_view, *orecv_view, *L2G_recv);
 	    }
 
         // printf("\n\n*********************\n");
