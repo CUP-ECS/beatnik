@@ -86,6 +86,11 @@ class ExactBRSolverTest : public TestingBase<T>
 
     void TearDown() override
     { 
+        this->zdot_test_ = NULL;
+        this->zdot_correct_ = NULL;
+        this->single_mesh_ = NULL;
+        this->single_pm_ = NULL;
+        this->single_zm_ = NULL;
         TestingBase<T>::TearDown();
     }
 
@@ -293,7 +298,7 @@ class ExactBRSolverTest : public TestingBase<T>
              typename node_view::device_type,
              Kokkos::MemoryTraits<Kokkos::Atomic>> atomic_zdot = zdot_;
     
-        /* Zero out all of the i/j points - XXX Is this needed are is this already zeroed somewhere else? */
+        /* Zero out all of the i/j points */
         Kokkos::parallel_for("Exact BR Zero Loop",
             Cabana::Grid::createExecutionPolicy(local_node_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {
