@@ -323,11 +323,11 @@ class ExactBRSolverTest : public TestingBase<T>
         int is_periodic = pm_->mesh().is_periodic(); // 1 if periodic
         if (is_periodic)
         {
-            this->p_br_exact_->computeInterfaceVelocity(zdot, z, w, o);
+            this->p_br_exact_->computeInterfaceVelocity(zdot, z, o);
         }
         else 
         {
-            this->f_br_exact_->computeInterfaceVelocity(zdot, z, w, o);
+            this->f_br_exact_->computeInterfaceVelocity(zdot, z, o);
         }
 
 
