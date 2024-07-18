@@ -228,8 +228,6 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
         // Create views for receiving data. Alternate which views are being sent and received into
         // *remote2 sends first, so it needs to be deep copied. *remote1 can just be allocated
-        //node_view wremote1(Kokkos::ViewAllocateWithoutInitializing ("wremote1"), w.extent(0), w.extent(1), w.extent(2));
-        //node_view wremote2(Kokkos::ViewAllocateWithoutInitializing ("wremote2"), w.extent(0), w.extent(1), w.extent(2));
         node_view zremote1(Kokkos::ViewAllocateWithoutInitializing ("zremote1"), z.extent(0), z.extent(1), z.extent(2));
         node_view zremote2(Kokkos::ViewAllocateWithoutInitializing ("zremote2"), z.extent(0), z.extent(1), z.extent(2));
         node_view oremote1(Kokkos::ViewAllocateWithoutInitializing ("oremote1"), o.extent(0), o.extent(1), o.extent(2));
@@ -237,8 +235,6 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         l2g_type L2G_remote1 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cabana::Grid::Node());
         l2g_type L2G_remote2 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cabana::Grid::Node());
         
-        //int wextents1[3];
-        //int wextents2[3];
         int zextents1[3];
         int zextents2[3];
         int oextents1[3];
@@ -251,18 +247,14 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         // same type declarations. The loop reassigns these references as needed each time
         // around the loop.
         node_view *zsend_view = NULL; 
-        //node_view *wsend_view = NULL;
         node_view *osend_view = NULL;
         int * zsend_extents = NULL;
-        //int * wsend_extents = NULL;
         int * osend_extents = NULL;
         l2g_type * L2G_send = NULL;
 
         node_view *zrecv_view = NULL; 
-        //node_view *wrecv_view = NULL; 
         node_view *orecv_view = NULL;
         int * zrecv_extents = NULL;
-        //int * wrecv_extents = NULL;
         int * orecv_extents = NULL;
         l2g_type * L2G_recv = NULL;
 
@@ -274,70 +266,55 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             // to avoid copying data across interations
             if (i % 2) {
                 zsend_view = &zremote1;
-                // wsend_view = &wremote1;
-                osend_view = &oremote1;
+                osend_view = &oremote1; 
+                
                 zsend_extents = zextents1;
-                // wsend_extents = wextents1;
                 osend_extents = oextents1;
                 L2G_send = &L2G_remote1;
 
-                zrecv_view = &zremote2; 
-                // wrecv_view = &wremote2;
-                osend_view = &oremote2;
+                zrecv_view = &zremote2;
+                orecv_view = &oremote2;
                 zrecv_extents = zextents2;
-                // wrecv_extents = wextents2;
                 orecv_extents = oextents2;
                 L2G_recv = &L2G_remote2;
             } else {
                 if (i == 0) {
                     /* Avoid a deep copy on the first iteration */
-                    // wsend_view = &w;
                     zsend_view = &z;
                     osend_view = &o;
                 } else {
-                    //wsend_view = &wremote2;
                     zsend_view = &zremote2;
                     osend_view = &oremote2; 
                 } 
                 
                 zsend_extents = zextents2;
-                // wsend_extents = wextents2;
                 osend_extents = oextents2;
                 L2G_send = &L2G_remote2;
 
                 zrecv_view = &zremote1;
-                // wrecv_view = &wremote1;
                 orecv_view = &oremote1;
                 zrecv_extents = zextents1;
-                // wrecv_extents = wextents1;
                 orecv_extents = oextents1;
                 L2G_recv = &L2G_remote1;
             }
 
             // Prepare extents to send
             for (int j = 0; j < 3; j++) {
-                // wsend_extents[j] = wsend_view->extent(j);
                 zsend_extents[j] = zsend_view->extent(j);
                 osend_extents[j] = osend_view->extent(j);
             }
                 
-            // Send w and z view sizes
-            // MPI_Sendrecv(wsend_extents, 3, MPI_INT, next_rank, 0, 
-            //             wrecv_extents, 3, MPI_INT, prev_rank, 0, _comm, MPI_STATUS_IGNORE);
+            // Send o and z view sizes
             MPI_Sendrecv(zsend_extents, 3, MPI_INT, next_rank, 1, 
                         zrecv_extents, 3, MPI_INT, prev_rank, 1, _comm, MPI_STATUS_IGNORE);
             MPI_Sendrecv(osend_extents, 3, MPI_INT, next_rank, 6, 
                         orecv_extents, 3, MPI_INT, prev_rank, 6, _comm, MPI_STATUS_IGNORE);
 
             // Resize *remote2, which is receiving data
-            // Kokkos::resize(*wrecv_view, wrecv_extents[0], wrecv_extents[1], wrecv_extents[2]);
             Kokkos::resize(*zrecv_view, zrecv_extents[0], zrecv_extents[1], zrecv_extents[2]);
             Kokkos::resize(*orecv_view, orecv_extents[0], orecv_extents[1], orecv_extents[2]);
 
             // Send/receive the views
-            // MPI_Sendrecv(wsend_view->data(), int(wsend_view->size()), MPI_DOUBLE, next_rank, 2, 
-            //             wrecv_view->data(), int(wrecv_view->size()), MPI_DOUBLE, prev_rank, 2, 
-            //             _comm, MPI_STATUS_IGNORE);
             MPI_Sendrecv(zsend_view->data(), int(zsend_view->size()), MPI_DOUBLE, next_rank, 3, 
                         zrecv_view->data(), int(zrecv_view->size()), MPI_DOUBLE, prev_rank, 3, 
                         _comm, MPI_STATUS_IGNORE);
