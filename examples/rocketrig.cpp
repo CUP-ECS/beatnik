@@ -24,6 +24,10 @@
 #define DEBUG 0
 #endif
 
+#ifndef MEASURETIME
+#define MEASURETIME 0
+#endif
+
 
 // Include Statements
 #include <BoundaryCondition.hpp>
@@ -679,7 +683,7 @@ void rocketrig( ClArgs& cl )
 int main( int argc, char* argv[] )
 {
 
-    #if DEBUG
+    #if MEASURETIME
     std::chrono::time_point<std::chrono::system_clock> start, end;
     start = std::chrono::system_clock::now();
     #endif
@@ -762,7 +766,7 @@ int main( int argc, char* argv[] )
     Kokkos::finalize(); // Finalize Kokkos
     MPI_Finalize();     // Finalize MPI
 
-    #if DEBUG
+    #if MEASURETIME
     end = std::chrono::system_clock::now();
     std::chrono::duration<double> elapsed_seconds = end - start;
     std::cout << "measured_time: " << elapsed_seconds.count() << std::endl;
