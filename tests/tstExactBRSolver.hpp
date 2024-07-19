@@ -90,7 +90,6 @@ class ExactBRSolverTest : public TestingBase<T>
         this->zdot_correct_ = NULL;
         this->single_mesh_ = NULL;
         this->single_pm_ = NULL;
-        this->single_zm_ = NULL;
         TestingBase<T>::TearDown();
     }
 
