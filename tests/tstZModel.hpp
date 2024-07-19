@@ -85,9 +85,13 @@ class ZModelTest : public TestingBase<T>
         int dim2 = z.extent(2);
         Kokkos::View<double***, Kokkos::HostSpace> omega_h_test("omega_h_test", dim0, dim1, dim2);
         Kokkos::View<double***, Kokkos::HostSpace> omega_h_correct("omega_h_correct", dim0, dim1, dim2);
-        copy_to_host(omega_h_test, omega_d_test);
-        copy_to_host(omega_h_correct, omega_d_correct);
 
+        auto hvt_tmp = Kokkos::create_mirror_view(omega_d_test);
+        auto hvc_tmp = Kokkos::create_mirror_view(omega_d_correct);
+        Kokkos::deep_copy(hvt_tmp, omega_d_test);
+        Kokkos::deep_copy(hvc_tmp, omega_d_correct);
+        Kokkos::deep_copy(omega_h_test, hvt_tmp);
+        Kokkos::deep_copy(omega_h_correct, hvc_tmp);
 
         auto local_grid = pm_->mesh().localGrid();
         auto own_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());

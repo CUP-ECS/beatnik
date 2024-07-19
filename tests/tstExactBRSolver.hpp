@@ -354,8 +354,13 @@ class ExactBRSolverTest : public TestingBase<T>
         int cdim2 = zdot_d_correct.extent(2);
         Kokkos::View<double***, Kokkos::HostSpace> zdot_h_test("zdot_h_test", tdim0, tdim1, tdim2);
         Kokkos::View<double***, Kokkos::HostSpace> zdot_h_correct("zdot_h_correct", cdim0, cdim1, cdim2);
-        copy_to_host(zdot_h_test, zdot_d_test);
-        copy_to_host(zdot_h_correct, zdot_d_correct);
+
+        auto hvt_tmp = Kokkos::create_mirror_view(zdot_d_test);
+        auto hvc_tmp = Kokkos::create_mirror_view(zdot_d_correct);
+        Kokkos::deep_copy(hvt_tmp, zdot_d_test);
+        Kokkos::deep_copy(hvc_tmp, zdot_d_correct);
+        Kokkos::deep_copy(zdot_h_test, hvt_tmp);
+        Kokkos::deep_copy(zdot_h_correct, hvc_tmp);
 
         const int halo_width = this->haloWidth_;
         auto own_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
