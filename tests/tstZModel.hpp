@@ -85,8 +85,8 @@ class ZModelTest : public TestingBase<T>
         int dim2 = z.extent(2);
         Kokkos::View<double***, Kokkos::HostSpace> omega_h_test("omega_h_test", dim0, dim1, dim2);
         Kokkos::View<double***, Kokkos::HostSpace> omega_h_correct("omega_h_correct", dim0, dim1, dim2);
-        Beatnik::Operators::copy_to_host(omega_h_test, omega_d_test);
-        Beatnik::Operators::copy_to_host(omega_h_correct, omega_d_correct);
+        copy_to_host(omega_h_test, omega_d_test);
+        copy_to_host(omega_h_correct, omega_d_correct);
 
 
         auto local_grid = pm_->mesh().localGrid();

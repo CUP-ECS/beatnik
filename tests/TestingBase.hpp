@@ -16,6 +16,29 @@
 namespace BeatnikTest
 {
 
+/* Convenience functions to copy Kokkos views to/from 
+* host and device memory
+* See https://kokkos.org/kokkos-core-wiki/API/core/view/deep_copy.html
+* "How to get layout incompatiable views copied"
+*/
+template <class DeviceView, class HostView>
+KOKKOS_INLINE_FUNCTION
+void copy_to_device(DeviceView dv, HostView hv)
+{
+    auto hv_tmp = Kokkos::create_mirror_view(dv);
+    Kokkos::deep_copy(hv_tmp, hv);
+    Kokkos::deep_copy(dv, hv_tmp);
+}
+template <class DeviceView, class HostView>
+KOKKOS_INLINE_FUNCTION
+void copy_to_host(HostView hv, DeviceView dv)
+{
+    auto hv_tmp = Kokkos::create_mirror_view(dv);
+    Kokkos::deep_copy(hv_tmp, dv);
+    Kokkos::deep_copy(hv, hv_tmp);
+}
+
+
 template <std::size_t Dim>
 class NullInitFunctor
 {
