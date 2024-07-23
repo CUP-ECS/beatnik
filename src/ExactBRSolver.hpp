@@ -191,6 +191,30 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
         /* Combine the results after the parallel loop */
         Kokkos::Experimental::contribute(zdot, scatter_zdot);
+
+        int team_size = 16;
+        typedef typename Kokkos::TeamPolicy<exec_space>::member_type member_type;
+        Kokkos::TeamPolicy<exec_space> mesh_policy(team_size, Kokkos::AUTO);
+        Kokkos::parallel_for("Game of Life Mesh Parallel", mesh_policy, 
+            KOKKOS_LAMBDA(member_type team_member) 
+        {
+            // Figure out the i/j pieces of the block this team member is responsible for
+            int iextent = 9, jextent = 6;
+
+            // 2. Now the team of threads iterates over the block it is responsible for. Each thread
+            // in the team may handle multiple indexes, depending on the size of the team.
+            auto block = Kokkos::TeamThreadMDRange<Kokkos::Rank<2>, member_type>(team_member, iextent, jextent);
+            Kokkos::parallel_for(block, [&](int i, int j)
+            {
+                int g = 9;
+                //_iter_func(ibase + i, jbase + j);
+            });
+
+            // 3. Finally, any team-specific operations that need the block to be completed
+            // can be done by using a team_barrier, for example block-specific communication. 
+            // None is needed here since all communication is host-driven.
+            // team_member.team_barrier();
+        });
     }
 
     /* Directly compute the interface velocity by integrating the vorticity 
