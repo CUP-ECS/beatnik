@@ -42,6 +42,47 @@
 #include <Operators.hpp>
 #include <BRSolverBase.hpp>
 
+/* Scaler reductions:
+ * https://kokkos.org/kokkos-core-wiki/ProgrammingGuide/Custom-Reductions-Built-In-Reducers-with-Custom-Scalar-Types.html
+ * The following code was derived from the example at the link above.
+ */
+namespace Reduction
+{  // namespace helps with name resolution in reduction identity 
+   template< class ScalarType, int N >
+   struct array_type {
+     ScalarType the_array[N];
+  
+     KOKKOS_INLINE_FUNCTION   // Default constructor - Initialize to 0's
+     array_type() { 
+       for (int i = 0; i < N; i++ ) { the_array[i] = 0; }
+     }
+     KOKKOS_INLINE_FUNCTION   // Copy Constructor
+     array_type(const array_type &rhs) { 
+        for (int i = 0; i < N; i++ ){
+           the_array[i] = rhs.the_array[i];
+        }
+     }
+     KOKKOS_INLINE_FUNCTION   // add operator
+     array_type& operator += (const array_type &src) {
+       for ( int i = 0; i < N; i++ ) {
+          the_array[i]+=src.the_array[i];
+       }
+       return *this;
+     }
+   };
+   typedef array_type<double, 3> ValueType;  // used to simplify code below
+} // end namespace Reduction
+
+namespace Kokkos
+{ // reduction identity must be defined in Kokkos namespace
+   template<>
+   struct reduction_identity<Reduction::ValueType> {
+      KOKKOS_FORCEINLINE_FUNCTION static Reduction::ValueType sum() {
+         return Reduction::ValueType();
+      }
+   };
+}
+
 namespace Beatnik
 {
 
@@ -94,8 +135,7 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         else return 9.0/8.0;
     }
 
-    template <class ScatterView>
-    void computeInterfaceVelocityPiece(ScatterView scatter_zdot, node_view zdot, node_view z, 
+    void computeInterfaceVelocityPiece(node_view zdot, node_view z, 
                                        node_view zremote, 
                                        node_view oremote,
                                        l2g_type remote_L2G) const
@@ -108,14 +148,14 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         // Get the local index spaces of pieces we're working with. For the local surface piece
         // this is just the nodes we own. For the remote surface piece, we extract it from the
         // L2G converter they sent us.
-        auto local_grid = _pm.mesh().localGrid();
-        auto local_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
+        // auto local_grid = _pm.mesh().localGrid();
+        // auto local_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         std::array<long, 2> rmin, rmax;
         for (int d = 0; d < 2; d++) {
             rmin[d] = remote_L2G.local_own_min[d];
             rmax[d] = remote_L2G.local_own_max[d];
         }
-	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
+	    // Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
         /* Figure out which directions we need to project the k/l point to
          * for any periodic boundary conditions */
@@ -148,72 +188,112 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         int num_nodes = _pm.mesh().get_surface_mesh_size();
 
         /* Now loop over the cross product of all the node on the interface */
-        auto pair_space = Operators::crossIndexSpace(local_space, remote_space);
-        Kokkos::parallel_for("Exact BR Force Loop",
-            Cabana::Grid::createExecutionPolicy(pair_space, ExecutionSpace()),
-            KOKKOS_LAMBDA(int i, int j, int k, int l) {
+        // auto pair_space = Operators::crossIndexSpace(local_space, remote_space);
+        // Kokkos::parallel_for("Exact BR Force Loop",
+        //     Cabana::Grid::createExecutionPolicy(pair_space, ExecutionSpace()),
+        //     KOKKOS_LAMBDA(int i, int j, int k, int l) {
 
-            // We need the global indicies of the (k, l) point for Simpson's weight
-            int remote_li[2] = {k, l};
-            int remote_gi[2] = {0, 0};  // k, l
-            remote_L2G(remote_li, remote_gi);
+        //     // We need the global indicies of the (k, l) point for Simpson's weight
+        //     int remote_li[2] = {k, l};
+        //     int remote_gi[2] = {0, 0};  // k, l
+        //     remote_L2G(remote_li, remote_gi);
             
-            double brsum[3] = {0.0, 0.0, 0.0};
+        //     double brsum[3] = {0.0, 0.0, 0.0};
 
-            /* Compute Simpson's 3/8 quadrature weight for this index */
-            double weight;
-            weight = simpsonWeight(remote_gi[0], num_nodes)
-                        * simpsonWeight(remote_gi[1], num_nodes);
-            /* We already have N^4 parallelism, so no need to parallelize on 
-             * the BR periodic points. Instead we serialize this in each thread
-             * and reuse the fetch of the i/j and k/l points */
-            for (int kdir = kstart; kdir <= kend; kdir++) {
-                for (int ldir = lstart; ldir <= lend; ldir++) {
-                    double offset[3] = {0.0, 0.0, 0.0}, br[3];
-                    offset[0] = kdir * width[0];
-                    offset[1] = ldir * width[1];
+        //     /* Compute Simpson's 3/8 quadrature weight for this index */
+        //     double weight;
+        //     weight = simpsonWeight(remote_gi[0], num_nodes)
+        //                 * simpsonWeight(remote_gi[1], num_nodes);
+        //     /* We already have N^4 parallelism, so no need to parallelize on 
+        //      * the BR periodic points. Instead we serialize this in each thread
+        //      * and reuse the fetch of the i/j and k/l points */
+        //     for (int kdir = kstart; kdir <= kend; kdir++) {
+        //         for (int ldir = lstart; ldir <= lend; ldir++) {
+        //             double offset[3] = {0.0, 0.0, 0.0}, br[3];
+        //             offset[0] = kdir * width[0];
+        //             offset[1] = ldir * width[1];
 
-                    /* Do the Birkhoff-Rott evaluation for this point */
-                    Operators::BR(br, z, zremote, oremote, epsilon, dx, dy, weight,
-                                  i, j, k, l, offset);
-                    for (int d = 0; d < 3; d++) {
-                        brsum[d] += br[d];
-                    }
-                }
-            }
+        //             /* Do the Birkhoff-Rott evaluation for this point */
+        //             Operators::BR(br, z, zremote, oremote, epsilon, dx, dy, weight,
+        //                           i, j, k, l, offset);
+        //             for (int d = 0; d < 3; d++) {
+        //                 brsum[d] += br[d];
+        //             }
+        //         }
+        //     }
 
-            /* Add its contribution to the integral using ScatterView */
-            auto scatter_access = scatter_zdot.access();
-            for (int n = 0; n < 3; n++) {
-                scatter_access(i, j, n) += brsum[n];
-            }
-        });
+        //     /* Add its contribution to the integral using ScatterView */
+        //     auto scatter_access = scatter_zdot.access();
+        //     for (int n = 0; n < 3; n++) {
+        //         scatter_access(i, j, n) += brsum[n];
+        //     }
+        // });
 
-        /* Combine the results after the parallel loop */
-        Kokkos::Experimental::contribute(zdot, scatter_zdot);
-
-        int team_size = 16;
+        // /* Combine the results after the parallel loop */
+        // Kokkos::Experimental::contribute(zdot, scatter_zdot);
+        int halo_width = _pm.mesh().get_halo_width();
+        int num_rows = zdot.extent(0) - 2*halo_width;
+        int num_cols = zdot.extent(1) - 2*halo_width;
+        int team_size = num_rows * num_cols;
+        printf("Team size: %d\n", team_size);
         typedef typename Kokkos::TeamPolicy<exec_space>::member_type member_type;
         Kokkos::TeamPolicy<exec_space> mesh_policy(team_size, Kokkos::AUTO);
-        Kokkos::parallel_for("Game of Life Mesh Parallel", mesh_policy, 
-            KOKKOS_LAMBDA(member_type team_member) 
+        Kokkos::parallel_for("Exact BR Force Team Loop", mesh_policy, 
+            KOKKOS_LAMBDA(member_type team) 
         {
+            //int thread_id = team.league_rank () * team.team_size () + team.team_rank ();
             // Figure out the i/j pieces of the block this team member is responsible for
-            int iextent = 9, jextent = 6;
+            int league_rank = team.league_rank();
+            //int team_rank = team.team_rank();
+            //int team_size = team.team_size();
+            int i = league_rank / num_cols;
+            int j = league_rank % num_cols;
+        
+            
+            auto policy = Kokkos::TeamThreadRange(team, team_size);
+            double brsum[3];
+            Kokkos::parallel_reduce(policy, [=] (const int &w, double &lsum0, double &lsum1, double &lsum2) {
+                int k = w / num_cols;
+                int l = w % num_cols;
 
-            // 2. Now the team of threads iterates over the block it is responsible for. Each thread
-            // in the team may handle multiple indexes, depending on the size of the team.
-            auto block = Kokkos::TeamThreadMDRange<Kokkos::Rank<2>, member_type>(team_member, iextent, jextent);
-            Kokkos::parallel_for(block, [&](int i, int j)
-            {
-                int g = 9;
-                //_iter_func(ibase + i, jbase + j);
+                // We need the global indicies of the (k, l) point for Simpson's weight
+                int remote_li[2] = {k, l};
+                int remote_gi[2] = {0, 0};  // k, l
+                remote_L2G(remote_li, remote_gi);
+
+                /* Compute Simpson's 3/8 quadrature weight for this index */
+                double weight;
+                weight = simpsonWeight(remote_gi[0], num_nodes)
+                            * simpsonWeight(remote_gi[1], num_nodes);
+                /* We already have N^4 parallelism, so no need to parallelize on 
+                    * the BR periodic points. Instead we serialize this in each thread
+                    * and reuse the fetch of the i/j and k/l points */
+                for (int kdir = kstart; kdir <= kend; kdir++) {
+                    for (int ldir = lstart; ldir <= lend; ldir++) {
+                        double offset[3] = {0.0, 0.0, 0.0}, br[3];
+                        offset[0] = kdir * width[0];
+                        offset[1] = ldir * width[1];
+
+                        /* Do the Birkhoff-Rott evaluation for this point */
+                        Operators::BR(br, z, zremote, oremote, epsilon, dx, dy, weight,
+                                        i, j, k, l, offset);
+                        
+                        lsum0 += br[0];
+                        lsum1 += br[1];
+                        lsum2 += br[2];
+                    }
+                }
+            }, brsum[0], brsum[1], brsum[2]);
+
+            // Introduce a team barrier here to synchronize threads
+            team.team_barrier();
+            // printf("brsum: %0.1lf %0.1lf %0.1lf\n", brsum[0], brsum[1], brsum[2]);
+
+            Kokkos::single(Kokkos::PerTeam(team), [=] () {
+                for (int d = 0; d < 3; d++) {
+                    zdot(i, j, d) = brsum[d];   
+                }
             });
-
-            // 3. Finally, any team-specific operations that need the block to be completed
-            // can be done by using a team_barrier, for example block-specific communication. 
-            // None is needed here since all communication is host-driven.
-            // team_member.team_barrier();
         });
     }
 
@@ -233,16 +313,9 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             for (int n = 0; n < 3; n++)
                zdot(i, j, n) = 0.0;
         });
-
-        /* Get a scatter view of the interface velocity, since each k/l point
-         * is going to be updating it in parallel.
-         * Need temps to create the ScatterView, which has an incompatable
-         * layout with zdot.
-         */
-        auto scatter_zdot = Kokkos::Experimental::create_scatter_view(zdot);
     
         // Compute forces for all owned nodes on this process
-        computeInterfaceVelocityPiece(scatter_zdot, zdot, z, z, o, _local_L2G);
+        computeInterfaceVelocityPiece(zdot, z, z, o, _local_L2G);
         // printView(_local_L2G, _rank, zdot, 1, 5, 5);
 
         /* Perform a ring pass of data between each process to compute forces of nodes 
@@ -352,7 +425,7 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                          _comm, MPI_STATUS_IGNORE);
 
             // Do computations
-           computeInterfaceVelocityPiece(scatter_zdot, zdot, z, *zrecv_view, *orecv_view, *L2G_recv);
+           computeInterfaceVelocityPiece(zdot, z, *zrecv_view, *orecv_view, *L2G_recv);
 	    }
 
         // printf("\n\n*********************\n");
