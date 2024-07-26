@@ -203,14 +203,14 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             lmax[d] = local_space.max( d );
         }
 
+        // int rank = _rank;
         int local_size = (lmax[0] - lmin[0]) * (lmax[1] - lmin[1]);
         int remote_size = (rmax[0] - rmin[0]) * (rmax[1] - rmin[1]);
         int l_num_cols = lmax[1] - lmin[1];
         int r_num_cols = rmax[1] - rmin[1];
-        // printf("local: %d, %d remote: %d, %d, teamsize: %d, remote size: %d\n", 
-        //     lmin[0], lmax[0], rmin[0], r_num_cols, team_size, remote_range);
-        // printf("Team size: %d\n", team_size);
-        int rank = _rank;
+        // printf("R%d: li: (%d, %d), lj: (%d, %d) | ri: (%d, %d), rj: (%d, %d)\n", rank,
+        //     lmin[0], lmax[0], lmin[1], lmax[1], rmin[0], rmax[0], rmin[1], rmax[1]);
+        
         typedef typename Kokkos::TeamPolicy<exec_space>::member_type member_type;
         Kokkos::TeamPolicy<exec_space> mesh_policy(local_size, Kokkos::AUTO);
         Kokkos::parallel_for("Exact BR Force Team Loop", mesh_policy, 
@@ -225,7 +225,10 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             int j = (league_rank % l_num_cols) + halo_width;
 
             // Kokkos::single(Kokkos::PerTeam(team), [=] () {
-            //     printf("R%d: lr: %d, ij: %d, %d\n", rank, league_rank, i, j);
+            //     if (i < lmin[0] || i >= lmax[0] || j < lmin[1] || j >= lmax[1])
+            //     {
+            //         printf("ERROR: R%d: ij: %d, %d\n", rank, i, j);
+            //     }
             // });
         
             auto policy = Kokkos::TeamThreadRange(team, remote_size);
@@ -234,9 +237,9 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                 int k = (w / r_num_cols) + halo_width;
                 int l = (w % r_num_cols) + halo_width;
 
-                // if (i == 3 && j == 6)
+                // if (k < rmin[0] || k >= rmax[0] || l < rmin[1] || l >= rmax[1])
                 // {
-                //     printf("R%d: ijkl: %d %d %d %d\n", rank, i, j, k, l);
+                //     printf("ERROR: R%d: ijlk: %d, %d, %d, %d\n", rank, i, j, l, k);
                 // }
 
                 // We need the global indicies of the (k, l) point for Simpson's weight
