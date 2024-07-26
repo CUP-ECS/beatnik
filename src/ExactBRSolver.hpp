@@ -135,7 +135,8 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         else return 9.0/8.0;
     }
 
-    void computeInterfaceVelocityPiece(node_view zdot, node_view z, 
+    template <class AtomicView>
+    void computeInterfaceVelocityPiece(AtomicView atomic_zdot, node_view zdot, node_view z, 
                                        node_view zremote, 
                                        node_view oremote,
                                        l2g_type remote_L2G) const
@@ -155,7 +156,7 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             rmin[d] = remote_L2G.local_own_min[d];
             rmax[d] = remote_L2G.local_own_max[d];
         }
-	    // Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
+	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
         /* Figure out which directions we need to project the k/l point to
          * for any periodic boundary conditions */
@@ -185,7 +186,49 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         double dx = _dx, dy = _dy;
 
         // Mesh dimensions for Simpson weight calc
-        
+        int mesh_size = _pm.mesh().get_surface_mesh_size();
+
+        /* Now loop over the cross product of all the node on the interface */
+        // auto pair_space = Operators::crossIndexSpace(local_space, remote_space);
+        // Kokkos::parallel_for("Exact BR Force Loop",
+        //     Cabana::Grid::createExecutionPolicy(pair_space, ExecutionSpace()),
+        //     KOKKOS_LAMBDA(int i, int j, int k, int l) {
+
+        //     // We need the global indicies of the (k, l) point for Simpson's weight
+        //     int remote_li[2] = {k, l};
+        //     int remote_gi[2] = {0, 0};  // k, l
+        //     remote_L2G(remote_li, remote_gi);
+            
+        //     double brsum[3] = {0.0, 0.0, 0.0};
+
+        //     /* Compute Simpson's 3/8 quadrature weight for this index */
+        //     double weight;
+        //     weight = simpsonWeight(remote_gi[0], mesh_size)
+        //                 * simpsonWeight(remote_gi[1], mesh_size);
+            
+        //     /* We already have N^4 parallelism, so no need to parallelize on 
+        //      * the BR periodic points. Instead we serialize this in each thread
+        //      * and reuse the fetch of the i/j and k/l points */
+        //     for (int kdir = kstart; kdir <= kend; kdir++) {
+        //         for (int ldir = lstart; ldir <= lend; ldir++) {
+        //             double offset[3] = {0.0, 0.0, 0.0}, br[3];
+        //             offset[0] = kdir * width[0];
+        //             offset[1] = ldir * width[1];
+
+        //             /* Do the Birkhoff-Rott evaluation for this point */
+        //             Operators::BR(br, z, zremote, oremote, epsilon, dx, dy, weight,
+        //                           i, j, k, l, offset);
+        //             for (int d = 0; d < 3; d++) {
+        //                 brsum[d] += br[d];
+        //             }
+        //         }
+        //     }
+
+        //     /* Add it its contribution to the integral */
+        //     for (int n = 0; n < 3; n++) {
+        //         atomic_zdot(i, j, n) += brsum[n];
+        //     }
+        // });
 
     
         /* If the mesh is periodic, the index range is from
@@ -193,7 +236,7 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
          * If the mesh is non-periodic, the index range is from
          * (halo width) to (halo width + mesh size - 1)
          */
-        int mesh_size = _pm.mesh().get_surface_mesh_size();
+        // int mesh_size = _pm.mesh().get_surface_mesh_size();
         int halo_width = _pm.mesh().get_halo_width();
         int is_periodic = _pm.mesh().is_periodic();
         std::array<long, 2> lmin;
@@ -277,11 +320,10 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
             Kokkos::single(Kokkos::PerTeam(team), [=] () {
                 for (int d = 0; d < 3; d++) {
-                    zdot(i, j, d) = brsum[d];   
+                    zdot(i, j, d) += brsum[d];   
                 }
             });
         });
-
         Kokkos::fence();
     }
 
@@ -301,9 +343,12 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             for (int n = 0; n < 3; n++)
                zdot(i, j, n) = 0.0;
         });
+         Kokkos::View<double ***,
+             typename node_view::device_type,
+             Kokkos::MemoryTraits<Kokkos::Atomic>> atomic_zdot = zdot;
     
         // Compute forces for all owned nodes on this process
-        computeInterfaceVelocityPiece(zdot, z, z, o, _local_L2G);
+        computeInterfaceVelocityPiece(atomic_zdot, zdot, z, z, o, _local_L2G);
         // printView(_local_L2G, _rank, zdot, 1, 5, 5);
 
         /* Perform a ring pass of data between each process to compute forces of nodes 
@@ -413,7 +458,7 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                          _comm, MPI_STATUS_IGNORE);
 
             // Do computations
-           computeInterfaceVelocityPiece(zdot, z, *zrecv_view, *orecv_view, *L2G_recv);
+           computeInterfaceVelocityPiece(atomic_zdot, zdot, z, *zrecv_view, *orecv_view, *L2G_recv);
 	    }
 
         // printf("\n\n*********************\n");
