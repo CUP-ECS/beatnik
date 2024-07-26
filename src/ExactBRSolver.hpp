@@ -232,9 +232,12 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         // /* Combine the results after the parallel loop */
         // Kokkos::Experimental::contribute(zdot, scatter_zdot);
         int halo_width = _pm.mesh().get_halo_width();
-        int num_rows = zdot.extent(0) - 2*halo_width;
-        int num_cols = zdot.extent(1) - 2*halo_width;
-        int team_size = num_rows * num_cols;
+        int l_num_rows = zdot.extent(0) - 2*halo_width;
+        int l_num_cols = zdot.extent(1) - 2*halo_width;
+        int r_num_rows = zremote.extent(0) - 2*halo_width;
+        int r_num_cols = zremote.extent(1) - 2*halo_width;
+        int team_size = l_num_rows * l_num_cols;
+        int remote_range = r_num_rows * r_num_cols;
         printf("Team size: %d\n", team_size);
         typedef typename Kokkos::TeamPolicy<exec_space>::member_type member_type;
         Kokkos::TeamPolicy<exec_space> mesh_policy(team_size, Kokkos::AUTO);
@@ -246,15 +249,14 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             int league_rank = team.league_rank();
             //int team_rank = team.team_rank();
             //int team_size = team.team_size();
-            int i = league_rank / num_cols;
-            int j = league_rank % num_cols;
+            int i = (league_rank / l_num_rows) + halo_width;
+            int j = (league_rank % l_num_rows) + halo_width;
         
-            
-            auto policy = Kokkos::TeamThreadRange(team, team_size);
+            auto policy = Kokkos::TeamThreadRange(team, remote_range);
             double brsum[3];
             Kokkos::parallel_reduce(policy, [=] (const int &w, double &lsum0, double &lsum1, double &lsum2) {
-                int k = w / num_cols;
-                int l = w % num_cols;
+                int k = (w / r_num_cols) + halo_width;
+                int l = (w % r_num_cols) + halo_width;
 
                 // We need the global indicies of the (k, l) point for Simpson's weight
                 int remote_li[2] = {k, l};
@@ -295,6 +297,8 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                 }
             });
         });
+
+        Kokkos::fence();
     }
 
     /* Directly compute the interface velocity by integrating the vorticity 
