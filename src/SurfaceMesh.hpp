@@ -43,7 +43,7 @@ class SurfaceMesh
 	  const std::array<bool, 2>& periodic,
           const Cabana::Grid::BlockPartitioner<2>& partitioner,
           const int min_halo_width, MPI_Comm comm )
-		  : _num_nodes( num_nodes )
+		      : _num_nodes( num_nodes )
           , _periodic( periodic )
     {
         MPI_Comm_rank( comm, &_rank );
@@ -178,10 +178,11 @@ class SurfaceMesh
 
   private:
     std::array<double, 3> _low_point, _high_point;
+    std::array<int, 2> _num_nodes;
     const std::array<bool, 2> _periodic;
     std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> _local_grid;
     int _rank, _surface_halo_width;
-	std::array<int, 2> _num_nodes;
+	  
 };
 
 //---------------------------------------------------------------------------//
