@@ -9,13 +9,24 @@ set(HEADERS
   Solver.hpp
   SiloWriter.hpp
 
-  # Routines to support the general Z-MOdel Solutio Approach
+  # Routines to support the general Z-Model Solution Approach
   TimeIntegrator.hpp
   BoundaryCondition.hpp
 
   # ZModel details here.
   ZModel.hpp
+
+  # BR Solver base classes
+  BRSolverBase.hpp
+  CreateBRSolver.hpp
+
+  # Exact BR Solver
   ExactBRSolver.hpp
+
+  # Cutoff BR Solver
+  CutoffBRSolver.hpp
+  SpatialMesh.hpp
+  HaloComm.hpp
   )
 
 #set(SOURCES
