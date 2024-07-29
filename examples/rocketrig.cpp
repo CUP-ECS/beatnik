@@ -252,7 +252,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid BR solver argument.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         }
@@ -263,7 +265,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             {
                 std::cerr << "Invalid cutoff distance: " << cl.params.cutoff_distance << "\n";
                 help( rank, argv[0] );
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         }
@@ -275,7 +279,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 std::cerr << "Invalid heffte configuration: " << cl.params.heffte_configuration << "\n"
                           << "Must be between 0 and 7." << "\n";
                 help( rank, argv[0] );
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         }
@@ -289,7 +295,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid number of nodes argument.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             cl.num_nodes[1] = cl.num_nodes[0];
 
@@ -307,7 +315,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid  parallel driver argument.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'F':
@@ -319,7 +329,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid write frequency argument.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'O':
@@ -337,7 +349,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid model order argument.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         }
@@ -354,7 +368,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid boundary condition type.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         }
@@ -365,7 +381,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid weak scaling factor order argument.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'I':
@@ -385,7 +403,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid initial condition model argument.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         }
@@ -398,7 +418,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid initial condition magnitude.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'v':
@@ -410,7 +432,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid initial condition variation.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'p':
@@ -422,7 +446,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid initial condition period.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'a':
@@ -434,7 +460,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid atwood number.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'g':
@@ -446,7 +474,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid gravity.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'M':
@@ -458,7 +488,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid artificial viscosity.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'e':
@@ -470,7 +502,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid desingularization constant.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'h':
@@ -486,7 +520,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                   std::cerr << "Invalid number of timesteps.\n";
                   help( rank, argv[0] );
               }
-              exit( -1 );
+              Kokkos::finalize(); 
+              MPI_Finalize(); 
+              exit( -1 );  
           }
           break;
         default:
@@ -495,7 +531,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 std::cerr << "Invalid argument.\n";
                 help( rank, argv[0] );
             }
-            exit( -1 );
+            Kokkos::finalize(); 
+            MPI_Finalize(); 
+            exit( -1 );  
             break;
         }
     }
@@ -673,7 +711,10 @@ void rocketrig( ClArgs& cl )
             cl.params );
     } else {
         std::cerr << "Invalid Model Order parameter!\n";
-        exit(-1);
+        Kokkos::finalize(); 
+        MPI_Finalize(); 
+        exit( -1 );  
+
     }
 
     // Solve
