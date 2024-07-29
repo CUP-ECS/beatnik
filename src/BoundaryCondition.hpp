@@ -94,12 +94,11 @@ struct BoundaryCondition
             for (int j = -1; j < 2; j++)
             {
                 if (i == 0 && j == 0) continue;
-
-                std::array<int, 2> dir = {i, j};
-		        // In general, halo exchange takes care of periodic boundaries
-
-                /* For free boundaries, we linearly extrapolate the field into 
+                
+                /* In general, halo exchange takes care of periodic boundaries.
+                 * For free boundaries, we linearly extrapolate the field into 
                  * the boundary */
+                std::array<int, 2> dir = {i, j};
                 if (isFreeBoundary(dir))
                 {
                     /* For free boundaries, we have to extrapolate from the mesh
@@ -110,25 +109,12 @@ struct BoundaryCondition
                     // auto f = field.view();
                     Kokkos::Array<int, 2> kdir = {i, j};
 
-                    /* We want the boundaryIndexSpace of ghosts to loop over. 
-                     * However, it can give bounds that cause us to walk off 
-                     * the top end of the view, so adjust appropriately until 
-                     * we figure out why and how to fix this. XXX */
+                    /* We want the boundaryIndexSpace of ghosts to loop over. */
                     auto boundary_space 
                         = local_grid.boundaryIndexSpace(Cabana::Grid::Ghost(), 
                               Cabana::Grid::Node(), dir);
-                    std::array<long,2> min, max;
-                    for (int d = 0; d < 2; d++)
-                    {
-                        int fext = f.extent(d);
-                        min[d] = boundary_space.min(d);
-                        max[d] = (boundary_space.max(d) > fext) 
-                                     ? fext : boundary_space.max(d);
-                    }
-                    long min0 = min[0], min1 = min[1];
-                    long max0 = max[0], max1 = max[1];
-                    //printf("min: (%d, %d), max: (%d, %d)\n", min[0], min[1], max[0], max[1]);
-                    boundary_space = Cabana::Grid::IndexSpace<2>(min, max);
+                    long min0 = boundary_space.min(0), min1 = boundary_space.min(1);
+                    long max0 = boundary_space.max(0), max1 = boundary_space.max(1);
                     Kokkos::parallel_for("Field boundary extrapolation", 
                                          Cabana::Grid::createExecutionPolicy(boundary_space, 
                                          exec_space()),
@@ -137,7 +123,6 @@ struct BoundaryCondition
                          * XXX - Optimize the following code
                          * XXX - Make this work for any halo distance, not just 2.
                          */
-                        
                         int p1[2], p2[2];
                         for (int d = 0; d < dof; d++) {
                             double slope;
