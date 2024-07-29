@@ -121,11 +121,11 @@ class Solver : public SolverBase
         : _halo_min( 2 )
         , _atwood( atwood )
         , _g( g )
-        , _bc( bc )
         , _mu( mu )
         , _eps( epsilon )
         , _dt( delta_t )
         , _time( 0.0 )
+        , _bc( bc )
         , _params( params )
     {
 
