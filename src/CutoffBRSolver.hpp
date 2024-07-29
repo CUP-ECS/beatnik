@@ -178,7 +178,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     /**
      * Creates a populates particle array
      **/
-    void initializeParticles(particle_array_type &particle_array, node_view z, node_view w, node_view o) const
+    void initializeParticles(particle_array_type &particle_array, node_view z, node_view o) const
     {
         Kokkos::Profiling::pushRegion("initializeParticles");
 
@@ -318,9 +318,14 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         int local_location[3] = {boundary_topology(_rank, 1), boundary_topology(_rank, 2), boundary_topology(_rank, 3)};
         int max_location[3] = {boundary_topology(_comm_size, 1), boundary_topology(_comm_size, 2), boundary_topology(_comm_size, 3)};
         int rank = _rank;
-
+        
+        /* See https://kokkos.org/kokkos-core-wiki/API/core/view/deep_copy.html
+         * "How to get layout incompatiable views copied"
+         */
         Kokkos::View<int*[4], device_type> boundary_topology_device("boundary_topology_device", _comm_size+1);
-        Operators::copy_to_device(boundary_topology_device, boundary_topology);
+        auto hv_tmp = Kokkos::create_mirror_view(boundary_topology_device);
+        Kokkos::deep_copy(hv_tmp, boundary_topology);
+        Kokkos::deep_copy(boundary_topology_device, hv_tmp);
 
         if (isOnBoundary(local_location, max_location))
         {
@@ -506,10 +511,10 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
      * This function is called three times per time step to compute the initial, forward, and half-step
      * derivatives for velocity and vorticity.
      */
-    void computeInterfaceVelocity(node_view zdot, node_view z, node_view w, node_view o) const override
+    void computeInterfaceVelocity(node_view zdot, node_view z, node_view o) const override
     {
         particle_array_type particle_array;
-        initializeParticles(particle_array, z, w, o);
+        initializeParticles(particle_array, z, o);
         migrateParticlesTo3D(particle_array);
         int owned_3D_count = particle_array.size();
         performHaloExchange3D(particle_array);

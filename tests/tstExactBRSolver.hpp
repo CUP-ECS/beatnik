@@ -86,6 +86,10 @@ class ExactBRSolverTest : public TestingBase<T>
 
     void TearDown() override
     { 
+        this->zdot_test_ = NULL;
+        this->zdot_correct_ = NULL;
+        this->single_mesh_ = NULL;
+        this->single_pm_ = NULL;
         TestingBase<T>::TearDown();
     }
 
@@ -293,7 +297,7 @@ class ExactBRSolverTest : public TestingBase<T>
              typename node_view::device_type,
              Kokkos::MemoryTraits<Kokkos::Atomic>> atomic_zdot = zdot_;
     
-        /* Zero out all of the i/j points - XXX Is this needed are is this already zeroed somewhere else? */
+        /* Zero out all of the i/j points */
         Kokkos::parallel_for("Exact BR Zero Loop",
             Cabana::Grid::createExecutionPolicy(local_node_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {
@@ -323,11 +327,11 @@ class ExactBRSolverTest : public TestingBase<T>
         int is_periodic = pm_->mesh().is_periodic(); // 1 if periodic
         if (is_periodic)
         {
-            this->p_br_exact_->computeInterfaceVelocity(zdot, z, w, o);
+            this->p_br_exact_->computeInterfaceVelocity(zdot, z, o);
         }
         else 
         {
-            this->f_br_exact_->computeInterfaceVelocity(zdot, z, w, o);
+            this->f_br_exact_->computeInterfaceVelocity(zdot, z, o);
         }
 
 
@@ -350,8 +354,13 @@ class ExactBRSolverTest : public TestingBase<T>
         int cdim2 = zdot_d_correct.extent(2);
         Kokkos::View<double***, Kokkos::HostSpace> zdot_h_test("zdot_h_test", tdim0, tdim1, tdim2);
         Kokkos::View<double***, Kokkos::HostSpace> zdot_h_correct("zdot_h_correct", cdim0, cdim1, cdim2);
-        Beatnik::Operators::copy_to_host(zdot_h_test, zdot_d_test);
-        Beatnik::Operators::copy_to_host(zdot_h_correct, zdot_d_correct);
+
+        auto hvt_tmp = Kokkos::create_mirror_view(zdot_d_test);
+        auto hvc_tmp = Kokkos::create_mirror_view(zdot_d_correct);
+        Kokkos::deep_copy(hvt_tmp, zdot_d_test);
+        Kokkos::deep_copy(hvc_tmp, zdot_d_correct);
+        Kokkos::deep_copy(zdot_h_test, hvt_tmp);
+        Kokkos::deep_copy(zdot_h_correct, hvc_tmp);
 
         const int halo_width = this->haloWidth_;
         auto own_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
@@ -368,7 +377,8 @@ class ExactBRSolverTest : public TestingBase<T>
                 {
                     double zdot_test = zdot_h_test(k, l, dim);
                     double zdot_correct = zdot_h_correct(gi[0]+halo_width, gi[1]+halo_width, dim);
-                    EXPECT_NEAR(zdot_test, zdot_correct, 0.0000000000001);
+                    EXPECT_NEAR(zdot_test, zdot_correct, 0.0000000000001) << "At zdot(" << k
+                        << ", " << l << ", " << dim << "), global i/j: " << gi[0] << ", " << gi[1] << "\n";
                 }
                 
         });

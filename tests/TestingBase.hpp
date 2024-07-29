@@ -220,8 +220,6 @@ class TestingBase : public ::testing::Test
         f_params_.periodic = {false, false};
         f_params_.cutoff_distance = cutoff_distance;
 
-        // Init mesh
-
         // Periodic object init
         this->p_mesh_ = std::make_shared<surface_mesh_type>( globalBoundingBox_, globalNumNodes_, p_params_.periodic, 
                                 partitioner_, haloWidth_, MPI_COMM_WORLD );
@@ -242,6 +240,7 @@ class TestingBase : public ::testing::Test
     void TearDown() override
     {
         this->p_zm_exact_ = NULL;
+        this->f_zm_exact_ = NULL;
 
         this->p_br_cutoff_ = NULL;
         this->f_br_cutoff_ = NULL;

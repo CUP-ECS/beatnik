@@ -106,9 +106,9 @@ namespace Operators
     /* Compute the Birchorff Rott force exerted on an i/j point with given location
      * by a k/l point with given vorticity, with an additional position offset 
      * (to * take care of periodic boundary contitions) */
-    template <class VorticityView, class PositionView>
+    template <class PositionView>
     KOKKOS_INLINE_FUNCTION
-    void BR(double out[3], PositionView z, PositionView z2, VorticityView w2, PositionView omega_view,
+    void BR(double out[3], PositionView z, PositionView z2, PositionView omega_view,
             double epsilon, double dx, double dy, double weight, int i, int j, int k, int l,
             double offset[3]) 
     {
@@ -176,28 +176,6 @@ namespace Operators
         }
 
         return Cabana::Grid::IndexSpace<M + N>( range_min, range_max );
-    }
-
-    /* Convenience functions to copy Kokkos views to/from 
-     * host and device memory
-     * See https://kokkos.org/kokkos-core-wiki/API/core/view/deep_copy.html
-     * "How to get layout incompatiable views copied"
-     */
-    template <class DeviceView, class HostView>
-    KOKKOS_INLINE_FUNCTION
-    void copy_to_device(DeviceView dv, HostView hv)
-    {
-        auto hv_tmp = Kokkos::create_mirror_view(dv);
-        Kokkos::deep_copy(hv_tmp, hv);
-        Kokkos::deep_copy(dv, hv_tmp);
-    }
-    template <class DeviceView, class HostView>
-    KOKKOS_INLINE_FUNCTION
-    void copy_to_host(HostView hv, DeviceView dv)
-    {
-        auto hv_tmp = Kokkos::create_mirror_view(dv);
-        Kokkos::deep_copy(hv_tmp, dv);
-        Kokkos::deep_copy(hv, hv_tmp);
     }
     
 }; // namespace operator
