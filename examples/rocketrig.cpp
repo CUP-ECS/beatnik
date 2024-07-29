@@ -212,6 +212,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.params.cutoff_distance = 0.5;
     cl.params.heffte_configuration = 6;
     cl.params.br_solver = BR_EXACT;
+    cl.params.solver_order = SolverOrder::ORDER_LOW;
     // cl.params.period below
 
     /* Default problem is the cosine rocket rig */
@@ -338,11 +339,11 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         {
             std::string order(optarg);
             if (order.compare("low") == 0 ) {
-                cl.order = SolverOrder::ORDER_LOW;
+                cl.params.solver_order = SolverOrder::ORDER_LOW;
             } else if (order.compare("medium") == 0 ) {
-                cl.order =  SolverOrder::ORDER_MEDIUM;
+                cl.params.solver_order = SolverOrder::ORDER_MEDIUM;
             } else if (order.compare("high") == 0 ) {
-                cl.order = SolverOrder::ORDER_HIGH;
+                cl.params.solver_order = SolverOrder::ORDER_HIGH;
             } else {
                 if ( rank == 0 )
                 {
@@ -691,19 +692,19 @@ void rocketrig( ClArgs& cl )
                               cl.num_nodes, cl.boundary );
 
     std::shared_ptr<Beatnik::SolverBase> solver;
-    if (cl.order == SolverOrder::ORDER_LOW) {
+    if (cl.params.solver_order == SolverOrder::ORDER_LOW) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
             bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t,
             cl.params );
-    } else if (cl.order == SolverOrder::ORDER_MEDIUM) {
+    } else if (cl.params.solver_order == SolverOrder::ORDER_MEDIUM) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
             bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t,
             cl.params );
-    } else if (cl.order == SolverOrder::ORDER_HIGH) {
+    } else if (cl.params.solver_order == SolverOrder::ORDER_HIGH) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,

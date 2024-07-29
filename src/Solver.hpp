@@ -34,7 +34,6 @@
 namespace Beatnik
 {
 
-
 /**
  * @struct Params
  * @brief Holds order and solver-specific parameters
@@ -50,6 +49,9 @@ struct Params
     /* Mesh data, for solvers that create another mesh */
     std::array<double, 6> global_bounding_box;
     std::array<bool, 2> periodic;
+
+    /* Model Order */
+    int solver_order;
 
     /* BR solver type */
     BRSolverType br_solver;
@@ -175,9 +177,14 @@ class Solver : public SolverBase
         _pm = std::make_unique<pm_type>(
             *_surface_mesh, _bc, _params.period, create_functor );
 
-        // Create the Birkhoff-Rott solver (XXX make this conditional on non-low 
-        // order solve
-        _br = Beatnik::createBRSolver<pm_type, ExecutionSpace, MemorySpace, Params>(*_pm, _bc, _eps, dx, dy, _params);
+        if (_params.solver_order == 1 || _params.solver_order  == 2)
+        {
+            _br = Beatnik::createBRSolver<pm_type, ExecutionSpace, MemorySpace, Params>(*_pm, _bc, _eps, dx, dy, _params);
+        }
+        else
+        {
+            _br = NULL;
+        }
 
         // Create the ZModel solver
         _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder, Params>>(
