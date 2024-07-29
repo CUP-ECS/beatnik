@@ -123,12 +123,19 @@ struct ClArgs
     int write_freq;     /**< Write frequency */
 
     /* Solution method constants */
-    enum SolverOrder order;  /**< Order of z-model solver to use */
     enum BRSolverType br_solver; /**< BRSolver to use */
     double mu;      /**< Artificial viscosity constant */
     double eps;     /**< Desingularization constant */
 
-    /* Parameters specific to solver order and BR solver type */
+    /* Parameters specific to solver order and BR solver type:
+     *  - Period for particle initialization
+     *  - Global bounding box
+     *  - Periodicity
+     *  - Heffte configuration (For low-order solver)
+     *  - solver order (Order of z-model solver to use)
+     *  - BR solver type
+     *  - Cutoff distance (If using cutoff solver)
+     */
     Params params;
 };
 
@@ -204,7 +211,6 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 
     /// Set default values
     cl.driver = "serial"; // Default Thread Setting
-    cl.order = SolverOrder::ORDER_LOW;
     cl.weak_scale = 1;
     cl.write_freq = 10;
 
@@ -212,6 +218,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.params.cutoff_distance = 0.5;
     cl.params.heffte_configuration = 6;
     cl.params.br_solver = BR_EXACT;
+    cl.params.solver_order = SolverOrder::ORDER_LOW;
     // cl.params.period below
 
     /* Default problem is the cosine rocket rig */
@@ -338,11 +345,11 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         {
             std::string order(optarg);
             if (order.compare("low") == 0 ) {
-                cl.order = SolverOrder::ORDER_LOW;
+                cl.params.solver_order = SolverOrder::ORDER_LOW;
             } else if (order.compare("medium") == 0 ) {
-                cl.order =  SolverOrder::ORDER_MEDIUM;
+                cl.params.solver_order = SolverOrder::ORDER_MEDIUM;
             } else if (order.compare("high") == 0 ) {
-                cl.order = SolverOrder::ORDER_HIGH;
+                cl.params.solver_order = SolverOrder::ORDER_HIGH;
             } else {
                 if ( rank == 0 )
                 {
@@ -555,7 +562,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     double tau = 1/sqrt(cl.atwood * cl.gravity);
 
     if (cl.delta_t <= 0.0) {
-        if (cl.order == SolverOrder::ORDER_HIGH) {
+        if (cl.params.solver_order == SolverOrder::ORDER_HIGH) {
             cl.delta_t = tau/50.0;  // Should this depend on dx and dy? XXX
         } else {
             cl.delta_t = tau/25.0;
@@ -691,19 +698,19 @@ void rocketrig( ClArgs& cl )
                               cl.num_nodes, cl.boundary );
 
     std::shared_ptr<Beatnik::SolverBase> solver;
-    if (cl.order == SolverOrder::ORDER_LOW) {
+    if (cl.params.solver_order == SolverOrder::ORDER_LOW) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
             bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t,
             cl.params );
-    } else if (cl.order == SolverOrder::ORDER_MEDIUM) {
+    } else if (cl.params.solver_order == SolverOrder::ORDER_MEDIUM) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
             bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t,
             cl.params );
-    } else if (cl.order == SolverOrder::ORDER_HIGH) {
+    } else if (cl.params.solver_order == SolverOrder::ORDER_HIGH) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
@@ -756,10 +763,10 @@ int main( int argc, char* argv[] )
                   << std::setw( 8 ) << cl.num_nodes[1] 
                   << "\n"; // Number of Cells
         std::cout <<  std::left << std::setw( 30 ) << "Solver Order"
-                  << ": " << std::setw( 8 ) << cl.order << "\n";
+                  << ": " << std::setw( 8 ) << cl.params.solver_order << "\n";
 
         // Solver-order specific arguments
-        if (cl.order == SolverOrder::ORDER_LOW)
+        if (cl.params.solver_order == SolverOrder::ORDER_LOW)
         {
             std::cout << std::left << std::setw( 30 ) << "HeFFTe configuration"
                   << ": " << std::setw( 8 ) << cl.params.heffte_configuration  << "\n";

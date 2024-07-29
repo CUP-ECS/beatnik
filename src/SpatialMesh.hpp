@@ -86,7 +86,38 @@ class SpatialMesh
         // Halo width must be at least one
         if (_halo_width < 1)
         {
-            std::cerr << "Halo width is " << _halo_width << ", which must be at least 1. \n";
+            std::cerr << "Error: Halo width is " << _halo_width << ", which must be at least 1. \n";
+            Kokkos::finalize();
+            MPI_Finalize();
+            exit(-1);
+        }
+
+        // Each process must own at least 'halo width' cells; we can only halo across
+        // neighboring processes.
+        int num_cells_x = global_grid->ownedNumCell( Cabana::Grid::Dim::I );
+        int num_cells_y = global_grid->ownedNumCell( Cabana::Grid::Dim::J );
+        int num_cells_z = global_grid->ownedNumCell( Cabana::Grid::Dim::K );
+        int error = 0;
+        if (_halo_width > num_cells_x)
+        {
+            std::cerr << "Error: The maxmimum cutoff distance with this configuration is "
+                << floor((double)num_cells_x*_cell_size) << ".00.\n";
+            error = 1;
+        }
+        else if (_halo_width > num_cells_y)
+        {
+            std::cerr << "Error: The maxmimum cutoff distance with this configuration is "
+                << floor((double)num_cells_y*_cell_size) << ".00.\n";
+            error = 1;
+        }
+        else if (_halo_width > num_cells_z)
+        {
+            std::cerr << "Error: The maxmimum cutoff distance with this configuration is "
+                << floor((double)num_cells_z*_cell_size) << ".00.\n";
+            error = 1;
+        }
+        if (error)
+        {
             Kokkos::finalize();
             MPI_Finalize();
             exit(-1);
