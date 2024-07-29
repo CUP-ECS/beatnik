@@ -115,8 +115,8 @@ class SurfaceMesh
         auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
                                                      periodic, partitioner );
         // Build the local grid.
-        int halo_width = fmax(2, min_halo_width);
-        _local_grid = Cabana::Grid::createLocalGrid( global_grid, halo_width );
+        _surface_halo_width = fmax(2, min_halo_width);
+        _local_grid = Cabana::Grid::createLocalGrid( global_grid, _surface_halo_width );
     }
 
     // Get the local grid.
@@ -148,6 +148,11 @@ class SurfaceMesh
         return _periodic[0];
     }
 
+    int get_halo_width() const
+    {
+        return _surface_halo_width;
+    }
+
     // Get the boundary indexes on the periodic boundary. local_grid.boundaryIndexSpace()
     // doesn't work on periodic boundaries.
     // XXX Needs more error checking to make sure the boundary is in fact periodic
@@ -175,7 +180,7 @@ class SurfaceMesh
     std::array<double, 3> _low_point, _high_point;
     const std::array<bool, 2> _periodic;
     std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> _local_grid;
-    int _rank;
+    int _rank, _surface_halo_width;
 	std::array<int, 2> _num_nodes;
 };
 

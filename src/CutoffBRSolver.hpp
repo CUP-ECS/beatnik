@@ -305,6 +305,8 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         {
             std::cerr << "Error: Communicator size is " << _comm_size
             << " < 4 to support periodic boundary conditions using the cutoff solver\n";
+            Kokkos::finalize();
+            MPI_Finalize();
             exit(-1);
         }
 

@@ -49,10 +49,13 @@ class SpatialMesh
         // Partition in x and y only
         // Try to partition evenly, otherwise set the x-dim to have sqrt(_comm_size)
         // ranks and the y-dim to have the remaining ranks.
+        // XXX - Partition in x/y/z instead of just x/y?
         int ranks_in_xy = (int) floor(sqrt((float) _comm_size));
-        if (_comm_size % ranks_in_xy && _rank == 0) 
+        if (ranks_in_xy*ranks_in_xy != _comm_size) 
         {
-            printf("ERROR: The square root of the number of ranks must be an integer. There are %d ranks.\n", _comm_size);
+            if (_rank == 0) printf("ERROR: The number of ranks must be a square number to use the cutoff solver. There are %d ranks.\n", _comm_size);
+            Kokkos::finalize();
+            MPI_Finalize();
             exit(1);
         }
         std::array<int, 3> input_ranks_per_dim = { ranks_in_xy, ranks_in_xy, 1 };
@@ -84,6 +87,8 @@ class SpatialMesh
         if (_halo_width < 1)
         {
             std::cerr << "Halo width is " << _halo_width << ", which must be at least 1. \n";
+            Kokkos::finalize();
+            MPI_Finalize();
             exit(-1);
         }
 
