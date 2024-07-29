@@ -51,24 +51,12 @@ class BoundaryConditionTest : public TestingBase<T>
   public:
     void populateArray()
     {
-        /*****************
-         *  Getting execution range from MeshTest because the compiler does like the following:
-        auto own_nodes = local_grid_->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(),
-                                                 Cabana::Grid::Local());
-
-        auto policy = Cabana::Grid::createExecutionPolicy( own_nodes );
-        **************/
         auto local_grid = this->f_pm_->mesh().localGrid();
         auto own_nodes = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(),
                                                  Cabana::Grid::Local());
 
         auto policy = Cabana::Grid::createExecutionPolicy(own_nodes, ExecutionSpace());
         auto z = this->f_position_->view();
-        // int halo_width = TestingBase<T>::haloWidth_;
-        // int dim0 = z.extent(0);
-        // int dim1 = z.extent(1);
-        // using range_policy = Kokkos::MDRangePolicy<Kokkos::Rank<2>, ExecutionSpace>;
-        // range_policy policy({halo_width, halo_width}, {dim0-halo_width, dim1-halo_width});
         double dx = 0.3, dy = 0.4;
         Kokkos::parallel_for("Initialize Cells", policy,
             KOKKOS_LAMBDA( const int i, const int j ) {
@@ -103,29 +91,12 @@ class BoundaryConditionTest : public TestingBase<T>
                 {
                     double correct_value = -1+dx*i + -1+dy*j;
                     /* Using EXPECT_NEAR because of floating-point imprecision
-                    * between doubles inside and out of a Kokkos view.
-                    * XXX - Fix calling the __host__ function from a __host__ __device__ function
-                    * warning caused by using EXPECT_NEAR here.
-                    */
+                     * between doubles inside and out of a Kokkos view.
+                     */
                     EXPECT_NEAR(correct_value, z_host(i, j, 0), 0.000000000001);
                 }
             }
         }
-        
-
-        // using range_policy = Kokkos::MDRangePolicy<Kokkos::Rank<2>, Kokkos::Serial>;
-        // range_policy policy({0, 0}, {min+range+min, min+range+min});
-        // double dx = 0.3, dy = 0.4;
-        // Kokkos::parallel_for("Initialize Cells", policy,
-        //     KOKKOS_LAMBDA( const int i, const int j ) {
-        //         double correct_value = -1+dx*i + -1+dy*j;
-        //         /* Using EXPECT_NEAR because of floating-point imprecision
-        //          * between doubles inside and out of a Kokkos view.
-        //          * XXX - Fix calling the __host__ function from a __host__ __device__ function
-        //          * warning caused by using EXPECT_NEAR here.
-        //          */
-        //         EXPECT_NEAR(correct_value, z(i, j, 0), 0.000000000001);
-        //     });
     }
 };
 
