@@ -94,7 +94,7 @@ struct BoundaryCondition
             for (int j = -1; j < 2; j++)
             {
                 if (i == 0 && j == 0) continue;
-                
+
                 /* In general, halo exchange takes care of periodic boundaries.
                  * For free boundaries, we linearly extrapolate the field into 
                  * the boundary */
@@ -103,13 +103,8 @@ struct BoundaryCondition
                 {
                     /* For free boundaries, we have to extrapolate from the mesh
                      * into the boundary to support finite differencing and 
-                     * laplacian calculations near the boundary. */
-		    
-                    // Variables we'll want in the parallel for loop.
-                    // auto f = field.view();
-                    Kokkos::Array<int, 2> kdir = {i, j};
-
-                    /* We want the boundaryIndexSpace of ghosts to loop over. */
+                     * laplacian calculations near the boundary.
+                     * We want the boundaryIndexSpace of ghosts to loop over. */
                     auto boundary_space 
                         = local_grid.boundaryIndexSpace(Cabana::Grid::Ghost(), 
                               Cabana::Grid::Node(), dir);
