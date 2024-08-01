@@ -35,6 +35,7 @@ MESSAGE(STATUS "Beatnik Revision = '${Beatnik_GIT_COMMIT_HASH}'")
 ## systems. Before bringing in BLT, we set a variety of flags whch tell it the 
 ## featurs we're interested in.
 ##---------------------------------------------------------------------------##
+set(ENABLE_TESTS ON)
 if (DEFINED BLT_SOURCE_DIR)
     # Support having a shared BLT outside of the repository if given a BLT_SOURCE_DIR
     if (NOT EXISTS ${BLT_SOURCE_DIR}/SetupBLT.cmake)
