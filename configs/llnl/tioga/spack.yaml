@@ -136,6 +136,13 @@ spack:
       externals:
       - prefix: /opt/rocm-6.1.2
         spec: miopen-hip@6.1.2
+    ncurses:
+      buildable: false
+      externals:
+      - prefix: /usr
+        spec: ncurses@5.9
+      version:
+      - '5.9'
     openssh:
       buildable: false
       externals:
@@ -302,10 +309,10 @@ spack:
   - compiler:
       spec: cce@=18.0.0
       paths:
-        cc: /usr/tce/packages/cce/cce-18.0.0a-magic/bin/craycc
-        cxx: /usr/tce/packages/cce/cce-18.0.0a-magic/bin/crayCC
-        f77: /usr/tce/packages/cce/cce-18.0.0a-magic/bin/crayftn
-        fc: /usr/tce/packages/cce/cce-18.0.0a-magic/bin/crayftn
+        cc: /usr/tce/packages/cce-tce/cce-18.0.0/bin/craycc
+        cxx: /usr/tce/packages/cce-tce/cce-18.0.0/bin/crayCC
+        f77: /usr/tce/packages/cce-tce/cce-18.0.0/bin/crayftn
+        fc: /usr/tce/packages/cce-tce/cce-18.0.0/bin/crayftn
       flags: {}
       operating_system: rhel8
       target: x86_64
@@ -316,10 +323,10 @@ spack:
   - compiler:
       spec: rocmcc@6.1.2
       paths:
-        cc: /usr/tce/packages/rocmcc-tce/rocmcc-6.1.2-magic/bin/amdclang
-        cxx: /usr/tce/packages/rocmcc-tce/rocmcc-6.1.2-magic/bin/amdclang++
-        f77: /usr/tce/packages/rocmcc-tce/rocmcc-6.1.2-magic/bin/amdflang
-        fc: /usr/tce/packages/rocmcc-tce/rocmcc-6.1.2-magic/bin/amdflang
+        cc: /usr/tce/packages/rocmcc-tce/rocmcc-6.1.2/bin/amdclang
+        cxx: /usr/tce/packages/rocmcc-tce/rocmcc-6.1.2/bin/amdclang++
+        f77: /usr/tce/packages/rocmcc-tce/rocmcc-6.1.2/bin/amdflang
+        fc: /usr/tce/packages/rocmcc-tce/rocmcc-6.1.2/bin/amdflang
       flags: {}
       operating_system: rhel8
       target: x86_64
