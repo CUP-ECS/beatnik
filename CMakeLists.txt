@@ -54,6 +54,10 @@ else()
     endif()
 endif()
 
+# Disable google test pthreads in BLT to support to ensure we compile in 
+# some environments, as some compilers (e.g. craycc) and BLT aren't communicating
+# on linking against pthreads.
+set(gtest_disable_pthreads ON CACHE BOOL "")
 include(${BLT_SOURCE_DIR}/SetupBLT.cmake)
 
 ##---------------------------------------------------------------------------##
