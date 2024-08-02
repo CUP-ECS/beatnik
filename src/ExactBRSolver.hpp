@@ -152,7 +152,6 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
          * (halo width) to (halo width + mesh size - 1)
          */
         int halo_width = _pm.mesh().get_halo_width();
-        int is_periodic = _pm.mesh().is_periodic();
         std::array<long, 2> lmin;
         std::array<long, 2> lmax;
         for ( int d = 0; d < 2; ++d ) {
@@ -396,13 +395,14 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     }
 
   private:
+    
     const pm_type & _pm;
     const BoundaryCondition & _bc;
-    const Params _params;
     double _epsilon, _dx, _dy;
-
-    MPI_Comm _comm;
+    const Params _params;
+    
     l2g_type _local_L2G;
+    MPI_Comm _comm;
 
     int _num_procs, _rank;
     // XXX Communication views and extents to avoid allocations during each ring pass

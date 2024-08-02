@@ -573,12 +573,13 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
   private:
     const pm_type & _pm;
     const BoundaryCondition & _bc;
+    double _epsilon, _dx, _dy;
     const Params _params;
+    l2g_type _local_L2G;
+    
+    MPI_Comm _comm;
     int _rank, _comm_size;
     std::shared_ptr<spatial_mesh_type> _spatial_mesh;
-    double _epsilon, _dx, _dy;
-    MPI_Comm _comm;
-    l2g_type _local_L2G;
 };
 
 }; // namespace Beatnik

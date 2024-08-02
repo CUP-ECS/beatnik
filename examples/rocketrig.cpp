@@ -281,7 +281,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         case 'H':
         {
             cl.params.heffte_configuration = std::atoi( optarg );
-            if (cl.params.heffte_configuration < 0 || cl.params.heffte_configuration > 7 && rank == 0)
+            if ((cl.params.heffte_configuration < 0) || ((cl.params.heffte_configuration > 7) && rank == 0))
             {
                 std::cerr << "Invalid heffte configuration: " << cl.params.heffte_configuration << "\n"
                           << "Must be between 0 and 7." << "\n";
