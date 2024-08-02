@@ -320,6 +320,7 @@ spack:
       environment: {}
       extra_rpaths:
       - /opt/cray/pe/gcc-libs
+      - /opt/cray/pe/lib64/cce
   - compiler:
       spec: rocmcc@6.1.2
       paths:
@@ -336,10 +337,10 @@ spack:
   - compiler:
       spec: gcc@12.2.1
       paths:
-        cc: /usr/tce/packages/gcc/gcc-12.2.1-magic/bin/gcc
-        cxx: /usr/tce/packages/gcc/gcc-12.2.1-magic/bin/g++
-        f77: /usr/tce/packages/gcc/gcc-12.2.1-magic/bin/gfortran
-        fc: /usr/tce/packages/gcc/gcc-12.2.1-magic/bin/gfortran
+        cc: /usr/tce/packages/gcc-tce/gcc-12.2.1/bin/gcc
+        cxx: /usr/tce/packages/gcc-tce/gcc-12.2.1/bin/g++
+        f77: /usr/tce/packages/gcc-tce/gcc-12.2.1/bin/gfortran
+        fc: /usr/tce/packages/gcc-tce/gcc-12.2.1/bin/gfortran
       flags: {}
       operating_system: rhel8
       target: x86_64
