@@ -323,7 +323,7 @@ createSolver( const std::string& device, MPI_Comm comm,
     else if ( 0 == device.compare( "hip" ) )
     {
 #ifdef KOKKOS_ENABLE_HIP
-        return std::make_shared<Beatnik::Solver<Kokkos::Experimental::HIP, 
+        return std::make_shared<Beatnik::Solver<Kokkos::HIP, 
             Kokkos::Experimental::HIPSpace, ModelOrder>>(
                 comm, global_num_cell, partitioner, atwood, g, 
                 create_functor, bc, mu, epsilon, delta_t, params);
