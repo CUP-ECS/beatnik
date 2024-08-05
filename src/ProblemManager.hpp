@@ -102,7 +102,7 @@ class ProblemManager
     // , other initializers
     {
         // The layouts of our various arrays for values on the staggered mesh
-        // and other associated data strutures. Do there need to be version with
+        // and other associated data structures. Does there need to be version with
         // halos associated with them?
         auto node_triple_layout =
             Cabana::Grid::createArrayLayout( _surface_mesh.localGrid(), 3, Cabana::Grid::Node() );

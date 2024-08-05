@@ -140,12 +140,10 @@ class Solver : public SolverBase
             _params.global_bounding_box, num_nodes, _params.periodic, partitioner,
 	    _halo_min, comm );
 
-        // Check that our timestep is small enough to handle the mesh size,
+        // XXX - Check that our timestep is small enough to handle the mesh size,
         // atwood number and acceleration, and solution method. 
-	// XXXX
-
-        // Compute dx and dy in the initial problem state XXX What should this
-        // be when the mesh doesn't span the bounding box, e.g. rising bubbles?
+        // Compute dx and dy in the initial problem state
+        // XXX - What should this be when the mesh doesn't span the bounding box, e.g. rising bubbles?
 
         // If we're non-periodic, there's one fewer cells than nodes (we don't 
         // have the cell which wraps around
@@ -199,9 +197,9 @@ class Solver : public SolverBase
 
     void setup() override
     {
-        // Should assert that _time == 0 here.
+        // XXX - Should assert that _time == 0 here.
 
-	// Apply boundary conditions
+	    // XXX - Apply boundary conditions
     }
 
     void step() override

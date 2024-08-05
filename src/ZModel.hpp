@@ -315,7 +315,6 @@ class ZModel
             KOKKOS_LAMBDA(int i, int j) {
             for (int d = 0; d < 3; d++) {
                 omega(i, j, d) = w(i, j, 1) * Operators::Dx(z, i, j, d, dx) - w(i, j, 0) * Operators::Dy(z, i, j, d, dy);
-                //printf("omega0: %.15lf\n", w(k, l, 1) * Operators::Dx(z, k, l, d, dx) - w(k, l, 0) * Operators::Dy(z, k, l, d, dy));
             }
         });
     }

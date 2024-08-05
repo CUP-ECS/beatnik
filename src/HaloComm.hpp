@@ -37,7 +37,6 @@ template <class MemorySpace, class LocalGridType>
 struct HaloIds
 {
     static constexpr std::size_t num_space_dim = LocalGridType::num_space_dim;
-    // FIXME: 2d
     static constexpr int topology_size = 26;
 
     using memory_space = MemorySpace;

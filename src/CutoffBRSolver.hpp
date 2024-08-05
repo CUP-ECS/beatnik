@@ -15,10 +15,7 @@
  *
  * @section DESCRIPTION
  * Class that uses a brute force approach to calculating the Birkhoff-Rott 
- * velocity intergral by using a all-pairs approach. Communication
- * uses a standard ring-pass communication algorithm. Does not attempt to 
- * reduce amount of computation per ring pass by using symetry of forces
- * as this complicates the GPU kernel.
+ * velocity intergral by using a all-pairs approach. 
  * 
  * Unlike the ExactBRSolver, calculations are limited by a cutoff distance.
  */
@@ -283,7 +280,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     /** 
      * Correct the x/y position of particles that are ghosted across x/y boundaries.
      * 
-     * // XXX - Does not support periodic BCs with 1 process
+     * XXX - Does not support periodic BCs with 1 process
      * 
      * To perform in 3D:
      * 1. Determine if the ghosted particles came from a rank on an x/y boundary
@@ -374,9 +371,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                     {
                         if (traveled[dim] != 0)
                         {
-                            // -1, -1, -1, 1, 1, 1
                             double diff = global_bounding_box[dim+3] - global_bounding_box[dim];
-                            // Adjust position
                             double new_pos = position_part(index, dim) + diff * traveled[dim];
                             position_part(index, dim) = new_pos;
                         }
@@ -412,33 +407,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         * interface, including accounting for any periodic boundary conditions.
         * Right now we brute force all of the points with no tiling to improve
         * memory access or optimizations to remove duplicate calculations. */
-        /* Figure out which directions we need to project the k/l point to
-        * for any periodic boundary conditions */
-
-        // int kstart, lstart, kend, lend;
-        // if (_bc.isPeriodicBoundary({0, 1})) {
-        //     kstart = -1; kend = 1;
-        // } else {
-        //     kstart = kend = 0;
-        // }
-        // if (_bc.isPeriodicBoundary({1, 1})) {
-        //     lstart = -1; lend = 1;
-        // } else {
-        //     lstart = lend = 0;
-        // }
-
-        /* Figure out how wide the bounding box is in each direction */
-        // auto low = _pm.mesh().boundingBoxMin();
-        // auto high = _pm.mesh().boundingBoxMax();;
-        // double width[3];
-        // for (int d = 0; d < 3; d++) {
-        //     width[d] = high[d] - low[d];
-        // }
-
-        //double dx = _dx, dy = _dy, epsilon = _epsilon;
-
-        // Find neighbors using ArborX
-        //auto ids = Cabana::slice<3>(_particle_array);
+        
         auto positions = Cabana::slice<0>(particle_array);
 
         std::size_t num_particles = positions.size();
@@ -461,7 +430,8 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             for (int j = 0; j < num_neighbors; j++) {
                 int neighbor_id = Cabana::NeighborList<list_type>::getNeighbor(neighbor_list, my_id, j);
 
-                // XXX Offset initialization not correct for periodic boundaries
+                // XXX Offset initialization not correct for periodic boundaries?
+                // Or is this okay because we correct positions after haloing?
                 double offset[3] = {0.0, 0.0, 0.0}, br[3];
                 
                 /* Do the Birkhoff-Rott evaluation for this point */
