@@ -45,6 +45,7 @@ if (ENABLE_TESTS)
     blt_add_test(NAME ZModelTests
                  COMMAND tstZModel)
 
+    # Disabled until working properly
     # blt_add_executable(NAME tstProblemManager
     #                   SOURCES tstProblemManager.cpp 
     #                   HEADERS tstProblemManager.hpp tstMesh.hpp 
