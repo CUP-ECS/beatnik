@@ -113,9 +113,6 @@ class CutoffBRSolverTest : public TestingBase<T>
         MPI_Barrier(comm_);
         /* End setup */
 
-        /* Iterate over each haloed particle recieved and check the following conditions:
-         * 
-         */
         int num_periodic_recieved = 0;
         int recv_in_xy = 0;
         int recv_in_x = 0;
@@ -164,10 +161,6 @@ class CutoffBRSolverTest : public TestingBase<T>
                      * The traveled dimension(s) have coordinates outside
                      * of the bounding box but inside the cutoff distance.
                      */
-                    // if (rank_ == 3)
-                    // {
-                    //     printf("R%d: from R%d (index %d): pos: %0.5lf, %0.5lf, %0.5lf\n", rank_, remote_rank, index, position_part(index, 0), position_part(index, 1), position_part(index, 2));
-                    // }
                     for (int dim = 0; dim < 2; dim++)
                     {
                         double abs_pos = abs(position_part(index, dim));
@@ -175,13 +168,6 @@ class CutoffBRSolverTest : public TestingBase<T>
                         double max_coord = max_dim + this->cutoff_distance_;
                         if (traveled[dim])
                         {
-                            // if (rank_ == 3)
-                            // {
-                            //     printf("R%d: from R%d (index %d): dim: %d, tr: %d, %d, %d, pos: %0.5lf, %0.5lf, %0.5lf, abs_pos: %0.5lf, max_dim: %0.5lf, max_coord: %0.5lf\n",
-                            //         rank_, remote_rank, index, dim, traveled[0], traveled[1], traveled[2],
-                            //         position_part(index, 0), position_part(index, 1), position_part(index, 2),
-                            //         abs_pos, max_dim, max_coord);
-                            // }
                             EXPECT_GE(abs_pos, max_dim) << "Rank " << rank_
                                 << "from rank " << remote_rank << ": coords: " << position_part(index, 0) << ", " << position_part(index, 1) << ", " << position_part(index, 2)
                                 << ": Absolute value of adjusted coordinate (index " 
