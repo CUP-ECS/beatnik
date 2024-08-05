@@ -22,7 +22,7 @@ TYPED_TEST(ZModelTest, testOmegaPeriodic)
 TYPED_TEST(ZModelTest, testOmegaFree)
 {
     this->populateCorrectOmega(this->f_pm_);
-    //this->testOmega(this->f_pm_);
+    this->testOmega(this->f_pm_, this->f_zm_exact_);
 }
 
 
