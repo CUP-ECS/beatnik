@@ -53,11 +53,12 @@
 
 using namespace Beatnik;
 
-static char* shortargs = (char*)"n:t:d:x:F:o:I:b:g:a:T:m:v:p:i:w:O:S:M:e:h:c:H:";
+static char* shortargs = (char*)"n:B:t:d:x:F:o:c:H:I:b:g:a:T:m:v:p:i:w:O:S:M:e:h:";
 
 static option longargs[] = {
     // Basic simulation parameters
     { "nodes", required_argument, NULL, 'n' },
+    { "bounding_box", required_argument, NULL, 'B'},
     { "timesteps", required_argument, NULL, 't' },
     { "delta_t", required_argument, NULL, 'd' },
     { "driver", required_argument, NULL, 'x' },
@@ -109,6 +110,7 @@ struct ClArgs
     double gravity; /**< Gravitational accelaration in -Z direction in Gs */
     double atwood;  /**< Atwood pressure differential number */
     int model;      /**< Model used to set initial conditions */
+    double bounding_box; /**< Size of global bounding box. From (-B, -B, -B) to (B, B, B) */
 
     /* Problem simulation parameters */
     std::array<int, 2> num_nodes;          /**< Number of cells */
@@ -155,15 +157,16 @@ void help( const int rank, char* progname )
                   << "\n";
         std::cout << std::left << std::setw( 10 ) << "-n" << std::setw( 40 )
                   << "Number of points in each dimension (default 128)" << std::left << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-B" << std::setw( 40 )
+                  << "Bounding box size. Default (-1, -1, -1), (1, 1, 1)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-w" << std::setw( 40 )
                   << "Weak Scaling Factor (default 1)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-c" << std::setw( 40 )
                   << "Cutoff distance (default 0.0)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-H" << std::setw( 40 )
                   << "Heffte configuration (default 6)" << std::left << "\n";
-     //   std::cout << std::left << std::setw( 10 ) << "-t" << std::setw( 40 )
-     //             << "Amount of time to simulate" << std::left
-     //             << "\n";
+       std::cout << std::left << std::setw( 10 ) << "-t" << std::setw( 40 )
+                 << "Amount of timesteps to simulate" << std::left << "\n";
      //   std::cout << std::left << std::setw( 10 ) << "-d" << std::setw( 40 )
      //             << "Timestep increment" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-F" << std::setw( 40 )
@@ -223,6 +226,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 
     /* Default problem is the cosine rocket rig */
     cl.num_nodes = { 128, 128 };
+    cl.bounding_box = 1.0;
     cl.initial_condition = IC_COS;
     cl.boundary = Beatnik::BoundaryType::PERIODIC;
     cl.tilt = 0.0;
@@ -293,6 +297,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             break;
         }
         case 'n':
+        {
             cl.num_nodes[0] = atoi( optarg );
 
             if ( cl.num_nodes[0] < 1 )
@@ -309,6 +314,24 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             cl.num_nodes[1] = cl.num_nodes[0];
 
             break;
+        }
+        case 'B':
+        {
+            cl.bounding_box = atoi( optarg );
+
+            if ( cl.bounding_box < 0.0 )
+            {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid number of bounding box argument.\n";
+                    help( rank, argv[0] );
+                }
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
+            }
+            break;
+        }
         case 'x':
             cl.driver = strdup( optarg );
             if ( ( cl.driver.compare( "serial" ) != 0 ) &&
@@ -546,7 +569,12 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     }
 
     /* Physical setup of problem */
-    cl.params.global_bounding_box = {-1.0, -1.0, -1.0, 1.0, 1.0, 1.0};
+    cl.params.global_bounding_box = {cl.bounding_box * -1.0,
+                                     cl.bounding_box * -1.0, 
+                                     cl.bounding_box * -1.0,
+                                     cl.bounding_box,
+                                     cl.bounding_box,
+                                     cl.bounding_box};
     cl.gravity = cl.gravity * 9.81;
 
     /* Scale up global bounding box and number of cells by weak scaling factor */
@@ -759,9 +787,8 @@ int main( int argc, char* argv[] )
                   << ": " << std::setw( 8 ) << cl.driver
                   << "\n"; // Threading Setting
         std::cout << std::left << std::setw( 30 ) << "Mesh Dimension"
-                  << ": " << std::setw( 8 ) << cl.num_nodes[0]
-                  << std::setw( 8 ) << cl.num_nodes[1] 
-                  << "\n"; // Number of Cells
+                  << ": " << cl.num_nodes[0] << ", "
+                  << cl.num_nodes[1] << "\n"; // Number of Cells
         std::cout <<  std::left << std::setw( 30 ) << "Solver Order"
                   << ": " << std::setw( 8 ) << cl.params.solver_order << "\n";
 
@@ -802,8 +829,10 @@ int main( int argc, char* argv[] )
                   << ": " << std::setw( 8 ) << cl.mu << "\n";
         std::cout << std::left << std::setw( 30 ) << "Desingularization"
                   << ": " << std::setw( 8 ) << cl.eps  << "\n";
+        std::cout << std::left << std::setw( 30 ) << "Weak-scaling factor"
+                  << ": " << std::setw( 8 ) << cl.weak_scale << "\n";
         std::cout << std::left << std::setw( 30 ) << "Bounding Box Low/High"
-                  << ": " << std::setw( 8 ) << cl.params.global_bounding_box[0]
+                  << ": " << cl.params.global_bounding_box[0]
                   << ", " << cl.params.global_bounding_box[3] << "\n";
         std::cout << "==============================================\n";
     }
