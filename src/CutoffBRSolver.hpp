@@ -430,13 +430,14 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             for (int j = 0; j < num_neighbors; j++) {
                 int neighbor_id = Cabana::NeighborList<list_type>::getNeighbor(neighbor_list, my_id, j);
 
-                // XXX Offset initialization not correct for periodic boundaries?
-                // Or is this okay because we correct positions after haloing?
-                double offset[3] = {0.0, 0.0, 0.0}, br[3];
+                /* Don't need an offset because coordinates are already corrected
+                 * for periodic boundary conditions 
+                 */
+                double br[3];
                 
                 /* Do the Birkhoff-Rott evaluation for this point */
-                Operators::BR_with_slice(br, my_id, neighbor_id, position_part, omega_part, weight_part, 
-                                         epsilon, dx, dy, offset);
+                Operators::BR(br, my_id, neighbor_id, position_part, omega_part, weight_part, 
+                                         epsilon, dx, dy);
                 for (int d = 0; d < 3; d++) {
                     brsum[d] += br[d];
                 }
