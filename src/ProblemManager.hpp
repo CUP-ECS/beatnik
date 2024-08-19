@@ -99,7 +99,7 @@ class ProblemManager
         : _surface_mesh( surface_mesh )
         , _bc( bc )
         , _period( period )
-    // , other initializers
+        // , other initializers
     {
         // The layouts of our various arrays for values on the staggered mesh
         // and other associated data structures. Does there need to be version with
@@ -113,12 +113,12 @@ class ProblemManager
         // 1. The spatial positions of the interface
         _position = Cabana::Grid::createArray<double, mem_space>(
             "position", node_triple_layout );
-	Cabana::Grid::ArrayOp::assign( *_position, 0.0, Cabana::Grid::Ghost() );
+	    Cabana::Grid::ArrayOp::assign( *_position, 0.0, Cabana::Grid::Ghost() );
 
         // 2. The magnitude of vorticity at the interface 
         _vorticity = Cabana::Grid::createArray<double, mem_space>(
             "vorticity", node_pair_layout );
-	Cabana::Grid::ArrayOp::assign( *_vorticity, 0.0, Cabana::Grid::Ghost() );
+	    Cabana::Grid::ArrayOp::assign( *_vorticity, 0.0, Cabana::Grid::Ghost() );
 
         /* Halo pattern for the position and vorticity. The halo is two cells 
          * deep to be able to do fourth-order central differencing to 

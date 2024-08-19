@@ -40,7 +40,7 @@ class TimeIntegrator
     using Node = Cabana::Grid::Node;
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
 
-//    using halo_type = Cabana::Grid::Halo<MemorySpace>;
+    // using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
   public:
     TimeIntegrator( const ProblemManager<exec_space, mem_space> & pm,

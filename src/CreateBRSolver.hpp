@@ -23,7 +23,7 @@ namespace Beatnik
 enum BRSolverType {BR_EXACT = 0, BR_CUTOFF};
 
 
-/* createBRSolver is in a seperate header to avoid circular 
+/* Seperate header for createBRSolver to avoid circular 
  * dependencies between BRSolverBase and the BR solver options.
  */
 template <class pm_type, class ExecutionSpace, class MemorySpace, class Params>
