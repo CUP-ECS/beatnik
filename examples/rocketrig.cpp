@@ -323,7 +323,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             {
                 if ( rank == 0 )
                 {
-                    std::cerr << "Invalid number of bounding box argument.\n";
+                    std::cerr << "Bounding box argument must be greater than zero.\n";
                     help( rank, argv[0] );
                 }
                 Kokkos::finalize(); 
