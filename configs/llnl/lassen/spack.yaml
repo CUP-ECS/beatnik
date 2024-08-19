@@ -1,380 +1,110 @@
-# LLNL Tioga Spack Environment
-
 spack:
-  packages:
-    all:
-      variants: +rocm amdgpu_target=gfx90a
-      providers:
-        blas: [openblas, cray-libsci]
-        lapack: [openblas, cray-libsci]
-        mpi: [cray-mpich]
-        scalapack: [netlib-scalapack]
-      target: [zen3]
-    cray-libsci:
-      buildable: false
-      externals:
-      - modules:
-        - cray-libsci/21.08.1.2
-        spec: cray-libsci@21.08.1.2
-      - modules:
-        - cray-libsci/21.06.1.1
-        spec: cray-libsci@21.06.1.1
-      version: [21.08.1.2, 21.06.1.1]
-    cray-mpich:
-      buildable: false
-      externals:
-      - spec: cray-mpich@8.1.27 %gcc@10
-        prefix: /opt/cray/pe/mpich/8.1.27/ofi/gnu/10.3
-      - spec: cray-mpich@8.1.27 %gcc@11
-        prefix: /opt/cray/pe/mpich/8.1.27/ofi/gnu/11.2
-      - spec: cray-mpich@8.1.27 %cce@16
-        prefix: /opt/cray/pe/mpich/8.1.27/ofi/cray/16.0
-        extra_attributes:
-          accel: amd_gfx90a
-          gtl_lib_path: /opt/cray/pe/mpich/8.1.27/gtl
-          gtl_cutoff_size: 4096
-          fi_cxi_ats: 0
-    fftw:
-      buildable: true
-      variants: precision=float,double,long_double
-    hdf5:
-      buildable: false
-      externals:
-      - spec: hdf5@1.12.2 +mpi %rocmcc@5.6.1
-        prefix: /opt/cray/pe/hdf5-parallel/1.12.2.5/AMD/5.0
-      - spec: hdf5@1.12.2 +mpi %cce@16
-        prefix: /opt/cray/pe/hdf5-parallel/1.12.2.5/crayclang/16.0
-    hip:
-      buildable: false
-      externals:
-      - extra_attributes:
-          compilers:
-            hip: /opt/rocm-5.6.1/hip/bin/hipcc
-        prefix: /opt/rocm-5.6.1/hip
-        spec: hip@5.6.1
-    hip-rocclr:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1/rocclr
-        spec: hip-rocclr@5.6.1 ^hsa-rocr-dev@5.6.1
-    hipblas:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: hipblas@5.6.1
-    hipcub:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: hipcub@5.6.1
-    hipfft:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: hipfft@5.6.1
-    hipfort:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: hipfort@5.6.1
-    hipify-clang:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: hipify-clang@5.6.1
-    hipsparse:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: hipsparse@5.6.1
-    hsa-rocr-dev:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: hsa-rocr-dev@5.6.1
-    hsakmt-roct:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: hsakmt-roct@5.6.1
-    libfabric:
-      buildable: true
-      externals:
-      - prefix: /opt/cray/libfabric/2.0
-        spec: libfabric@2.0
-      - prefix: /opt/cray/libfabric/1.7.2-llnl
-        spec: libfabric@1.7.2
-      version:
-      - '2.0'
-      - 1.7.2
-      variants: fabrics=rxm,sockets,tcp,udp
-    libtool:
-      buildable: true
-      version: [2.4.6]
-    llvm-amdgpu:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1/llvm
-        spec: llvm-amdgpu@5.6.1
-    m4:
-      buildable: true
-      version: [1.4.18]
-    miopen-hip:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: miopen-hip@5.6.1
-    openssh:
-      buildable: false
-      externals:
-      - prefix: /usr
-        spec: openssh@8.4
-      version:
-      - '8.4'
-    openssl:
-      buildable: false
-      externals:
-      - spec: openssl@1.1.1-os
-        prefix: /usr
-      version: [1.1.1-os]
-    parallel-netcdf:
-      buildable: true
-      variants: +cxx+fortran
-    petsc:
-      variants: +batch
-    raja:
-      variants: ~exercises~examples~tests~openmp~rocm
-    rccl:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: rccl@5.6.1
-    rocalution:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: rocalution@5.6.1
-    rocblas:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: rocblas@5.6.1
-    rocfft:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: rocfft@5.6.1
-    rocm-clang-ocl:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: rocm-clang-ocl@5.6.1
-    rocm-cmake:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: rocm-cmake@5.6.1
-    rocm-device-libs:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: rocm-device-libs@5.6.1
-    rocm-gdb:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: rocm-gdb@5.6.1
-    rocm-opencl:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1/opencl
-        spec: rocm-opencl@5.6.1
-    rocm-opencl-runtime:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1/opencl
-        spec: rocm-opencl-runtime@5.6.1
-    rocm-openmp-extras:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1/llvm
-        spec: rocm-openmp-extras@5.6.1
-    rocm-smi:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1/rocm_smi
-        spec: rocmsmi@5.6.1
-    rocm-smi-lib:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1/rocm_smi
-        spec: rocm-smi-lib@5.6.1
-    rocminfo:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: rocminfo@5.6.1
-    rocprim:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: rocprim@5.6.1
-    rocprofiler-dev:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: rocprofiler-dev@5.6.1
-    rocrand:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: rocrand@5.6.1
-    rocsolver:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: rocsolver@5.6.1
-    rocsparse:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: rocsparse@5.6.1
-    rocthrust:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: rocthrust@5.6.1
-    roctracer-dev:
-      buildable: false
-      externals:
-      - prefix: /opt/rocm-5.6.1
-        spec: roctracer-dev@5.6.1
-    slurm:
-      buildable: false
-      externals:
-      - prefix: /usr
-        spec: slurm@21.08.0
-      version: [21.08.0]
-    silo:
-      variants: ~hzip
-    sundials:
-      variants: ~examples~examples-install
-    tcsh:
-      buildable: false
-      externals:
-      - prefix: /usr
-        spec: tcsh@6.20.00
-      version: [6.20.00]
-    trilinos:
-      variants: +amesos +amesos2 +anasazi +aztec +belos +boost +epetra +epetraext
-        +ifpack +ifpack2 +intrepid +intrepid2 +isorropia +kokkos +ml +minitensor +muelu
-        +nox +piro +phalanx +rol +rythmos +sacado +stk +shards +shylu +stokhos +stratimikos
-        +teko +tempus +tpetra +trilinoscouplings +zoltan +zoltan2 +superlu-dist gotype=long_long
-    umpire:
-      variants: ~examples~rocm
-    vtk-m:
-      variants: amdgpu_target=gfx908
-  config:
-    verify_ssl: true
-    install_missing_compilers: false
-    checksum: true
-    dirty: false
-    build_language: C
-    build_jobs: 24
-    ccache: false
-    db_lock_timeout: 120
-    package_lock_timeout: null
-    shared_linking:
-      type: rpath
-      bind: false
-    allow_sgid: true
-    concretizer: clingo
-    locks: true
-    suppress_gpg_warnings: false
-    connect_timeout: 10
-    test_stage: ~/.spack/test
-    concretization: unify
+  specs:
+  - matrix:
+    - - cuda@11.1.1
+      - spectrum-mpi@rolling-release
+      - heffte +fftw +cuda cuda_arch=70
+      - kokkos +hwloc +cuda +cuda_lambda +wrapper cuda_arch=70
+      - cabana @master +cajita +heffte +mpi +cuda +arborx cuda_arch=70
+    - ['%gcc@8.3.1']
+  - silo@4.11 +mpi
+  - hdf5 +mpi
+  - blt
+  - caliper+kokkos+mpi+papi
+  concretizer:
+    unify: true
+  view: true
   compilers:
   - compiler:
-      spec: cce@=16.0.1
+      spec: clang@=12.0.1
       paths:
-        cc: /usr/tce/packages/cce-tce/cce-16.0.1/bin/craycc
-        cxx: /usr/tce/packages/cce-tce/cce-16.0.1/bin/crayCC
-        f77: /usr/tce/packages/cce-tce/cce-16.0.1/bin/crayftn
-        fc: /usr/tce/packages/cce-tce/cce-16.0.1/bin/crayftn
+        cc: /usr/tcetmp/bin/clang
+        cxx: /usr/tcetmp/bin/clang++
+        f77: null
+        fc: null
       flags: {}
-      operating_system: rhel8
-      target: x86_64
-      modules: []
-      environment: {}
-      extra_rpaths:
-      - /opt/cray/pe/gcc-libs
-      - /opt/cray/pe/cce/16.0.1/cce/x86_64/lib
-  - compiler:
-      spec: cce@=15.0.1
-      paths:
-        cc: /usr/tce/packages/cce-tce/cce-15.0.1/bin/craycc
-        cxx: /usr/tce/packages/cce-tce/cce-15.0.1/bin/crayCC
-        f77: /usr/tce/packages/cce-tce/cce-15.0.1/bin/crayftn
-        fc: /usr/tce/packages/cce-tce/cce-15.0.1/bin/crayftn
-      flags: {}
-      operating_system: rhel8
-      target: x86_64
+      operating_system: rhel7
+      target: ppc64le
       modules: []
       environment: {}
       extra_rpaths: []
   - compiler:
-      spec: rocmcc@5.6.1
+      spec: clang@=6.0.0
       paths:
-        cc: /usr/tce/packages/rocmcc-tce/rocmcc-5.6.1/bin/amdclang
-        cxx: /usr/tce/packages/rocmcc-tce/rocmcc-5.6.1/bin/amdclang++
-        f77: /opt/cray/pe/cce/16.0.1/bin/crayftn
-        fc: /opt/cray/pe/cce/16.0.1/bin/crayftn
+        cc: /usr/tcetmp/bin/clang-archer
+        cxx: null
+        f77: null
+        fc: null
       flags: {}
-      operating_system: rhel8
-      target: x86_64
+      operating_system: rhel7
+      target: ppc64le
       modules: []
       environment: {}
       extra_rpaths: []
   - compiler:
-      spec: gcc@10.3.1
+      spec: gcc@=4.8.5
       paths:
-        cc: /usr/tce/packages/gcc/gcc-10.3.1/bin/gcc
-        cxx: /usr/tce/packages/gcc/gcc-10.3.1/bin/g++
-        f77: /usr/tce/packages/gcc/gcc-10.3.1/bin/gfortran
-        fc: /usr/tce/packages/gcc/gcc-10.3.1/bin/gfortran
+        cc: /usr/bin/gcc
+        cxx: /usr/bin/g++
+        f77: /usr/bin/gfortran
+        fc: /usr/bin/gfortran
       flags: {}
-      operating_system: rhel8
-      target: x86_64
+      operating_system: rhel7
+      target: ppc64le
       modules: []
       environment: {}
       extra_rpaths: []
   - compiler:
-      spec: gcc@=11.2.1
+      spec: gcc@=4.9.3
       paths:
-        cc: /usr/tce/packages/gcc/gcc-11.2.1-magic/bin/gcc
-        cxx: /usr/tce/packages/gcc/gcc-11.2.1-magic/bin/g++
-        f77: /usr/tce/packages/gcc/gcc-11.2.1-magic/bin/gfortran
-        fc: /usr/tce/packages/gcc/gcc-11.2.1-magic/bin/gfortran
+        cc: /usr/tcetmp/bin/gcc
+        cxx: /usr/tcetmp/bin/g++
+        f77: /usr/tcetmp/bin/gfortran
+        fc: /usr/tcetmp/bin/gfortran
       flags: {}
-      operating_system: rhel8
-      target: x86_64
+      operating_system: rhel7
+      target: ppc64le
       modules: []
       environment: {}
       extra_rpaths: []
-  specs:
-  - beatnik +rocm amdgpu_target=gfx90a %cce
-
-#  - matrix:
-#    - - heffte +fftw +rocm amdgpu_target=gfx90a
-#      - kokkos +hwloc +rocm amdgpu_target=gfx90a
-#      - cabana @master +cajita +heffte +mpi +arborx +rocm amdgpu_target=gfx90a
-#    - ['%cce']
-#  - silo@4.11 +mpi
-#  - hdf5 +mpi
-#  concretizer:
-#    unify: true
-#  view: true
-  develop:
-    beatnik:
-      spec: beatnik@=develop%cce+rocm amdgpu_target=gfx90a
+  - compiler:
+      spec: gcc@=8.3.1
+      paths:
+        cc: /usr/tce/packages/gcc/gcc-8.3.1/bin/gcc
+        cxx: /usr/tce/packages/gcc/gcc-8.3.1/bin/g++
+        f77: /usr/tce/packages/gcc/gcc-8.3.1/bin/gfortran
+        fc: /usr/tce/packages/gcc/gcc-8.3.1/bin/gfortran
+      flags: {}
+      operating_system: rhel7
+      target: ppc64le
+      modules: []
+      environment: {}
+      extra_rpaths: []
+  - compiler:
+      spec: xl@=16.1
+      paths:
+        cc: /usr/tcetmp/bin/xlc
+        cxx: /usr/tcetmp/bin/xlC
+        f77: null
+        fc: null
+      flags:
+        fflags: -qzerosize
+      operating_system: rhel7
+      target: ppc64le
+      modules: []
+      environment: {}
+      extra_rpaths: []
+  - compiler:
+      spec: xl_r@=16.1
+      paths:
+        cc: /usr/tcetmp/bin/xlc_r
+        cxx: /usr/tcetmp/bin/xlC_r
+        f77: null
+        fc: null
+      flags:
+        fflags: -qzerosize
+      operating_system: rhel7
+      target: ppc64le
+      modules: []
+      environment: {}
+      extra_rpaths: []
