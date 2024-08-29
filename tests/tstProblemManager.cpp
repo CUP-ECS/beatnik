@@ -1,5 +1,5 @@
 #include <Cabana_Core.hpp>
-#include <Cajita.hpp>
+#include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
 #include <ProblemManager.hpp>
 
@@ -11,7 +11,7 @@
 
 TYPED_TEST_SUITE( ProblemManagerTest, MeshDeviceTypes );
 
-using Node = Cajita::Cell;
+using Node = Cabana::Grid::Cell;
 using Position = Beatnik::Field::Position;
 using Vorticity = Beatnik::Field::Vorticity;
 
@@ -29,8 +29,8 @@ TYPED_TEST( ProblemManagerTest, StateArrayTest )
     /* Set values in the array based on our rank. Each cell gets a value of
      * rank*1000 + i * 100 + j * 10 + dim
      */
-    auto zspace = mesh->localGrid()->indexSpace( Cajita::Own(), Node(),
-                                                 Cajita::Local() );
+    auto zspace = mesh->localGrid()->indexSpace( Cabana::Grid::Own(), Node(),
+                                                 Cabana::Grid::Local() );
     Kokkos::parallel_for(
         "InitializeCellFields",
         createExecutionPolicy( zspace, ExecutionSpace() ),
@@ -63,8 +63,8 @@ TYPED_TEST( ProblemManagerTest, HaloTest )
     auto mesh = pm->mesh();
     auto rank = mesh->rank();
     auto z = pm->get( Node(), Position() );
-    auto zspace = mesh->localGrid()->indexSpace( Cajita::Own(), Node(),
-                                                 Cajita::Local() );
+    auto zspace = mesh->localGrid()->indexSpace( Cabana::Grid::Own(), Node(),
+                                                 Cabana::Grid::Local() );
     Kokkos::parallel_for(
         "InitializePositions",
         createExecutionPolicy( uspace, ExecutionSpace() ),
@@ -85,7 +85,7 @@ TYPED_TEST( ProblemManagerTest, HaloTest )
         auto dir = directions[i];
         int neighbor_rank = mesh->localGrid()->neighborRank( dir );
         auto z_shared_space = mesh->localGrid()->sharedIndexSpace(
-            Cajita::Ghost(), Node(), dir );
+            Cabana::Grid::Ghost(), Node(), dir );
         for ( int i = z_shared_space.min( 0 ); i < z_shared_space.max( 0 ); i++ )
             for ( int j = z_shared_space.min( 1 ); j < z_shared_space.max( 1 ); j++ )
                 for (int d = 0; d < 3; d++)

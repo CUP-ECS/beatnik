@@ -2,7 +2,7 @@
 #define _TSTPROBLEMMANGER_HPP_
 
 #include <Cabana_Core.hpp>
-#include <Cajita.hpp>
+#include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
 #include <ProblemManager.hpp>
 
@@ -15,7 +15,7 @@ class NullInitFunctor
 {
   public:
     KOKKOS_INLINE_FUNCTION
-    bool operator()( Cajita::Node, Beatnik::Field::Position,
+    bool operator()( Cabana::Grid::Node, Beatnik::Field::Position,
                      [[maybe_unused]] const int index[Dim],
                      [[maybe_unused]] const double x[Dim],
                      [[maybe_unused]] double& z1, 
@@ -26,7 +26,7 @@ class NullInitFunctor
     };
 
     KOKKOS_INLINE_FUNCTION
-    bool operator()( Cajita::Node, Beatnik::Field::Vorticity,
+    bool operator()( Cabana::Grid::Node, Beatnik::Field::Vorticity,
                      [[maybe_unused]] const int index[Dim],
                      [[maybe_unused]] const double x[Dim],
                      [[maybe_unused]] double& w1,
