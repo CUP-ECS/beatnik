@@ -14,7 +14,6 @@ namespace Utils
 // Generalized function to write the contents of a Kokkos view to a file
 template <class View>
 void writeViewToFile(const View& view, const std::string& filename) {
-    // Ensure the view is of the correct type (with **[x])
     static_assert(View::rank == 3, "View must have a rank of 3");
 
     // Create a host mirror to access the data
@@ -35,21 +34,22 @@ void writeViewToFile(const View& view, const std::string& filename) {
     // Write dimensions to file
     file.write(reinterpret_cast<const char*>(&dim0), sizeof(size_t));
     file.write(reinterpret_cast<const char*>(&dim1), sizeof(size_t));
+    file.write(reinterpret_cast<const char*>(&dim2), sizeof(size_t));
 
-    // Write the data
-    for (size_t i = 0; i < dim0; ++i) {
-        for (size_t j = 0; j < dim1; ++j) {
-            file.write(reinterpret_cast<const char*>(&hostView(i, j, 0)), sizeof(double) * dim2);
+    // Write the data in linear order
+    for (int i = 0; i < (int)dim0; ++i) {
+        for (int j = 0; j < (int)dim1; ++j) {
+            for (int k = 0; k < (int)dim2; ++k) {
+                file.write(reinterpret_cast<const char*>(&hostView(i, j, k)), sizeof(double));
+            }
         }
     }
 
     file.close();
 }
 
-// Generalized function to read the contents of a file into a Kokkos view
 template <class View>
 View readViewFromFile(const std::string& filename, const int dim2) {
-    // Ensure the view is of the correct type (with **[x])
     static_assert(View::rank == 3, "View must have a rank of 3");
 
     std::ifstream file(filename, std::ios::binary);
@@ -59,9 +59,15 @@ View readViewFromFile(const std::string& filename, const int dim2) {
     }
 
     // Read the dimensions from the file
-    size_t dim0, dim1;
+    size_t dim0, dim1, fileDim2;
     file.read(reinterpret_cast<char*>(&dim0), sizeof(size_t));
     file.read(reinterpret_cast<char*>(&dim1), sizeof(size_t));
+    file.read(reinterpret_cast<char*>(&fileDim2), sizeof(size_t));
+
+    if ((int)fileDim2 != dim2) {
+        std::cerr << "Dimension mismatch! Expected dim2 = " << dim2 << ", but file contains dim2 = " << fileDim2 << std::endl;
+        return View();
+    }
 
     // Allocate a Kokkos view with the read dimensions
     View view("from_file_view", dim0, dim1, dim2);
@@ -69,10 +75,12 @@ View readViewFromFile(const std::string& filename, const int dim2) {
     // Create a host mirror to store the data temporarily
     auto hostView = Kokkos::create_mirror_view(view);
 
-    // Read the data and populate the host view
-    for (size_t i = 0; i < dim0; ++i) {
-        for (size_t j = 0; j < dim1; ++j) {
-            file.read(reinterpret_cast<char*>(&hostView(i, j, 0)), sizeof(double) * dim2);
+    // Read the data in linear order
+    for (int i = 0; i < (int)dim0; ++i) {
+        for (int j = 0; j < (int)dim1; ++j) {
+            for (int k = 0; k < (int)dim2; ++k) {
+                file.read(reinterpret_cast<char*>(&hostView(i, j, k)), sizeof(double));
+            }
         }
     }
 
