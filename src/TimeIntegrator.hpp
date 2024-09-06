@@ -15,6 +15,7 @@
 #include <BoundaryCondition.hpp>
 #include <ProblemManager.hpp>
 #include <ZModel.hpp>
+#include "../tests/TestingUtils.hpp"
 
 #include <Cabana_Grid.hpp>
 
@@ -139,6 +140,23 @@ class TimeIntegrator
                     + ( 2.0 / 3.0 ) * delta_t * w_dot(i, j, d);
             }
         });
+
+        int rank;
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        int mesh_size = _pm.mesh().get_surface_mesh_size();
+        std::string z_filename = "z_orig_n";
+        z_filename += std::to_string(mesh_size);
+        z_filename += "_r";
+        z_filename += std::to_string(rank);
+        z_filename += ".view";
+        BeatnikTest::Utils::writeViewToFile(z_orig, z_filename);
+
+        std::string w_filename = "w_orig_n";
+        w_filename += std::to_string(mesh_size);
+        w_filename += "_r";
+        w_filename += std::to_string(rank);
+        w_filename += ".view";
+        BeatnikTest::Utils::writeViewToFile(w_orig, w_filename);
     }
 
   private:

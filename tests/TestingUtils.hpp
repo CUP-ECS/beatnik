@@ -3,6 +3,7 @@
 
 #include <Kokkos_Core.hpp>
 #include <fstream>
+#include <type_traits>
 
 namespace BeatnikTest
 {
@@ -10,8 +11,12 @@ namespace BeatnikTest
 namespace Utils
 {
 
-// Function to write the contents of a Kokkos view to a file
-void writeViewToFile(const Kokkos::View<double**[3]>& view, const std::string& filename) {
+// Generalized function to write the contents of a Kokkos view to a file
+template <class View>
+void writeViewToFile(const View& view, const std::string& filename) {
+    // Ensure the view is of the correct type (with **[x])
+    static_assert(View::rank == 3, "View must have a rank of 3");
+
     // Create a host mirror to access the data
     auto hostView = Kokkos::create_mirror_view(view);
     Kokkos::deep_copy(hostView, view);
@@ -25,27 +30,32 @@ void writeViewToFile(const Kokkos::View<double**[3]>& view, const std::string& f
     // Get the dimensions of the view
     size_t dim0 = view.extent(0);
     size_t dim1 = view.extent(1);
+    size_t dim2 = view.extent(2);
 
     // Write dimensions to file
     file.write(reinterpret_cast<const char*>(&dim0), sizeof(size_t));
     file.write(reinterpret_cast<const char*>(&dim1), sizeof(size_t));
 
-    // Write the data (each subarray of size [3] for every element of (dim0 x dim1))
+    // Write the data
     for (size_t i = 0; i < dim0; ++i) {
         for (size_t j = 0; j < dim1; ++j) {
-            file.write(reinterpret_cast<const char*>(&hostView(i, j, 0)), sizeof(double) * 3);
+            file.write(reinterpret_cast<const char*>(&hostView(i, j, 0)), sizeof(double) * dim2);
         }
     }
 
     file.close();
 }
 
-// Function to read the contents of a file into a Kokkos view
-Kokkos::View<double**[3]> readViewFromFile(const std::string& filename) {
+// Generalized function to read the contents of a file into a Kokkos view
+template <class View>
+View readViewFromFile(const std::string& filename, const int dim2) {
+    // Ensure the view is of the correct type (with **[x])
+    static_assert(View::rank == 3, "View must have a rank of 3");
+
     std::ifstream file(filename, std::ios::binary);
     if (!file.is_open()) {
         std::cerr << "Error opening file for reading: " << filename << std::endl;
-        return Kokkos::View<double**[3]>();
+        return View();
     }
 
     // Read the dimensions from the file
@@ -54,7 +64,7 @@ Kokkos::View<double**[3]> readViewFromFile(const std::string& filename) {
     file.read(reinterpret_cast<char*>(&dim1), sizeof(size_t));
 
     // Allocate a Kokkos view with the read dimensions
-    Kokkos::View<double**[3]> view("view", dim0, dim1);
+    View view("from_file_view", dim0, dim1, dim2);
 
     // Create a host mirror to store the data temporarily
     auto hostView = Kokkos::create_mirror_view(view);
@@ -62,7 +72,7 @@ Kokkos::View<double**[3]> readViewFromFile(const std::string& filename) {
     // Read the data and populate the host view
     for (size_t i = 0; i < dim0; ++i) {
         for (size_t j = 0; j < dim1; ++j) {
-            file.read(reinterpret_cast<char*>(&hostView(i, j, 0)), sizeof(double) * 3);
+            file.read(reinterpret_cast<char*>(&hostView(i, j, 0)), sizeof(double) * dim2);
         }
     }
 

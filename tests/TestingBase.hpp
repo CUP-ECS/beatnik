@@ -152,11 +152,14 @@ class TestingBase : public ::testing::Test
     double m_ = 0.05;       // magnitude
     double v_ = 0.00;       // variation
     double tilt_ = 0.00;    // tilt
+    double tau = 1/sqrt(A_ * g_); // Tau
+    double delta_t_high_order = tau/50.0; // delta_t
+
     int heffte_configuration_ = 6;
     double cutoff_distance = 0.3;
 
     // Mesh propterties
-    const int meshSize_ = 64;
+    const int meshSize_ = 32;
     const double boxWidth_ = 1.0;
     const int haloWidth_ = 2;
     std::array<double, 6> globalBoundingBox_ = {-1, -1, -1, 1, 1, 1};
