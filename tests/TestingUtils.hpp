@@ -11,6 +11,23 @@ namespace BeatnikTest
 namespace Utils
 {
 
+template <class View>
+std::string get_filename(int rank, int comm_size, int mesh_size, int periodic, char x)
+{
+    std::string filename = "z_";
+    if (x == 'w') filename = "w_";
+    filename += std::to_string(mesh_size);
+    if (periodic == 1) filename += "_p_";
+    else filename += "_f_";
+    filename += "r";
+    filename += std::to_string(rank);
+    filename += ".";
+    filename += std::to_string(comm_size);
+    filename += ".view";
+    return filename;
+}
+
+
 // Generalized function to write the contents of a Kokkos view to a file
 template <class View>
 void writeViewToFile(const View& view, const std::string& filename) {
@@ -94,16 +111,9 @@ View readViewFromFile(const std::string& filename, const int dim2) {
 template <class View>
 void writeView(int rank, int comm_size, int mesh_size, int periodic, const View v)
 {
-    std::string filename = "z_";
-    if (v.extent(2) == 2) filename = "w_";
-    filename += std::to_string(mesh_size);
-    if (periodic == 1) filename += "_p_";
-    else filename += "_f_";
-    filename += "r";
-    filename += std::to_string(rank);
-    filename += ".";
-    filename += std::to_string(comm_size);
-    filename += ".view";
+    char x = 'z';
+    if (v.extent(2) == 2) x = 'w';
+    std::string filename = get_filename(rank, comm_size, mesh_size, periodic, x);
     writeViewToFile(v, filename);
 }
 

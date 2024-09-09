@@ -41,26 +41,10 @@ class SolverTest : public TestingBase<T>
         this->comm_ = this->p_pm_->mesh().localGrid()->globalGrid().comm();
         MPI_Comm_rank(comm_, &rank_);
         MPI_Comm_size(comm_, &comm_size_);
-        this->ti_ = std::make_shared<ti_type>( *this->p_pm_, this->p_bc_, *this->p_zm_exact_ );
-
-        auto node_triple_layout =
-            Cabana::Grid::createArrayLayout( this->p_pm_->mesh().localGrid(), 3, Cabana::Grid::Node() );
-        auto node_pair_layout =
-            Cabana::Grid::createArrayLayout( this->p_pm_->mesh().localGrid(), 2, Cabana::Grid::Node() );
-
-        z = Cabana::Grid::createArray<double, Kokkos::HostSpace>(
-            "z_view", node_triple_layout );
-	    Cabana::Grid::ArrayOp::assign( *z, 0.0, Cabana::Grid::Ghost() );
-
-        // 2. The magnitude of vorticity at the interface 
-        w = Cabana::Grid::createArray<double, Kokkos::HostSpace>(
-            "w_view", node_pair_layout );
-	    Cabana::Grid::ArrayOp::assign( *w, 0.0, Cabana::Grid::Ghost() );
     }
 
     void TearDown() override
     { 
-        this->ti_ = NULL;
         TestingBase<T>::TearDown();
     }
 
