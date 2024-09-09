@@ -1,15 +1,40 @@
-#ifndef _TESTING_UTILS_HPP
-#define _TESTING_UTILS_HPP
 
-#include <Kokkos_Core.hpp>
-#include <fstream>
-#include <type_traits>
 
-namespace BeatnikTest
-{
-    
-namespace Utils
-{
+static char* shortargs = (char*)"n:B:t:d:x:F:o:c:H:I:b:g:a:T:m:v:p:i:w:O:S:M:e:h:";
+
+static option longargs[] = {
+    // Basic simulation parameters
+    { "nodes", required_argument, NULL, 'n' },
+    { "bounding_box", required_argument, NULL, 'B'},
+    { "timesteps", required_argument, NULL, 't' },
+    { "delta_t", required_argument, NULL, 'd' },
+    { "driver", required_argument, NULL, 'x' },
+    { "write_frequency", required_argument, NULL, 'F' },
+    { "outdir", required_argument, NULL, 'o' },
+    { "cutoff_distance", required_argument, NULL, 'c' },
+    { "heffte_configuration", required_argument, NULL, 'H'},
+
+    // Z-model simulation parameters
+    { "initial_condition", required_argument, NULL, 'I' },
+    { "boundary", required_argument, NULL, 'b' },
+    { "gravity", required_argument, NULL, 'g' },
+    { "atwood", required_argument, NULL, 'a' },
+    { "tilt", required_argument, NULL, 'T' },
+    { "magnitude", required_argument, NULL, 'm' },
+    { "variation", required_argument, NULL, 'v' },
+    { "period", required_argument, NULL, 'p' },
+    { "indir", required_argument, NULL, 'i' },
+    { "weak-scale", required_argument, NULL, 'w'},
+
+    // Z-model simulation parameters
+    { "order", required_argument, NULL, 'O' },
+    { "solver", required_argument, NULL, 'S' },
+    { "mu", required_argument, NULL, 'M' },
+    { "epsilon", required_argument, NULL, 'e' },
+
+    // Miscellaneous other arguments
+    { "help", no_argument, NULL, 'h' },
+    { 0, 0, 0, 0 } };
 
 enum InitialConditionModel {IC_COS = 0, IC_SECH2, IC_GAUSSIAN, IC_RANDOM, IC_FILE};
 enum SolverOrder {ORDER_LOW = 0, ORDER_MEDIUM, ORDER_HIGH};
@@ -47,7 +72,7 @@ struct ClArgs
     int write_freq;     /**< Write frequency */
 
     /* Solution method constants */
-    enum Beatnik::BRSolverType br_solver; /**< BRSolver to use */
+    enum BRSolverType br_solver; /**< BRSolver to use */
     double mu;      /**< Artificial viscosity constant */
     double eps;     /**< Desingularization constant */
 
@@ -63,8 +88,16 @@ struct ClArgs
     Beatnik::Params params;
 };
 
-
-int init_cl_args( ClArgs& cl )
+/**
+ * Parses command line input and updates the command line variables
+ * accordingly.
+ * @param rank The rank calling the function
+ * @param argc Number of command line options passed to program
+ * @param argv List of command line options passed to program
+ * @param cl Command line arguments structure to store options
+ * @return Error status
+ */
+int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 {
     signed char ch;
 
@@ -76,7 +109,7 @@ int init_cl_args( ClArgs& cl )
     // Set default extra parameters
     cl.params.cutoff_distance = 0.5;
     cl.params.heffte_configuration = 6;
-    cl.params.br_solver = Beatnik::BR_EXACT;
+    cl.params.br_solver = BR_EXACT;
     cl.params.solver_order = SolverOrder::ORDER_LOW;
     // cl.params.period below
 
@@ -142,113 +175,53 @@ int init_cl_args( ClArgs& cl )
     return 0;
 }
 
-std::string get_filename(int rank, int comm_size, int mesh_size, int periodic, char x)
+// Create Solver and Run
+void rocketrig( ClArgs& cl )
 {
-    std::string filename = "z_";
-    if (x == 'w') filename = "w_";
-    filename += std::to_string(mesh_size);
-    if (periodic == 1) filename += "_p_";
-    else filename += "_f_";
-    filename += "r";
-    filename += std::to_string(rank);
-    filename += ".";
-    filename += std::to_string(comm_size);
-    filename += ".view";
-    return filename;
+    int comm_size, rank;                         // Initialize Variables
+    MPI_Comm_size( MPI_COMM_WORLD, &comm_size ); // Number of Ranks
+    MPI_Comm_rank( MPI_COMM_WORLD, &rank );      // Get My Rank
+
+    Cabana::Grid::DimBlockPartitioner<2> partitioner; // Create Cabana::Grid Partitioner
+    Beatnik::BoundaryCondition bc;
+    for (int i = 0; i < 6; i++)
+    {
+        bc.bounding_box[i] = cl.params.global_bounding_box[i];
+        
+    }
+    bc.boundary_type = {cl.boundary, cl.boundary, cl.boundary, cl.boundary};
+
+    MeshInitFunc initializer( cl.params.global_bounding_box, cl.initial_condition,
+                              cl.tilt, cl.magnitude, cl.variation, cl.params.period,
+                              cl.num_nodes, cl.boundary );
+
+    std::shared_ptr<Beatnik::SolverBase> solver;
+    if (cl.params.solver_order == SolverOrder::ORDER_LOW) {
+        solver = Beatnik::createSolver(
+            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
+            partitioner, cl.atwood, cl.gravity, initializer,
+            bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t,
+            cl.params );
+    } else if (cl.params.solver_order == SolverOrder::ORDER_MEDIUM) {
+        solver = Beatnik::createSolver(
+            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
+            partitioner, cl.atwood, cl.gravity, initializer,
+            bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t,
+            cl.params );
+    } else if (cl.params.solver_order == SolverOrder::ORDER_HIGH) {
+        solver = Beatnik::createSolver(
+            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
+            partitioner, cl.atwood, cl.gravity, initializer,
+            bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t,
+            cl.params );
+    } else {
+        std::cerr << "Invalid Model Order parameter!\n";
+        Kokkos::finalize(); 
+        MPI_Finalize(); 
+        exit( -1 );  
+
+    }
+
+    // Solve
+    solver->solve( cl.t_final, cl.write_freq );
 }
-
-
-// Generalized function to write the contents of a Kokkos view to a file
-template <class View>
-void writeViewToFile(const View& view, const std::string& filename) {
-    static_assert(View::rank == 3, "View must have a rank of 3");
-
-    // Create a host mirror to access the data
-    auto hostView = Kokkos::create_mirror_view(view);
-    Kokkos::deep_copy(hostView, view);
-
-    std::ofstream file(filename, std::ios::binary);
-    if (!file.is_open()) {
-        std::cerr << "Error opening file for writing: " << filename << std::endl;
-        return;
-    }
-
-    // Get the dimensions of the view
-    size_t dim0 = view.extent(0);
-    size_t dim1 = view.extent(1);
-    size_t dim2 = view.extent(2);
-
-    // Write dimensions to file
-    file.write(reinterpret_cast<const char*>(&dim0), sizeof(size_t));
-    file.write(reinterpret_cast<const char*>(&dim1), sizeof(size_t));
-    file.write(reinterpret_cast<const char*>(&dim2), sizeof(size_t));
-
-    // Write the data in linear order
-    for (int i = 0; i < (int)dim0; ++i) {
-        for (int j = 0; j < (int)dim1; ++j) {
-            for (int k = 0; k < (int)dim2; ++k) {
-                file.write(reinterpret_cast<const char*>(&hostView(i, j, k)), sizeof(double));
-            }
-        }
-    }
-
-    file.close();
-}
-
-template <class View>
-View readViewFromFile(const std::string& filename, const int dim2) {
-    static_assert(View::rank == 3, "View must have a rank of 3");
-
-    std::ifstream file(filename, std::ios::binary);
-    if (!file.is_open()) {
-        std::cerr << "Error opening file for reading: " << filename << std::endl;
-        return View();
-    }
-
-    // Read the dimensions from the file
-    size_t dim0, dim1, fileDim2;
-    file.read(reinterpret_cast<char*>(&dim0), sizeof(size_t));
-    file.read(reinterpret_cast<char*>(&dim1), sizeof(size_t));
-    file.read(reinterpret_cast<char*>(&fileDim2), sizeof(size_t));
-
-    if ((int)fileDim2 != dim2) {
-        std::cerr << "Dimension mismatch! Expected dim2 = " << dim2 << ", but file contains dim2 = " << fileDim2 << std::endl;
-        return View();
-    }
-
-    // Allocate a Kokkos view with the read dimensions
-    View view("from_file_view", dim0, dim1, dim2);
-
-    // Create a host mirror to store the data temporarily
-    auto hostView = Kokkos::create_mirror_view(view);
-
-    // Read the data in linear order
-    for (int i = 0; i < (int)dim0; ++i) {
-        for (int j = 0; j < (int)dim1; ++j) {
-            for (int k = 0; k < (int)dim2; ++k) {
-                file.read(reinterpret_cast<char*>(&hostView(i, j, k)), sizeof(double));
-            }
-        }
-    }
-
-    // Copy the host view back to the device
-    Kokkos::deep_copy(view, hostView);
-
-    file.close();
-    return view;
-}
-
-template <class View>
-void writeView(int rank, int comm_size, int mesh_size, int periodic, const View v)
-{
-    char x = 'z';
-    if (v.extent(2) == 2) x = 'w';
-    std::string filename = get_filename(rank, comm_size, mesh_size, periodic, x);
-    writeViewToFile(v, filename);
-}
-
-} // end namespace Utils
-
-} // end namespace BeatnikTest
-
-#endif // _TESTING_UTILS_HPP

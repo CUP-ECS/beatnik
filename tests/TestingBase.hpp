@@ -16,8 +16,6 @@
 namespace BeatnikTest
 {
 
-enum InitialConditionModel {IC_COS = 0, IC_SECH2, IC_GAUSSIAN, IC_RANDOM, IC_FILE};
-
 template <std::size_t Dim>
 class NullInitFunctor
 {
@@ -44,16 +42,13 @@ class NullInitFunctor
     };
 };
 
-// Initialize field to a constant quantity and velocity
 struct MeshInitFunc
 {
     // Initialize Variables
-
-    MeshInitFunc( std::array<double, 6> box, enum InitialConditionModel i,
+    MeshInitFunc( std::array<double, 6> box,
                   double t, double m, double v, double p, 
                   const std::array<int, 2> nodes, enum Beatnik::BoundaryType boundary )
-        : _i(i)
-        , _t( t )
+        : _t( t )
         , _m( m )
         , _v( v)
         , _p( p )
@@ -63,9 +58,7 @@ struct MeshInitFunc
         _ncells[1] = nodes[1] - 1;
 
         _dx = (box[3] - box[0]) / _ncells[0];
-        _dy = (box[4] - box[1]) / _ncells[1]; 
-
-
+        _dy = (box[4] - box[1]) / _ncells[1];
     };
 
     template <class RandNumGenType>
@@ -98,25 +91,8 @@ struct MeshInitFunc
         double std_dev = 1.0;
         double gaussian = (1 / (std_dev * Kokkos::sqrt(2 * Kokkos::numbers::pi_v<double>))) *
             Kokkos::exp(-0.5 * Kokkos::pow(((rand_num - mean) / std_dev), 2));
-        switch (_i) {
-        case IC_COS:
-            z3 = _m * cos(z1 * (2 * M_PI / _p)) * cos(z2 * (2 * M_PI / _p));
-            break;
-        case IC_SECH2:
-            z3 = _m * pow(1.0 / cosh(_p * (z1 * z1 + z2 * z2)), 2);
-            break;
-        case IC_RANDOM:
-            z3 = _m * (2*rand_num - 1.0);
-            break;
-        case IC_GAUSSIAN:
-            /* The built-in C++ std::normal_distribution<double> doesn't
-             * work here, so coding the gaussian distribution itself.
-             */
-            z3 = _m * gaussian;
-            break;
-        case IC_FILE:
-            break;
-        }
+        
+        z3 = _m * cos(z1 * (2 * M_PI / _p)) * cos(z2 * (2 * M_PI / _p));
         
         random_pool.free_state(generator);
 
@@ -133,7 +109,6 @@ struct MeshInitFunc
         w1 = 0; w2 = 0;
         return true;
     };
-    enum InitialConditionModel _i;
     double _t, _m, _v, _p;
     Kokkos::Array<int, 3> _ncells;
     double _dx, _dy;
@@ -179,13 +154,12 @@ class TestingBase : public ::testing::Test
     double tilt_ = 0.00;    // tilt
     double tau = 1/sqrt(A_ * g_); // Tau
     double delta_t_high_order = tau/50.0; // delta_t
-    double delta_t_low_order = tau/25.0;
 
     int heffte_configuration_ = 6;
     double cutoff_distance = 0.3;
 
     // Mesh propterties
-    const int meshSize_ = 64;
+    const int meshSize_ = 32;
     const double boxWidth_ = 1.0;
     const int haloWidth_ = 2;
     std::array<double, 6> globalBoundingBox_ = {-1, -1, -1, 1, 1, 1};
@@ -203,8 +177,8 @@ class TestingBase : public ::testing::Test
     std::shared_ptr<surface_mesh_type> f_mesh_;
 
     NullInitFunctor<2> createFunctorNull_;
-    MeshInitFunc p_MeshInitFunc_ = MeshInitFunc(globalBoundingBox_, IC_COS, tilt_, m_, v_, p_, globalNumNodes_, Beatnik::BoundaryType::PERIODIC);
-    MeshInitFunc f_MeshInitFunc_ = MeshInitFunc(globalBoundingBox_, IC_COS, tilt_, m_, v_, p_, globalNumNodes_, Beatnik::BoundaryType::FREE);
+    MeshInitFunc p_MeshInitFunc_ = MeshInitFunc(globalBoundingBox_, tilt_, m_, v_, p_, globalNumNodes_, Beatnik::BoundaryType::PERIODIC);
+    MeshInitFunc f_MeshInitFunc_ = MeshInitFunc(globalBoundingBox_, tilt_, m_, v_, p_, globalNumNodes_, Beatnik::BoundaryType::FREE);
 
     std::shared_ptr<pm_type> p_pm_;
     std::shared_ptr<pm_type> f_pm_;
