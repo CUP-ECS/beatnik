@@ -31,6 +31,14 @@
 
 #include <mpi.h>
 
+#ifndef WRITE_VIEWS
+#define WRITE_VIEWS 1
+#endif
+#if WRITE_VIEWS
+#include "../tests/TestingUtils.hpp"
+#endif
+
+
 namespace Beatnik
 {
 
@@ -234,6 +242,26 @@ class Solver : public SolverBase
             {
                 _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
             }
+
+            // Write views for future testing, if enabled
+            #if WRITE_VIEWS
+            int write_at_time = 5;
+            int rank, comm_size;
+            MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+            MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
+
+            if (t == write_at_time)
+            {
+                auto z = _pm->get( Cabana::Grid::Node(), Field::Position() );
+                auto w = _pm->get( Cabana::Grid::Node(), Field::Vorticity() );
+                int mesh_size = _pm->mesh().get_surface_mesh_size();
+                int periodic = _params.periodic[0];
+                // void writeView(int rank, int comm_size, int mesh_size, const View v)
+                BeatnikTest::Utils::writeView(rank, comm_size, mesh_size, periodic, z);
+                BeatnikTest::Utils::writeView(rank, comm_size, mesh_size, periodic, w);
+            }
+            #endif
+
         } while ( ( _time < t_final ) );
         Kokkos::Profiling::popRegion();
     }

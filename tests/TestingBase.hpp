@@ -159,7 +159,7 @@ class TestingBase : public ::testing::Test
     double cutoff_distance = 0.3;
 
     // Mesh propterties
-    const int meshSize_ = 32;
+    const int meshSize_ = 64;
     const double boxWidth_ = 1.0;
     const int haloWidth_ = 2;
     std::array<double, 6> globalBoundingBox_ = {-1, -1, -1, 1, 1, 1};

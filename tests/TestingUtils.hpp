@@ -91,6 +91,22 @@ View readViewFromFile(const std::string& filename, const int dim2) {
     return view;
 }
 
+template <class View>
+void writeView(int rank, int comm_size, int mesh_size, int periodic, const View v)
+{
+    std::string filename = "z_";
+    if (v.extent(2) == 2) filename = "w_";
+    filename += std::to_string(mesh_size);
+    if (periodic == 1) filename += "_p_";
+    else filename += "_f_";
+    filename += "r";
+    filename += std::to_string(rank);
+    filename += ".";
+    filename += std::to_string(comm_size);
+    filename += ".view";
+    writeViewToFile(v, filename);
+}
+
 } // end namespace Utils
 
 } // end namespace BeatnikTest
