@@ -266,6 +266,11 @@ class Solver : public SolverBase
         Kokkos::Profiling::popRegion();
     }
 
+    pm_type get_pm()
+    {
+        return _pm;
+    } 
+
   private:
     /* Solver state variables */
     int _halo_min;

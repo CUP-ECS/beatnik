@@ -81,7 +81,7 @@ struct MeshInitFunc
          * coordinate in mesh space */
         for (int i = 0; i < 2; i++) {
             lcoord[i] = coord[i];
-            if (_b == BoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
+            if (_b == Beatnik::BoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
                 lcoord[i] += 0.5;
             }
         }
@@ -179,6 +179,7 @@ class TestingBase : public ::testing::Test
     double tilt_ = 0.00;    // tilt
     double tau = 1/sqrt(A_ * g_); // Tau
     double delta_t_high_order = tau/50.0; // delta_t
+    double delta_t_low_order = tau/25.0;
 
     int heffte_configuration_ = 6;
     double cutoff_distance = 0.3;

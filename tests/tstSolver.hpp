@@ -23,8 +23,7 @@ class SolverTest : public TestingBase<T>
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
 
     using pm_type = Beatnik::ProblemManager<ExecutionSpace, MemorySpace>;
-    using zm_type_h = Beatnik::ZModel<ExecutionSpace, MemorySpace, Beatnik::Order::High, Beatnik::Params>;
-    using ti_type = Beatnik::TimeIntegrator<ExecutionSpace, MemorySpace, zm_type_h>;
+    using solver_high_type = Beatnik::Solver<ExecutionSpace, MemorySpace, Beatnik::Order::High()>;
     using node_array =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
                       MemorySpace>;
@@ -32,23 +31,62 @@ class SolverTest : public TestingBase<T>
     MPI_Comm comm_;
     int rank_, comm_size_;
     int mesh_size = this->meshSize_;
-    std::shared_ptr<ti_type> ti_;
+    std::shared_ptr<solver_high_type> solver_high;
     std::shared_ptr<node_array> z, w;
 
     void SetUp() override
     {
         TestingBase<T>::SetUp();
-        this->comm_ = this->p_pm_->mesh().localGrid()->globalGrid().comm();
-        MPI_Comm_rank(comm_, &rank_);
-        MPI_Comm_size(comm_, &comm_size_);
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank_);
+        MPI_Comm_size(MPI_COMM_WORLD, &comm_size_);
+
+        // auto node_triple_layout =
+        //     Cabana::Grid::createArrayLayout( this->p_pm_->mesh().localGrid(), 3, Cabana::Grid::Node() );
+        // auto node_pair_layout =
+        //     Cabana::Grid::createArrayLayout( this->p_pm_->mesh().localGrid(), 2, Cabana::Grid::Node() );
+
+        // z = Cabana::Grid::createArray<double, Kokkos::HostSpace>(
+        //     "z_view", node_triple_layout );
+        // Cabana::Grid::ArrayOp::assign( *z, 0.0, Cabana::Grid::Ghost() );
+
+        // // 2. The magnitude of vorticity at the interface 
+        // w = Cabana::Grid::createArray<double, Kokkos::HostSpace>(
+        //     "w_view", node_pair_layout );
+        // Cabana::Grid::ArrayOp::assign( *w, 0.0, Cabana::Grid::Ghost() );
+
     }
 
     void TearDown() override
     { 
+        this->solver_high = NULL;
         TestingBase<T>::TearDown();
     }
 
   public:
+    template <class ModelOrder, class Partitioner, class CreateFunctor, class BoundaryCondition, class Params>
+    void init_solver_high(Partitioner partitioner, CreateFunctor create_functor, BoundaryCondition bc, Params params, double delta_t)
+    {
+        /*
+         Solver( MPI_Comm comm,
+            const std::array<int, 2>& num_nodes,
+            const Cabana::Grid::BlockPartitioner<2>& partitioner,
+            const double atwood, const double g, const InitFunc& create_functor,
+            const BoundaryCondition& bc, const double mu, 
+            const double epsilon, const double delta_t,
+            const Params params)*/
+        params.cutoff_distance = 0.25;
+        this->solver_high = std::make_shared<Beatnik::Solver<ExecutionSpace, MemorySpace, ModelOrder>>(
+            MPI_COMM_WORLD, this->globalNumNodes_, partitioner, this->A_, this->g_, 
+            create_functor, bc, this->mu_, this->epsilon_, delta_t, params);
+
+    }
+
+    void init_views()
+    {
+        auto pm = this->solver_high->get_pm();
+        auto local_grid = pm.mesh().localGrid();
+    }
+
     void read_w(const std::string& filename)
     {
         using ViewType = Kokkos::View<double**[2]>;  // Use the correct view type here

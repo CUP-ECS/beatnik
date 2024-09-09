@@ -25,8 +25,9 @@ class TimeIntegratorTest : public TestingBase<T>
     using pm_type = Beatnik::ProblemManager<ExecutionSpace, MemorySpace>;
     using zm_type_h = Beatnik::ZModel<ExecutionSpace, MemorySpace, Beatnik::Order::High, Beatnik::Params>;
     using ti_type = Beatnik::TimeIntegrator<ExecutionSpace, MemorySpace, zm_type_h>;
+    using Node = Cabana::Grid::Node;
     using node_array =
-        Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
+        Cabana::Grid::Array<double, Node, Cabana::Grid::UniformMesh<double, 2>,
                       MemorySpace>;
   protected:
     MPI_Comm comm_;
@@ -43,10 +44,11 @@ class TimeIntegratorTest : public TestingBase<T>
         MPI_Comm_size(comm_, &comm_size_);
         this->ti_ = std::make_shared<ti_type>( *this->p_pm_, this->p_bc_, *this->p_zm_exact_ );
 
+        auto local_grid = this->p_pm_->mesh().localGrid();
         auto node_triple_layout =
-            Cabana::Grid::createArrayLayout( this->p_pm_->mesh().localGrid(), 3, Cabana::Grid::Node() );
+            Cabana::Grid::createArrayLayout( local_grid, 3, Node() );
         auto node_pair_layout =
-            Cabana::Grid::createArrayLayout( this->p_pm_->mesh().localGrid(), 2, Cabana::Grid::Node() );
+            Cabana::Grid::createArrayLayout( local_grid, 2, Node() );
 
         z = Cabana::Grid::createArray<double, Kokkos::HostSpace>(
             "z_view", node_triple_layout );

@@ -11,7 +11,6 @@ namespace BeatnikTest
 namespace Utils
 {
 
-template <class View>
 std::string get_filename(int rank, int comm_size, int mesh_size, int periodic, char x)
 {
     std::string filename = "z_";
