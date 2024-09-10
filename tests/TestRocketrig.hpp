@@ -232,7 +232,8 @@ int init_cl_args( ClArgs& cl )
 
 class Rocketrig
 {
-    using solver_type = Beatnik::SolverBase;
+    using solver_type = std::shared_ptr<Beatnik::SolverBase>;
+    using View_t = Kokkos::View<double***, Kokkos::HostSpace>;
 
   public:
     Rocketrig( ClArgs& cl ) : _cl( cl ) {};
@@ -290,9 +291,14 @@ class Rocketrig
         _solver->solve( cl.t_final, cl.write_freq );
     }
 
-    const solver_type& get_solver()
+    View_t get_positions()
     {
-        return _solver;
+        return _solver->get_positions();
+    }
+
+    View_t get_vorticities()
+    {
+        return _solver->get_vorticities();
     }
 
     ClArgs get_ClArgs()
@@ -301,7 +307,7 @@ class Rocketrig
     }
 
   private:
-    std::shared_ptr<solver_type> _solver;
+    solver_type _solver;
     ClArgs _cl;
 }; // class rocketrig
 

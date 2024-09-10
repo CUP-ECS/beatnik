@@ -31,10 +31,11 @@ TYPED_TEST(SolverTest, testPeriodicLowOrderSolver)
     ss << "../tests/views/low_order/comm-size-" << this->comm_size_ << "/";
     std::string filepath = ss.str();
     this->read_correct_data(filepath);
-    this->run_rocketrig();
-    //auto z_test = this->solver_->get_positions();
-    //auto w_test = this->solver_->get_vorticities();
-    //this->compare_views(this->z, z_test);
+    this->rg_->rocketrig();
+    auto z_test = this->rg_->get_positions();
+    auto w_test = this->rg_->get_vorticities();
+    this->compare_views(this->z, z_test);
+    this->compare_views(this->w, w_test);
 
     
 

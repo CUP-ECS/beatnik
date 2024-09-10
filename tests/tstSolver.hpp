@@ -32,7 +32,6 @@ class SolverTest : public ::testing::Test
                       MemorySpace>;
   protected:
     std::shared_ptr<Rocketrig> rg_;
-    solver_type &solver_;
     View_t z_test;
     View_t z;
     View_t w_test;
@@ -49,22 +48,12 @@ class SolverTest : public ::testing::Test
 
     void TearDown() override
     { 
-        this->solver_ = NULL;
         this->rg_ = NULL;
     }
 
     void init(ClArgs &cl)
     {
         this->rg_ = std::make_shared<Rocketrig>(cl);
-        this->solver_ = this->rg_->get_solver();
-    }
-
-    void run_rocketrig()
-    {
-        this->rg_->rocketrig();
-        auto z_test = solver_->get_positions();
-        //this->z_test = solver_->get_positions();
-        //this->w_test = solver_->get_vorticities();
     }
     
     void read_w(const std::string& filename)
@@ -94,7 +83,6 @@ class SolverTest : public ::testing::Test
         int dim1 = read_view.extent(1);
         this->z = View_t("z", dim0, dim1, 3);
         // Perform deep copy into the destination view
-        //auto view_d = this->z->view();
         auto temp = Kokkos::create_mirror_view(read_view);
         Kokkos::deep_copy(temp, read_view);
         Kokkos::deep_copy(z, temp);
@@ -106,7 +94,6 @@ class SolverTest : public ::testing::Test
         int mesh_size = cl.num_nodes[0];
         int periodic = !(cl.boundary);
         //w_64_p_r1.4.view
-        // std::string get_filename(int rank, int comm_size, int mesh_size, int periodic, char x)
         std::string z_path = filepath;
         std::string w_path = filepath;
         std::string z_name = Utils::get_filename(this->rank_, this->comm_size_, mesh_size, periodic, 'z');
@@ -128,15 +115,19 @@ class SolverTest : public ::testing::Test
                 return;
             }
         }
+        int halo_width = 2;
         int dim0 = testView.extent(0), dim1 = testView.extent(1), dim2 = testView.extent(2);
-        for (int i = 0; i < dim0; i++)
+        for (int i = halo_width; i < (dim0-halo_width); i++)
         {
-            for (int j = 0; j < dim1; j++)
+            for (int j = halo_width; j < (dim1-halo_width); j++)
             {
                 for (int d = 0; d < 3; d++)
                 {
-                    printf("(%d, %d, %d): test: %0.6lf, correct: %0.6lf\n",
-                        i, j, d, testView(i, j, d), correctView(i, j, d));
+                    double test = testView(i, j, d);
+                    double correct = correctView(i, j, d);
+                    ASSERT_DOUBLE_EQ(test, correct) << "At (" << i << ", " << j << ", " << d << ")";
+                    // printf("(%d, %d, %d): test: %0.6lf, correct: %0.6lf\n",
+                    //     i, j, d, testView(i, j, d), correctView(i, j, d));
                 }
             }
         }
