@@ -275,22 +275,25 @@ class Solver : public SolverBase
     // For testing purposes
     View_t get_positions() override
     {
-        printf("STarting pos\n");
-        //auto view = _pm->get( Cabana::Grid::Node(), Field::Position() );
-        // printf("Got view pos\n");
-        // auto temp = Kokkos::create_mirror_view(view);
-        // View_t ret;
-        // Kokkos::deep_copy(temp, view);
-        // Kokkos::deep_copy(ret, temp); 
-        // printf("Before return\n");
-        // return ret;
+        //_pm->gather();
+        auto view = _pm->get( Cabana::Grid::Node(), Field::Position() );
+        int dim0 = view.extent(0);
+        int dim1 = view.extent(1);
+        auto temp = Kokkos::create_mirror_view(view);
+        View_t ret = View_t("ret_p", dim0, dim1, 3);
+        Kokkos::deep_copy(temp, view);
+        Kokkos::deep_copy(ret, temp); 
+        return ret;
     }
 
     View_t get_vorticities() override
     {
+        //_pm->gather();
         auto view = _pm->get( Cabana::Grid::Node(), Field::Vorticity() );
+        int dim0 = view.extent(0);
+        int dim1 = view.extent(1);
         auto temp = Kokkos::create_mirror_view(view);
-        View_t ret;
+        View_t ret = View_t("ret_w", dim0, dim1, 2);
         Kokkos::deep_copy(temp, view);
         Kokkos::deep_copy(ret, temp); 
         return ret;
