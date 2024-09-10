@@ -87,6 +87,56 @@ class SolverTest : public TestingBase<T>
         auto local_grid = pm.mesh().localGrid();
     }
 
+    void rocketrig( Utils::ClArgs& cl )
+    {
+        int comm_size, rank;                         // Initialize Variables
+        MPI_Comm_size( MPI_COMM_WORLD, &comm_size ); // Number of Ranks
+        MPI_Comm_rank( MPI_COMM_WORLD, &rank );      // Get My Rank
+
+        Cabana::Grid::DimBlockPartitioner<2> partitioner; // Create Cabana::Grid Partitioner
+        Utils::BoundaryCondition bc;
+        for (int i = 0; i < 6; i++)
+        {
+            bc.bounding_box[i] = cl.params.global_bounding_box[i];
+            
+        }
+        bc.boundary_type = {cl.boundary, cl.boundary, cl.boundary, cl.boundary};
+
+        Utils::MeshInitFunc initializer( cl.params.global_bounding_box, cl.initial_condition,
+                                cl.tilt, cl.magnitude, cl.variation, cl.params.period,
+                                cl.num_nodes, cl.boundary );
+
+        std::shared_ptr<Beatnik::SolverBase> solver;
+        if (cl.params.solver_order == Utils::SolverOrder::ORDER_LOW) {
+            solver = Beatnik::createSolver(
+                cl.driver, MPI_COMM_WORLD, cl.num_nodes,
+                partitioner, cl.atwood, cl.gravity, initializer,
+                bc, Utils::Order::Low(), cl.mu, cl.eps, cl.delta_t,
+                cl.params );
+        } else if (cl.params.solver_order == Utils::SolverOrder::ORDER_MEDIUM) {
+            solver = Beatnik::createSolver(
+                cl.driver, MPI_COMM_WORLD, cl.num_nodes,
+                partitioner, cl.atwood, cl.gravity, initializer,
+                bc, Utils::Order::Medium(), cl.mu, cl.eps, cl.delta_t,
+                cl.params );
+        } else if (cl.params.solver_order == Utils::SolverOrder::ORDER_HIGH) {
+            solver = Beatnik::createSolver(
+                cl.driver, MPI_COMM_WORLD, cl.num_nodes,
+                partitioner, cl.atwood, cl.gravity, initializer,
+                bc, Utils::Order::High(), cl.mu, cl.eps, cl.delta_t,
+                cl.params );
+        } else {
+            std::cerr << "Invalid Model Order parameter!\n";
+            Kokkos::finalize(); 
+            MPI_Finalize(); 
+            exit( -1 );  
+
+        }
+
+        // Solve
+        solver->solve( cl.t_final, cl.write_freq );
+    }
+
     void read_w(const std::string& filename)
     {
         using ViewType = Kokkos::View<double**[2]>;  // Use the correct view type here

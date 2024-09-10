@@ -1,5 +1,5 @@
-#ifndef _TESTING_UTILS_HPP
-#define _TESTING_UTILS_HPP
+#ifndef _TESTING_UTILS_HPP_
+#define _TESTING_UTILS_HPP_
 
 #include <Kokkos_Core.hpp>
 #include <fstream>
@@ -11,80 +11,25 @@ namespace BeatnikTest
 namespace Utils
 {
 
-enum InitialConditionModel {IC_COS = 0, IC_SECH2, IC_GAUSSIAN, IC_RANDOM, IC_FILE};
-enum SolverOrder {ORDER_LOW = 0, ORDER_MEDIUM, ORDER_HIGH};
-
-/**
- * @struct ClArgs
- * @brief Template struct to organize and keep track of parameters controlled by
- * command line arguments
- */
-struct ClArgs
-{
-    /* Problem physical setup */
-    // std::array<double, 6> global_bounding_box;    /**< Size of initial spatial domain: MOVED TO PARAMS */
-    enum InitialConditionModel initial_condition; /**< Model used to set initial conditions */
-    double tilt;    /**< Initial tilt of interface */
-    double magnitude;/**< Magnitude of scale of initial interface */
-    double variation; /**< Variation in scale of initial interface */
-    double period;   /**< Period of initial variation in interface */
-    enum Beatnik::BoundaryType boundary;  /**< Type of boundary conditions */
-    double gravity; /**< Gravitational accelaration in -Z direction in Gs */
-    double atwood;  /**< Atwood pressure differential number */
-    int model;      /**< Model used to set initial conditions */
-    double bounding_box; /**< Size of global bounding box. From (-B, -B, -B) to (B, B, B) */
-
-    /* Problem simulation parameters */
-    std::array<int, 2> num_nodes;          /**< Number of cells */
-    double t_final;     /**< Ending time */
-    double delta_t;     /**< Timestep */
-    std::string driver; /**< ( Serial, Threads, OpenMP, CUDA ) */
-    int weak_scale;     /**< Amount to scale up resulting problem */
-
-    /* I/O parameters */
-    char *indir;        /**< Where to read initial conditions from */
-    char *outdir;       /**< Directory to write output to */
-    int write_freq;     /**< Write frequency */
-
-    /* Solution method constants */
-    enum Beatnik::BRSolverType br_solver; /**< BRSolver to use */
-    double mu;      /**< Artificial viscosity constant */
-    double eps;     /**< Desingularization constant */
-
-    /* Parameters specific to solver order and BR solver type:
-     *  - Period for particle initialization
-     *  - Global bounding box
-     *  - Periodicity
-     *  - Heffte configuration (For low-order solver)
-     *  - solver order (Order of z-model solver to use)
-     *  - BR solver type
-     *  - Cutoff distance (If using cutoff solver)
-     */
-    Beatnik::Params params;
-};
-
-
 int init_cl_args( ClArgs& cl )
 {
-    signed char ch;
-
     /// Set default values
     cl.driver = "serial"; // Default Thread Setting
     cl.weak_scale = 1;
-    cl.write_freq = 10;
+    cl.write_freq = 0;
 
     // Set default extra parameters
     cl.params.cutoff_distance = 0.5;
     cl.params.heffte_configuration = 6;
-    cl.params.br_solver = Beatnik::BR_EXACT;
+    cl.params.br_solver = BR_EXACT;
     cl.params.solver_order = SolverOrder::ORDER_LOW;
     // cl.params.period below
 
     /* Default problem is the cosine rocket rig */
-    cl.num_nodes = { 128, 128 };
+    cl.num_nodes = { 64, 64 };
     cl.bounding_box = 1.0;
     cl.initial_condition = IC_COS;
-    cl.boundary = Beatnik::BoundaryType::PERIODIC;
+    cl.boundary = BoundaryType::PERIODIC;
     cl.tilt = 0.0;
     cl.magnitude = 0.05;
     cl.variation = 0.00;
@@ -99,7 +44,7 @@ int init_cl_args( ClArgs& cl )
 
     /* Defaults computed once other arguments known */
     cl.delta_t = -1.0;
-    cl.t_final = -1.0;
+    cl.t_final = 5;
 
     /* Physical setup of problem */
     cl.params.global_bounding_box = {cl.bounding_box * -1.0,
@@ -251,4 +196,4 @@ void writeView(int rank, int comm_size, int mesh_size, int periodic, const View 
 
 } // end namespace BeatnikTest
 
-#endif // _TESTING_UTILS_HPP
+#endif // _TESTING_UTILS_HPP_
