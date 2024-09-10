@@ -9,48 +9,6 @@ namespace BeatnikTest
 
 enum InitialConditionModel {IC_COS = 0, IC_SECH2, IC_GAUSSIAN, IC_RANDOM, IC_FILE};
 enum SolverOrder {ORDER_LOW = 0, ORDER_MEDIUM, ORDER_HIGH};
-enum BRSolverType {BR_EXACT = 0, BR_CUTOFF};
-enum BoundaryType {PERIODIC = 0, FREE = 1};
-
-/**
- * @struct Params
- * @brief Holds order and solver-specific parameters
- */
-struct Params
-{
-    /* Save the period from command-line args to pass to 
-     * ProblemManager to seed the random number generator
-     * to initialize position
-     */
-    double period;
-
-    /* Mesh data, for solvers that create another mesh */
-    std::array<double, 6> global_bounding_box;
-    std::array<bool, 2> periodic;
-
-    /* Model Order */
-    int solver_order;
-
-    /* BR solver type */
-    BRSolverType br_solver;
-
-    /* Cutoff distance for cutoff-based BRSolver */
-    double cutoff_distance;
-
-    /* Heffte configuration options for low-order model: 
-        Value	All-to-all	Pencils	Reorder
-        0	    False	    False	False
-        1	    False	    False	True
-        2	    False	    True	False
-        3	    False	    True	True
-        4	    True	    False	False
-        5	    True	    False	True
-        6	    True	    True	False (Default)
-        7	    True	    True	True
-    */
-    int heffte_configuration;
-};
-
 
 /**
  * @struct ClArgs
@@ -66,7 +24,7 @@ struct ClArgs
     double magnitude;/**< Magnitude of scale of initial interface */
     double variation; /**< Variation in scale of initial interface */
     double period;   /**< Period of initial variation in interface */
-    enum BoundaryType boundary;  /**< Type of boundary conditions */
+    enum Beatnik::BoundaryType boundary;  /**< Type of boundary conditions */
     double gravity; /**< Gravitational accelaration in -Z direction in Gs */
     double atwood;  /**< Atwood pressure differential number */
     int model;      /**< Model used to set initial conditions */
@@ -85,7 +43,7 @@ struct ClArgs
     int write_freq;     /**< Write frequency */
 
     /* Solution method constants */
-    enum BRSolverType br_solver; /**< BRSolver to use */
+    enum Beatnik::BRSolverType br_solver; /**< BRSolver to use */
     double mu;      /**< Artificial viscosity constant */
     double eps;     /**< Desingularization constant */
 
@@ -98,7 +56,7 @@ struct ClArgs
      *  - BR solver type
      *  - Cutoff distance (If using cutoff solver)
      */
-    Params params;
+    Beatnik::Params params;
 };
 
 struct MeshInitFunc
@@ -137,7 +95,7 @@ struct MeshInitFunc
          * coordinate in mesh space */
         for (int i = 0; i < 2; i++) {
             lcoord[i] = coord[i];
-            if (_b == BoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
+            if (_b == Beatnik::BoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
                 lcoord[i] += 0.5;
             }
         }
@@ -206,7 +164,7 @@ int init_cl_args( ClArgs& cl )
     // Set default extra parameters
     cl.params.cutoff_distance = 0.5;
     cl.params.heffte_configuration = 6;
-    cl.params.br_solver = BR_EXACT;
+    cl.params.br_solver = Beatnik::BR_EXACT;
     cl.params.solver_order = SolverOrder::ORDER_LOW;
     // cl.params.period below
 
@@ -214,7 +172,7 @@ int init_cl_args( ClArgs& cl )
     cl.num_nodes = { 64, 64 };
     cl.bounding_box = 1.0;
     cl.initial_condition = IC_COS;
-    cl.boundary = BoundaryType::PERIODIC;
+    cl.boundary = Beatnik::BoundaryType::PERIODIC;
     cl.tilt = 0.0;
     cl.magnitude = 0.05;
     cl.variation = 0.00;
@@ -274,10 +232,10 @@ int init_cl_args( ClArgs& cl )
 
 class Rocketrig
 {
-    using solver_type = std::shared_ptr<Beatnik::SolverBase>;
+    using solver_type = Beatnik::SolverBase;
 
   public:
-    Rocketrig( ClArgs& cl ) {};
+    Rocketrig( ClArgs& cl ) : _cl( cl ) {};
 
     void rocketrig()
     {
@@ -294,7 +252,10 @@ class Rocketrig
             
         }
         bc.boundary_type = {cl.boundary, cl.boundary, cl.boundary, cl.boundary};
-
+        /* MeshInitFunc( std::array<double, 6> box, enum InitialConditionModel i,
+                  double t, double m, double v, double p, 
+                  const std::array<int, 2> nodes, enum Beatnik::BoundaryType boundary ) 
+        */
         MeshInitFunc initializer( cl.params.global_bounding_box, cl.initial_condition,
                                 cl.tilt, cl.magnitude, cl.variation, cl.params.period,
                                 cl.num_nodes, cl.boundary );
@@ -329,7 +290,7 @@ class Rocketrig
         _solver->solve( cl.t_final, cl.write_freq );
     }
 
-    solver_type get_solver()
+    const solver_type& get_solver()
     {
         return _solver;
     }
@@ -340,7 +301,7 @@ class Rocketrig
     }
 
   private:
-    solver_type _solver;
+    std::shared_ptr<solver_type> _solver;
     ClArgs _cl;
 }; // class rocketrig
 

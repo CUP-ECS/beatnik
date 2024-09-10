@@ -92,6 +92,11 @@ class SolverBase
     virtual void setup( void ) = 0;
     virtual void step( void ) = 0;
     virtual void solve( const double t_final, const int write_freq ) = 0;
+
+    // For testing purposes
+    using View_t = Kokkos::View<double***, Kokkos::HostSpace>;
+    virtual View_t get_positions( void ) = 0;
+    virtual View_t get_vorticities( void ) = 0;
 };
 
 //---------------------------------------------------------------------------//
@@ -118,7 +123,8 @@ class Solver : public SolverBase
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
     using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder, Params>;
     using ti_type = TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>;
-    using Node = Cabana::Grid::Node;
+    using View_t = Kokkos::View<double***, Kokkos::HostSpace>;
+
 
     template <class InitFunc>
     Solver( MPI_Comm comm,
@@ -266,10 +272,29 @@ class Solver : public SolverBase
         Kokkos::Profiling::popRegion();
     }
 
-    pm_type get_pm()
+    // For testing purposes
+    View_t get_positions() override
     {
-        return _pm;
-    } 
+        printf("STarting pos\n");
+        //auto view = _pm->get( Cabana::Grid::Node(), Field::Position() );
+        // printf("Got view pos\n");
+        // auto temp = Kokkos::create_mirror_view(view);
+        // View_t ret;
+        // Kokkos::deep_copy(temp, view);
+        // Kokkos::deep_copy(ret, temp); 
+        // printf("Before return\n");
+        // return ret;
+    }
+
+    View_t get_vorticities() override
+    {
+        auto view = _pm->get( Cabana::Grid::Node(), Field::Vorticity() );
+        auto temp = Kokkos::create_mirror_view(view);
+        View_t ret;
+        Kokkos::deep_copy(temp, view);
+        Kokkos::deep_copy(ret, temp); 
+        return ret;
+    }   
 
   private:
     /* Solver state variables */

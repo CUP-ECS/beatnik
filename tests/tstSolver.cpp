@@ -13,12 +13,30 @@ namespace BeatnikTest
 
 TYPED_TEST_SUITE(SolverTest, DeviceTypes);
 
-TYPED_TEST(SolverTest, testPeriodicExactSolver)
+TYPED_TEST(SolverTest, testPeriodicLowOrderSolver)
 {
 
-    ClArgs clargs;
-    init_cl_args(clargs);
-    this->rg_ = Rocketrig(clargs);
+    ClArgs cl;
+
+    // Init default values
+    init_cl_args(cl);
+
+    // Adjust command-line args for this test
+    cl.num_nodes = {64, 64};
+    cl.boundary = Beatnik::BoundaryType::PERIODIC;
+    cl.params.solver_order = SolverOrder::ORDER_LOW;
+    this->init(cl);
+
+    std::stringstream ss;
+    ss << "../tests/views/low_order/comm-size-" << this->comm_size_ << "/";
+    std::string filepath = ss.str();
+    this->read_correct_data(filepath);
+    this->run_rocketrig();
+    //auto z_test = this->solver_->get_positions();
+    //auto w_test = this->solver_->get_vorticities();
+    //this->compare_views(this->z, z_test);
+
+    
 
     // double delta_t = this->delta_t_high_order;
     // this->init_solver_high<Beatnik::Order::High()>(this->partitioner_, this->p_MeshInitFunc_, this->p_bc_, this->p_params_, delta_t);

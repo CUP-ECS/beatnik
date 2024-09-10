@@ -16,68 +16,72 @@ namespace BeatnikTest
 {
 
 template <class T>
-class SolverTest : public TestingBase<T>
+class SolverTest : public ::testing::Test
 {
     using ExecutionSpace = typename T::ExecutionSpace;
     using MemorySpace = typename T::MemorySpace;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
+    using View_t = Kokkos::View<double***, Kokkos::HostSpace>;
 
-    using solver_type = std::shared_ptr<Beatnik::SolverBase>;
+    using solver_type = Beatnik::SolverBase;
+    using pm_type = Beatnik::ProblemManager<ExecutionSpace, MemorySpace>;
+    // using zmodel_type = Beatnik::ZModel<ExecutionSpace, MemorySpace, Beatnik::ModelOrder, Beatnik::Params>;
+    // using ti_type = Beatnik::TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>;
     using node_array =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
                       MemorySpace>;
   protected:
-    Rocketrig rg_;
-    solver_type solver_;
-    std::shared_ptr<node_array> z, w;
+    std::shared_ptr<Rocketrig> rg_;
+    solver_type &solver_;
+    View_t z_test;
+    View_t z;
+    View_t w_test;
+    View_t w;
+
+    int rank_, comm_size_;
 
     void SetUp() override
     {
 
-        // auto node_triple_layout =
-        //     Cabana::Grid::createArrayLayout( this->p_pm_->mesh().localGrid(), 3, Cabana::Grid::Node() );
-        // auto node_pair_layout =
-        //     Cabana::Grid::createArrayLayout( this->p_pm_->mesh().localGrid(), 2, Cabana::Grid::Node() );
-
-        // z = Cabana::Grid::createArray<double, Kokkos::HostSpace>(
-        //     "z_view", node_triple_layout );
-        // Cabana::Grid::ArrayOp::assign( *z, 0.0, Cabana::Grid::Ghost() );
-
-        // // 2. The magnitude of vorticity at the interface 
-        // w = Cabana::Grid::createArray<double, Kokkos::HostSpace>(
-        //     "w_view", node_pair_layout );
-        // Cabana::Grid::ArrayOp::assign( *w, 0.0, Cabana::Grid::Ghost() );
-
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank_);
+        MPI_Comm_size(MPI_COMM_WORLD, &comm_size_);
     }
 
     void TearDown() override
     { 
-    
+        this->solver_ = NULL;
+        this->rg_ = NULL;
     }
 
-  public:
+    void init(ClArgs &cl)
+    {
+        this->rg_ = std::make_shared<Rocketrig>(cl);
+        this->solver_ = this->rg_->get_solver();
+    }
+
+    void run_rocketrig()
+    {
+        this->rg_->rocketrig();
+        auto z_test = solver_->get_positions();
+        //this->z_test = solver_->get_positions();
+        //this->w_test = solver_->get_vorticities();
+    }
     
-
-    // void init_views()
-    // {
-    //     auto pm = this->solver_->get_pm();
-    //     auto local_grid = pm.mesh().localGrid();
-    // }
-
-    
-
     void read_w(const std::string& filename)
     {
         using ViewType = Kokkos::View<double**[2]>;  // Use the correct view type here
 
         // Call the function with the explicit template type
         auto read_view = Utils::readViewFromFile<ViewType>(filename, 2);
+        int dim0 = read_view.extent(0);
+        int dim1 = read_view.extent(1);
+        this->w = View_t("w", dim0, dim1, 2);
 
         // Perform deep copy into the destination view
-        auto view_d = this->w->view();
+        // auto view_d = this->w->view();
         auto temp = Kokkos::create_mirror_view(read_view);
         Kokkos::deep_copy(temp, read_view);
-        Kokkos::deep_copy(view_d, temp);
+        Kokkos::deep_copy(w, temp);
     }
 
     void read_z(const std::string& filename)
@@ -86,16 +90,35 @@ class SolverTest : public TestingBase<T>
 
         // Call the function with the explicit template type
         auto read_view = Utils::readViewFromFile<ViewType>(filename, 3);
-
+        int dim0 = read_view.extent(0);
+        int dim1 = read_view.extent(1);
+        this->z = View_t("z", dim0, dim1, 3);
         // Perform deep copy into the destination view
-        auto view_d = this->z->view();
+        //auto view_d = this->z->view();
         auto temp = Kokkos::create_mirror_view(read_view);
         Kokkos::deep_copy(temp, read_view);
-        Kokkos::deep_copy(view_d, temp);
+        Kokkos::deep_copy(z, temp);
+    }
+
+    void read_correct_data(std::string filepath)
+    {
+        auto cl = this->rg_->get_ClArgs();
+        int mesh_size = cl.num_nodes[0];
+        int periodic = !(cl.boundary);
+        //w_64_p_r1.4.view
+        // std::string get_filename(int rank, int comm_size, int mesh_size, int periodic, char x)
+        std::string z_path = filepath;
+        std::string w_path = filepath;
+        std::string z_name = Utils::get_filename(this->rank_, this->comm_size_, mesh_size, periodic, 'z');
+        std::string w_name = Utils::get_filename(this->rank_, this->comm_size_, mesh_size, periodic, 'w');
+        z_path += z_name;
+        w_path += w_name;
+        this->read_z(z_path);
+        this->read_w(w_path);
     }
 
     template <class View>
-    void compare_views(View testView, View correctView)
+    void compare_views(View correctView, View testView)
     {
         for (int d = 0; d < 3; d++)
         {
