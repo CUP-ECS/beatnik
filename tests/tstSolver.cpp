@@ -16,9 +16,9 @@ TYPED_TEST_SUITE(SolverTest, DeviceTypes);
 TYPED_TEST(SolverTest, testPeriodicExactSolver)
 {
 
-    Utils::ClArgs clargs;
-    Utils::init_cl_args(clargs);
-    this->rocketrig(clargs);
+    ClArgs clargs;
+    init_cl_args(clargs);
+    this->rg_ = Rocketrig(clargs);
 
     // double delta_t = this->delta_t_high_order;
     // this->init_solver_high<Beatnik::Order::High()>(this->partitioner_, this->p_MeshInitFunc_, this->p_bc_, this->p_params_, delta_t);

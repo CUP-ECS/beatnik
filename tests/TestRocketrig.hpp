@@ -1,43 +1,56 @@
+#ifndef _TEST_ROCKETRIG_HPP_
+#define _TEST_ROCKETRIG_HPP_
+
+#include <Solver.hpp>
 
 
-static char* shortargs = (char*)"n:B:t:d:x:F:o:c:H:I:b:g:a:T:m:v:p:i:w:O:S:M:e:h:";
-
-static option longargs[] = {
-    // Basic simulation parameters
-    { "nodes", required_argument, NULL, 'n' },
-    { "bounding_box", required_argument, NULL, 'B'},
-    { "timesteps", required_argument, NULL, 't' },
-    { "delta_t", required_argument, NULL, 'd' },
-    { "driver", required_argument, NULL, 'x' },
-    { "write_frequency", required_argument, NULL, 'F' },
-    { "outdir", required_argument, NULL, 'o' },
-    { "cutoff_distance", required_argument, NULL, 'c' },
-    { "heffte_configuration", required_argument, NULL, 'H'},
-
-    // Z-model simulation parameters
-    { "initial_condition", required_argument, NULL, 'I' },
-    { "boundary", required_argument, NULL, 'b' },
-    { "gravity", required_argument, NULL, 'g' },
-    { "atwood", required_argument, NULL, 'a' },
-    { "tilt", required_argument, NULL, 'T' },
-    { "magnitude", required_argument, NULL, 'm' },
-    { "variation", required_argument, NULL, 'v' },
-    { "period", required_argument, NULL, 'p' },
-    { "indir", required_argument, NULL, 'i' },
-    { "weak-scale", required_argument, NULL, 'w'},
-
-    // Z-model simulation parameters
-    { "order", required_argument, NULL, 'O' },
-    { "solver", required_argument, NULL, 'S' },
-    { "mu", required_argument, NULL, 'M' },
-    { "epsilon", required_argument, NULL, 'e' },
-
-    // Miscellaneous other arguments
-    { "help", no_argument, NULL, 'h' },
-    { 0, 0, 0, 0 } };
+namespace BeatnikTest
+{
 
 enum InitialConditionModel {IC_COS = 0, IC_SECH2, IC_GAUSSIAN, IC_RANDOM, IC_FILE};
 enum SolverOrder {ORDER_LOW = 0, ORDER_MEDIUM, ORDER_HIGH};
+enum BRSolverType {BR_EXACT = 0, BR_CUTOFF};
+enum BoundaryType {PERIODIC = 0, FREE = 1};
+
+/**
+ * @struct Params
+ * @brief Holds order and solver-specific parameters
+ */
+struct Params
+{
+    /* Save the period from command-line args to pass to 
+     * ProblemManager to seed the random number generator
+     * to initialize position
+     */
+    double period;
+
+    /* Mesh data, for solvers that create another mesh */
+    std::array<double, 6> global_bounding_box;
+    std::array<bool, 2> periodic;
+
+    /* Model Order */
+    int solver_order;
+
+    /* BR solver type */
+    BRSolverType br_solver;
+
+    /* Cutoff distance for cutoff-based BRSolver */
+    double cutoff_distance;
+
+    /* Heffte configuration options for low-order model: 
+        Value	All-to-all	Pencils	Reorder
+        0	    False	    False	False
+        1	    False	    False	True
+        2	    False	    True	False
+        3	    False	    True	True
+        4	    True	    False	False
+        5	    True	    False	True
+        6	    True	    True	False (Default)
+        7	    True	    True	True
+    */
+    int heffte_configuration;
+};
+
 
 /**
  * @struct ClArgs
@@ -53,7 +66,7 @@ struct ClArgs
     double magnitude;/**< Magnitude of scale of initial interface */
     double variation; /**< Variation in scale of initial interface */
     double period;   /**< Period of initial variation in interface */
-    enum Beatnik::BoundaryType boundary;  /**< Type of boundary conditions */
+    enum BoundaryType boundary;  /**< Type of boundary conditions */
     double gravity; /**< Gravitational accelaration in -Z direction in Gs */
     double atwood;  /**< Atwood pressure differential number */
     int model;      /**< Model used to set initial conditions */
@@ -85,26 +98,110 @@ struct ClArgs
      *  - BR solver type
      *  - Cutoff distance (If using cutoff solver)
      */
-    Beatnik::Params params;
+    Params params;
 };
 
-/**
- * Parses command line input and updates the command line variables
- * accordingly.
- * @param rank The rank calling the function
- * @param argc Number of command line options passed to program
- * @param argv List of command line options passed to program
- * @param cl Command line arguments structure to store options
- * @return Error status
- */
-int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
+struct MeshInitFunc
 {
-    signed char ch;
+    // Initialize Variables
 
+    MeshInitFunc( std::array<double, 6> box, enum InitialConditionModel i,
+                  double t, double m, double v, double p, 
+                  const std::array<int, 2> nodes, enum Beatnik::BoundaryType boundary )
+        : _i(i)
+        , _t( t )
+        , _m( m )
+        , _v( v)
+        , _p( p )
+        , _b( boundary )
+    {
+	    _ncells[0] = nodes[0] - 1;
+        _ncells[1] = nodes[1] - 1;
+
+        _dx = (box[3] - box[0]) / _ncells[0];
+        _dy = (box[4] - box[1]) / _ncells[1]; 
+
+
+    };
+
+    template <class RandNumGenType>
+    KOKKOS_INLINE_FUNCTION
+    bool operator()( Cabana::Grid::Node, Beatnik::Field::Position,
+                     RandNumGenType random_pool,
+                     [[maybe_unused]] const int index[2],
+                     const double coord[2],
+                     double &z1, double &z2, double &z3) const
+    {
+        double lcoord[2];
+        /* Compute the physical position of the interface from its global
+         * coordinate in mesh space */
+        for (int i = 0; i < 2; i++) {
+            lcoord[i] = coord[i];
+            if (_b == BoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
+                lcoord[i] += 0.5;
+            }
+        }
+        z1 = _dx * lcoord[0];
+        z2 = _dy * lcoord[1];
+
+        // We don't currently support tilting the initial interface
+
+        /* Need to initialize these values here to avoid "jump to case label "case IC_FILE:"
+         * crosses initialization of ‘double gaussian’, etc." errors */
+        auto generator = random_pool.get_state();
+        double rand_num = generator.drand(-1.0, 1.0);
+        double mean = 0.0;
+        double std_dev = 1.0;
+        double gaussian = (1 / (std_dev * Kokkos::sqrt(2 * Kokkos::numbers::pi_v<double>))) *
+            Kokkos::exp(-0.5 * Kokkos::pow(((rand_num - mean) / std_dev), 2));
+        switch (_i) {
+        case IC_COS:
+            z3 = _m * cos(z1 * (2 * M_PI / _p)) * cos(z2 * (2 * M_PI / _p));
+            break;
+        case IC_SECH2:
+            z3 = _m * pow(1.0 / cosh(_p * (z1 * z1 + z2 * z2)), 2);
+            break;
+        case IC_RANDOM:
+            z3 = _m * (2*rand_num - 1.0);
+            break;
+        case IC_GAUSSIAN:
+            /* The built-in C++ std::normal_distribution<double> doesn't
+             * work here, so coding the gaussian distribution itself.
+             */
+            z3 = _m * gaussian;
+            break;
+        case IC_FILE:
+            break;
+        }
+        
+        random_pool.free_state(generator);
+
+        return true;
+    };
+
+    KOKKOS_INLINE_FUNCTION
+    bool operator()( Cabana::Grid::Node, Beatnik::Field::Vorticity,
+                     [[maybe_unused]] const int index[2],
+                     [[maybe_unused]] const double coord[2],
+                     double& w1, double &w2 ) const
+    {
+        // Initial vorticity along the interface is 0.
+        w1 = 0; w2 = 0;
+        return true;
+    };
+    enum InitialConditionModel _i;
+    double _t, _m, _v, _p;
+    Kokkos::Array<int, 3> _ncells;
+    double _dx, _dy;
+    enum Beatnik::BoundaryType _b;
+};
+
+int init_cl_args( ClArgs& cl )
+{
     /// Set default values
     cl.driver = "serial"; // Default Thread Setting
     cl.weak_scale = 1;
-    cl.write_freq = 10;
+    cl.write_freq = 0;
 
     // Set default extra parameters
     cl.params.cutoff_distance = 0.5;
@@ -114,10 +211,10 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     // cl.params.period below
 
     /* Default problem is the cosine rocket rig */
-    cl.num_nodes = { 128, 128 };
+    cl.num_nodes = { 64, 64 };
     cl.bounding_box = 1.0;
     cl.initial_condition = IC_COS;
-    cl.boundary = Beatnik::BoundaryType::PERIODIC;
+    cl.boundary = BoundaryType::PERIODIC;
     cl.tilt = 0.0;
     cl.magnitude = 0.05;
     cl.variation = 0.00;
@@ -132,7 +229,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 
     /* Defaults computed once other arguments known */
     cl.delta_t = -1.0;
-    cl.t_final = -1.0;
+    cl.t_final = 5;
 
     /* Physical setup of problem */
     cl.params.global_bounding_box = {cl.bounding_box * -1.0,
@@ -175,53 +272,79 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     return 0;
 }
 
-// Create Solver and Run
-void rocketrig( ClArgs& cl )
+class Rocketrig
 {
-    int comm_size, rank;                         // Initialize Variables
-    MPI_Comm_size( MPI_COMM_WORLD, &comm_size ); // Number of Ranks
-    MPI_Comm_rank( MPI_COMM_WORLD, &rank );      // Get My Rank
+    using solver_type = std::shared_ptr<Beatnik::SolverBase>;
 
-    Cabana::Grid::DimBlockPartitioner<2> partitioner; // Create Cabana::Grid Partitioner
-    Beatnik::BoundaryCondition bc;
-    for (int i = 0; i < 6; i++)
+  public:
+    Rocketrig( ClArgs& cl ) {};
+
+    void rocketrig()
     {
-        bc.bounding_box[i] = cl.params.global_bounding_box[i];
-        
+        int comm_size, rank;                         // Initialize Variables
+        MPI_Comm_size( MPI_COMM_WORLD, &comm_size ); // Number of Ranks
+        MPI_Comm_rank( MPI_COMM_WORLD, &rank );      // Get My Rank
+        ClArgs cl = _cl;
+
+        Cabana::Grid::DimBlockPartitioner<2> partitioner; // Create Cabana::Grid Partitioner
+        Beatnik::BoundaryCondition bc;
+        for (int i = 0; i < 6; i++)
+        {
+            bc.bounding_box[i] = cl.params.global_bounding_box[i];
+            
+        }
+        bc.boundary_type = {cl.boundary, cl.boundary, cl.boundary, cl.boundary};
+
+        MeshInitFunc initializer( cl.params.global_bounding_box, cl.initial_condition,
+                                cl.tilt, cl.magnitude, cl.variation, cl.params.period,
+                                cl.num_nodes, cl.boundary );
+
+        if (cl.params.solver_order == SolverOrder::ORDER_LOW) {
+            _solver = Beatnik::createSolver(
+                cl.driver, MPI_COMM_WORLD, cl.num_nodes,
+                partitioner, cl.atwood, cl.gravity, initializer,
+                bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t,
+                cl.params );
+        } else if (cl.params.solver_order == SolverOrder::ORDER_MEDIUM) {
+            _solver = Beatnik::createSolver(
+                cl.driver, MPI_COMM_WORLD, cl.num_nodes,
+                partitioner, cl.atwood, cl.gravity, initializer,
+                bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t,
+                cl.params );
+        } else if (cl.params.solver_order == SolverOrder::ORDER_HIGH) {
+            _solver = Beatnik::createSolver(
+                cl.driver, MPI_COMM_WORLD, cl.num_nodes,
+                partitioner, cl.atwood, cl.gravity, initializer,
+                bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t,
+                cl.params );
+        } else {
+            std::cerr << "Invalid Model Order parameter!\n";
+            Kokkos::finalize(); 
+            MPI_Finalize(); 
+            exit( -1 );  
+
+        }
+
+        // Solve
+        _solver->solve( cl.t_final, cl.write_freq );
     }
-    bc.boundary_type = {cl.boundary, cl.boundary, cl.boundary, cl.boundary};
 
-    MeshInitFunc initializer( cl.params.global_bounding_box, cl.initial_condition,
-                              cl.tilt, cl.magnitude, cl.variation, cl.params.period,
-                              cl.num_nodes, cl.boundary );
-
-    std::shared_ptr<Beatnik::SolverBase> solver;
-    if (cl.params.solver_order == SolverOrder::ORDER_LOW) {
-        solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
-            partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t,
-            cl.params );
-    } else if (cl.params.solver_order == SolverOrder::ORDER_MEDIUM) {
-        solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
-            partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t,
-            cl.params );
-    } else if (cl.params.solver_order == SolverOrder::ORDER_HIGH) {
-        solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
-            partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t,
-            cl.params );
-    } else {
-        std::cerr << "Invalid Model Order parameter!\n";
-        Kokkos::finalize(); 
-        MPI_Finalize(); 
-        exit( -1 );  
-
+    solver_type get_solver()
+    {
+        return _solver;
     }
 
-    // Solve
-    solver->solve( cl.t_final, cl.write_freq );
-}
+    ClArgs get_ClArgs()
+    {
+        return _cl;
+    }
+
+  private:
+    solver_type _solver;
+    ClArgs _cl;
+}; // class rocketrig
+
+
+} // end namespace BeantikTest
+
+#endif // _TEST_ROCKETRIG_HPP_
