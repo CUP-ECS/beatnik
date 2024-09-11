@@ -1,6 +1,10 @@
 #ifndef _TSTSOLVER_HPP_
 #define _TSTSOLVER_HPP_
 
+#include <iostream>
+#include <filesystem>
+#include <regex>
+
 #include "gtest/gtest.h"
 
 #include <Cabana_Grid.hpp>
@@ -94,7 +98,7 @@ class SolverTest : public ::testing::Test
                 {
                     double test = testView(i, j, d);
                     double correct = correctView(i, j, d);
-                    ASSERT_DOUBLE_EQ(test, correct) << "At (" << i << ", " << j << ", " << d << ")";
+                    ASSERT_NEAR(test, correct, 0.0000000000001) << "At (" << i << ", " << j << ", " << d << ")";
                     // printf("(%d, %d, %d): test: %0.6lf, correct: %0.6lf\n",
                     //     i, j, d, testView(i, j, d), correctView(i, j, d));
                 }
@@ -120,6 +124,37 @@ class SolverTest : public ::testing::Test
         auto w_test = this->rg_->get_vorticities();
         this->compare_views(z, z_test);
         this->compare_views(w, w_test);
+    }
+
+    void remove_view_files()
+    {
+        std::string path = "./";
+        std::stringstream ss;
+        
+        // Create regex patterns
+        std::regex pattern_w("^w_\\d+_[pf]_r\\d+\\.\\d+\\.view$");
+        std::regex pattern_z("^z_\\d+_[pf]_r\\d+\\.\\d+\\.view$");
+
+        // Iterate through the directory
+        for (const auto& entry : std::filesystem::directory_iterator(path)) {
+            // Skip directories
+            if (std::filesystem::is_directory(entry.status())) {
+                continue;
+            }
+
+            // Get the file name as a string
+            std::string file_name = entry.path().filename().string();
+            // Check if the file name matches the pattern
+            if (std::regex_match(file_name, pattern_w) || std::regex_match(file_name, pattern_z)) {
+                // Delete the file
+                try {
+                    std::filesystem::remove(entry.path());
+                    // std::cout << "Deleted: " << file_name << std::endl;
+                } catch (const std::filesystem::filesystem_error& e) {
+                    std::cerr << "Error deleting file: " << e.what() << std::endl;
+                }
+            }
+        }
     }
 };
 

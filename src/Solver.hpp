@@ -32,7 +32,7 @@
 #include <mpi.h>
 
 #ifndef WRITE_VIEWS
-#define WRITE_VIEWS 1
+#define WRITE_VIEWS 0
 #endif
 #if WRITE_VIEWS
 #include "../tests/TestingUtils.hpp"
