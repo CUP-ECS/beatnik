@@ -20,23 +20,10 @@ class SolverTest : public ::testing::Test
 {
     using ExecutionSpace = typename T::ExecutionSpace;
     using MemorySpace = typename T::MemorySpace;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using View_t = Kokkos::View<double***, Kokkos::HostSpace>;
 
-    using solver_type = Beatnik::SolverBase;
-    using pm_type = Beatnik::ProblemManager<ExecutionSpace, MemorySpace>;
-    // using zmodel_type = Beatnik::ZModel<ExecutionSpace, MemorySpace, Beatnik::ModelOrder, Beatnik::Params>;
-    // using ti_type = Beatnik::TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>;
-    using node_array =
-        Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
-                      MemorySpace>;
   protected:
     std::shared_ptr<Rocketrig> rg_;
-    View_t z_test;
-    View_t z;
-    View_t w_test;
-    View_t w;
-
     int rank_, comm_size_;
 
     void SetUp() override
@@ -56,52 +43,34 @@ class SolverTest : public ::testing::Test
         this->rg_ = std::make_shared<Rocketrig>(cl);
     }
     
-    void read_w(const std::string& filename)
+    View_t read_w(const std::string& filename)
     {
-        using ViewType = Kokkos::View<double**[2]>;  // Use the correct view type here
+        using ViewType = Kokkos::View<double**[2]>;
 
         // Call the function with the explicit template type
         auto read_view = Utils::readViewFromFile<ViewType>(filename, 2);
         int dim0 = read_view.extent(0);
         int dim1 = read_view.extent(1);
-        this->w = View_t("w", dim0, dim1, 2);
-
-        // Perform deep copy into the destination view
-        // auto view_d = this->w->view();
+        View_t w = View_t("w", dim0, dim1, 2);
         auto temp = Kokkos::create_mirror_view(read_view);
         Kokkos::deep_copy(temp, read_view);
         Kokkos::deep_copy(w, temp);
+        return w;
     }
 
-    void read_z(const std::string& filename)
+    View_t read_z(const std::string& filename)
     {
-        using ViewType = Kokkos::View<double**[3]>;  // Use the correct view type here
+        using ViewType = Kokkos::View<double**[3]>;
 
         // Call the function with the explicit template type
         auto read_view = Utils::readViewFromFile<ViewType>(filename, 3);
         int dim0 = read_view.extent(0);
         int dim1 = read_view.extent(1);
-        this->z = View_t("z", dim0, dim1, 3);
-        // Perform deep copy into the destination view
+        View_t z = View_t("z", dim0, dim1, 3);
         auto temp = Kokkos::create_mirror_view(read_view);
         Kokkos::deep_copy(temp, read_view);
         Kokkos::deep_copy(z, temp);
-    }
-
-    void read_correct_data(std::string filepath)
-    {
-        auto cl = this->rg_->get_ClArgs();
-        int mesh_size = cl.num_nodes[0];
-        int periodic = !(cl.boundary);
-        //w_64_p_r1.4.view
-        std::string z_path = filepath;
-        std::string w_path = filepath;
-        std::string z_name = Utils::get_filename(this->rank_, this->comm_size_, mesh_size, periodic, 'z');
-        std::string w_name = Utils::get_filename(this->rank_, this->comm_size_, mesh_size, periodic, 'w');
-        z_path += z_name;
-        w_path += w_name;
-        this->read_z(z_path);
-        this->read_w(w_path);
+        return z;
     }
 
     template <class View>
@@ -111,7 +80,7 @@ class SolverTest : public ::testing::Test
         {
             if (testView.extent(d) != correctView.extent(d)) 
             {
-                printf("View extent(%d) do not match.\n", d);
+                printf("View extents in dimension %d do not match. Was the file read correctly? Skipping test.\n", d);
                 return;
             }
         }
@@ -131,6 +100,26 @@ class SolverTest : public ::testing::Test
                 }
             }
         }
+    }
+
+    void run_test(ClArgs &cl, std::string filepath)
+    {
+        this->init(cl);
+        int mesh_size = cl.num_nodes[0];
+        int periodic = !(cl.boundary);
+        std::string z_path = filepath;
+        std::string w_path = filepath;
+        std::string z_name = Utils::get_filename(this->rank_, this->comm_size_, mesh_size, periodic, 'z');
+        std::string w_name = Utils::get_filename(this->rank_, this->comm_size_, mesh_size, periodic, 'w');
+        z_path += z_name;
+        w_path += w_name;
+        auto z = this->read_z(z_path);
+        auto w = this->read_w(w_path);
+        this->rg_->rocketrig();
+        auto z_test = this->rg_->get_positions();
+        auto w_test = this->rg_->get_vorticities();
+        this->compare_views(z, z_test);
+        this->compare_views(w, w_test);
     }
 };
 

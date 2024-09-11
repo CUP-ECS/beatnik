@@ -70,7 +70,7 @@ View readViewFromFile(const std::string& filename, const int dim2) {
 
     std::ifstream file(filename, std::ios::binary);
     if (!file.is_open()) {
-        std::cerr << "Error opening file for reading: " << filename << std::endl;
+        std::cerr << "Error: View file does not exist: " << filename << std::endl;
         return View();
     }
 
