@@ -16,9 +16,9 @@ using DeviceTypes = ::testing::Types<
 #ifdef KOKKOS_ENABLE_OPENMP
 /   DeviceType<Kokkos::OpenMP, Kokkos::HostSpace>,
 #endif
-// #ifdef KOKKOS_ENABLE_CUDA
-//     DeviceType<Kokkos::Cuda, Kokkos::CudaSpace>,
-// #endif
+#ifdef KOKKOS_ENABLE_CUDA
+    DeviceType<Kokkos::Cuda, Kokkos::CudaSpace>,
+#endif
     DeviceType<Kokkos::Serial, Kokkos::HostSpace>>;
 
 int main( int argc, char* argv[] )
