@@ -88,19 +88,17 @@ class SolverTest : public ::testing::Test
                 return;
             }
         }
-        int halo_width = 2;
+        int halo_width = 0;
         int dim0 = testView.extent(0), dim1 = testView.extent(1), dim2 = testView.extent(2);
         for (int i = halo_width; i < (dim0-halo_width); i++)
         {
             for (int j = halo_width; j < (dim1-halo_width); j++)
             {
-                for (int d = 0; d < 3; d++)
+                for (int d = 0; d < dim2; d++)
                 {
                     double test = testView(i, j, d);
                     double correct = correctView(i, j, d);
-                    ASSERT_NEAR(test, correct, 0.0000000000001) << "At (" << i << ", " << j << ", " << d << ")";
-                    // printf("(%d, %d, %d): test: %0.6lf, correct: %0.6lf\n",
-                    //     i, j, d, testView(i, j, d), correctView(i, j, d));
+                    ASSERT_NEAR(test, correct, 0.0000000000001) << "Rank " << this->rank_ << ": (" << i << ", " << j << ", " << d << ")";
                 }
             }
         }

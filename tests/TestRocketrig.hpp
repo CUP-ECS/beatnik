@@ -154,7 +154,7 @@ struct MeshInitFunc
     enum Beatnik::BoundaryType _b;
 };
 
-int init_cl_args( ClArgs& cl )
+int init_default_ClArgs( ClArgs& cl )
 {
     /// Set default values
     cl.driver = "serial"; // Default Thread Setting
@@ -165,7 +165,7 @@ int init_cl_args( ClArgs& cl )
     cl.params.cutoff_distance = 0.5;
     cl.params.heffte_configuration = 6;
     cl.params.br_solver = Beatnik::BR_EXACT;
-    cl.params.solver_order = SolverOrder::ORDER_LOW;
+    cl.params.solver_order = -1;
     // cl.params.period below
 
     /* Default problem is the cosine rocket rig */
@@ -189,6 +189,15 @@ int init_cl_args( ClArgs& cl )
     cl.delta_t = -1.0;
     cl.t_final = 5;
 
+    // Return Successfully
+    return 0;
+}
+
+/**
+ * Initialize computed values that may depend on options changed from the default.
+ */
+int finalize_ClArgs( ClArgs& cl )
+{
     /* Physical setup of problem */
     cl.params.global_bounding_box = {cl.bounding_box * -1.0,
                                      cl.bounding_box * -1.0, 
@@ -226,7 +235,6 @@ int init_cl_args( ClArgs& cl )
         cl.t_final = cl.t_final * cl.delta_t;
     }
 
-    // Return Successfully
     return 0;
 }
 

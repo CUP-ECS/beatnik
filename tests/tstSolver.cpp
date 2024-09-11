@@ -21,12 +21,13 @@ TYPED_TEST_SUITE(SolverTest, DeviceTypes);
 TYPED_TEST(SolverTest, testFileIO)
 {
     ClArgs cl;
-    init_cl_args(cl);
+    init_default_ClArgs(cl);
 
     // Adjust command-line args for this test
     cl.num_nodes = {64, 64};
     cl.boundary = Beatnik::BoundaryType::PERIODIC;
     cl.params.solver_order = SolverOrder::ORDER_LOW;
+    finalize_ClArgs(cl);
 
     // Run rocketrig
     this->init(cl);
@@ -54,123 +55,149 @@ TYPED_TEST(SolverTest, testFileIO)
     this->remove_view_files();
 }
 
-// TYPED_TEST(SolverTest, testPeriodicLowOrderSolver)
-// {
+TYPED_TEST(SolverTest, testPeriodicLowOrderSolver)
+{
+    ClArgs cl;
 
-//     ClArgs cl;
+    // Init default values
+    init_default_ClArgs(cl);
 
-//     // Init default values
-//     init_cl_args(cl);
+    // Adjust command-line args for this test
+    cl.num_nodes = {64, 64};
+    cl.boundary = Beatnik::BoundaryType::PERIODIC;
+    cl.params.solver_order = SolverOrder::ORDER_LOW;
+    finalize_ClArgs(cl);
 
-//     // Adjust command-line args for this test
-//     cl.num_nodes = {64, 64};
-//     cl.boundary = Beatnik::BoundaryType::PERIODIC;
-//     cl.params.solver_order = SolverOrder::ORDER_LOW;
+    // Filepath to view directories
+    std::stringstream ss;
+    ss << "../tests/views/low_order/comm-size-" << this->comm_size_ << "/";
+    std::string filepath = ss.str();
 
-//     // Filepath to view directories
-//     std::stringstream ss;
-//     ss << "../tests/views/low_order/comm-size-" << this->comm_size_ << "/";
-//     std::string filepath = ss.str();
+    // Run test
+    this->run_test(cl, filepath);
+}
 
-//     // Run test
-//     this->run_test(cl, filepath);
-// }
+TYPED_TEST(SolverTest, testFreeLowOrderSolver)
+{
+    ClArgs cl;
 
-// TYPED_TEST(SolverTest, testPeriodicCutoffSolver)
-// {
-//     if (this->comm_size_ == 1)
-//     {
-//         printf("Error: Communicator size is 1 < 4 to support periodic boundary conditions using the cutoff solver. Skipping testPeriodicCutoffSolver test.\n");
-//         return;
-//     }
+    // Init default values
+    init_default_ClArgs(cl);
 
-//     ClArgs cl;
+    // Adjust command-line args for this test
+    cl.num_nodes = {64, 64};
+    cl.boundary = Beatnik::BoundaryType::FREE;
+    cl.params.solver_order = SolverOrder::ORDER_LOW;
+    finalize_ClArgs(cl);
 
-//     // Init default values
-//     init_cl_args(cl);
+    // Filepath to view directories
+    std::stringstream ss;
+    ss << "../tests/views/low_order/comm-size-" << this->comm_size_ << "/";
+    std::string filepath = ss.str();
 
-//     // Adjust command-line args for this test
-//     cl.num_nodes = {64, 64};
-//     cl.boundary = Beatnik::BoundaryType::PERIODIC;
-//     cl.params.solver_order = SolverOrder::ORDER_HIGH;
-//     cl.params.br_solver = Beatnik::BRSolverType::BR_CUTOFF;
-//     cl.params.cutoff_distance = 0.25;
+    // Run test
+    this->run_test(cl, filepath);
+}
 
-//     // Filepath to view directories
-//     std::stringstream ss;
-//     ss << "../tests/views/high_order/cutoff/comm-size-" << this->comm_size_ << "/";
-//     std::string filepath = ss.str();
+TYPED_TEST(SolverTest, testPeriodicCutoffSolver)
+{
+    if (this->comm_size_ == 1)
+    {
+        printf("Error: Communicator size is 1 < 4 to support periodic boundary conditions using the cutoff solver. Skipping testPeriodicCutoffSolver test.\n");
+        return;
+    }
 
-//     // Run test
-//     this->run_test(cl, filepath);
-// }
+    ClArgs cl;
 
-// TYPED_TEST(SolverTest, testFreeCutoffSolver)
-// {
-//     ClArgs cl;
+    // Init default values
+    init_default_ClArgs(cl);
 
-//     // Init default values
-//     init_cl_args(cl);
+    // Adjust command-line args for this test
+    cl.num_nodes = {64, 64};
+    cl.boundary = Beatnik::BoundaryType::PERIODIC;
+    cl.params.solver_order = SolverOrder::ORDER_HIGH;
+    cl.params.br_solver = Beatnik::BRSolverType::BR_CUTOFF;
+    cl.params.cutoff_distance = 0.25;
+    finalize_ClArgs(cl);
 
-//     // Adjust command-line args for this test
-//     cl.num_nodes = {64, 64};
-//     cl.boundary = Beatnik::BoundaryType::FREE;
-//     cl.params.solver_order = SolverOrder::ORDER_HIGH;
-//     cl.params.br_solver = Beatnik::BRSolverType::BR_CUTOFF;
-//     cl.params.cutoff_distance = 0.25;
+    // Filepath to view directories
+    std::stringstream ss;
+    ss << "../tests/views/high_order/cutoff/comm-size-" << this->comm_size_ << "/";
+    std::string filepath = ss.str();
 
-//     // Filepath to view directories
-//     std::stringstream ss;
-//     ss << "../tests/views/high_order/cutoff/comm-size-" << this->comm_size_ << "/";
-//     std::string filepath = ss.str();
+    // Run test
+    this->run_test(cl, filepath);
+}
 
-//     // Run test
-//     this->run_test(cl, filepath);
-// }
+TYPED_TEST(SolverTest, testFreeCutoffSolver)
+{
+    ClArgs cl;
 
-// TYPED_TEST(SolverTest, testPeriodicExactSolver)
-// {
-//     ClArgs cl;
+    // Init default values
+    init_default_ClArgs(cl);
 
-//     // Init default values
-//     init_cl_args(cl);
+    // Adjust command-line args for this test
+    cl.num_nodes = {64, 64};
+    cl.boundary = Beatnik::BoundaryType::FREE;
+    cl.params.solver_order = SolverOrder::ORDER_HIGH;
+    cl.params.br_solver = Beatnik::BRSolverType::BR_CUTOFF;
+    cl.params.cutoff_distance = 0.25;
+    finalize_ClArgs(cl);
 
-//     // Adjust command-line args for this test
-//     cl.num_nodes = {64, 64};
-//     cl.boundary = Beatnik::BoundaryType::PERIODIC;
-//     cl.params.solver_order = SolverOrder::ORDER_HIGH;
-//     cl.params.br_solver = Beatnik::BRSolverType::BR_EXACT;
+    // Filepath to view directories
+    std::stringstream ss;
+    ss << "../tests/views/high_order/cutoff/comm-size-" << this->comm_size_ << "/";
+    std::string filepath = ss.str();
 
-//     // Filepath to view directories
-//     std::stringstream ss;
-//     ss << "../tests/views/high_order/exact/comm-size-" << this->comm_size_ << "/";
-//     std::string filepath = ss.str();
+    // Run test
+    this->run_test(cl, filepath);
+}
 
-//     // Run test
-//     this->run_test(cl, filepath);
-// }
+TYPED_TEST(SolverTest, testPeriodicExactSolver)
+{
+    ClArgs cl;
 
-// TYPED_TEST(SolverTest, testFreeExactSolver)
-// {
-//     ClArgs cl;
+    // Init default values
+    init_default_ClArgs(cl);
 
-//     // Init default values
-//     init_cl_args(cl);
+    // Adjust command-line args for this test
+    cl.num_nodes = {64, 64};
+    cl.boundary = Beatnik::BoundaryType::PERIODIC;
+    cl.params.solver_order = SolverOrder::ORDER_HIGH;
+    cl.params.br_solver = Beatnik::BRSolverType::BR_EXACT;
+    finalize_ClArgs(cl);
 
-//     // Adjust command-line args for this test
-//     cl.num_nodes = {64, 64};
-//     cl.boundary = Beatnik::BoundaryType::FREE;
-//     cl.params.solver_order = SolverOrder::ORDER_HIGH;
-//     cl.params.br_solver = Beatnik::BRSolverType::BR_EXACT;
+    // Filepath to view directories
+    std::stringstream ss;
+    ss << "../tests/views/high_order/exact/comm-size-" << this->comm_size_ << "/";
+    std::string filepath = ss.str();
 
-//     // Filepath to view directories
-//     std::stringstream ss;
-//     ss << "../tests/views/high_order/exact/comm-size-" << this->comm_size_ << "/";
-//     std::string filepath = ss.str();
+    // Run test
+    this->run_test(cl, filepath);
+}
 
-//     // Run test
-//     this->run_test(cl, filepath);
-// }
+TYPED_TEST(SolverTest, testFreeExactSolver)
+{
+    ClArgs cl;
+
+    // Init default values
+    init_default_ClArgs(cl);
+
+    // Adjust command-line args for this test
+    cl.num_nodes = {64, 64};
+    cl.boundary = Beatnik::BoundaryType::FREE;
+    cl.params.solver_order = SolverOrder::ORDER_HIGH;
+    cl.params.br_solver = Beatnik::BRSolverType::BR_EXACT;
+    finalize_ClArgs(cl);
+
+    // Filepath to view directories
+    std::stringstream ss;
+    ss << "../tests/views/high_order/exact/comm-size-" << this->comm_size_ << "/";
+    std::string filepath = ss.str();
+
+    // Run test
+    this->run_test(cl, filepath);
+}
 
 
 } // end namespace BeatnikTest
