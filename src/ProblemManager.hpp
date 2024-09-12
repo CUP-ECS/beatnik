@@ -81,9 +81,8 @@ class ProblemManager
     using device_type = Kokkos::Device<exec_space, mem_space>;
 
     using Node = Cabana::Grid::Node;
-
     using node_array =
-        Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
+        Cabana::Grid::Array<double, Node, Cabana::Grid::UniformMesh<double, 2>,
                       mem_space>;
     using node_view = 
         typename node_array::view_type;
@@ -151,8 +150,8 @@ class ProblemManager
         auto local_mesh = Cabana::Grid::createLocalMesh<device_type>( local_grid );
 
 	    // Get State Arrays
-        auto z = get( Cabana::Grid::Node(), Field::Position() );
-        auto w = get( Cabana::Grid::Node(), Field::Vorticity() );
+        auto z = get( Cabana::Grid::Node(), Field::Position() )->view();
+        auto w = get( Cabana::Grid::Node(), Field::Vorticity() )->view();
 
         // Loop Over All Owned Nodes ( i, j )
         auto own_nodes = local_grid.indexSpace( Cabana::Grid::Own(), Cabana::Grid::Node(),
@@ -189,22 +188,22 @@ class ProblemManager
      * Return Position Field
      * @param Location::Node
      * @param Field::Position
-     * @return Returns view of current position at nodes
+     * @return Returns Returns Cabana::Array of current position at nodes
      **/
-    typename node_array::view_type get( Cabana::Grid::Node, Field::Position ) const
+    std::shared_ptr<node_array> get( Cabana::Grid::Node, Field::Position ) const
     {
-        return _position->view();
+        return _position;
     };
 
     /**
      * Return Vorticity Field
      * @param Location::Node
      * @param Field::Vorticity
-     * @return Returns view of current vorticity at nodes
+     * @return Returns Cabana::Array of current vorticity at nodes
      **/
-    typename node_array::view_type get( Cabana::Grid::Node, Field::Vorticity ) const
+    std::shared_ptr<node_array> get( Cabana::Grid::Node, Field::Vorticity ) const
     {
-        return _vorticity->view();
+        return _vorticity;
     };
 
     /**

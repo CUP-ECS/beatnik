@@ -70,11 +70,14 @@ class TimeIntegrator
 
     void step( const double delta_t ) 
     { 
+        /* Do as many operations as possible through the Cabana::Array interface */
+
+
         // Compute the derivatives of position and vorticity at our current point
         auto z_orig = _pm.get( Cabana::Grid::Node(), Field::Position() );
         auto w_orig = _pm.get( Cabana::Grid::Node(), Field::Vorticity() );
-        auto z_tmp = _ztmp->view();
-        auto w_tmp = _wtmp->view();
+        auto z_tmp = _ztmp;
+        auto w_tmp = _wtmp;
         // auto & halo = _pm.halo(); 
 
         auto local_grid = _pm.mesh().localGrid();
@@ -87,7 +90,8 @@ class TimeIntegrator
 	    // uses the problem manager position and derivative by default.
         _zm.computeDerivatives(z_dot, w_dot);
 
-        auto own_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
+        auto own_node_space = z_orig->layout()->indexSpace(Cabana::Grid::Node(), Cabana::Grid::Local())
+        // auto own_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         Kokkos::parallel_for("RK3 Euler Step",
             Cabana::Grid::createExecutionPolicy(own_node_space, ExecutionSpace()),
             KOKKOS_LAMBDA(int i, int j) {

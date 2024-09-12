@@ -258,8 +258,8 @@ class Solver : public SolverBase
 
             if (t == write_at_time)
             {
-                auto z = _pm->get( Cabana::Grid::Node(), Field::Position() );
-                auto w = _pm->get( Cabana::Grid::Node(), Field::Vorticity() );
+                auto z = _pm->get(Cabana::Grid::Node(), Field::Position())->view();
+                auto w = _pm->get(Cabana::Grid::Node(), Field::Vorticity())->view();
                 int mesh_size = _pm->mesh().get_surface_mesh_size();
                 int periodic = _params.periodic[0];
                 // void writeView(int rank, int comm_size, int mesh_size, const View v)
@@ -276,7 +276,7 @@ class Solver : public SolverBase
     View_t get_positions() override
     {
         //_pm->gather();
-        auto view = _pm->get( Cabana::Grid::Node(), Field::Position() );
+        auto view = _pm->get(Cabana::Grid::Node(), Field::Position())->view();
         int dim0 = view.extent(0);
         int dim1 = view.extent(1);
         auto temp = Kokkos::create_mirror_view(view);
@@ -289,7 +289,7 @@ class Solver : public SolverBase
     View_t get_vorticities() override
     {
         //_pm->gather();
-        auto view = _pm->get( Cabana::Grid::Node(), Field::Vorticity() );
+        auto view = _pm->get(Cabana::Grid::Node(), Field::Vorticity())->view();
         int dim0 = view.extent(0);
         int dim1 = view.extent(1);
         auto temp = Kokkos::create_mirror_view(view);
