@@ -71,6 +71,7 @@ class ZModel
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>; 
 
     using Node = Cabana::Grid::Node;
+    using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
 
     using node_array =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
@@ -386,8 +387,8 @@ class ZModel
     void computeDerivatives( node_view zdot, node_view wdot ) const
     {
        _pm.gather();
-       auto z_orig = _pm.get( Cabana::Grid::Node(), Field::Position() );
-       auto w_orig = _pm.get( Cabana::Grid::Node(), Field::Vorticity() );
+       auto z_orig = _pm.get( Cabana::Grid::Node(), Field::Position() )->view();
+       auto w_orig = _pm.get( Cabana::Grid::Node(), Field::Vorticity() )->view();
        computeHaloedDerivatives( z_orig, w_orig, zdot, wdot );
     } 
 
@@ -419,6 +420,11 @@ class ZModel
         // Phase 1.a: Calcuate the omega value for each point
         prepareOmega(z_view, w_view);
 
+        auto local_grid = _pm.mesh().localGrid();
+        l2g_type local_l2g = Cabana::Grid::IndexConversion::createL2G( *local_grid, Cabana::Grid::Node() );
+        //printf("****Z_VIEW***\n");
+        //printView(local_l2g, 0, z_view, 1, 2, 2);
+
         // Phase 1.b: Compute zdot
         auto omega_view = _omega->view();
         prepareVelocities(MethodOrder(), zdot, z_view, w_view, omega_view);
@@ -432,7 +438,7 @@ class ZModel
         // needed for calculating the vorticity derivative
         auto V_view = _V->view();
 
-        auto local_grid = _pm.mesh().localGrid();
+        // auto local_grid = _pm.mesh().localGrid();
         auto own_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         Kokkos::parallel_for( "Interface Velocity",  
             createExecutionPolicy(own_node_space, ExecutionSpace()), 
@@ -497,6 +503,46 @@ class ZModel
     typename node_array::view_type getOmega()
     {
         return _omega->view();
+    }
+
+    template <class l2g_type, class View>
+    void printView(l2g_type local_L2G, int rank, View z, int option, int DEBUG_X, int DEBUG_Y) const
+    {
+        int dims = z.extent(2);
+
+        std::array<long, 2> rmin, rmax;
+        for (int d = 0; d < 2; d++) {
+            rmin[d] = local_L2G.local_own_min[d];
+            rmax[d] = local_L2G.local_own_max[d];
+        }
+	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
+
+        Kokkos::parallel_for("print views",
+            Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
+            KOKKOS_LAMBDA(int i, int j) {
+            
+            int local_li[2] = {i, j};
+            int local_gi[2] = {0, 0};   // global i, j
+            local_L2G(local_li, local_gi);
+            if (option == 1){
+                if (dims == 3) {
+                    printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
+                }
+                else if (dims == 2) {
+                    printf("R%d %d %d %d %d %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
+                }
+            }
+            else if (option == 2) {
+                if (local_gi[0] == DEBUG_X && local_gi[1] == DEBUG_Y) {
+                    if (dims == 3) {
+                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf: %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
+                    }   
+                    else if (dims == 2) {
+                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
+                    }
+                }
+            }
+        });
     }
 
   private:
