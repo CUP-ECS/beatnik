@@ -160,8 +160,11 @@ class SurfaceMesh
      * Compute fourth-order central difference calculation for derivatives along the 
      * interface surface
      */
-    void Dx(node_array& out, node_array in, double dx)
+    node_array Dx(node_array in, double dx) const
     {
+        node_array out = in.clone();
+        auto out_view = out->view();
+        auto in_view = in.view();
         auto layout = in.layout();
         auto index_space = layout->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Local());
         int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
@@ -169,19 +172,27 @@ class SurfaceMesh
         Kokkos::parallel_for("Calculate Dx", policy, KOKKOS_LAMBDA(const int i, const int j) {
             for (int d = 0; d < dim2; d++)
             {
-
+                out_view(i, j, d) = Dx(in, i, j, d, dx);
             }
         });
-    
-    /*
-    Kokkos::parallel_for( "Omega",  
-            createExecutionPolicy(own_node_space, ExecutionSpace()), 
-            KOKKOS_LAMBDA(int i, int j) {
-            for (int d = 0; d < 3; d++) {
-                omega(i, j, d) = w(i, j, 1) * Operators::Dx(z, i, j, d, dx) - w(i, j, 0) * Operators::Dy(z, i, j, d, dy);
+        return out;
+    }
+    node_array Dy(node_array in, double dy) const
+    {
+        node_array out = in.clone();
+        auto out_view = out->view();
+        auto in_view = in.view();
+        auto layout = in.layout();
+        auto index_space = layout->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Local());
+        int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
+        auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
+        Kokkos::parallel_for("Calculate Dx", policy, KOKKOS_LAMBDA(const int i, const int j) {
+            for (int d = 0; d < dim2; d++)
+            {
+                out_view(i, j, d) = Dy(in, i, j, d, dx);
             }
         });
-    */
+        return out;
     }
 
     

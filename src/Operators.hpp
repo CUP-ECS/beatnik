@@ -37,6 +37,47 @@
 namespace Beatnik
 {
 
+/**
+ * Operators that work on Cabana::Arrays assuming an array 
+ * derived from a structured, 2D mesh
+ */
+namespace StructuredMesh
+{
+    // XXX - Assert that the mesh and node_arrays are the right type 
+    // at the beginning of these functions
+
+    template <class MemorySpace, class ExecutionSpace, class node_array>
+    node_array omega(node_array w, node_array z_dx, node_array z_dy)
+    {
+        node_array out = w.clone();
+        auto out_view = out->view();
+        auto zdx_view = z_dx.view();
+        auto zdy_view = z_dy.view();
+        auto w_viw = w.view();
+        auto layout = z_dx.layout();
+        auto index_space = layout->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Local());
+        int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
+        auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
+        Kokkos::parallel_for("Calculate Dx", policy, KOKKOS_LAMBDA(const int i, const int j) {
+            for (int d = 0; d < dim2; d++)
+            {
+                out_view(i, j, d) = w_view(i, j, 1) * zdx_view(i, j, d) - w_view(i, j, 0) * zdy_view(i, j, d);
+            }
+        });
+        return out;
+    }
+    /*
+    
+    // Kokkos::parallel_for( "Omega",  
+        //     createExecutionPolicy(own_node_space, ExecutionSpace()), 
+        //     KOKKOS_LAMBDA(int i, int j) {
+        //     for (int d = 0; d < 3; d++) {
+        //         omega(i, j, d) = w(i, j, 1) * z_dx(i, j, d) - w(i, j, 0) * z_dy(i, j, d);
+        //     }
+        // });*/
+
+} // end namespace StructuredMeshOperators
+
 /* Simple vector and finite difference operators needed by the ZModel code.
  * Note that we use higher-order difference operators as the highly-variable
  * curvature of surface can make lower-order operators inaccurate */
