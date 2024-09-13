@@ -70,20 +70,11 @@ class TimeIntegrator
 
     void step( const double delta_t ) 
     { 
-        /* Do as many operations as possible through the Cabana::Array interface */
-        auto local_grid = _pm.mesh().localGrid();
-        l2g_type local_l2g = Cabana::Grid::IndexConversion::createL2G( *local_grid, Cabana::Grid::Node() );
-
         // Compute the derivatives of position and vorticity at our current point
         auto z_orig = _pm.get( Cabana::Grid::Node(), Field::Position() );
         auto w_orig = _pm.get( Cabana::Grid::Node(), Field::Vorticity() );
         auto z_tmp = Cabana::Grid::ArrayOp::cloneCopy(*z_orig, Cabana::Grid::Own());
         auto w_tmp = Cabana::Grid::ArrayOp::cloneCopy(*w_orig, Cabana::Grid::Own());
-        // auto z_tmp = _ztmp->view();
-        // auto w_tmp = _wtmp->view();
-        // auto & halo = _pm.halo(); 
-
-        // auto local_grid = _pm.mesh().localGrid();
 
         // TVD RK3 Step One - derivative at forward euler point
         auto z_dot = _zdot;
@@ -93,26 +84,11 @@ class TimeIntegrator
 	    // uses the problem manager position and derivative by default.
         _zm.computeDerivatives(z_dot->view(), w_dot->view());
         
-
         // X_tmp = X_tmp + X_dot*delta_t
         // update2: Update two vectors such that a = alpha * a + beta * b.
         Cabana::Grid::ArrayOp::update(*z_tmp, 1.0, *z_dot, delta_t, Cabana::Grid::Own());
         Cabana::Grid::ArrayOp::update(*w_tmp, 1.0, *w_dot, delta_t, Cabana::Grid::Own());
         
-        //printView(local_l2g, 0, z_tmp->view(), 1, 3, 3);
-        // auto own_node_space = z_orig->layout()->indexSpace(Cabana::Grid::Node(), Cabana::Grid::Local())
-        // auto own_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
-        // Kokkos::parallel_for("RK3 Euler Step",
-        //     Cabana::Grid::createExecutionPolicy(own_node_space, ExecutionSpace()),
-        //     KOKKOS_LAMBDA(int i, int j) {
-        //     for (int d = 0; d < 3; d++) {
-	    //     z_tmp(i, j, d) = z_orig(i, j, d) + delta_t * z_dot(i, j, d);
-        //     }
-        //     for (int d = 0; d < 2; d++) {
-	    //     w_tmp(i, j, d) = w_orig(i, j, d) + delta_t * w_dot(i, j, d);
-        //     }
-        // });
-
         // Compute derivative at forward euler point from the temporaries
         _zm.computeDerivatives( *z_tmp, *w_tmp, z_dot->view(), w_dot->view());
  
@@ -122,21 +98,6 @@ class TimeIntegrator
         // update3: Update three vectors such that a = alpha * a + beta * b + gamma * c.
         Cabana::Grid::ArrayOp::update(*z_tmp, 0.25, *z_orig, 0.75, *z_dot, (delta_t*0.25), Cabana::Grid::Own());
         Cabana::Grid::ArrayOp::update(*w_tmp, 0.25, *w_orig, 0.75, *w_dot, (delta_t*0.25), Cabana::Grid::Own());
-
-        // Kokkos::parallel_for("RK3 Half Step",
-        //     Cabana::Grid::createExecutionPolicy(own_node_space, ExecutionSpace()),
-        //     KOKKOS_LAMBDA(int i, int j) {
-        //     for (int d = 0; d < 3; d++) {
-	    //     z_tmp(i, j, d) = 0.75*z_orig(i, j, d) 
-        //             + 0.25 * z_tmp(i, j, d) 
-        //             + 0.25 * delta_t * z_dot(i, j, d);
-        //     }
-        //     for (int d = 0; d < 2; d++) {
-	    //     w_tmp(i, j, d) = 0.75*w_orig(i, j, d) 
-        //             + 0.25 * w_tmp(i, j, d) 
-        //             + 0.25 * delta_t * w_dot(i, j, d);
-        //     }
-        // });
 
         // Get the derivatives at the half-setp
         _zm.computeDerivatives( *z_tmp, *w_tmp, z_dot->view(), w_dot->view());
@@ -153,21 +114,6 @@ class TimeIntegrator
         // printf("*******z_TMP******\n");
         // printView(local_l2g, 0, z_tmp->view(), 1, 3, 3);
         //printf("*******z_ORIG******\n");
-        //printView(local_l2g, 0, z_orig->view(), 1, 3, 3);        
-        // Kokkos::parallel_for("RK3 Full Step",
-        //     Cabana::Grid::createExecutionPolicy(own_node_space, ExecutionSpace()),
-        //     KOKKOS_LAMBDA(int i, int j) {
-        //     for (int d = 0; d < 3; d++) {
-	    //     z_orig(i, j, d) = ( 1.0 / 3.0 ) * z_orig(i, j, d) 
-        //             + ( 2.0 / 3.0 ) * z_tmp(i, j, d) 
-        //             + ( 2.0 / 3.0 ) * delta_t * z_dot(i, j, d);
-        //     }
-        //     for (int d = 0; d < 2; d++) {
-	    //     w_orig(i, j, d) = ( 1.0 / 3.0 ) * w_orig(i, j, d) 
-        //             + ( 2.0 / 3.0 ) * w_tmp(i, j, d) 
-        //             + ( 2.0 / 3.0 ) * delta_t * w_dot(i, j, d);
-        //     }
-        // });
     }
 
     template <class l2g_type, class View>
