@@ -36,15 +36,18 @@ class SurfaceMesh
     using memory_space = MemorySpace;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
+    using node_array =
+        Cabana::Grid::Array<double, Cabana::Grid::Node, mesh_type,
+                      memory_space>;
 
     // Construct a mesh.
     SurfaceMesh( const std::array<double, 6>& global_bounding_box,
           const std::array<int, 2>& num_nodes,
-	  const std::array<bool, 2>& periodic,
+	      const std::array<bool, 2>& periodic,
           const Cabana::Grid::BlockPartitioner<2>& partitioner,
           const int min_halo_width, MPI_Comm comm )
-		      : _num_nodes( num_nodes )
-          , _periodic( periodic )
+		        : _num_nodes( num_nodes )
+                , _periodic( periodic )
     {
         MPI_Comm_rank( comm, &_rank );
 
@@ -153,6 +156,36 @@ class SurfaceMesh
         return _surface_halo_width;
     }
 
+    /**
+     * Compute fourth-order central difference calculation for derivatives along the 
+     * interface surface
+     */
+    void Dx(node_array& out, node_array in, double dx)
+    {
+        auto layout = in.layout();
+        auto index_space = layout->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Local());
+        int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
+        auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
+        Kokkos::parallel_for("Calculate Dx", policy, KOKKOS_LAMBDA(const int i, const int j) {
+            for (int d = 0; d < dim2; d++)
+            {
+
+            }
+        });
+    
+    /*
+    Kokkos::parallel_for( "Omega",  
+            createExecutionPolicy(own_node_space, ExecutionSpace()), 
+            KOKKOS_LAMBDA(int i, int j) {
+            for (int d = 0; d < 3; d++) {
+                omega(i, j, d) = w(i, j, 1) * Operators::Dx(z, i, j, d, dx) - w(i, j, 0) * Operators::Dy(z, i, j, d, dy);
+            }
+        });
+    */
+    }
+
+    
+
     // Get the boundary indexes on the periodic boundary. local_grid.boundaryIndexSpace()
     // doesn't work on periodic boundaries.
     // XXX Needs more error checking to make sure the boundary is in fact periodic
@@ -182,6 +215,40 @@ class SurfaceMesh
     const std::array<bool, 2> _periodic;
     std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> _local_grid;
     int _rank, _surface_halo_width;
+
+    template <class ViewType>
+    KOKKOS_INLINE_FUNCTION
+    double Dx(ViewType f, int i, int j, int d, double dx)
+    {
+        return (f(i - 2, j, d) - 8.0*f(i - 1, j, d) + 8.0*f(i + 1, j, d) - f(i + 2, j, d)) / (12.0 * dx);
+        //return (f(i + 1, j, d) - f(i - 1, j, d)) / (2.0 * dx);
+    } 
+
+    template <class ViewType>
+    KOKKOS_INLINE_FUNCTION
+    void Dx(double out[3], ViewType f, int i, int j, double dx) 
+    {
+        for (int d = 0; d < 3; d++) {
+            out[d] = Dx(f, i, j, d, dx);
+        }
+    } 
+
+    template <class ViewType>
+    KOKKOS_INLINE_FUNCTION
+    double Dy(ViewType f, int i, int j, int d, double dy)
+    {  
+        return (f(i, j - 2, d) - 8.0*f(i, j - 1, d) + 8.0*f(i, j + 1, d) - f(i, j + 2, d)) / (12.0 * dy);
+        //return (f(i, j+1, d) - f(i, j-1, d)) / (2.0 * dy);
+    }
+ 
+    template <class ViewType>
+    KOKKOS_INLINE_FUNCTION
+    void Dy(double out[3], ViewType f, int i, int j, double dy) 
+    {
+        for (int d = 0; d < 3; d++) {
+            out[d] = Dy(f, i, j, d, dy);
+        }
+    } 
 	  
 };
 

@@ -74,7 +74,7 @@ class ZModel
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
 
     using node_array =
-        Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
+        Cabana::Grid::Array<double, Cabana::Grid::Node, mesh_type,
                       memory_space>;
     using node_view = typename node_array::view_type;
 
