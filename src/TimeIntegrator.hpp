@@ -79,8 +79,8 @@ class TimeIntegrator
         auto w_orig = _pm.get( Cabana::Grid::Node(), Field::Vorticity() );
         auto z_tmp = Cabana::Grid::ArrayOp::cloneCopy(*z_orig, Cabana::Grid::Own());
         auto w_tmp = Cabana::Grid::ArrayOp::cloneCopy(*w_orig, Cabana::Grid::Own());
-        //auto z_tmp = _ztmp;
-        ///auto w_tmp = _wtmp;
+        // auto z_tmp = _ztmp->view();
+        // auto w_tmp = _wtmp->view();
         // auto & halo = _pm.halo(); 
 
         // auto local_grid = _pm.mesh().localGrid();
@@ -118,10 +118,10 @@ class TimeIntegrator
  
         // TVD RK3 Step Two - derivative at half-step position
         // derivatives
-        // X_tmp = X_tmp*0.25 + X_orig*0.75 + X_dot*delta_t
+        // X_tmp = X_tmp*0.25 + X_orig*0.75 + X_dot*delta_t*0.25
         // update3: Update three vectors such that a = alpha * a + beta * b + gamma * c.
-        Cabana::Grid::ArrayOp::update(*z_tmp, 0.25, *z_orig, 0.75, *z_dot, 0.25, Cabana::Grid::Own());
-        Cabana::Grid::ArrayOp::update(*w_tmp, 0.25, *w_orig, 0.75, *w_dot, 0.25, Cabana::Grid::Own());
+        Cabana::Grid::ArrayOp::update(*z_tmp, 0.25, *z_orig, 0.75, *z_dot, (delta_t*0.25), Cabana::Grid::Own());
+        Cabana::Grid::ArrayOp::update(*w_tmp, 0.25, *w_orig, 0.75, *w_dot, (delta_t*0.25), Cabana::Grid::Own());
 
         // Kokkos::parallel_for("RK3 Half Step",
         //     Cabana::Grid::createExecutionPolicy(own_node_space, ExecutionSpace()),
@@ -146,14 +146,14 @@ class TimeIntegrator
         // (unew = 1/3 uold + 2/3 utmp + 2/3 du_dt_tmp * deltat)
         // X_orig = X_orig*(1/3) + X_tmp*(2/3) + X_dot*delta_t*(2/3)
         // update3: Update three vectors such that a = alpha * a + beta * b + gamma * c.
-        Cabana::Grid::ArrayOp::update(*z_orig, (1.0/3.0), *z_tmp, (2.0/3.0), *z_dot, (2.0*delta_t/3.0), Cabana::Grid::Own());
-        Cabana::Grid::ArrayOp::update(*w_orig, (1.0/3.0), *w_tmp, (2.0/3.0), *w_dot, (2.0*delta_t/3.0), Cabana::Grid::Own());
-        printf("*******z_DOT******\n");
-        printView(local_l2g, 0, z_dot->view(), 1, 3, 3);
-        printf("*******z_TMP******\n");
-        printView(local_l2g, 0, z_tmp->view(), 1, 3, 3);
-        printf("*******z_ORIG******\n");
-        printView(local_l2g, 0, z_orig->view(), 1, 3, 3);        
+        Cabana::Grid::ArrayOp::update(*z_orig, (1.0/3.0), *z_tmp, (2.0/3.0), *z_dot, (delta_t*2.0/3.0), Cabana::Grid::Own());
+        Cabana::Grid::ArrayOp::update(*w_orig, (1.0/3.0), *w_tmp, (2.0/3.0), *w_dot, (delta_t*2.0/3.0), Cabana::Grid::Own());
+        // printf("*******z_DOT******\n");
+        // printView(local_l2g, 0, z_dot->view(), 1, 3, 3);
+        // printf("*******z_TMP******\n");
+        // printView(local_l2g, 0, z_tmp->view(), 1, 3, 3);
+        //printf("*******z_ORIG******\n");
+        //printView(local_l2g, 0, z_orig->view(), 1, 3, 3);        
         // Kokkos::parallel_for("RK3 Full Step",
         //     Cabana::Grid::createExecutionPolicy(own_node_space, ExecutionSpace()),
         //     KOKKOS_LAMBDA(int i, int j) {
