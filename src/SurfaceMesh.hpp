@@ -210,8 +210,6 @@ class SurfaceMesh
         return out;
     }
 
-    
-
     // Get the boundary indexes on the periodic boundary. local_grid.boundaryIndexSpace()
     // doesn't work on periodic boundaries.
     // XXX Needs more error checking to make sure the boundary is in fact periodic
