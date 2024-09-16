@@ -79,7 +79,7 @@ class TimeIntegrator
 
         // Find foward euler point using initial derivative. The zmodel solver
 	    // uses the problem manager position and derivative by default.
-        _zm.computeDerivatives(z_dot, w_dot);
+        _zm.computeDerivatives(*z_dot, *w_dot);
         
         // X_tmp = X_tmp + X_dot*delta_t
         // update2: Update two vectors such that a = alpha * a + beta * b.
@@ -87,7 +87,7 @@ class TimeIntegrator
         Cabana::Grid::ArrayOp::update(*w_tmp, 1.0, *w_dot, delta_t, Cabana::Grid::Own());
         
         // Compute derivative at forward euler point from the temporaries
-        _zm.computeDerivatives( *z_tmp, *w_tmp, z_dot, w_dot);
+        _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot);
  
         // TVD RK3 Step Two - derivative at half-step position
         // derivatives
@@ -97,7 +97,7 @@ class TimeIntegrator
         Cabana::Grid::ArrayOp::update(*w_tmp, 0.25, *w_orig, 0.75, *w_dot, (delta_t*0.25), Cabana::Grid::Own());
 
         // Get the derivatives at the half-setp
-        _zm.computeDerivatives( *z_tmp, *w_tmp, z_dot, w_dot);
+        _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot);
         
         // TVD RK3 Step Three - Combine start, forward euler, and half step
         // derivatives to take the final full step.

@@ -303,9 +303,9 @@ class ZModel
     /* For low order, we calculate the reisz transform used to compute the magnitude
      * of the interface velocity. This will be projected onto surface normals later 
      * once we have the normals */
-    void prepareVelocities(Order::Low, [[maybe_unused]] node_array zdot,
-                           [[maybe_unused]] node_array z, node_array w,
-                           [[maybe_unused]] node_array omega_view) const
+    void prepareVelocities(Order::Low, [[maybe_unused]] node_array& zdot,
+                           [[maybe_unused]] node_array& z, node_array& w,
+                           [[maybe_unused]] node_array& omega_view) const
     {
         computeReiszTransform(w->view());
     }
@@ -313,8 +313,8 @@ class ZModel
     /* For medium order, we calculate the fourier velocity that we later 
      * normalize for vorticity calculations and directly compute the 
      * interface velocity (zdot) using a far field method. */
-    void prepareVelocities(Order::Medium, node_array zdot, node_array z, node_array w,
-                           node_array omega) const
+    void prepareVelocities(Order::Medium, node_array& zdot, node_array& z, node_array& w,
+                           node_array& omega) const
     {
         computeReiszTransform(w->view());
         _br->computeInterfaceVelocity(zdot->view(), z->view(), omega->view());
@@ -323,8 +323,8 @@ class ZModel
     /* For high order, we just directly compute the interface velocity (zdot)
      * using a far field method and later normalize that for use in the vorticity 
      * calculation. */
-    void prepareVelocities(Order::High, node_array zdot, node_array z,
-                           [[maybe_unused]]node_array w, node_array omega) const
+    void prepareVelocities(Order::High, node_array& zdot, node_array& z,
+                           [[maybe_unused]]node_array& w, node_array& omega) const
     {
         _br->computeInterfaceVelocity(zdot->view(), z->view(), omega->view());
     }
@@ -364,7 +364,7 @@ class ZModel
  
     // External entry point from the TimeIntegration object that uses the
     // problem manager state.
-    void computeDerivatives( node_array zdot, node_array wdot ) const
+    void computeDerivatives( node_array& zdot, node_array& wdot ) const
     {
        _pm.gather();
        auto z_orig = _pm.get( Cabana::Grid::Node(), Field::Position() );
@@ -374,8 +374,8 @@ class ZModel
 
     // External entry point from the TimeIntegration object that uses the
     // passed-in state
-    void computeDerivatives( node_array &z, node_array &w,
-                             node_array zdot, node_array wdot ) const
+    void computeDerivatives( node_array& z, node_array& w,
+                             node_array& zdot, node_array& wdot ) const
     {
         _pm.gather( z, w );
 	    computeHaloedDerivatives( z, w, zdot, wdot );
@@ -383,8 +383,8 @@ class ZModel
 
     // Shared internal entry point from the external points from the
     // TimeIntegration object
-    void computeHaloedDerivatives( node_array z_array, node_array w_array,
-                                   node_array zdot_array, node_array wdot_array ) const
+    void computeHaloedDerivatives( node_array& z_array, node_array& w_array,
+                                   node_array& zdot_array, node_array& wdot_array ) const
     {
         // External calls to this object work on Cabana::Grid arrays, but internal
         // methods mostly work on the views, with the entry points responsible
@@ -398,8 +398,8 @@ class ZModel
         // mostly-local parallel calculations in phase 2
 
         // Get dx and dy arrays
-        auto z_dx = _pm.mesh().Dx(z, _dx);
-        auto z_dy = _pm.mesh().Dy(z, _dy);
+        auto z_dx = _pm.mesh().Dx(z_array, _dx);
+        auto z_dy = _pm.mesh().Dy(z_array, _dy);
 
         // Phase 1.a: Calcuate the omega value for each point
         auto out = StructuredMesh::omega<MemorySpace, ExecutionSpace>(w, z_dx, z_dy);

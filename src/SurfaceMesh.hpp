@@ -160,7 +160,7 @@ class SurfaceMesh
      * Compute fourth-order central difference calculation for derivatives along the 
      * interface surface
      */
-    node_array Dx(node_array in, double dx) const
+    node_array Dx(node_array& in, double dx) const
     {
         node_array out = in.clone();
         auto out_view = out->view();
@@ -172,12 +172,12 @@ class SurfaceMesh
         Kokkos::parallel_for("Calculate Dx", policy, KOKKOS_LAMBDA(const int i, const int j) {
             for (int d = 0; d < dim2; d++)
             {
-                out_view(i, j, d) = Dx(in, i, j, d, dx);
+                out_view(i, j, d) = Dx(in_view, i, j, d, dx);
             }
         });
         return out;
     }
-    node_array Dy(node_array in, double dy) const
+    node_array Dy(node_array& in, double dy) const
     {
         node_array out = in.clone();
         auto out_view = out->view();
@@ -186,10 +186,10 @@ class SurfaceMesh
         auto index_space = layout->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Local());
         int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
-        Kokkos::parallel_for("Calculate Dx", policy, KOKKOS_LAMBDA(const int i, const int j) {
+        Kokkos::parallel_for("Calculate Dy", policy, KOKKOS_LAMBDA(const int i, const int j) {
             for (int d = 0; d < dim2; d++)
             {
-                out_view(i, j, d) = Dy(in, i, j, d, dx);
+                out_view(i, j, d) = Dy(in_view, i, j, d, dx);
             }
         });
         return out;
