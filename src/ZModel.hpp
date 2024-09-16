@@ -307,7 +307,7 @@ class ZModel
                            [[maybe_unused]] node_array& z, node_array& w,
                            [[maybe_unused]] node_array& omega_view) const
     {
-        computeReiszTransform(w->view());
+        computeReiszTransform(w.view());
     }
 
     /* For medium order, we calculate the fourier velocity that we later 
@@ -316,8 +316,8 @@ class ZModel
     void prepareVelocities(Order::Medium, node_array& zdot, node_array& z, node_array& w,
                            node_array& omega) const
     {
-        computeReiszTransform(w->view());
-        _br->computeInterfaceVelocity(zdot->view(), z->view(), omega->view());
+        computeReiszTransform(w.view());
+        _br->computeInterfaceVelocity(zdot.view(), z.view(), omega.view());
     }
 
     /* For high order, we just directly compute the interface velocity (zdot)
@@ -326,7 +326,7 @@ class ZModel
     void prepareVelocities(Order::High, node_array& zdot, node_array& z,
                            [[maybe_unused]]node_array& w, node_array& omega) const
     {
-        _br->computeInterfaceVelocity(zdot->view(), z->view(), omega->view());
+        _br->computeInterfaceVelocity(zdot.view(), z.view(), omega.view());
     }
 
     // Compute the final interface velocities and normalized BR velocities
@@ -364,12 +364,12 @@ class ZModel
  
     // External entry point from the TimeIntegration object that uses the
     // problem manager state.
-    void computeDerivatives( node_array& zdot, node_array& wdot ) const
+    void computeDerivatives( node_array& zdot_ptr, node_array& wdot_ptr ) const
     {
        _pm.gather();
        auto z_orig = _pm.get( Cabana::Grid::Node(), Field::Position() );
        auto w_orig = _pm.get( Cabana::Grid::Node(), Field::Vorticity() );
-       computeHaloedDerivatives( z_orig, w_orig, zdot, wdot );
+       computeHaloedDerivatives( *z_orig, *w_orig, zdot_ptr, wdot_ptr );
     } 
 
     // External entry point from the TimeIntegration object that uses the
@@ -402,8 +402,8 @@ class ZModel
         auto z_dy = _pm.mesh().Dy(z_array, _dy);
 
         // Phase 1.a: Calcuate the omega value for each point
-        auto out = StructuredMesh::omega<MemorySpace, ExecutionSpace>(w, z_dx, z_dy);
-        Cabana::Grid::ArrayOp::copy(_omega, out, Cabana::Grid::Own());
+        auto out = _pm.mesh().omega(w_array, *z_dx, *z_dy);
+        Cabana::Grid::ArrayOp::copy(*_omega, *out, Cabana::Grid::Own());
 
         // auto local_grid = _pm.mesh().localGrid();
         // l2g_type local_l2g = Cabana::Grid::IndexConversion::createL2G( *local_grid, Cabana::Grid::Node() );
@@ -411,55 +411,55 @@ class ZModel
         //printView(local_l2g, 0, z_view, 1, 2, 2);
 
         // Phase 1.b: Compute zdot
-        prepareVelocities(MethodOrder(), zdot_array, z_array, w_array, _omega);
+        prepareVelocities(MethodOrder(), zdot_array, z_array, w_array, *_omega);
 
-        // auto reisz = _reisz->view();
-        // double g = _g;
-        // double A = _A;
+        auto reisz = _reisz->view();
+        double g = _g;
+        double A = _A;
 
         // // Phase 2: Process the globally-dependent velocity information into 
         // // into final interface position derivatives and the information 
         // // needed for calculating the vorticity derivative
-        // auto V_view = _V->view();
+        auto V_view = _V->view();
 
         // // auto local_grid = _pm.mesh().localGrid();
         // auto own_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
-        // Kokkos::parallel_for( "Interface Velocity",  
-        //     createExecutionPolicy(own_node_space, ExecutionSpace()), 
-        //     KOKKOS_LAMBDA(int i, int j) {
-        //     //  2.1 Compute Dx and Dy of z and w by fourth-order central differencing. 
-        //     double dx_z[3], dy_z[3];
+        Kokkos::parallel_for( "Interface Velocity",  
+            createExecutionPolicy(own_node_space, ExecutionSpace()), 
+            KOKKOS_LAMBDA(int i, int j) {
+            //  2.1 Compute Dx and Dy of z and w by fourth-order central differencing. 
+            double dx_z[3], dy_z[3];
 
-        //     for (int n = 0; n < 3; n++) {
-        //        dx_z[n] = Operators::Dx(z_view, i, j, n, dx);
-        //        dy_z[n] = Operators::Dy(z_view, i, j, n, dy);
-        //     }
+            for (int n = 0; n < 3; n++) {
+               dx_z[n] = Operators::Dx(z_view, i, j, n, dx);
+               dy_z[n] = Operators::Dy(z_view, i, j, n, dy);
+            }
 
-        //     //  2.2 Compute h11, h12, h22, and det_h from Dx and Dy
-        //     double h11 = Operators::dot(dx_z, dx_z);
-        //     double h12 = Operators::dot(dx_z, dy_z);
-        //     double h22 = Operators::dot(dy_z, dy_z);
-        //     double deth = h11*h22 - h12*h12;
+            //  2.2 Compute h11, h12, h22, and det_h from Dx and Dy
+            double h11 = Operators::dot(dx_z, dx_z);
+            double h12 = Operators::dot(dx_z, dy_z);
+            double h22 = Operators::dot(dy_z, dy_z);
+            double deth = h11*h22 - h12*h12;
 
-        //     //  2.3 Compute the surface normal as (Dx \cross Dy)/sqrt(deth)
-        //     double N[3];
-        //     Operators::cross(N, dx_z, dy_z);
-        //     for (int n = 0; n < 3; n++)
-		//         N[n] /= sqrt(deth);
+            //  2.3 Compute the surface normal as (Dx \cross Dy)/sqrt(deth)
+            double N[3];
+            Operators::cross(N, dx_z, dy_z);
+            for (int n = 0; n < 3; n++)
+		        N[n] /= sqrt(deth);
 
-        //     //  2.4 Compute zdot and zndot as needed using specialized helper functions
-        //     double zndot;
-        //     finalizeVelocity(MethodOrder(), zndot, zdot, i, j, 
-        //                      reisz, N, deth );
+            //  2.4 Compute zdot and zndot as needed using specialized helper functions
+            double zndot;
+            finalizeVelocity(MethodOrder(), zndot, zdot, i, j, 
+                             reisz, N, deth );
 
-        //     //  2.5 Compute V from zndot and vorticity 
-	    //     double w1 = w_view(i, j, 0); 
-        //     double w2 = w_view(i, j, 1);
+            //  2.5 Compute V from zndot and vorticity 
+	        double w1 = w_view(i, j, 0); 
+            double w2 = w_view(i, j, 1);
 
-        //     V_view(i, j, 0) = zndot * zndot 
-        //                     - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
-        //                     - 2*g*z_view(i, j, 2);
-        // });
+            V_view(i, j, 0) = zndot * zndot 
+                            - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
+                            - 2*g*z_view(i, j, 2);
+        });
 
         // // 3. Phase 3: Halo V and apply boundary condtions on it, then calculate
         // // central differences of V, laplacians for artificial viscosity, and
