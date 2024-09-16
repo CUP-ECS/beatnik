@@ -182,11 +182,11 @@ class SurfaceMesh
         auto out_view = out->view();
         auto in_view = in.view();
         auto layout = in.layout();
-        auto index_space = layout->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Local());
+        auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
-        Kokkos::parallel_for("Calculate Dx", policy, KOKKOS_LAMBDA(const int i, const int j, const int k) {
-            out_view(i, j, k) = Operators::Dy(in_view, i, j, k, dy);
+        Kokkos::parallel_for("Calculate Dx", policy, KOKKOS_LAMBDA(const int i, const int j) {
+            for (int k = 0; k < dim2; k++) out_view(i, j, k) = Operators::Dy(in_view, i, j, k, dy);
         });
         return out;
     }
@@ -195,17 +195,21 @@ class SurfaceMesh
     // at the beginning of these functions
     std::shared_ptr<node_array> omega(const node_array& w, const node_array& z_dx, const node_array& z_dy) const
     {
-        auto out = Cabana::Grid::ArrayOp::clone(w);
-        auto out_view = out->view();
         auto zdx_view = z_dx.view();
         auto zdy_view = z_dy.view();
         auto w_view = w.view();
         auto layout = z_dx.layout();
-        auto index_space = layout->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Local());
+        auto node_triple_layout =
+            Cabana::Grid::createArrayLayout( layout->localGrid(), 3, Cabana::Grid::Node() );
+        std::shared_ptr<node_array> out = Cabana::Grid::createArray<double, memory_space>("omega", 
+                                                       node_triple_layout);
+        auto out_view = out->view();
+        auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
-        Kokkos::parallel_for("Calculate Dx", policy, KOKKOS_LAMBDA(const int i, const int j, const int k) {
-            out_view(i, j, k) = w_view(i, j, 1) * zdx_view(i, j, k) - w_view(i, j, 0) * zdy_view(i, j, k);
+        Kokkos::parallel_for("Calculate Dx", policy, KOKKOS_LAMBDA(const int i, const int j) {
+            for (int k = 0; k < dim2; k++)
+                out_view(i, j, k) = w_view(i, j, 1) * zdx_view(i, j, k) - w_view(i, j, 0) * zdy_view(i, j, k);
         });
         return out;
     }

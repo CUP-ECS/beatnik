@@ -383,19 +383,21 @@ class ZModel
 
     // XXX - Tag this function based on strucutred/unstrucutred mesh
     void computeVelocitiesStructured(node_array& z, node_array& z_dx, node_array& z_dy,
-                                     node_array& w, node_array& zdot) const
+                                     node_array& w, node_array& zdot, node_array& wdot) const
     {
-        auto reisz_view = _reisz.view();
+        auto reisz_view = _reisz->view();
         auto z_view = z.view();
         auto w_view = w.view();
         auto zdot_view = zdot.view();
+        auto wdot_view = wdot.view();
         auto z_dx_view = z_dx.view();
         auto z_dy_view = z_dy.view();
+        double g = _g, A = _A, dx = _dx, dy = _dy;
 
         // Phase 2: Process the globally-dependent velocity information into 
         // into final interface position derivatives and the information 
         // needed for calculating the vorticity derivative
-        auto V_view = _V.view();
+        auto V_view = _V->view();
 
         auto layout = z.layout();
         auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
@@ -424,8 +426,8 @@ class ZModel
 
             //  2.4 Compute zdot and zndot as needed using specialized helper functions
             double zndot;
-            finalizeVelocity(MethodOrder(), zndot, zdot, i, j, 
-                             reisz, N, deth );
+            finalizeVelocity(MethodOrder(), zndot, zdot_view, i, j, 
+                             reisz_view, N, deth );
 
             //  2.5 Compute V from zndot and vorticity 
 	        double w1 = w_view(i, j, 0); 
@@ -434,6 +436,26 @@ class ZModel
             V_view(i, j, 0) = zndot * zndot 
                             - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
                             - 2*g*z_view(i, j, 2);
+        });
+
+        // 3. Phase 3: Halo V and apply boundary condtions on it, then calculate
+        // central differences of V, laplacians for artificial viscosity, and
+        // put it all together to calcualte the final vorticity derivative.
+
+        // Halo V and correct any boundary condition corrections so that we can 
+        // compute finite differences correctly.
+        _v_halo->gather( ExecutionSpace(), *_V);
+        _bc.applyField( _pm.mesh(), *_V, 1 );
+
+        double mu = _mu;
+        Kokkos::parallel_for( "Interface Vorticity", policy, 
+            KOKKOS_LAMBDA(int i, int j) {
+            double dx_v = Operators::Dx(V_view, i, j, 0, dx);
+            double dy_v = Operators::Dy(V_view, i, j, 0, dy);
+            double lap_w0 = Operators::laplace(w_view, i, j, 0, dx, dy);
+            double lap_w1 = Operators::laplace(w_view, i, j, 1, dx, dy);
+            wdot_view(i, j, 0) = A * dx_v + mu * lap_w0;
+            wdot_view(i, j, 1) = A * dy_v + mu * lap_w1;
         });
     }
 
@@ -468,15 +490,15 @@ class ZModel
 
         // Phase 1.b: Compute zdot
         prepareVelocities(MethodOrder(), zdot_array, z_array, w_array, *_omega);
-        computeVelocitiesStructured(z_array, *z_dx, *z_dy, w_array, zdot_array);
+        computeVelocitiesStructured(z_array, *z_dx, *z_dy, w_array, zdot_array, wdot_array);
         
         // auto reisz = _reisz->view();
         // double g = _g;
         // double A = _A;
 
-        // // Phase 2: Process the globally-dependent velocity information into 
-        // // into final interface position derivatives and the information 
-        // // needed for calculating the vorticity derivative
+        // Phase 2: Process the globally-dependent velocity information into 
+        // into final interface position derivatives and the information 
+        // needed for calculating the vorticity derivative
         // auto V_view = _V->view();
 
         // // // auto local_grid = _pm.mesh().localGrid();
