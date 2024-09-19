@@ -15,10 +15,9 @@
 #include <BoundaryCondition.hpp>
 #include <ProblemManager.hpp>
 #include <ZModel.hpp>
-#include "../tests/TestingUtils.hpp"
+#include <Beatnik_Array.hpp>
 
 #include <Cabana_Grid.hpp>
-
 #include <Kokkos_Core.hpp>
 
 namespace Beatnik
@@ -54,6 +53,8 @@ class TimeIntegrator
             Cabana::Grid::createArrayLayout( pm.mesh().localGrid(), 3, Cabana::Grid::Node() );
         auto node_pair_layout =
             Cabana::Grid::createArrayLayout( pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
+        auto node_pair_layout_b =
+            Array::createArrayLayout( pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
 
         _zdot = Cabana::Grid::createArray<double, mem_space>("velocity", 
                                                        node_triple_layout);
