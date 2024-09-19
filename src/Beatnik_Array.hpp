@@ -14,7 +14,8 @@
  *
  * @section DESCRIPTION
  * Array and ArrayLayouts that use Cabana::Grid::Arrays or NuMesh::Arrays depending on
- * the mesh variant
+ * the mesh variant.
+ * NOTE: Only Cabana::Grid::Node layout types are compatiable with this class.
  */
 
 #ifndef BEATNIK_ARRAY_HPP
@@ -41,34 +42,34 @@ public:
     using numesh_t = NuMesh::Mesh<ExecutionSpace, MemorySpace>;
 
     // The variant type that holds either Cabana or NuMesh
-    using background_variant_t = std::variant<cabana_t, numesh_t>;
+    using cabana_array_layout_t = Cabana::Grid::ArrayLayout<Cabana::Grid::Node, cabana_mesh_t>;
+    using numesh_array_layout_t = NuMesh::Array::ArrayLayout<NuMesh::Vertex, numesh_t>;
+    using background_variant_t = std::variant<cabana_array_layout_t, numesh_array_layout_t>;
 
     // Constructor that takes either a Cabana or NuMesh object
-    template <typename MeshType>
-    ArrayLayout(const std::shared_ptr<MeshType>& mesh)
-    {
-        initialize(mesh);
-    }
-
-private:
-    // Method to initialize the background variant based on the mesh type
-    template <typename MeshType>
-    void initialize(const std::shared_ptr<MeshType>& mesh)
+    template <typename MeshType, typename EntityType>
+    ArrayLayout(const std::shared_ptr<MeshType>& mesh, const int dofs_per_entity, EntityType tag)
     {
         if constexpr (std::is_same_v<MeshType, cabana_t>)
         {
-            //_background_variant = std::make_shared<background_variant_t>(cabana_t(*mesh));
+            printf("cabana type\n");
+            auto layout = Cabana::Grid::createArrayLayout(mesh, dofs_per_entity, tag);
+            _background_variant = std::make_shared<background_variant_t>(cabana_array_layout_t(*layout)); 
         }
         else if constexpr (std::is_same_v<MeshType, numesh_t>)
         {
-            //_background_variant = std::make_shared<background_variant_t>(numesh_t(*mesh));
+            printf("numesh type\n");
+            auto layout = NuMesh::Array::createArrayLayout(mesh, dofs_per_entity, tag);
+            _background_variant = std::make_shared<background_variant_t>(numesh_array_layout_t(*layout)); 
         }
         else
         {
+            printf("no type\n");
             //static_assert(false, "Unsupported mesh type provided to ArrayLayout");
         }
     }
 
+private:
     // The shared pointer to the variant
     std::shared_ptr<background_variant_t> _background_variant;
 };
@@ -77,12 +78,12 @@ private:
 // Array layout creation.
 //---------------------------------------------------------------------------//
 // Define the Cabana local grid type.
-// using cabana_mesh_t = Cabana::Grid::UniformMesh<double, 2>;
-// using cabana_grid_t = Cabana::Grid::LocalGrid<cabana_mesh_t>;
+using cabana_mesh_t = Cabana::Grid::UniformMesh<double, 2>;
+using cabana_grid_t = Cabana::Grid::LocalGrid<cabana_mesh_t>;
 
 // // Define the NuMesh type.
-// template <class ExecutionSpace, class MemorySpace>
-// using numesh_t = NuMesh::Mesh<ExecutionSpace, MemorySpace>;
+template <class ExecutionSpace, class MemorySpace>
+using numesh_t = NuMesh::Mesh<ExecutionSpace, MemorySpace>;
 // /*!
 //   \brief Cabana version: Create an array layout over the entities of a local grid.
 //   \param local_grid The local grid over which to create the layout.
@@ -90,13 +91,19 @@ private:
 //   \return Shared pointer to an ArrayLayout.
 //   \note EntityType The entity: Cell, Node, Face, or Edge
 // */
-// template <class ExecutionSpace, class MemorySpace>
-// std::shared_ptr<ArrayLayout<ExecutionSpace, MemorySpace>>
-// createArrayLayout(const std::shared_ptr<cabana_grid_t>& cabana_grid)
-// {
-//     return std::make_shared<ArrayLayout<ExecutionSpace, MemorySpace>>(cabana_grid);
-// }
+template <class ExecutionSpace, class MemorySpace, class EntityType>
+std::shared_ptr<ArrayLayout<ExecutionSpace, MemorySpace>>
+createArrayLayout(const std::shared_ptr<Cabana::Grid::LocalGrid<cabana_mesh_t>>& cabana_grid, const int dofs_per_entity, EntityType tag)
+{
+    return std::make_shared<ArrayLayout<ExecutionSpace, MemorySpace>>(cabana_grid, dofs_per_entity, tag);
+}
 
+template <class ExecutionSpace, class MemorySpace, class EntityType>
+std::shared_ptr<ArrayLayout<ExecutionSpace, MemorySpace>>
+createArrayLayout(const std::shared_ptr<numesh_t<ExecutionSpace, MemorySpace>>& mesh, const int dofs_per_entity, EntityType tag)
+{
+    return std::make_shared<ArrayLayout<ExecutionSpace, MemorySpace>>(mesh, dofs_per_entity, tag);
+}
 // /*!
 //   \brief NuMesh version: Create an array layout over the entities of a mesh.
 //   \param numesh The NuMesh mesh over which to create the layout.
