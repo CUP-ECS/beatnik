@@ -25,8 +25,6 @@
 
 #include <ZModel.hpp>
 
-#include <Kokkos_Core.hpp>
-#include <NuMesh_Core.hpp>
 #include <memory>
 #include <string>
 
