@@ -53,9 +53,8 @@ class TimeIntegrator
             Cabana::Grid::createArrayLayout( pm.mesh().localGrid(), 3, Cabana::Grid::Node() );
         auto node_pair_layout =
             Cabana::Grid::createArrayLayout( pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
-        auto node_pair_layout_b =
-            Array::createArrayLayout( pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
-
+        const std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> mesh = pm.mesh().localGrid();  
+        //auto node_pair_layout_b = std::make_shared<Array::ArrayLayout<exec_space, mem_space>>(pm.mesh().localGrid());
         _zdot = Cabana::Grid::createArray<double, mem_space>("velocity", 
                                                        node_triple_layout);
         _wdot = Cabana::Grid::createArray<double, mem_space>("vorticity derivative",
