@@ -32,35 +32,38 @@ namespace Beatnik
 namespace Array
 {
 
-template <class ExecutionSpace, class MemorySpace, class EntityTag>
+template <class ExecutionSpace, class MemorySpace, class EntityType>
 class ArrayLayout
 {
-public:
+  public:
+    using execution_space = ExecutionSpace;
+    using memory_space = MemorySpace;
+    using entity_type = EntityType;
     // Define types for Cabana and NuMesh
     using cabana_mesh_t = Cabana::Grid::UniformMesh<double, 2>;
     using cabana_t = Cabana::Grid::LocalGrid<cabana_mesh_t>;
     using numesh_t = NuMesh::Mesh<ExecutionSpace, MemorySpace>;
 
     // The variant type that holds either Cabana or NuMesh
-    using cabana_array_layout_t = Cabana::Grid::ArrayLayout<EntityTag, cabana_mesh_t>;
-    using numesh_array_layout_t = NuMesh::Array::ArrayLayout<EntityTag, numesh_t>;
+    using cabana_array_layout_t = Cabana::Grid::ArrayLayout<EntityType, cabana_mesh_t>;
+    using numesh_array_layout_t = NuMesh::Array::ArrayLayout<EntityType, numesh_t>;
     using background_variant_t = std::variant<cabana_array_layout_t, numesh_array_layout_t>;
 
     // Constructor that takes either a Cabana or NuMesh object
     template <typename MeshType>
-    ArrayLayout(const std::shared_ptr<MeshType>& mesh, const int dofs_per_entity, EntityTag tag)
+    ArrayLayout(const std::shared_ptr<MeshType>& mesh, const int dofs_per_entity, EntityType tag)
     {
         if constexpr (std::is_same_v<MeshType, cabana_t>)
         {
             printf("cabana type\n");
             auto layout = Cabana::Grid::createArrayLayout(mesh, dofs_per_entity, tag);
-            _background_variant = std::make_shared<background_variant_t>(cabana_array_layout_t(*layout)); 
+            _layout_background_variant = std::make_shared<background_variant_t>(cabana_array_layout_t(*layout)); 
         }
         else if constexpr (std::is_same_v<MeshType, numesh_t>)
         {
             printf("numesh type\n");
             auto layout = NuMesh::Array::createArrayLayout(mesh, dofs_per_entity, tag);
-            _background_variant = std::make_shared<background_variant_t>(numesh_array_layout_t(*layout)); 
+            _layout_background_variant = std::make_shared<background_variant_t>(numesh_array_layout_t(*layout)); 
         }
         else
         {
@@ -71,7 +74,7 @@ public:
 
 private:
     // The shared pointer to the variant
-    std::shared_ptr<background_variant_t> _background_variant;
+    std::shared_ptr<background_variant_t> _layout_background_variant;
 };
 
 //---------------------------------------------------------------------------//
@@ -91,43 +94,50 @@ using numesh_t = NuMesh::Mesh<ExecutionSpace, MemorySpace>;
 //   \return Shared pointer to an ArrayLayout.
 //   \note EntityType The entity: Cell, Node, Face, or Edge
 // */
-template <class ExecutionSpace, class MemorySpace, class EntityTag>
-std::shared_ptr<ArrayLayout<ExecutionSpace, MemorySpace, EntityTag>>
-createArrayLayout(const std::shared_ptr<Cabana::Grid::LocalGrid<cabana_mesh_t>>& cabana_grid, const int dofs_per_entity, EntityTag tag)
+template <class ExecutionSpace, class MemorySpace, class EntityType>
+std::shared_ptr<ArrayLayout<ExecutionSpace, MemorySpace, EntityType>>
+createArrayLayout(const std::shared_ptr<Cabana::Grid::LocalGrid<cabana_mesh_t>>& cabana_grid, const int dofs_per_entity, EntityType tag)
 {
-    return std::make_shared<ArrayLayout<ExecutionSpace, MemorySpace, EntityTag>>(cabana_grid, dofs_per_entity, tag);
+    return std::make_shared<ArrayLayout<ExecutionSpace, MemorySpace, EntityType>>(cabana_grid, dofs_per_entity, tag);
 }
 
-template <class ExecutionSpace, class MemorySpace, class EntityTag>
-std::shared_ptr<ArrayLayout<ExecutionSpace, MemorySpace, EntityTag>>
-createArrayLayout(const std::shared_ptr<numesh_t<ExecutionSpace, MemorySpace>>& mesh, const int dofs_per_entity, EntityTag tag)
+template <class ExecutionSpace, class MemorySpace, class EntityType>
+std::shared_ptr<ArrayLayout<ExecutionSpace, MemorySpace, EntityType>>
+createArrayLayout(const std::shared_ptr<numesh_t<ExecutionSpace, MemorySpace>>& mesh, const int dofs_per_entity, EntityType tag)
 {
-    return std::make_shared<ArrayLayout<ExecutionSpace, MemorySpace, EntityTag>>(mesh, dofs_per_entity, tag);
+    return std::make_shared<ArrayLayout<ExecutionSpace, MemorySpace, EntityType>>(mesh, dofs_per_entity, tag);
 }
 
 //---------------------------------------------------------------------------//
 // Array class.
 //---------------------------------------------------------------------------//
-template <class Scalar, class EntityType, class MeshType, class... Params>
+template <class ExecutionSpace, class MemorySpace, class Scalar, class EntityType, class MeshType, class... Params>
 class Array
 {
   public:
     // The variant type that holds either Cabana or NuMesh
-    using cabana_array_t = Cabana::Grid::Array<Scalar, EntityType, MeshType, Params...>;
-    using numesh_array_t = NuMesh::Array::Array<Scalar, EntityType, MeshType, Params...>;
+    using cabana_mesh_t = Cabana::Grid::UniformMesh<double, 2>;
+    using cabana_t = Cabana::Grid::LocalGrid<cabana_mesh_t>;
+    using numesh_t = NuMesh::Mesh<ExecutionSpace, MemorySpace>;
+
+    using cabana_array_layout_t = Cabana::Grid::ArrayLayout<EntityType, cabana_mesh_t>;
+    using numesh_array_layout_t = NuMesh::Array::ArrayLayout<EntityType, numesh_t>;
+
+    using cabana_array_t = Cabana::Grid::Array<Scalar, EntityType, cabana_mesh_t, Params...>;
+    using numesh_array_t = NuMesh::Array::Array<Scalar, EntityType, numesh_t, Params...>;
     using background_variant_t = std::variant<cabana_array_t, numesh_array_t>;
 
     // Constructor that takes either a Cabana or NuMesh object
     template <typename LayoutType>
     Array(const std::string& label, const std::shared_ptr<LayoutType>& layout)
     {
-        if constexpr (std::is_same_v<LayoutType, cabana_t>)
+        if constexpr (std::is_same_v<LayoutType, cabana_array_layout_t>)
         {
             printf("cabana type\n");
             auto array = Cabana::Grid::createArray(label, layout);
             _background_variant = std::make_shared<background_variant_t>(cabana_array_t(*array)); 
         }
-        else if constexpr (std::is_same_v<LayoutType, numesh_t>)
+        else if constexpr (std::is_same_v<LayoutType, numesh_array_layout_t>)
         {
             printf("numesh type\n");
             auto array = NuMesh::Array::createArray(label, layout);
@@ -155,14 +165,19 @@ class Array
   \param layout The array layout over which to construct the view.
   \return Shared pointer to an Array.
 */
-template <class ExecutionSpace, class MemorySpace, class EntityTag, class Scalar, class... Params, class EntityType, class MeshType>
-std::shared_ptr<Array<Scalar, EntityType, MeshType, Params...>>
-createArray( const std::string& label,
-             const std::shared_ptr<ArrayLayout<ExecutionSpace, MemorySpace, EntityTag>>& layout )
+template <class LayoutType, class Scalar, class... Params>
+std::shared_ptr<Array<LayoutType, Scalar, Params...>>
+createArray(const std::string& label,
+            const std::shared_ptr<LayoutType>& layout)
 {
-    return std::make_shared<Array<Scalar, EntityType, MeshType, Params...>>(
-        label, layout );
+    using ExecutionSpace = typename LayoutType::execution_space;
+    using MemorySpace = typename LayoutType::memory_space;
+    using EntityType = typename LayoutType::entity_type;
+
+    return std::make_shared<Array<ExecutionSpace, MemorySpace, Scalar, EntityType, cabana_mesh_t Params...>>(
+        label, layout);
 }
+
 
 } // end namespace Array
 

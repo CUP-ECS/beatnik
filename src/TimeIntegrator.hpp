@@ -54,10 +54,12 @@ class TimeIntegrator
         auto node_pair_layout =
             Cabana::Grid::createArrayLayout( pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
         //const std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> mesh = pm.mesh().localGrid(); 
-        auto node_pair_layout_b = Array::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 2, Cabana::Grid::Node());
+        std::shared_ptr<Beatnik::Array::ArrayLayout<exec_space, mem_space, Cabana::Grid::Node>> node_pair_layout_b = Array::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 2, Cabana::Grid::Node());
         
         std::shared_ptr<NuMesh::Mesh<exec_space, mem_space>> nu_mesh = NuMesh::createMesh<exec_space, mem_space>(MPI_COMM_WORLD);
         auto vertex_triple_layout = Array::createArrayLayout(nu_mesh, 3, NuMesh::Vertex());
+
+        auto zdot_b = Array::createArray<double, mem_space>("velocity", node_pair_layout_b);
 
         _zdot = Cabana::Grid::createArray<double, mem_space>("velocity", 
                                                        node_triple_layout);
