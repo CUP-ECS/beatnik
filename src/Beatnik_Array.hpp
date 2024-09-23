@@ -72,12 +72,38 @@ class ArrayLayout
         }
     }
 
-    // Complete this function
     auto layout()
     {
+        if (std::holds_alternative<cabana_array_layout_t>(*_layout_background_variant))
+        {
+            if (auto ptr = std::get_if<std::shared_ptr<cabana_array_layout_t>>(_layout_background_variant.get())) {
+                return ptr->get();  // Return the raw pointer from shared_ptr
+            }
+        }
+        // return std::visit([](auto&& arg) -> std::shared_ptr<void> {
+        //     using LayoutType = std::decay_t<decltype(arg)>;
+        //     return std::make_shared<LayoutType>(arg);
+        // }, *_layout_background_variant);
+
+        /*
+         template <typename T>
+    T* get_pointer() {
+        if (auto ptr = std::get_if<std::shared_ptr<T>>(variant_.get())) {
+            return ptr->get();  // Return the raw pointer from shared_ptr
+        }
+        return nullptr;  // Return nullptr if the variant does not hold the specified type
+    }
+        */
     }
 
-private:
+    auto variant()
+    {
+        return _layout_background_variant;
+    }
+
+
+
+  private:
     // The shared pointer to the variant
     std::shared_ptr<background_variant_t> _layout_background_variant;
 };
@@ -139,26 +165,33 @@ class Array
     using background_variant_t = std::variant<cabana_array_t, numesh_array_t>;
 
     // Constructor that takes either a Cabana or NuMesh object
-    // template <typename LayoutType>
     Array(const std::string& label, const std::shared_ptr<LayoutType>& layout)
     {
-        auto background_type = layout.
-        if constexpr (std::is_same_v<LayoutType, cabana_array_layout_t>)
+        auto background_type = layout->variant();
+        int is_cabana = 0;
+        std::visit([&is_cabana](auto&& arg) {
+            using T = std::decay_t<decltype(arg)>;
+            if constexpr (std::is_same_v<T, cabana_array_layout_t>)
+            {
+                std::cout << "It's a Cabana layout!" << std::endl;
+                is_cabana = 1;
+            }
+            else if constexpr (std::is_same_v<T, numesh_array_layout_t>)
+            {
+                std::cout << "It's a NuMesh layout!" << std::endl;
+            }
+        }, *background_type);
+
+        if (is_cabana == 1)
         {
-            printf("cabana type\n");
-            auto array = Cabana::Grid::createArray(label, layout);
-            _background_variant = std::make_shared<background_variant_t>(cabana_array_t(*array)); 
-        }
-        else if constexpr (std::is_same_v<LayoutType, numesh_array_layout_t>)
-        {
-            printf("numesh type\n");
-            auto array = NuMesh::Array::createArray(label, layout);
-            _background_variant = std::make_shared<background_variant_t>(numesh_array_t(*array)); 
+            auto l = layout->layout();
+            //auto array = Cabana::Grid::createArray(label, l);
+            // _background_variant = std::make_shared<background_variant_t>(cabana_array_t(*array)); 
         }
         else
         {
-            printf("no type\n");
-            //static_assert(false, "Unsupported mesh type provided to ArrayLayout");
+            // auto array = NuMesh::Array::createArray(label, layout);
+            // _background_variant = std::make_shared<background_variant_t>(numesh_array_t(*array)); 
         }
     }
 
