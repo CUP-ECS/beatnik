@@ -59,7 +59,9 @@ class TimeIntegrator
         std::shared_ptr<NuMesh::Mesh<exec_space, mem_space>> nu_mesh = NuMesh::createMesh<exec_space, mem_space>(MPI_COMM_WORLD);
         auto vertex_triple_layout = Array::createArrayLayout(nu_mesh, 3, NuMesh::Vertex());
 
-        auto zdot_b = Array::createArray<double, mem_space>("velocity", node_pair_layout_b);
+        // auto zdot_b = Array::createArray<double, mem_space>("velocity", node_pair_layout_b);
+        auto zdot_b = Array::createArray("velocity", node_pair_layout_b);
+
 
         _zdot = Cabana::Grid::createArray<double, mem_space>("velocity", 
                                                        node_triple_layout);

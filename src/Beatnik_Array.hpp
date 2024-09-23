@@ -72,6 +72,11 @@ class ArrayLayout
         }
     }
 
+    // Complete this function
+    auto layout()
+    {
+    }
+
 private:
     // The shared pointer to the variant
     std::shared_ptr<background_variant_t> _layout_background_variant;
@@ -111,10 +116,16 @@ createArrayLayout(const std::shared_ptr<numesh_t<ExecutionSpace, MemorySpace>>& 
 //---------------------------------------------------------------------------//
 // Array class.
 //---------------------------------------------------------------------------//
-template <class ExecutionSpace, class MemorySpace, class Scalar, class EntityType, class MeshType, class... Params>
+// template <class ExecutionSpace, class MemorySpace, class Scalar, class EntityType, class MeshType, class... Params>
+// template <class ExecutionSpace, class MemorySpace, class EntityType>
+template <class LayoutType>
 class Array
 {
   public:
+    using ExecutionSpace = typename LayoutType::execution_space;
+    using MemorySpace = typename LayoutType::memory_space;
+    using EntityType = typename LayoutType::entity_type;
+
     // The variant type that holds either Cabana or NuMesh
     using cabana_mesh_t = Cabana::Grid::UniformMesh<double, 2>;
     using cabana_t = Cabana::Grid::LocalGrid<cabana_mesh_t>;
@@ -123,14 +134,15 @@ class Array
     using cabana_array_layout_t = Cabana::Grid::ArrayLayout<EntityType, cabana_mesh_t>;
     using numesh_array_layout_t = NuMesh::Array::ArrayLayout<EntityType, numesh_t>;
 
-    using cabana_array_t = Cabana::Grid::Array<Scalar, EntityType, cabana_mesh_t, Params...>;
-    using numesh_array_t = NuMesh::Array::Array<Scalar, EntityType, numesh_t, Params...>;
+    using cabana_array_t = Cabana::Grid::Array<double, EntityType, cabana_mesh_t, double, MemorySpace>;
+    using numesh_array_t = NuMesh::Array::Array<double, EntityType, numesh_t, double, MemorySpace>;
     using background_variant_t = std::variant<cabana_array_t, numesh_array_t>;
 
     // Constructor that takes either a Cabana or NuMesh object
-    template <typename LayoutType>
+    // template <typename LayoutType>
     Array(const std::string& label, const std::shared_ptr<LayoutType>& layout)
     {
+        auto background_type = layout.
         if constexpr (std::is_same_v<LayoutType, cabana_array_layout_t>)
         {
             printf("cabana type\n");
@@ -165,16 +177,17 @@ class Array
   \param layout The array layout over which to construct the view.
   \return Shared pointer to an Array.
 */
-template <class LayoutType, class Scalar, class... Params>
-std::shared_ptr<Array<LayoutType, Scalar, Params...>>
+// template <class LayoutType, class Scalar, class... Params>
+template <class LayoutType>
+std::shared_ptr<Array<LayoutType>>
 createArray(const std::string& label,
             const std::shared_ptr<LayoutType>& layout)
 {
-    using ExecutionSpace = typename LayoutType::execution_space;
-    using MemorySpace = typename LayoutType::memory_space;
-    using EntityType = typename LayoutType::entity_type;
+    // using ExecutionSpace = typename LayoutType::execution_space;
+    // using MemorySpace = typename LayoutType::memory_space;
+    // using EntityType = typename LayoutType::entity_type;
 
-    return std::make_shared<Array<ExecutionSpace, MemorySpace, Scalar, EntityType, cabana_mesh_t Params...>>(
+    return std::make_shared<Array<LayoutType>>(
         label, layout);
 }
 
