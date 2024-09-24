@@ -56,7 +56,7 @@ class ArrayLayout
     {
         if constexpr (std::is_same_v<MeshType, cabana_t>)
         {
-            printf("cabana type\n");
+            printf("cabana node layout type\n");
             _cabana_layout_n = Cabana::Grid::createArrayLayout(mesh, dofs_per_entity, tag);
             _numesh_layout_v = NULL;
             _numesh_layout_e = NULL;
@@ -66,7 +66,7 @@ class ArrayLayout
         {
             if constexpr (std::is_same_v<NuMesh::Vertex, entity_type>)
             {
-                printf("numesh vertex type\n");
+                printf("numesh vertex layout type\n");
                 _cabana_layout_n = NULL;
                 _numesh_layout_v = NuMesh::Array::createArrayLayout(mesh, dofs_per_entity, tag); 
                 _numesh_layout_e = NULL;
@@ -74,7 +74,7 @@ class ArrayLayout
             }
             else if  constexpr (std::is_same_v<NuMesh::Edge, entity_type>)
             {
-                printf("numesh edge type\n");
+                printf("numesh edge layout type\n");
                 _cabana_layout_n = NULL;
                 _numesh_layout_v = NULL;
                 _numesh_layout_e = NuMesh::Array::createArrayLayout(mesh, dofs_per_entity, tag);
@@ -82,7 +82,7 @@ class ArrayLayout
             }
             else if  constexpr (std::is_same_v<NuMesh::Face, entity_type>)
             {
-                printf("numesh face type\n");
+                printf("numesh face layout type\n");
                 _cabana_layout_n = NULL;
                 _numesh_layout_v = NULL;
                 _numesh_layout_e = NULL;
@@ -155,15 +155,12 @@ createArrayLayout(const std::shared_ptr<numesh_t<ExecutionSpace, MemorySpace>>& 
 // Array class.
 //---------------------------------------------------------------------------//
 // template <class ExecutionSpace, class MemorySpace, class Scalar, class EntityType, class MeshType, class... Params>
-// template <class ExecutionSpace, class MemorySpace, class EntityType>
-template <class LayoutType>
+template <class ExecutionSpace, class MemorySpace>
 class Array
 {
   public:
-    using ExecutionSpace = typename LayoutType::execution_space;
-    using MemorySpace = typename LayoutType::memory_space;
-
-    // The variant type that holds either Cabana or NuMesh
+    // using memory_space = MemorySpace;
+    // using execution_space = ExecutionSpace;
     using cabana_mesh_t = Cabana::Grid::UniformMesh<double, 2>;
     using cabana_t = Cabana::Grid::LocalGrid<cabana_mesh_t>;
     using numesh_t = NuMesh::Mesh<ExecutionSpace, MemorySpace>;
@@ -179,14 +176,14 @@ class Array
     using numesh_array_ft = NuMesh::Array::Array<double, NuMesh::Face, numesh_t, MemorySpace>;
 
     // Constructor that takes either a Cabana or NuMesh object
-    template <typename EntityType>
+    template <typename LayoutType, typename EntityType>
     Array(const std::string& label, const std::shared_ptr<LayoutType>& array_layout, EntityType entity_type)
     {
         auto layout = array_layout->layout(entity_type);
 
         if constexpr (std::is_same_v<EntityType, Cabana::Grid::Node>)
         {
-            printf("cabana type\n");
+            printf("cabana node array type\n");
             _cabana_array_n = Cabana::Grid::createArray<double, MemorySpace>(label, layout);
             _numesh_array_v = NULL;
             _numesh_array_e = NULL;
@@ -194,7 +191,7 @@ class Array
         }
         else if  constexpr (std::is_same_v<EntityType, NuMesh::Vertex>)
         {
-            printf("numesh vertex type\n");
+            printf("numesh vertex array type\n");
             _cabana_array_n = NULL;
             _numesh_array_v = NuMesh::Array::createArray<double, MemorySpace>(label, layout);
             _numesh_array_e = NULL;
@@ -202,7 +199,7 @@ class Array
         }
         else if  constexpr (std::is_same_v<EntityType, NuMesh::Edge>)
         {
-            printf("numesh edge type\n");
+            printf("numesh edge array type\n");
             _cabana_array_n = NULL;
             _numesh_array_v = NULL;
             _numesh_array_e = NuMesh::Array::createArray<double, MemorySpace>(label, layout);
@@ -210,7 +207,7 @@ class Array
         }
         else if  constexpr (std::is_same_v<EntityType, NuMesh::Face>)
         {
-            printf("numesh face type\n");
+            printf("numesh face array type\n");
             _cabana_array_n = NULL;
             _numesh_array_v = NULL;
             _numesh_array_e = NULL;
@@ -241,8 +238,8 @@ class Array
   \return Shared pointer to an Array.
 */
 // template <class LayoutType, class Scalar, class... Params>
-template <class LayoutType, class EntityType>
-std::shared_ptr<Array<LayoutType>>
+template <class ExecutionSpace, class MemorySpace, class LayoutType, class EntityType>
+std::shared_ptr<Array<ExecutionSpace, MemorySpace>>
 createArray(const std::string& label,
             const std::shared_ptr<LayoutType>& layout,
             EntityType entity_type)
@@ -251,7 +248,7 @@ createArray(const std::string& label,
     // using MemorySpace = typename LayoutType::memory_space;
     //using et = typename LayoutType::entity_type;
 
-    return std::make_shared<Array<LayoutType>>(
+    return std::make_shared<Array<ExecutionSpace, MemorySpace>>(
         label, layout, entity_type);
 }
 

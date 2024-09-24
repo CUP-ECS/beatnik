@@ -54,17 +54,31 @@ class TimeIntegrator
         auto node_pair_layout =
             Cabana::Grid::createArrayLayout( pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
         //const std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> mesh = pm.mesh().localGrid(); 
-        std::shared_ptr<Beatnik::Array::ArrayLayout<exec_space, mem_space, Cabana::Grid::Node>> node_pair_layout_b = Array::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 2, Cabana::Grid::Node());
-        
-        std::shared_ptr<NuMesh::Mesh<exec_space, mem_space>> nu_mesh = NuMesh::createMesh<exec_space, mem_space>(MPI_COMM_WORLD);
+        auto node_pair_layout_2 = Array::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 2, Cabana::Grid::Node());
+        auto node_triple_layout_2 = Array::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 3, Cabana::Grid::Node());
+
+        std::array<int, 2> global_num_cell = { 7, 7 };
+        std::array<double, 2> global_low_corner = { -1.0, -1.0 };
+        std::array<double, 2> global_high_corner = { 1.0, 1.0 };
+        std::array<bool, 2> is_dim_periodic = { true, true };
+        Cabana::Grid::DimBlockPartitioner<2> partitioner;
+
+
+        auto nu_mesh = NuMesh::createMesh<exec_space, mem_space>(MPI_COMM_WORLD);
+        nu_mesh->initialize_ve(global_low_corner, global_high_corner, global_num_cell,
+                                is_dim_periodic, partitioner, MPI_COMM_WORLD);
+        nu_mesh->initialize_faces();
+        nu_mesh->initialize_edges();
+        nu_mesh->gather_edges();
+        nu_mesh->assign_ghost_edges_to_faces();
         auto vertex_triple_layout = Array::createArrayLayout(nu_mesh, 3, NuMesh::Vertex());
+        auto edge_triple_layout = Array::createArrayLayout(nu_mesh, 3, NuMesh::Edge());
+        auto face_triple_layout = Array::createArrayLayout(nu_mesh, 3, NuMesh::Face());
 
-        // auto zdot_b = Array::createArray<double, mem_space>("velocity", node_pair_layout_b);
-        using LayoutType = Beatnik::Array::ArrayLayout<exec_space, mem_space, Cabana::Grid::Node>;
-        using EntityType = Cabana::Grid::Node; // or whichever type is appropriate
-
-        auto zdot_b = Array::createArray<LayoutType>("velocity", node_pair_layout_b, Cabana::Grid::Node());
-        // auto zdot_b = Array::createArray("velocity", node_pair_layout_b);
+        auto zdot_array_2 = Array::createArray<exec_space, mem_space>("cabana-v", node_pair_layout_2, Cabana::Grid::Node());
+        auto zdot_numesh_v = Array::createArray<exec_space, mem_space>("nu-v", vertex_triple_layout, NuMesh::Vertex());
+        auto zdot_numesh_e = Array::createArray<exec_space, mem_space>("nu-e", edge_triple_layout, NuMesh::Edge());
+        auto zdot_numesh_f = Array::createArray<exec_space, mem_space>("nu-f", face_triple_layout, NuMesh::Face());
 
 
         _zdot = Cabana::Grid::createArray<double, mem_space>("velocity", 
