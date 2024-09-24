@@ -11,6 +11,7 @@
 #include <Kokkos_Core.hpp>
 
 #include "TestRocketrig.hpp"
+#include "TestingUtils.hpp"
 
 #include "tstDriver.hpp"
 
