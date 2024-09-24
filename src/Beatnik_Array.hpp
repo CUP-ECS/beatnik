@@ -45,9 +45,10 @@ class ArrayLayout
     using numesh_t = NuMesh::Mesh<ExecutionSpace, MemorySpace>;
 
     // The variant type that holds either Cabana or NuMesh
-    using cabana_array_layout_t = Cabana::Grid::ArrayLayout<EntityType, cabana_mesh_t>;
-    using numesh_array_layout_t = NuMesh::Array::ArrayLayout<EntityType, numesh_t>;
-    using background_variant_t = std::variant<cabana_array_layout_t, numesh_array_layout_t>;
+    using cabana_array_layout_nt = Cabana::Grid::ArrayLayout<Cabana::Grid::Node, cabana_mesh_t>;
+    using numesh_array_layout_vt = NuMesh::Array::ArrayLayout<NuMesh::Vertex, numesh_t>;
+    using numesh_array_layout_et = NuMesh::Array::ArrayLayout<NuMesh::Edge, numesh_t>;
+    using numesh_array_layout_ft = NuMesh::Array::ArrayLayout<NuMesh::Face, numesh_t>;
 
     // Constructor that takes either a Cabana or NuMesh object
     template <typename MeshType>
@@ -56,14 +57,37 @@ class ArrayLayout
         if constexpr (std::is_same_v<MeshType, cabana_t>)
         {
             printf("cabana type\n");
-            auto layout = Cabana::Grid::createArrayLayout(mesh, dofs_per_entity, tag);
-            _layout_background_variant = std::make_shared<background_variant_t>(cabana_array_layout_t(*layout)); 
+            _cabana_layout_n = Cabana::Grid::createArrayLayout(mesh, dofs_per_entity, tag);
+            _numesh_layout_v = NULL;
+            _numesh_layout_e = NULL;
+            _numesh_layout_f = NULL;
         }
         else if constexpr (std::is_same_v<MeshType, numesh_t>)
         {
-            printf("numesh type\n");
-            auto layout = NuMesh::Array::createArrayLayout(mesh, dofs_per_entity, tag);
-            _layout_background_variant = std::make_shared<background_variant_t>(numesh_array_layout_t(*layout)); 
+            if constexpr (std::is_same_v<NuMesh::Vertex, entity_type>)
+            {
+                printf("numesh vertex type\n");
+                _cabana_layout_n = NULL;
+                _numesh_layout_v = NuMesh::Array::createArrayLayout(mesh, dofs_per_entity, tag); 
+                _numesh_layout_e = NULL;
+                _numesh_layout_f = NULL;
+            }
+            else if  constexpr (std::is_same_v<NuMesh::Edge, entity_type>)
+            {
+                printf("numesh edge type\n");
+                _cabana_layout_n = NULL;
+                _numesh_layout_v = NULL;
+                _numesh_layout_e = NuMesh::Array::createArrayLayout(mesh, dofs_per_entity, tag);
+                _numesh_layout_f = NULL;
+            }
+            else if  constexpr (std::is_same_v<NuMesh::Face, entity_type>)
+            {
+                printf("numesh face type\n");
+                _cabana_layout_n = NULL;
+                _numesh_layout_v = NULL;
+                _numesh_layout_e = NULL;
+                _numesh_layout_f = NuMesh::Array::createArrayLayout(mesh, dofs_per_entity, tag);
+            }
         }
         else
         {
@@ -72,40 +96,28 @@ class ArrayLayout
         }
     }
 
-    // auto layout()
-    // {
-    //     if (std::holds_alternative<cabana_array_layout_t>(*_layout_background_variant))
-    //     {
-    //         if (auto ptr = std::get_if<std::shared_ptr<cabana_array_layout_t>>(_layout_background_variant.get())) {
-    //             return ptr->get();  // Return the raw pointer from shared_ptr
-    //         }
-    //     }
-    //     // return std::visit([](auto&& arg) -> std::shared_ptr<void> {
-    //     //     using LayoutType = std::decay_t<decltype(arg)>;
-    //     //     return std::make_shared<LayoutType>(arg);
-    //     // }, *_layout_background_variant);
-
-    //     /*
-    //      template <typename T>
-    // T* get_pointer() {
-    //     if (auto ptr = std::get_if<std::shared_ptr<T>>(variant_.get())) {
-    //         return ptr->get();  // Return the raw pointer from shared_ptr
-    //     }
-    //     return nullptr;  // Return nullptr if the variant does not hold the specified type
-    // }
-    //     */
-    // }
-
-    auto variant()
+    std::shared_ptr<cabana_array_layout_nt> layout(Cabana::Grid::Node) const
     {
-        return _layout_background_variant;
-    }
-
-
+        return _cabana_layout_n;
+    };
+    std::shared_ptr<numesh_array_layout_vt> layout(NuMesh::Vertex) const
+    {
+        return _numesh_layout_v;
+    };
+    std::shared_ptr<numesh_array_layout_et> layout(NuMesh::Edge) const
+    {
+        return _numesh_layout_e;
+    };
+    std::shared_ptr<numesh_array_layout_ft> layout(NuMesh::Face) const
+    {
+        return _numesh_layout_f;
+    };
 
   private:
-    // The shared pointer to the variant
-    std::shared_ptr<background_variant_t> _layout_background_variant;
+    std::shared_ptr<cabana_array_layout_nt> _cabana_layout_n;
+    std::shared_ptr<numesh_array_layout_vt> _numesh_layout_v;
+    std::shared_ptr<numesh_array_layout_et> _numesh_layout_e;
+    std::shared_ptr<numesh_array_layout_ft> _numesh_layout_f;
 };
 
 //---------------------------------------------------------------------------//
@@ -144,7 +156,7 @@ createArrayLayout(const std::shared_ptr<numesh_t<ExecutionSpace, MemorySpace>>& 
 //---------------------------------------------------------------------------//
 // template <class ExecutionSpace, class MemorySpace, class Scalar, class EntityType, class MeshType, class... Params>
 // template <class ExecutionSpace, class MemorySpace, class EntityType>
-template <class LayoutType, class EntityType>
+template <class LayoutType>
 class Array
 {
   public:
@@ -156,49 +168,66 @@ class Array
     using cabana_t = Cabana::Grid::LocalGrid<cabana_mesh_t>;
     using numesh_t = NuMesh::Mesh<ExecutionSpace, MemorySpace>;
 
-    using cabana_array_layout_t = Cabana::Grid::ArrayLayout<EntityType, cabana_mesh_t>;
-    using numesh_array_layout_t = NuMesh::Array::ArrayLayout<EntityType, numesh_t>;
+    using cabana_array_layout_nt = Cabana::Grid::ArrayLayout<Cabana::Grid::Node, cabana_mesh_t>;
+    using cabana_array_nt = Cabana::Grid::Array<double, Cabana::Grid::Node, cabana_mesh_t, MemorySpace>;
 
-    using cabana_array_t = Cabana::Grid::Array<double, EntityType, cabana_mesh_t, MemorySpace>;
-    using numesh_array_t = NuMesh::Array::Array<double, EntityType, numesh_t, MemorySpace>;
-    using background_variant_t = std::variant<cabana_array_t, numesh_array_t>;
+    using numesh_array_layout_vt = NuMesh::Array::ArrayLayout<NuMesh::Vertex, numesh_t>;
+    using numesh_array_vt = NuMesh::Array::Array<double, NuMesh::Vertex, numesh_t, MemorySpace>;
+    using numesh_array_layout_et = NuMesh::Array::ArrayLayout<NuMesh::Edge, numesh_t>;
+    using numesh_array_et = NuMesh::Array::Array<double, NuMesh::Edge, numesh_t, MemorySpace>;
+    using numesh_array_layout_ft = NuMesh::Array::ArrayLayout<NuMesh::Face, numesh_t>;
+    using numesh_array_ft = NuMesh::Array::Array<double, NuMesh::Face, numesh_t, MemorySpace>;
 
     // Constructor that takes either a Cabana or NuMesh object
-    Array(const std::string& label, const std::shared_ptr<LayoutType>& layout)
+    template <typename EntityType>
+    Array(const std::string& label, const std::shared_ptr<LayoutType>& array_layout, EntityType entity_type)
     {
-        auto background_type = layout->variant();
-        int is_cabana = 0;
-        std::visit([&is_cabana](auto&& arg) {
-            using T = std::decay_t<decltype(arg)>;
-            if constexpr (std::is_same_v<T, cabana_array_layout_t>)
-            {
-                std::cout << "It's a Cabana layout!" << std::endl;
-                is_cabana = 1;
-            }
-            else if constexpr (std::is_same_v<T, numesh_array_layout_t>)
-            {
-                std::cout << "It's a NuMesh layout!" << std::endl;
-            }
-        }, *background_type);
+        auto layout = array_layout->layout(entity_type);
 
-        if (is_cabana == 1)
+        if constexpr (std::is_same_v<EntityType, Cabana::Grid::Node>)
         {
-            auto layout_ptr = std::make_shared<cabana_array_layout_t>(std::get<cabana_array_layout_t>(*background_type));
-            auto array = Cabana::Grid::createArray<double, MemorySpace>(label, layout_ptr);
-            //_zdot = Cabana::Grid::createArray<double, mem_space>("velocity", 
-            //                                           node_triple_layout);
-            _background_variant = std::make_shared<background_variant_t>(array); 
+            printf("cabana type\n");
+            _cabana_array_n = Cabana::Grid::createArray<double, MemorySpace>(label, layout);
+            _numesh_array_v = NULL;
+            _numesh_array_e = NULL;
+            _numesh_array_f = NULL;
+        }
+        else if  constexpr (std::is_same_v<EntityType, NuMesh::Vertex>)
+        {
+            printf("numesh vertex type\n");
+            _cabana_array_n = NULL;
+            _numesh_array_v = NuMesh::Array::createArray<double, MemorySpace>(label, layout);
+            _numesh_array_e = NULL;
+            _numesh_array_f = NULL;
+        }
+        else if  constexpr (std::is_same_v<EntityType, NuMesh::Edge>)
+        {
+            printf("numesh edge type\n");
+            _cabana_array_n = NULL;
+            _numesh_array_v = NULL;
+            _numesh_array_e = NuMesh::Array::createArray<double, MemorySpace>(label, layout);
+            _numesh_array_f = NULL;
+        }
+        else if  constexpr (std::is_same_v<EntityType, NuMesh::Face>)
+        {
+            printf("numesh face type\n");
+            _cabana_array_n = NULL;
+            _numesh_array_v = NULL;
+            _numesh_array_e = NULL;
+            _numesh_array_f = NuMesh::Array::createArray<double, MemorySpace>(label, layout);
         }
         else
         {
-            // auto array = NuMesh::Array::createArray(label, layout);
-            // _background_variant = std::make_shared<background_variant_t>(numesh_array_t(*array)); 
+            printf("no type\n");
+            //static_assert(false, "Unsupported mesh type provided to ArrayLayout");
         }
     }
 
   private:
-    // The shared pointer to the variant
-    std::shared_ptr<background_variant_t> _background_variant;
+    std::shared_ptr<cabana_array_nt> _cabana_array_n;
+    std::shared_ptr<numesh_array_vt> _numesh_array_v;
+    std::shared_ptr<numesh_array_et> _numesh_array_e;
+    std::shared_ptr<numesh_array_ft> _numesh_array_f;
 };
 
 //---------------------------------------------------------------------------//
@@ -213,16 +242,17 @@ class Array
 */
 // template <class LayoutType, class Scalar, class... Params>
 template <class LayoutType, class EntityType>
-std::shared_ptr<Array<LayoutType, EntityType>>
+std::shared_ptr<Array<LayoutType>>
 createArray(const std::string& label,
-            const std::shared_ptr<LayoutType>& layout)
+            const std::shared_ptr<LayoutType>& layout,
+            EntityType entity_type)
 {
     // using ExecutionSpace = typename LayoutType::execution_space;
     // using MemorySpace = typename LayoutType::memory_space;
     //using et = typename LayoutType::entity_type;
 
-    return std::make_shared<Array<LayoutType, EntityType>>(
-        label, layout);
+    return std::make_shared<Array<LayoutType>>(
+        label, layout, entity_type);
 }
 
 

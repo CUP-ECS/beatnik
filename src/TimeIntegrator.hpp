@@ -63,7 +63,7 @@ class TimeIntegrator
         using LayoutType = Beatnik::Array::ArrayLayout<exec_space, mem_space, Cabana::Grid::Node>;
         using EntityType = Cabana::Grid::Node; // or whichever type is appropriate
 
-        auto zdot_b = Array::createArray<LayoutType, EntityType>("velocity", node_pair_layout_b);
+        auto zdot_b = Array::createArray<LayoutType>("velocity", node_pair_layout_b, Cabana::Grid::Node());
         // auto zdot_b = Array::createArray("velocity", node_pair_layout_b);
 
 
