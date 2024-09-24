@@ -25,8 +25,6 @@
 #include <Kokkos_Core.hpp>
 #include <NuMesh_Core.hpp>
 
-#include <variant> 
-
 namespace Beatnik
 {
 namespace Array
@@ -252,6 +250,15 @@ createArray(const std::string& label,
         label, layout, entity_type);
 }
 
+//---------------------------------------------------------------------------//
+// Array operations.
+//---------------------------------------------------------------------------//
+namespace ArrayOp
+{
+
+
+
+} // end namespace ArrayOp
 
 } // end namespace Array
 
