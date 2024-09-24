@@ -60,7 +60,11 @@ class TimeIntegrator
         auto vertex_triple_layout = Array::createArrayLayout(nu_mesh, 3, NuMesh::Vertex());
 
         // auto zdot_b = Array::createArray<double, mem_space>("velocity", node_pair_layout_b);
-        auto zdot_b = Array::createArray("velocity", node_pair_layout_b);
+        using LayoutType = Beatnik::Array::ArrayLayout<exec_space, mem_space, Cabana::Grid::Node>;
+        using EntityType = Cabana::Grid::Node; // or whichever type is appropriate
+
+        auto zdot_b = Array::createArray<LayoutType, EntityType>("velocity", node_pair_layout_b);
+        // auto zdot_b = Array::createArray("velocity", node_pair_layout_b);
 
 
         _zdot = Cabana::Grid::createArray<double, mem_space>("velocity", 
