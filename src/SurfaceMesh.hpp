@@ -36,11 +36,10 @@ class SurfaceMesh
 {
   public:
     using memory_space = MemorySpace;
+    using execution_space = ExecutionSpace;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
-    using node_array =
-        Cabana::Grid::Array<double, Cabana::Grid::Node, mesh_type,
-                      memory_space>;
+    using node_array = Beatnik::Utils::Array<exec_space, mem_space, Node>;
 
     // Construct a mesh.
     SurfaceMesh( const std::array<double, 6>& global_bounding_box,
@@ -162,12 +161,13 @@ class SurfaceMesh
      * Compute fourth-order central difference calculation for derivatives along the 
      * interface surface
      */
-    std::shared_ptr<node_array> Dx(const node_array& in, double dx) const
+    std::shared_ptr<node_array> Dx(const node_array& in, double dx, Cabana::Grid::Node) const
     {
-        auto out = Cabana::Grid::ArrayOp::clone(in);
-        auto out_view = out->view();
-        auto in_view = in.view();
-        auto layout = in.layout();
+        using Node = Cabana::Grid::Node;
+        auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
+        auto out_view = Out->array(Node())->view();
+        auto in_view = in->array(Node())->view();
+        auto layout = in.layout(Node());
         auto index_space = layout->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Local());
         int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
@@ -176,12 +176,13 @@ class SurfaceMesh
         });
         return out;
     }
-    std::shared_ptr<node_array> Dy(const node_array& in, double dy) const
+    std::shared_ptr<node_array> Dy(const node_array& in, double dy, Cabana::Grid::Node) const
     {
-        auto out = Cabana::Grid::ArrayOp::clone(in);
-        auto out_view = out->view();
-        auto in_view = in.view();
-        auto layout = in.layout();
+        using Node = Cabana::Grid::Node;
+        auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
+        auto out_view = Out->array(Node())->view();
+        auto in_view = in->array(Node())->view();
+        auto layout = in.layout(Node());
         auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
@@ -193,17 +194,18 @@ class SurfaceMesh
 
     // XXX - Assert that the mesh and node_arrays are the right type 
     // at the beginning of these functions
-    std::shared_ptr<node_array> omega(const node_array& w, const node_array& z_dx, const node_array& z_dy) const
+    std::shared_ptr<node_array> omega(const node_array& w, const node_array& z_dx, const node_array& z_dy, Cabana::Grid::Node) const
     {
-        auto zdx_view = z_dx.view();
-        auto zdy_view = z_dy.view();
-        auto w_view = w.view();
-        auto layout = z_dx.layout();
+        using Node = Cabana::Grid::Node;
+        auto zdx_view = z_dx.array(Node())->view();
+        auto zdy_view = z_dy.array(Node())->view();
+        auto w_view = w.array(Node())->view();
+        auto layout = z_dx.layout(Node());
         auto node_triple_layout =
-            Cabana::Grid::createArrayLayout( layout->localGrid(), 3, Cabana::Grid::Node() );
-        std::shared_ptr<node_array> out = Cabana::Grid::createArray<double, memory_space>("omega", 
+            Beatnik::ArrayUtils::createArrayLayout( layout->localGrid(), 3, Cabana::Grid::Node() );
+        std::shared_ptr<node_array> out = Beatnik::ArrayUtils::createArray<execution_space, memory_space>("omega", 
                                                        node_triple_layout);
-        auto out_view = out->view();
+        auto out_view = out.array(Node())->view();
         auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
