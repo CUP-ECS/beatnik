@@ -54,8 +54,8 @@ class TimeIntegrator
         auto node_pair_layout =
             Cabana::Grid::createArrayLayout( pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
         //const std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> mesh = pm.mesh().localGrid(); 
-        auto node_pair_layout_2 = Array::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 2, Cabana::Grid::Node());
-        auto node_triple_layout_2 = Array::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 3, Cabana::Grid::Node());
+        auto node_pair_layout_2 = Utils::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 2, Cabana::Grid::Node());
+        auto node_triple_layout_2 = Utils::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 3, Cabana::Grid::Node());
 
         std::array<int, 2> global_num_cell = { 7, 7 };
         std::array<double, 2> global_low_corner = { -1.0, -1.0 };
@@ -71,14 +71,14 @@ class TimeIntegrator
         nu_mesh->initialize_edges();
         nu_mesh->gather_edges();
         nu_mesh->assign_ghost_edges_to_faces();
-        auto vertex_triple_layout = Array::createArrayLayout(nu_mesh, 3, NuMesh::Vertex());
-        auto edge_triple_layout = Array::createArrayLayout(nu_mesh, 3, NuMesh::Edge());
-        auto face_triple_layout = Array::createArrayLayout(nu_mesh, 3, NuMesh::Face());
+        auto vertex_triple_layout = Utils::createArrayLayout(nu_mesh, 3, NuMesh::Vertex());
+        auto edge_triple_layout = Utils::createArrayLayout(nu_mesh, 3, NuMesh::Edge());
+        auto face_triple_layout = Utils::createArrayLayout(nu_mesh, 3, NuMesh::Face());
 
-        auto zdot_array_2 = Array::createArray<exec_space, mem_space>("cabana-v", node_pair_layout_2, Cabana::Grid::Node());
-        auto zdot_numesh_v = Array::createArray<exec_space, mem_space>("nu-v", vertex_triple_layout, NuMesh::Vertex());
-        auto zdot_numesh_e = Array::createArray<exec_space, mem_space>("nu-e", edge_triple_layout, NuMesh::Edge());
-        auto zdot_numesh_f = Array::createArray<exec_space, mem_space>("nu-f", face_triple_layout, NuMesh::Face());
+        auto zdot_array_2 = Utils::createArray<exec_space, mem_space>("cabana-v", node_pair_layout_2, Cabana::Grid::Node());
+        auto zdot_numesh_v = Utils::createArray<exec_space, mem_space>("nu-v", vertex_triple_layout, NuMesh::Vertex());
+        auto zdot_numesh_e = Utils::createArray<exec_space, mem_space>("nu-e", edge_triple_layout, NuMesh::Edge());
+        auto zdot_numesh_f = Utils::createArray<exec_space, mem_space>("nu-f", face_triple_layout, NuMesh::Face());
 
 
         _zdot = Cabana::Grid::createArray<double, mem_space>("velocity", 

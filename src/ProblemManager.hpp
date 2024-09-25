@@ -81,11 +81,7 @@ class ProblemManager
     using device_type = Kokkos::Device<exec_space, mem_space>;
 
     using Node = Cabana::Grid::Node;
-    using node_array =
-        Cabana::Grid::Array<double, Node, Cabana::Grid::UniformMesh<double, 2>,
-                      mem_space>;
-    using node_view = 
-        typename node_array::view_type;
+    using node_array = Beatnik::Utils::Array<exec_space, mem_space, Node>;
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
     using surface_mesh_type = SurfaceMesh<exec_space, mem_space>;
@@ -103,30 +99,28 @@ class ProblemManager
         // The layouts of our various arrays for values on the staggered mesh
         // and other associated data structures. Does there need to be version with
         // halos associated with them?
-        auto node_triple_layout =
-            Cabana::Grid::createArrayLayout( _surface_mesh.localGrid(), 3, Cabana::Grid::Node() );
-        auto node_pair_layout =
-            Cabana::Grid::createArrayLayout( _surface_mesh.localGrid(), 2, Cabana::Grid::Node() );
+        auto node_triple_layout = ArrayUtils::createArrayLayout<exec_space, mem_space>(_surface_mesh.localGrid(), 3, Node());
+        auto node_pair_layout = ArrayUtils::createArrayLayout<exec_space, mem_space>(_surface_mesh.localGrid(), 2, Node())
 
         // The actual arrays storing mesh quantities
         // 1. The spatial positions of the interface
-        _position = Cabana::Grid::createArray<double, mem_space>(
-            "position", node_triple_layout );
-	    Cabana::Grid::ArrayOp::assign( *_position, 0.0, Cabana::Grid::Ghost() );
+        _position = Utils::createArray<exec_space, mem_space>("position", node_triple_layout, Node());
+	    ArrayUtils::ArrayOp::assign( *_position, 0.0, Cabana::Grid::Ghost() );
+
 
         // 2. The magnitude of vorticity at the interface 
-        _vorticity = Cabana::Grid::createArray<double, mem_space>(
-            "vorticity", node_pair_layout );
-	    Cabana::Grid::ArrayOp::assign( *_vorticity, 0.0, Cabana::Grid::Ghost() );
+        _vorticity = Utils::createArray<exec_space, mem_space>("vorticity", node_pair_layout, Node());
+	    ArrayUtils::ArrayOp::assign( *_vorticity, 0.0, Cabana::Grid::Ghost() );
 
         /* Halo pattern for the position and vorticity. The halo is two cells 
          * deep to be able to do fourth-order central differencing to 
          * compute surface normals accurately. It's a Node (8 point) pattern 
          * as opposed to a Face (4 point) pattern so the vorticity laplacian 
          * can use a 9-point stencil. */
+        /* XXX - For now, only apply strucutred halo to the structured arrays */
         int halo_depth = _surface_mesh.localGrid()->haloCellWidth();
         _surface_halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<2>(), 
-                            halo_depth, *_position, *_vorticity);
+                            halo_depth, *_position.node_array(), *_vorticity.node_array());
 
         // Initialize State Values ( position and vorticity ) and 
         // then do a halo to make sure the ghosts and boundaries are correct.
@@ -190,7 +184,7 @@ class ProblemManager
      * @param Field::Position
      * @return Returns Returns Cabana::Array of current position at nodes
      **/
-    std::shared_ptr<node_array> get( Cabana::Grid::Node, Field::Position ) const
+    std::shared_ptr<node_array> get( Field::Position ) const
     {
         return _position;
     };
@@ -248,7 +242,8 @@ class ProblemManager
 
     // Basic long-term quantities stored in the mesh and periodically written
     // to storage (specific computiontional methods may store additional state)
-    std::shared_ptr<node_array> _position, _vorticity;
+    // std::shared_ptr<node_array> _position, _vorticity;
+    std::shared_ptr<beatnik_node_array> _position, _vorticity;
 
     // Halo communication pattern for problem-manager stored data
     std::shared_ptr<halo_type> _surface_halo;

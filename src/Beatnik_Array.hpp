@@ -27,7 +27,7 @@
 
 namespace Beatnik
 {
-namespace Array
+namespace ArrayUtils
 {
 
 template <class ExecutionSpace, class MemorySpace, class EntityType>
@@ -218,6 +218,12 @@ class Array
         }
     }
 
+    // Getters
+    std::shared_ptr<cabana_array_nt> node_array() {return _cabana_array_n;}
+    std::shared_ptr<numesh_array_vt> vertex_array() {return _numesh_array_v;}
+    std::shared_ptr<numesh_array_et> edge_array() {return _numesh_array_e;}
+    std::shared_ptr<numesh_array_ft> face_array() {return _numesh_array_f;}
+
   private:
     std::shared_ptr<cabana_array_nt> _cabana_array_n;
     std::shared_ptr<numesh_array_vt> _numesh_array_v;
@@ -256,7 +262,28 @@ createArray(const std::string& label,
 namespace ArrayOp
 {
 
-
+template <class Array_t, class DecompositionTag>
+void assign( Array_t& array, const typename Array_t::value_type alpha,
+             DecompositionTag tag )
+{
+    static_assert( is_array<Array_t>::value, "Beatnik::ArrayUtils::Array required" );
+    if (array.node_array() != NULL)
+    {
+        Cabana::Grid::ArrayOp(*array.node_array(), alpha, tag);
+    }
+    else if (array.vertex_array() != NULL)
+    {
+        NuMesh::Array::ArrayOp::assign(*array.vertex_array(), alpha, tag);
+    }
+    else if (array.edge_array() != NULL)
+    {
+        NuMesh::Array::ArrayOp::assign(*array.edge_array(), alpha, tag);
+    }
+    else if (array.face_array() != NULL)
+    {
+        NuMesh::Array::ArrayOp::assign(*array.face_array(), alpha, tag);
+    }
+}
 
 } // end namespace ArrayOp
 
