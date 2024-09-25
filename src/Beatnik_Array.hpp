@@ -97,19 +97,19 @@ class ArrayLayout
     std::shared_ptr<cabana_array_layout_nt> layout(Cabana::Grid::Node) const
     {
         return _cabana_layout_n;
-    };
+    }
     std::shared_ptr<numesh_array_layout_vt> layout(NuMesh::Vertex) const
     {
         return _numesh_layout_v;
-    };
+    }
     std::shared_ptr<numesh_array_layout_et> layout(NuMesh::Edge) const
     {
         return _numesh_layout_e;
-    };
+    }
     std::shared_ptr<numesh_array_layout_ft> layout(NuMesh::Face) const
     {
         return _numesh_layout_f;
-    };
+    }
 
   private:
     std::shared_ptr<cabana_array_layout_nt> _cabana_layout_n;
@@ -153,15 +153,17 @@ createArrayLayout(const std::shared_ptr<numesh_t<ExecutionSpace, MemorySpace>>& 
 // Array class.
 //---------------------------------------------------------------------------//
 // template <class ExecutionSpace, class MemorySpace, class Scalar, class EntityType, class MeshType, class... Params>
-template <class ExecutionSpace, class MemorySpace>
+template <class ExecutionSpace, class MemorySpace, class EntityType>
 class Array
 {
   public:
     // using memory_space = MemorySpace;
     // using execution_space = ExecutionSpace;
+    using entity_type = EntityType;
     using cabana_mesh_t = Cabana::Grid::UniformMesh<double, 2>;
     using cabana_t = Cabana::Grid::LocalGrid<cabana_mesh_t>;
     using numesh_t = NuMesh::Mesh<ExecutionSpace, MemorySpace>;
+    using layout_t = ArrayLayout<ExecutionSpace, MemorySpace, EntityType>;
 
     using cabana_array_layout_nt = Cabana::Grid::ArrayLayout<Cabana::Grid::Node, cabana_mesh_t>;
     using cabana_array_nt = Cabana::Grid::Array<double, Cabana::Grid::Node, cabana_mesh_t, MemorySpace>;
@@ -174,8 +176,10 @@ class Array
     using numesh_array_ft = NuMesh::Array::Array<double, NuMesh::Face, numesh_t, MemorySpace>;
 
     // Constructor that takes either a Cabana or NuMesh object
-    template <typename LayoutType, typename EntityType>
+    template <typename LayoutType>
     Array(const std::string& label, const std::shared_ptr<LayoutType>& array_layout, EntityType entity_type)
+        : _label( label )
+        , _layout( layout )
     {
         auto layout = array_layout->layout(entity_type);
 
@@ -186,6 +190,11 @@ class Array
             _numesh_array_v = NULL;
             _numesh_array_e = NULL;
             _numesh_array_f = NULL;
+
+            _cabana_layout_n = layout;
+            _numesh_layout_v = NULL;
+            _numesh_layout_e = NULL;
+            _numesh_layout_f = NULL;
         }
         else if  constexpr (std::is_same_v<EntityType, NuMesh::Vertex>)
         {
@@ -194,6 +203,11 @@ class Array
             _numesh_array_v = NuMesh::Array::createArray<double, MemorySpace>(label, layout);
             _numesh_array_e = NULL;
             _numesh_array_f = NULL;
+
+            _cabana_layout_n = NULL;
+            _numesh_layout_v = layout;
+            _numesh_layout_e = NULL;
+            _numesh_layout_f = NULL;
         }
         else if  constexpr (std::is_same_v<EntityType, NuMesh::Edge>)
         {
@@ -202,6 +216,11 @@ class Array
             _numesh_array_v = NULL;
             _numesh_array_e = NuMesh::Array::createArray<double, MemorySpace>(label, layout);
             _numesh_array_f = NULL;
+
+            _cabana_layout_n = NULL;
+            _numesh_layout_v = NULL;
+            _numesh_layout_e = layout;
+            _numesh_layout_f = NULL;
         }
         else if  constexpr (std::is_same_v<EntityType, NuMesh::Face>)
         {
@@ -210,6 +229,11 @@ class Array
             _numesh_array_v = NULL;
             _numesh_array_e = NULL;
             _numesh_array_f = NuMesh::Array::createArray<double, MemorySpace>(label, layout);
+
+            _cabana_layout_n = NULL;
+            _numesh_layout_v = NULL;
+            _numesh_layout_e = NULL;
+            _numesh_layout_f = layout;
         }
         else
         {
@@ -219,16 +243,24 @@ class Array
     }
 
     // Getters
-    std::shared_ptr<cabana_array_nt> node_array() {return _cabana_array_n;}
-    std::shared_ptr<numesh_array_vt> vertex_array() {return _numesh_array_v;}
-    std::shared_ptr<numesh_array_et> edge_array() {return _numesh_array_e;}
-    std::shared_ptr<numesh_array_ft> face_array() {return _numesh_array_f;}
+    std::shared_ptr<cabana_array_nt> array(Cabana::Grid::Node) const {return _cabana_array_n;}
+    std::shared_ptr<numesh_array_vt> array(NuMesh::Vertex) const {return _numesh_array_v;}
+    std::shared_ptr<numesh_array_et> array(NuMesh::Edge) const {return _numesh_array_e;}
+    std::shared_ptr<numesh_array_ft> array(NuMesh::Face) const {return _numesh_array_f;}
+
+    std::shared_ptr<layout_t> layout() const {return _layout;}
+    std::string label() {return _label;}
 
   private:
+    // Array pointers
     std::shared_ptr<cabana_array_nt> _cabana_array_n;
     std::shared_ptr<numesh_array_vt> _numesh_array_v;
     std::shared_ptr<numesh_array_et> _numesh_array_e;
     std::shared_ptr<numesh_array_ft> _numesh_array_f;
+
+    // Layout pointers
+    std::shared_ptr<layout_t> _layout;
+    std::string _label;
 };
 
 //---------------------------------------------------------------------------//
@@ -243,16 +275,12 @@ class Array
 */
 // template <class LayoutType, class Scalar, class... Params>
 template <class ExecutionSpace, class MemorySpace, class LayoutType, class EntityType>
-std::shared_ptr<Array<ExecutionSpace, MemorySpace>>
+std::shared_ptr<Array<ExecutionSpace, MemorySpace, EntityType>>
 createArray(const std::string& label,
             const std::shared_ptr<LayoutType>& layout,
             EntityType entity_type)
 {
-    // using ExecutionSpace = typename LayoutType::execution_space;
-    // using MemorySpace = typename LayoutType::memory_space;
-    //using et = typename LayoutType::entity_type;
-
-    return std::make_shared<Array<ExecutionSpace, MemorySpace>>(
+    return std::make_shared<Array<ExecutionSpace, MemorySpace, EntityType>>(
         label, layout, entity_type);
 }
 
@@ -262,26 +290,120 @@ createArray(const std::string& label,
 namespace ArrayOp
 {
 
+template <class ExecutionSpace, class MemorySpace, class EntityType>
+std::shared_ptr<Array<ExecutionSpace, MemorySpace>>
+clone( const Array<ExecutionSpace, MemorySpace>& array )
+{
+    if constexpr (std::is_same_v<EntityType, Cabana::Grid::Node>)
+    {
+        return createArray<ExecutionSpace, MemorySpace>( array.label(), array.node_layout(), EntityType() );
+    }
+    else if  constexpr (std::is_same_v<EntityType, NuMesh::Vertex>)
+    {
+        return createArray<ExecutionSpace, MemorySpace>( array.label(), array.vertex_layout(), EntityType() );
+    }
+    else if  constexpr (std::is_same_v<EntityType, NuMesh::Edge>)
+    {
+        return createArray<ExecutionSpace, MemorySpace>( array.label(), array.edge_layout(), EntityType() );
+    }
+    else if  constexpr (std::is_same_v<EntityType, NuMesh::Face>)
+    {
+        return createArray<ExecutionSpace, MemorySpace>( array.label(), array.face_layout(), EntityType() );
+    }
+
+    return NULL;
+}
+
+template <class Array_t, class DecompositionTag>
+void copy( Array_t& a, const Array_t& b, DecompositionTag tag )
+{
+    static_assert( is_array<Array_t>::value, "Beatnik::ArrayUtils::Array required" );
+    using entity_type = typename Array_t::entity_type;
+    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    {
+        Cabana::Grid::ArrayOp::copy(*a.array(entity_type()), *b.array(entity_type()), tag);
+    }
+    else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
+              std::is_same_v<entity_type, NuMesh::Edge> ||
+              std::is_same_v<entity_type, NuMesh::Face>) 
+    {
+        NuMesh::Array::ArrayOp::copy(*a.array(entity_type()), *b.array(entity_type()), tag);
+    }
+
+}
+
+template <class Array_t, class DecompositionTag>
+std::shared_ptr<Array_t> cloneCopy( const Array_t& array, DecompositionTag tag )
+{
+    auto cln = clone( array );
+    copy( *cln, array, tag );
+    return cln;
+}
+
 template <class Array_t, class DecompositionTag>
 void assign( Array_t& array, const typename Array_t::value_type alpha,
              DecompositionTag tag )
 {
     static_assert( is_array<Array_t>::value, "Beatnik::ArrayUtils::Array required" );
+    using entity_type = typename Array_t::entity_type;
+    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    {
+        Cabana::Grid::ArrayOp::assign(*array.array(entity_type()), alpha, tag);
+    }
+    else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
+              std::is_same_v<entity_type, NuMesh::Edge> ||
+              std::is_same_v<entity_type, NuMesh::Face>) 
+    {
+        NuMesh::Array::ArrayOp::assign(*array.array(entity_type()), alpha, tag);
+    }
+}
+
+template <class Array_t, class DecompositionTag>
+std::enable_if_t<1 == Array_t::num_space_dim, void>
+update( Array_t& a, const typename Array_t::value_type alpha, const Array_t& b,
+        const typename Array_t::value_type beta, DecompositionTag tag )
+{
+    static_assert( is_array<Array_t>::value, "Beatnik::ArrayUtils::Array required" );
     if (array.node_array() != NULL)
     {
-        Cabana::Grid::ArrayOp(*array.node_array(), alpha, tag);
+        Cabana::Grid::ArrayOp::update(*a.node_array(), alpha, *b.node_array(), beta, tag);
     }
     else if (array.vertex_array() != NULL)
     {
-        NuMesh::Array::ArrayOp::assign(*array.vertex_array(), alpha, tag);
+        NuMesh::Array::ArrayOp::update(*a.vertex_array(), alpha, *b.vertex_array(), beta, tag);
     }
     else if (array.edge_array() != NULL)
     {
-        NuMesh::Array::ArrayOp::assign(*array.edge_array(), alpha, tag);
+        NuMesh::Array::ArrayOp::update(*a.edge_array(), alpha, *b.edge_array(), beta, tag);
     }
     else if (array.face_array() != NULL)
     {
-        NuMesh::Array::ArrayOp::assign(*array.face_array(), alpha, tag);
+        NuMesh::Array::ArrayOp::update(*a.face_array(), alpha, *b.face_array(), beta, tag);
+    }
+}
+
+template <class Array_t, class DecompositionTag>
+std::enable_if_t<2 == Array_t::num_space_dim, void>
+update( Array_t& a, const typename Array_t::value_type alpha, const Array_t& b,
+        const typename Array_t::value_type beta, const Array_t& c,
+        const typename Array_t::value_type gamma, DecompositionTag tag )
+{
+    static_assert( is_array<Array_t>::value, "Beatnik::ArrayUtils::Array required" );
+    if (array.node_array() != NULL)
+    {
+        Cabana::Grid::ArrayOp::update(*a.node_array(), alpha, *b.node_array(), beta, *c.node_array(), gamma, tag);
+    }
+    else if (array.vertex_array() != NULL)
+    {
+        NuMesh::Array::ArrayOp::update(*a.vertex_array(), alpha, *b.vertex_array(), beta, *c.vertex_array(), gamma, tag);
+    }
+    else if (array.edge_array() != NULL)
+    {
+        NuMesh::Array::ArrayOp::update(*a.edge_array(), alpha, *b.edge_array(), beta, *c.edge_array(), gamma, tag);
+    }
+    else if (array.face_array() != NULL)
+    {
+        NuMesh::Array::ArrayOp::update(*a.face_array(), alpha, *b.face_array(), beta, *c.face_array(), gamma, tag);
     }
 }
 

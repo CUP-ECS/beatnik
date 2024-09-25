@@ -33,8 +33,7 @@ class TimeIntegrator
     using device_type = Kokkos::Device<exec_space, mem_space>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     using Node = Cabana::Grid::Node;
-    using node_array =
-        Cabana::Grid::Array<double, Node, mesh_type, mem_space>;
+    using node_array = Beatnik::Utils::Array<exec_space, mem_space, Node>;
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
 
     // using halo_type = Cabana::Grid::Halo<MemorySpace>;
@@ -50,54 +49,54 @@ class TimeIntegrator
         // Create a layout of the temporary arrays we'll need for velocity
         // intermediate positions, and change in vorticity
         auto node_triple_layout =
-            Cabana::Grid::createArrayLayout( pm.mesh().localGrid(), 3, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout( pm.mesh().localGrid(), 3, Cabana::Grid::Node() );
         auto node_pair_layout =
-            Cabana::Grid::createArrayLayout( pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout( pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
         //const std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> mesh = pm.mesh().localGrid(); 
-        auto node_pair_layout_2 = Utils::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 2, Cabana::Grid::Node());
-        auto node_triple_layout_2 = Utils::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 3, Cabana::Grid::Node());
+        // auto node_pair_layout_2 = Utils::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 2, Cabana::Grid::Node());
+        // auto node_triple_layout_2 = Utils::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 3, Cabana::Grid::Node());
 
-        std::array<int, 2> global_num_cell = { 7, 7 };
-        std::array<double, 2> global_low_corner = { -1.0, -1.0 };
-        std::array<double, 2> global_high_corner = { 1.0, 1.0 };
-        std::array<bool, 2> is_dim_periodic = { true, true };
-        Cabana::Grid::DimBlockPartitioner<2> partitioner;
-
-
-        auto nu_mesh = NuMesh::createMesh<exec_space, mem_space>(MPI_COMM_WORLD);
-        nu_mesh->initialize_ve(global_low_corner, global_high_corner, global_num_cell,
-                                is_dim_periodic, partitioner, MPI_COMM_WORLD);
-        nu_mesh->initialize_faces();
-        nu_mesh->initialize_edges();
-        nu_mesh->gather_edges();
-        nu_mesh->assign_ghost_edges_to_faces();
-        auto vertex_triple_layout = Utils::createArrayLayout(nu_mesh, 3, NuMesh::Vertex());
-        auto edge_triple_layout = Utils::createArrayLayout(nu_mesh, 3, NuMesh::Edge());
-        auto face_triple_layout = Utils::createArrayLayout(nu_mesh, 3, NuMesh::Face());
-
-        auto zdot_array_2 = Utils::createArray<exec_space, mem_space>("cabana-v", node_pair_layout_2, Cabana::Grid::Node());
-        auto zdot_numesh_v = Utils::createArray<exec_space, mem_space>("nu-v", vertex_triple_layout, NuMesh::Vertex());
-        auto zdot_numesh_e = Utils::createArray<exec_space, mem_space>("nu-e", edge_triple_layout, NuMesh::Edge());
-        auto zdot_numesh_f = Utils::createArray<exec_space, mem_space>("nu-f", face_triple_layout, NuMesh::Face());
+        // std::array<int, 2> global_num_cell = { 7, 7 };
+        // std::array<double, 2> global_low_corner = { -1.0, -1.0 };
+        // std::array<double, 2> global_high_corner = { 1.0, 1.0 };
+        // std::array<bool, 2> is_dim_periodic = { true, true };
+        // Cabana::Grid::DimBlockPartitioner<2> partitioner;
 
 
-        _zdot = Cabana::Grid::createArray<double, mem_space>("velocity", 
-                                                       node_triple_layout);
-        _wdot = Cabana::Grid::createArray<double, mem_space>("vorticity derivative",
-                                                       node_pair_layout);
-        _ztmp = Cabana::Grid::createArray<double, mem_space>("position temporary", 
-                                                       node_triple_layout);
-        _wtmp = Cabana::Grid::createArray<double, mem_space>("vorticity temporary", 
-                                                       node_pair_layout);
+        // auto nu_mesh = NuMesh::createMesh<exec_space, mem_space>(MPI_COMM_WORLD);
+        // nu_mesh->initialize_ve(global_low_corner, global_high_corner, global_num_cell,
+        //                         is_dim_periodic, partitioner, MPI_COMM_WORLD);
+        // nu_mesh->initialize_faces();
+        // nu_mesh->initialize_edges();
+        // nu_mesh->gather_edges();
+        // nu_mesh->assign_ghost_edges_to_faces();
+        // auto vertex_triple_layout = Utils::createArrayLayout(nu_mesh, 3, NuMesh::Vertex());
+        // auto edge_triple_layout = Utils::createArrayLayout(nu_mesh, 3, NuMesh::Edge());
+        // auto face_triple_layout = Utils::createArrayLayout(nu_mesh, 3, NuMesh::Face());
+
+        // auto zdot_array_2 = Utils::createArray<exec_space, mem_space>("cabana-v", node_pair_layout_2, Cabana::Grid::Node());
+        // auto zdot_numesh_v = Utils::createArray<exec_space, mem_space>("nu-v", vertex_triple_layout, NuMesh::Vertex());
+        // auto zdot_numesh_e = Utils::createArray<exec_space, mem_space>("nu-e", edge_triple_layout, NuMesh::Edge());
+        // auto zdot_numesh_f = Utils::createArray<exec_space, mem_space>("nu-f", face_triple_layout, NuMesh::Face());
+
+
+        _zdot = ArrayUtils::createArray<exec_space, mem_space>("velocity", 
+                                                       node_triple_layout, Node());
+        _wdot = ArrayUtils::createArray<exec_space, mem_space>("vorticity derivative",
+                                                       node_pair_layout, Node());
+        _ztmp = ArrayUtils::createArray<exec_space, mem_space>("position temporary", 
+                                                       node_triple_layout, Node());
+        _wtmp = ArrayUtils::createArray<exec_space, mem_space>("vorticity temporary", 
+                                                       node_pair_layout, Node());
     }
 
     void step( const double delta_t ) 
     { 
         // Compute the derivatives of position and vorticity at our current point
-        auto z_orig = _pm.get( Cabana::Grid::Node(), Field::Position() );
-        auto w_orig = _pm.get( Cabana::Grid::Node(), Field::Vorticity() );
-        auto z_tmp = Cabana::Grid::ArrayOp::cloneCopy(*z_orig, Cabana::Grid::Own());
-        auto w_tmp = Cabana::Grid::ArrayOp::cloneCopy(*w_orig, Cabana::Grid::Own());
+        auto z_orig = _pm.get( Field::Position() );
+        auto w_orig = _pm.get( Field::Vorticity() );
+        auto z_tmp = ArrayUtils::ArrayOp::cloneCopy(*z_orig, Cabana::Grid::Own());
+        auto w_tmp = ArrayUtils::ArrayOp::cloneCopy(*w_orig, Cabana::Grid::Own());
 
         // TVD RK3 Step One - derivative at forward euler point
         auto z_dot = _zdot;
@@ -109,8 +108,8 @@ class TimeIntegrator
         
         // X_tmp = X_tmp + X_dot*delta_t
         // update2: Update two vectors such that a = alpha * a + beta * b.
-        Cabana::Grid::ArrayOp::update(*z_tmp, 1.0, *z_dot, delta_t, Cabana::Grid::Own());
-        Cabana::Grid::ArrayOp::update(*w_tmp, 1.0, *w_dot, delta_t, Cabana::Grid::Own());
+        ArrayUtils::ArrayOp::update(*z_tmp, 1.0, *z_dot, delta_t, Cabana::Grid::Own());
+        ArrayUtils::ArrayOp::update(*w_tmp, 1.0, *w_dot, delta_t, Cabana::Grid::Own());
         
         // Compute derivative at forward euler point from the temporaries
         _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot);
@@ -119,8 +118,8 @@ class TimeIntegrator
         // derivatives
         // X_tmp = X_tmp*0.25 + X_orig*0.75 + X_dot*delta_t*0.25
         // update3: Update three vectors such that a = alpha * a + beta * b + gamma * c.
-        Cabana::Grid::ArrayOp::update(*z_tmp, 0.25, *z_orig, 0.75, *z_dot, (delta_t*0.25), Cabana::Grid::Own());
-        Cabana::Grid::ArrayOp::update(*w_tmp, 0.25, *w_orig, 0.75, *w_dot, (delta_t*0.25), Cabana::Grid::Own());
+        ArrayUtils::ArrayOp::update(*z_tmp, 0.25, *z_orig, 0.75, *z_dot, (delta_t*0.25), Cabana::Grid::Own());
+        ArrayUtils::ArrayOp::update(*w_tmp, 0.25, *w_orig, 0.75, *w_dot, (delta_t*0.25), Cabana::Grid::Own());
 
         // Get the derivatives at the half-setp
         _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot);
@@ -130,8 +129,8 @@ class TimeIntegrator
         // (unew = 1/3 uold + 2/3 utmp + 2/3 du_dt_tmp * deltat)
         // X_orig = X_orig*(1/3) + X_tmp*(2/3) + X_dot*delta_t*(2/3)
         // update3: Update three vectors such that a = alpha * a + beta * b + gamma * c.
-        Cabana::Grid::ArrayOp::update(*z_orig, (1.0/3.0), *z_tmp, (2.0/3.0), *z_dot, (delta_t*2.0/3.0), Cabana::Grid::Own());
-        Cabana::Grid::ArrayOp::update(*w_orig, (1.0/3.0), *w_tmp, (2.0/3.0), *w_dot, (delta_t*2.0/3.0), Cabana::Grid::Own());
+        ArrayUtils::ArrayOp::update(*z_orig, (1.0/3.0), *z_tmp, (2.0/3.0), *z_dot, (delta_t*2.0/3.0), Cabana::Grid::Own());
+        ArrayUtils::ArrayOp::update(*w_orig, (1.0/3.0), *w_tmp, (2.0/3.0), *w_dot, (delta_t*2.0/3.0), Cabana::Grid::Own());
         // printf("*******z_DOT******\n");
         // printView(local_l2g, 0, z_dot->view(), 1, 3, 3);
         // printf("*******z_TMP******\n");

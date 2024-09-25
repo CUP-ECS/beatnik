@@ -130,6 +130,7 @@ class ProblemManager
 
     /**
      * Initializes state values in the cells
+     * Specific for structured grids
      * @param create_functor Initialization function
      **/
     template <class InitFunctor>
@@ -144,8 +145,8 @@ class ProblemManager
         auto local_mesh = Cabana::Grid::createLocalMesh<device_type>( local_grid );
 
 	    // Get State Arrays
-        auto z = get( Cabana::Grid::Node(), Field::Position() )->view();
-        auto w = get( Cabana::Grid::Node(), Field::Vorticity() )->view();
+        auto z = get( Field::Position() )->node_array()->view();
+        auto w = get( Field::Vorticity() )->node_array()->view();
 
         // Loop Over All Owned Nodes ( i, j )
         auto own_nodes = local_grid.indexSpace( Cabana::Grid::Own(), Cabana::Grid::Node(),
@@ -195,19 +196,20 @@ class ProblemManager
      * @param Field::Vorticity
      * @return Returns Cabana::Array of current vorticity at nodes
      **/
-    std::shared_ptr<node_array> get( Cabana::Grid::Node, Field::Vorticity ) const
+    std::shared_ptr<node_array> get( Field::Vorticity ) const
     {
         return _vorticity;
     };
 
     /**
      * Gather State Data from Neighbors
+     * XXX - only apply to Cabana Arrays
      **/
     void gather( ) const
     {
-        _surface_halo->gather( ExecutionSpace(), *_position, *_vorticity );
-        _bc.applyPosition(_surface_mesh, *_position);
-        _bc.applyField(_surface_mesh, *_vorticity, 2);
+        _surface_halo->gather( ExecutionSpace(), *_position->node_array(), *_vorticity->nodearray() );
+        _bc.applyPosition(_surface_mesh, *_position->node_array());
+        _bc.applyField(_surface_mesh, *_vorticity->node_array(), 2);
     };
 
     /**
@@ -216,9 +218,9 @@ class ProblemManager
      */
     void gather( node_array &position, node_array &vorticity) const
     {
-        _surface_halo->gather( ExecutionSpace(), position, vorticity );
-        _bc.applyPosition(_surface_mesh, position);
-        _bc.applyField(_surface_mesh, vorticity, 2);
+        _surface_halo->gather( ExecutionSpace(), position.node_array(), vorticity.node_array() );
+        _bc.applyPosition(_surface_mesh, position.node_array());
+        _bc.applyField(_surface_mesh, vorticity.node_array(), 2);
     }
 
 #if 0
@@ -242,8 +244,7 @@ class ProblemManager
 
     // Basic long-term quantities stored in the mesh and periodically written
     // to storage (specific computiontional methods may store additional state)
-    // std::shared_ptr<node_array> _position, _vorticity;
-    std::shared_ptr<beatnik_node_array> _position, _vorticity;
+    std::shared_ptr<node_array> _position, _vorticity;
 
     // Halo communication pattern for problem-manager stored data
     std::shared_ptr<halo_type> _surface_halo;
