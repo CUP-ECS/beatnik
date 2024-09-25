@@ -35,6 +35,7 @@
 
 #include <SurfaceMesh.hpp>
 #include <BoundaryCondition.hpp>
+#include <Beatnik_ArrayUtils.hpp>
 
 namespace Beatnik
 {
@@ -81,7 +82,7 @@ class ProblemManager
     using device_type = Kokkos::Device<exec_space, mem_space>;
 
     using Node = Cabana::Grid::Node;
-    using node_array = Beatnik::Utils::Array<exec_space, mem_space, Node>;
+    using node_array = Beatnik::ArrayUtils::Array<exec_space, mem_space, Node>;
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
     using surface_mesh_type = SurfaceMesh<exec_space, mem_space>;
@@ -100,16 +101,16 @@ class ProblemManager
         // and other associated data structures. Does there need to be version with
         // halos associated with them?
         auto node_triple_layout = ArrayUtils::createArrayLayout<exec_space, mem_space>(_surface_mesh.localGrid(), 3, Node());
-        auto node_pair_layout = ArrayUtils::createArrayLayout<exec_space, mem_space>(_surface_mesh.localGrid(), 2, Node())
+        auto node_pair_layout = ArrayUtils::createArrayLayout<exec_space, mem_space>(_surface_mesh.localGrid(), 2, Node());
 
         // The actual arrays storing mesh quantities
         // 1. The spatial positions of the interface
-        _position = Utils::createArray<exec_space, mem_space>("position", node_triple_layout, Node());
+        _position = ArrayUtils::createArray<exec_space, mem_space>("position", node_triple_layout, Node());
 	    ArrayUtils::ArrayOp::assign( *_position, 0.0, Cabana::Grid::Ghost() );
 
 
         // 2. The magnitude of vorticity at the interface 
-        _vorticity = Utils::createArray<exec_space, mem_space>("vorticity", node_pair_layout, Node());
+        _vorticity = ArrayUtils::createArray<exec_space, mem_space>("vorticity", node_pair_layout, Node());
 	    ArrayUtils::ArrayOp::assign( *_vorticity, 0.0, Cabana::Grid::Ghost() );
 
         /* Halo pattern for the position and vorticity. The halo is two cells 
@@ -120,7 +121,7 @@ class ProblemManager
         /* XXX - For now, only apply strucutred halo to the structured arrays */
         int halo_depth = _surface_mesh.localGrid()->haloCellWidth();
         _surface_halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<2>(), 
-                            halo_depth, *_position.node_array(), *_vorticity.node_array());
+                            halo_depth, *_position->array(Node()), *_vorticity->array(Node()));
 
         // Initialize State Values ( position and vorticity ) and 
         // then do a halo to make sure the ghosts and boundaries are correct.
@@ -145,8 +146,8 @@ class ProblemManager
         auto local_mesh = Cabana::Grid::createLocalMesh<device_type>( local_grid );
 
 	    // Get State Arrays
-        auto z = get( Field::Position() )->node_array()->view();
-        auto w = get( Field::Vorticity() )->node_array()->view();
+        auto z = get( Field::Position() )->array(Node())->view();
+        auto w = get( Field::Vorticity() )->array(Node())->view();
 
         // Loop Over All Owned Nodes ( i, j )
         auto own_nodes = local_grid.indexSpace( Cabana::Grid::Own(), Cabana::Grid::Node(),
@@ -207,10 +208,10 @@ class ProblemManager
      **/
     void gather( ) const
     {
-        _surface_halo->gather( ExecutionSpace(), *_position->node_array(), *_vorticity->nodearray() );
-        _bc.applyPosition(_surface_mesh, *_position->node_array());
-        _bc.applyField(_surface_mesh, *_vorticity->node_array(), 2);
-    };
+        _surface_halo->gather( ExecutionSpace(), *_position->array(Node()), *_vorticity->array(Node()) );
+        _bc.applyPosition(_surface_mesh, *_position->array(Node()));
+        _bc.applyField(_surface_mesh, *_vorticity->array(Node()), 2);
+    }
 
     /**
      * Gather state data from neighbors for temporary position and vorticity 
@@ -218,9 +219,9 @@ class ProblemManager
      */
     void gather( node_array &position, node_array &vorticity) const
     {
-        _surface_halo->gather( ExecutionSpace(), position.node_array(), vorticity.node_array() );
-        _bc.applyPosition(_surface_mesh, position.node_array());
-        _bc.applyField(_surface_mesh, vorticity.node_array(), 2);
+        _surface_halo->gather( ExecutionSpace(), position.array(Node()), vorticity.array(Node()) );
+        _bc.applyPosition(_surface_mesh, position.array(Node()));
+        _bc.applyField(_surface_mesh, vorticity.array(Node()), 2);
     }
 
 #if 0

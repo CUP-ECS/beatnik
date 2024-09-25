@@ -17,6 +17,7 @@
 #include <Kokkos_Core.hpp>
 
 #include <Operators.hpp>
+#include <Beatnik_ArrayUtils.hpp>
 
 #include <memory>
 
@@ -39,7 +40,8 @@ class SurfaceMesh
     using execution_space = ExecutionSpace;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
-    using node_array = Beatnik::Utils::Array<exec_space, mem_space, Node>;
+    using Node = Cabana::Grid::Node;
+    using node_array = Beatnik::ArrayUtils::Array<execution_space, memory_space, Node>;
 
     // Construct a mesh.
     SurfaceMesh( const std::array<double, 6>& global_bounding_box,

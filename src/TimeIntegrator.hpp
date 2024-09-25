@@ -15,7 +15,7 @@
 #include <BoundaryCondition.hpp>
 #include <ProblemManager.hpp>
 #include <ZModel.hpp>
-#include <Beatnik_Array.hpp>
+#include <Beatnik_ArrayUtils.hpp>
 
 #include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
@@ -33,7 +33,7 @@ class TimeIntegrator
     using device_type = Kokkos::Device<exec_space, mem_space>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     using Node = Cabana::Grid::Node;
-    using node_array = Beatnik::Utils::Array<exec_space, mem_space, Node>;
+    using node_array = Beatnik::ArrayUtils::Array<exec_space, mem_space, Node>;
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
 
     // using halo_type = Cabana::Grid::Halo<MemorySpace>;

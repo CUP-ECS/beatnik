@@ -35,6 +35,7 @@
 
 #include <SurfaceMesh.hpp>
 #include <CreateBRSolver.hpp>
+#include <Beatnik_ArrayUtils.hpp>
 
 #include <BoundaryCondition.hpp>
 #include <Operators.hpp>
@@ -73,7 +74,7 @@ class ZModel
     using Node = Cabana::Grid::Node;
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
 
-    using node_array = Beatnik::Utils::Array<exec_space, mem_space, Node>;
+    using node_array = Beatnik::ArrayUtils::Array<exec_space, memory_space, Node>;
     // using node_view = typename node_array::view_type;
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
@@ -175,7 +176,7 @@ class ZModel
                 params.setReorder(true);
                 break;
         }
-        _fft = Cabana::Grid::Experimental::createHeffteFastFourierTransform<double, memory_space>(*node_double_layout, params);
+        _fft = Cabana::Grid::Experimental::createHeffteFastFourierTransform<double, memory_space>(*node_double_layout.layout(Node()), params);
     }
 
     double computeMinTimestep(double atwood, double g)
@@ -230,19 +231,21 @@ class ZModel
         }
     }
 
-    template <class VorticityView>
-    void computeReiszTransform(VorticityView w) const
+    template <class VorticityArray>
+    void computeReiszTransform(VorticityArray w, Cabana::Grid::Node) const
     {
+        using entity_type = EntityType;
+
         /* Construct the temporary arrays C1 and C2 */
-        auto local_grid = _pm.mesh().localGrid();
-        auto & global_grid = local_grid->globalGrid();
+        auto local_grid = w.layout()->localGrid();
+        auto& global_grid = local_grid->globalGrid();
         auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>( *local_grid );
         auto local_nodes = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
         /* Get the views we'll be computing with in parallel loops */
-        auto C1 = _C1->view();
-        auto C2 = _C2->view();
-        auto reisz = _reisz->view();
+        auto C1 = _C1->array(Cabana::Grid::Node())->view();
+        auto C2 = _C2->array(Cabana::Grid::Node())->view();
+        auto reisz = _reisz->array(Cabana::Grid::Node())->view();
 
         /* First put w into the real parts of C1 and C2 (and zero out
          * any imaginary parts left from previous runs!) */
@@ -259,8 +262,8 @@ class ZModel
          * care of that. */
 
         /* Now do the FFTs of vorticity */
-        _fft->forward(*_C1, Cabana::Grid::Experimental::FFTScaleNone());
-        _fft->forward(*_C2, Cabana::Grid::Experimental::FFTScaleNone());
+        _fft->forward(*C1, Cabana::Grid::Experimental::FFTScaleNone());
+        _fft->forward(*C2, Cabana::Grid::Experimental::FFTScaleNone());
 
         int nx = global_grid.globalNumEntity(Cabana::Grid::Node(), 0);
         int ny = global_grid.globalNumEntity(Cabana::Grid::Node(), 1);
@@ -296,7 +299,7 @@ class ZModel
 
         /* We then do the reverse transform to finish the reisz transform,
          * which is used later to calculate final interface velocity */
-        _fft->reverse(*_reisz, Cabana::Grid::Experimental::FFTScaleFull());
+        _fft->reverse(*reisz, Cabana::Grid::Experimental::FFTScaleFull());
     }
 
     /* For low order, we calculate the reisz transform used to compute the magnitude
@@ -306,26 +309,27 @@ class ZModel
                            [[maybe_unused]] node_array& z, node_array& w,
                            [[maybe_unused]] node_array& omega_view) const
     {
-        computeReiszTransform(w.view());
+        computeReiszTransform(w);
     }
 
     /* For medium order, we calculate the fourier velocity that we later 
      * normalize for vorticity calculations and directly compute the 
      * interface velocity (zdot) using a far field method. */
     void prepareVelocities(Order::Medium, node_array& zdot, node_array& z, node_array& w,
-                           node_array& omega) const
+                           node_array& omega, Cabana::Grid::Node) const
     {
-        computeReiszTransform(w.view());
-        _br->computeInterfaceVelocity(zdot.view(), z.view(), omega.view());
+        computeReiszTransform(w, Node());
+        _br->computeInterfaceVelocity(zdot.array(Node())->view(), z.array(Node())->view(), omega.array(Node())->view());
     }
 
     /* For high order, we just directly compute the interface velocity (zdot)
      * using a far field method and later normalize that for use in the vorticity 
      * calculation. */
     void prepareVelocities(Order::High, node_array& zdot, node_array& z,
-                           [[maybe_unused]]node_array& w, node_array& omega) const
+                           [[maybe_unused]]node_array& w, node_array& omega,
+                           Cabana::Grid::Node) const
     {
-        _br->computeInterfaceVelocity(zdot.view(), z.view(), omega.view());
+        _br->computeInterfaceVelocity(zdot.array(Node())->view(), z.array(Node())->view(), omega.array(Node())->view());
     }
 
     // Compute the final interface velocities and normalized BR velocities
@@ -380,25 +384,29 @@ class ZModel
 	    computeHaloedDerivatives( z, w, zdot, wdot );
     }
 
-    // XXX - Tag this function based on strucutred/unstrucutred mesh
-    void computeVelocitiesStructured(node_array& z, node_array& z_dx, node_array& z_dy,
-                                     node_array& w, node_array& zdot, node_array& wdot) const
+    /**
+     * XXX - Until we can put these parallel fors into array ops,
+     * the function needs to be tagged on Entity type
+     */
+    void computeVelocities(node_array& z, node_array& z_dx, node_array& z_dy,
+                           node_array& w, node_array& zdot, node_array& wdot,
+                           Cabana::Grid::Node) const
     {
-        auto reisz_view = _reisz->view();
-        auto z_view = z.view();
-        auto w_view = w.view();
-        auto zdot_view = zdot.view();
-        auto wdot_view = wdot.view();
-        auto z_dx_view = z_dx.view();
-        auto z_dy_view = z_dy.view();
+        auto reisz = _reisz->array(Node())->view();
+        auto z_view = z.array(Node())->view();
+        auto w_view = w.array(Node())->view();
+        auto zdot_view = zdot.array(Node())->view();
+        auto wdot_view = wdot.array(Node())->view();
+        auto z_dx_view = z_dx.array(Node())->view();
+        auto z_dy_view = z_dy.array(Node())->view();
         double g = _g, A = _A, dx = _dx, dy = _dy;
 
         // Phase 2: Process the globally-dependent velocity information into 
         // into final interface position derivatives and the information 
         // needed for calculating the vorticity derivative
-        auto V_view = _V->view();
+        auto V_view = _V.array(Node())->view();
 
-        auto layout = z.layout();
+        auto layout = z.layout(Node());
         auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
         Kokkos::parallel_for( "Interface Velocity", policy, 
@@ -443,8 +451,8 @@ class ZModel
 
         // Halo V and correct any boundary condition corrections so that we can 
         // compute finite differences correctly.
-        _v_halo->gather( ExecutionSpace(), *_V);
-        _bc.applyField( _pm.mesh(), *_V, 1 );
+        _v_halo->gather( ExecutionSpace(), *V_view);
+        _bc.applyField( _pm.mesh(), *V_view, 1 );
 
         double mu = _mu;
         Kokkos::parallel_for( "Interface Vorticity", policy, 
@@ -480,7 +488,7 @@ class ZModel
 
         // Phase 1.a: Calcuate the omega value for each point
         auto out = _pm.mesh().omega(w_array, *z_dx, *z_dy);
-        Cabana::Grid::ArrayOp::copy(*_omega, *out, Cabana::Grid::Own());
+        Beatnik::ArrayUtils::ArrayOp::copy(*_omega, *out, Cabana::Grid::Own());
 
         // auto local_grid = _pm.mesh().localGrid();
         // l2g_type local_l2g = Cabana::Grid::IndexConversion::createL2G( *local_grid, Cabana::Grid::Node() );
@@ -488,8 +496,8 @@ class ZModel
         //printView(local_l2g, 0, z_view, 1, 2, 2);
 
         // Phase 1.b: Compute zdot
-        prepareVelocities(MethodOrder(), zdot_array, z_array, w_array, *_omega);
-        computeVelocitiesStructured(z_array, *z_dx, *z_dy, w_array, zdot_array, wdot_array);
+        prepareVelocities(MethodOrder(), zdot_array, z_array, w_array, *_omega, Node());
+        computeVelocities(z_array, *z_dx, *z_dy, w_array, zdot_array, wdot_array, Node());
         
         // auto reisz = _reisz->view();
         // double g = _g;
@@ -562,9 +570,9 @@ class ZModel
 
     }
 
-    typename node_array::view_type getOmega()
+    std::shared_ptr<node_array> getOmega()
     {
-        return _omega->view();
+        return _omega;
     }
 
     template <class l2g_type, class View>
