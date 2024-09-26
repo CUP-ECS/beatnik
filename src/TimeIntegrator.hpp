@@ -29,17 +29,17 @@ template <class ExecutionSpace, class MemorySpace, class ZModelType>
 class TimeIntegrator
 {
     using exec_space = ExecutionSpace;
-    using mem_space = MemorySpace;
-    using device_type = Kokkos::Device<exec_space, mem_space>;
+    using memory_space = MemorySpace;
+    using device_type = Kokkos::Device<exec_space, memory_space>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     using Node = Cabana::Grid::Node;
-    using node_array = Beatnik::ArrayUtils::Array<exec_space, mem_space, Node>;
+    using node_array = Beatnik::ArrayUtils::Array<exec_space, memory_space, Node>;
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
 
     // using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
   public:
-    TimeIntegrator( const ProblemManager<exec_space, mem_space> & pm,
+    TimeIntegrator( const ProblemManager<exec_space, memory_space> & pm,
                     const BoundaryCondition & bc,
                     const ZModelType & zm )
     : _pm(pm)
@@ -49,9 +49,9 @@ class TimeIntegrator
         // Create a layout of the temporary arrays we'll need for velocity
         // intermediate positions, and change in vorticity
         auto node_triple_layout =
-            ArrayUtils::createArrayLayout( pm.mesh().localGrid(), 3, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout<exec_space, memory_space>( pm.mesh().localGrid(), 3, Cabana::Grid::Node() );
         auto node_pair_layout =
-            ArrayUtils::createArrayLayout( pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout<exec_space, memory_space>( pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
         //const std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> mesh = pm.mesh().localGrid(); 
         // auto node_pair_layout_2 = Utils::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 2, Cabana::Grid::Node());
         // auto node_triple_layout_2 = Utils::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 3, Cabana::Grid::Node());
@@ -63,7 +63,7 @@ class TimeIntegrator
         // Cabana::Grid::DimBlockPartitioner<2> partitioner;
 
 
-        // auto nu_mesh = NuMesh::createMesh<exec_space, mem_space>(MPI_COMM_WORLD);
+        // auto nu_mesh = NuMesh::createMesh<exec_space, memory_space>(MPI_COMM_WORLD);
         // nu_mesh->initialize_ve(global_low_corner, global_high_corner, global_num_cell,
         //                         is_dim_periodic, partitioner, MPI_COMM_WORLD);
         // nu_mesh->initialize_faces();
@@ -74,19 +74,19 @@ class TimeIntegrator
         // auto edge_triple_layout = Utils::createArrayLayout(nu_mesh, 3, NuMesh::Edge());
         // auto face_triple_layout = Utils::createArrayLayout(nu_mesh, 3, NuMesh::Face());
 
-        // auto zdot_array_2 = Utils::createArray<exec_space, mem_space>("cabana-v", node_pair_layout_2, Cabana::Grid::Node());
-        // auto zdot_numesh_v = Utils::createArray<exec_space, mem_space>("nu-v", vertex_triple_layout, NuMesh::Vertex());
-        // auto zdot_numesh_e = Utils::createArray<exec_space, mem_space>("nu-e", edge_triple_layout, NuMesh::Edge());
-        // auto zdot_numesh_f = Utils::createArray<exec_space, mem_space>("nu-f", face_triple_layout, NuMesh::Face());
+        // auto zdot_array_2 = Utils::createArray<exec_space, memory_space>("cabana-v", node_pair_layout_2, Cabana::Grid::Node());
+        // auto zdot_numesh_v = Utils::createArray<exec_space, memory_space>("nu-v", vertex_triple_layout, NuMesh::Vertex());
+        // auto zdot_numesh_e = Utils::createArray<exec_space, memory_space>("nu-e", edge_triple_layout, NuMesh::Edge());
+        // auto zdot_numesh_f = Utils::createArray<exec_space, memory_space>("nu-f", face_triple_layout, NuMesh::Face());
 
 
-        _zdot = ArrayUtils::createArray<exec_space, mem_space>("velocity", 
+        _zdot = ArrayUtils::createArray<exec_space, memory_space>("velocity", 
                                                        node_triple_layout, Node());
-        _wdot = ArrayUtils::createArray<exec_space, mem_space>("vorticity derivative",
+        _wdot = ArrayUtils::createArray<exec_space, memory_space>("vorticity derivative",
                                                        node_pair_layout, Node());
-        _ztmp = ArrayUtils::createArray<exec_space, mem_space>("position temporary", 
+        _ztmp = ArrayUtils::createArray<exec_space, memory_space>("position temporary", 
                                                        node_triple_layout, Node());
-        _wtmp = ArrayUtils::createArray<exec_space, mem_space>("vorticity temporary", 
+        _wtmp = ArrayUtils::createArray<exec_space, memory_space>("vorticity temporary", 
                                                        node_pair_layout, Node());
     }
 

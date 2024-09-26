@@ -219,9 +219,9 @@ class ProblemManager
      */
     void gather( node_array &position, node_array &vorticity) const
     {
-        _surface_halo->gather( ExecutionSpace(), position.array(Node()), vorticity.array(Node()) );
-        _bc.applyPosition(_surface_mesh, position.array(Node()));
-        _bc.applyField(_surface_mesh, vorticity.array(Node()), 2);
+        _surface_halo->gather( ExecutionSpace(), *position.array(Node()), *vorticity.array(Node()) );
+        _bc.applyPosition(_surface_mesh, *position.array(Node()));
+        _bc.applyField(_surface_mesh, *vorticity.array(Node()), 2);
     }
 
 #if 0

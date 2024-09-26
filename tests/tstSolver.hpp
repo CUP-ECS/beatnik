@@ -119,8 +119,8 @@ class SolverTest : public ::testing::Test
         auto z = this->read_z(z_path);
         auto w = this->read_w(w_path);
         this->rg_->rocketrig();
-        auto z_test = this->rg_->get_positions();
-        auto w_test = this->rg_->get_vorticities();
+        auto z_test = this->rg_->get_positions<Cabana::Grid::Node>();
+        auto w_test = this->rg_->get_vorticities<Cabana::Grid::Node>();
         this->compare_views(z, z_test);
         this->compare_views(w, w_test);
     }

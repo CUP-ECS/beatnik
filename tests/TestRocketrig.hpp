@@ -299,14 +299,16 @@ class Rocketrig
         _solver->solve( cl.t_final, cl.write_freq );
     }
 
+    template <class EntityType>
     View_t get_positions()
     {
-        return _solver->get_positions();
+        return _solver->get_positions(EntityType());
     }
 
+    template <class EntityType>
     View_t get_vorticities()
     {
-        return _solver->get_vorticities();
+        return _solver->get_vorticities(EntityType());
     }
 
     ClArgs get_ClArgs()

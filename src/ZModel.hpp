@@ -97,11 +97,11 @@ class ZModel
         // Need the node triple layout for storing vector normals and the 
         // node double layout for storing x and y surface derivative
         auto node_double_layout =
-            ArrayUtils::createArrayLayout( _pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout<exec_space, memory_space>( _pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
         auto node_triple_layout =
-            ArrayUtils::createArrayLayout( _pm.mesh().localGrid(), 3, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout<exec_space, memory_space>( _pm.mesh().localGrid(), 3, Cabana::Grid::Node() );
         auto node_scalar_layout =
-            ArrayUtils::createArrayLayout( _pm.mesh().localGrid(), 1, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout<exec_space, memory_space>( _pm.mesh().localGrid(), 1, Cabana::Grid::Node() );
 
         
         // Initize omega view
@@ -117,7 +117,7 @@ class ZModel
          * it. This requires a depth 2 stencil with adjacent faces */
         int halo_depth = 2; 
         _v_halo = Cabana::Grid::createHalo( Cabana::Grid::FaceHaloPattern<2>(),
-                            halo_depth, *_V );
+                            halo_depth, *_V->array(Node()) );
 
         /* Storage for the reisz transform of the vorticity. In the low and 
          * medium order models, it is used to calculate the vorticity 
@@ -176,7 +176,7 @@ class ZModel
                 params.setReorder(true);
                 break;
         }
-        _fft = Cabana::Grid::Experimental::createHeffteFastFourierTransform<double, memory_space>(*node_double_layout.layout(Node()), params);
+        _fft = Cabana::Grid::Experimental::createHeffteFastFourierTransform<double, memory_space>(*node_double_layout->layout(Node()), params);
     }
 
     double computeMinTimestep(double atwood, double g)
@@ -234,27 +234,26 @@ class ZModel
     template <class VorticityArray>
     void computeReiszTransform(VorticityArray w, Cabana::Grid::Node) const
     {
-        using entity_type = EntityType;
-
         /* Construct the temporary arrays C1 and C2 */
-        auto local_grid = w.layout()->localGrid();
+        auto local_grid = w.layout()->layout(Node())->localGrid();
         auto& global_grid = local_grid->globalGrid();
         auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>( *local_grid );
-        auto local_nodes = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
+        auto local_nodes = local_grid->indexSpace(Cabana::Grid::Own(), Node(), Cabana::Grid::Local());
 
         /* Get the views we'll be computing with in parallel loops */
-        auto C1 = _C1->array(Cabana::Grid::Node())->view();
-        auto C2 = _C2->array(Cabana::Grid::Node())->view();
-        auto reisz = _reisz->array(Cabana::Grid::Node())->view();
+        auto C1 = _C1->array(Node())->view();
+        auto C2 = _C2->array(Node())->view();
+        auto reisz = _reisz->array(Node())->view();
+        auto w_view = w.array(Node())->view();
 
         /* First put w into the real parts of C1 and C2 (and zero out
          * any imaginary parts left from previous runs!) */
         Kokkos::parallel_for("Build FFT Arrays", 
                      Cabana::Grid::createExecutionPolicy(local_nodes, ExecutionSpace()), 
                      KOKKOS_LAMBDA(const int i, const int j) {
-            C1(i, j, 0) = w(i, j, 0);
+            C1(i, j, 0) = w_view(i, j, 0);
             C1(i, j, 1) = 0;
-            C2(i, j, 0) = w(i, j, 1);
+            C2(i, j, 0) = w_view(i, j, 1);
             C2(i, j, 1) = 0;
         });
 
@@ -262,8 +261,8 @@ class ZModel
          * care of that. */
 
         /* Now do the FFTs of vorticity */
-        _fft->forward(*C1, Cabana::Grid::Experimental::FFTScaleNone());
-        _fft->forward(*C2, Cabana::Grid::Experimental::FFTScaleNone());
+        _fft->forward(*_C1->array(Node()), Cabana::Grid::Experimental::FFTScaleNone());
+        _fft->forward(*_C2->array(Node()), Cabana::Grid::Experimental::FFTScaleNone());
 
         int nx = global_grid.globalNumEntity(Cabana::Grid::Node(), 0);
         int ny = global_grid.globalNumEntity(Cabana::Grid::Node(), 1);
@@ -299,7 +298,7 @@ class ZModel
 
         /* We then do the reverse transform to finish the reisz transform,
          * which is used later to calculate final interface velocity */
-        _fft->reverse(*reisz, Cabana::Grid::Experimental::FFTScaleFull());
+        _fft->reverse(*_reisz->array(Node()), Cabana::Grid::Experimental::FFTScaleFull());
     }
 
     /* For low order, we calculate the reisz transform used to compute the magnitude
@@ -307,9 +306,10 @@ class ZModel
      * once we have the normals */
     void prepareVelocities(Order::Low, [[maybe_unused]] node_array& zdot,
                            [[maybe_unused]] node_array& z, node_array& w,
-                           [[maybe_unused]] node_array& omega_view) const
+                           [[maybe_unused]] node_array& omega,
+                           Cabana::Grid::Node) const
     {
-        computeReiszTransform(w);
+        computeReiszTransform(w, Node());
     }
 
     /* For medium order, we calculate the fourier velocity that we later 
@@ -370,8 +370,8 @@ class ZModel
     void computeDerivatives( node_array& zdot_ptr, node_array& wdot_ptr ) const
     {
        _pm.gather();
-       auto z_orig = _pm.get( Cabana::Grid::Node(), Field::Position() );
-       auto w_orig = _pm.get( Cabana::Grid::Node(), Field::Vorticity() );
+       auto z_orig = _pm.get( Field::Position() );
+       auto w_orig = _pm.get( Field::Vorticity() );
        computeHaloedDerivatives( *z_orig, *w_orig, zdot_ptr, wdot_ptr );
     } 
 
@@ -392,7 +392,7 @@ class ZModel
                            node_array& w, node_array& zdot, node_array& wdot,
                            Cabana::Grid::Node) const
     {
-        auto reisz = _reisz->array(Node())->view();
+        auto reisz_view = _reisz->array(Node())->view();
         auto z_view = z.array(Node())->view();
         auto w_view = w.array(Node())->view();
         auto zdot_view = zdot.array(Node())->view();
@@ -404,9 +404,9 @@ class ZModel
         // Phase 2: Process the globally-dependent velocity information into 
         // into final interface position derivatives and the information 
         // needed for calculating the vorticity derivative
-        auto V_view = _V.array(Node())->view();
+        auto V_view = _V->array(Node())->view();
 
-        auto layout = z.layout(Node());
+        auto layout = z.layout()->layout(Node());
         auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
         Kokkos::parallel_for( "Interface Velocity", policy, 
@@ -451,8 +451,8 @@ class ZModel
 
         // Halo V and correct any boundary condition corrections so that we can 
         // compute finite differences correctly.
-        _v_halo->gather( ExecutionSpace(), *V_view);
-        _bc.applyField( _pm.mesh(), *V_view, 1 );
+        _v_halo->gather( ExecutionSpace(), *_V->array(Node()));
+        _bc.applyField( _pm.mesh(), *_V->array(Node()), 1 );
 
         double mu = _mu;
         Kokkos::parallel_for( "Interface Vorticity", policy, 
@@ -483,11 +483,11 @@ class ZModel
         // mostly-local parallel calculations in phase 2
 
         // Get dx and dy arrays
-        auto z_dx = _pm.mesh().Dx(z_array, _dx);
-        auto z_dy = _pm.mesh().Dy(z_array, _dy);
+        auto z_dx = _pm.mesh().Dx(z_array, _dx, Node());
+        auto z_dy = _pm.mesh().Dy(z_array, _dy, Node());
 
         // Phase 1.a: Calcuate the omega value for each point
-        auto out = _pm.mesh().omega(w_array, *z_dx, *z_dy);
+        auto out = _pm.mesh().omega(w_array, *z_dx, *z_dy, Node());
         Beatnik::ArrayUtils::ArrayOp::copy(*_omega, *out, Cabana::Grid::Own());
 
         // auto local_grid = _pm.mesh().localGrid();

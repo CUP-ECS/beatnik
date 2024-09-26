@@ -32,8 +32,8 @@ TYPED_TEST(SolverTest, testFileIO)
     // Run rocketrig
     this->init(cl);
     this->rg_->rocketrig();
-    auto z = this->rg_->get_positions();
-    auto w = this->rg_->get_vorticities();
+    auto z = this->rg_->template get_positions<Cabana::Grid::Node>();
+    auto w = this->rg_->template get_vorticities<Cabana::Grid::Node>();
 
     // Write views
     int mesh_size = cl.num_nodes[0];

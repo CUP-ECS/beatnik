@@ -167,9 +167,9 @@ class SurfaceMesh
     {
         using Node = Cabana::Grid::Node;
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
-        auto out_view = Out->array(Node())->view();
-        auto in_view = in->array(Node())->view();
-        auto layout = in.layout(Node());
+        auto out_view = out->array(Node())->view();
+        auto in_view = in.array(Node())->view();
+        auto layout = in.layout()->layout(Node());
         auto index_space = layout->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Local());
         int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
@@ -182,9 +182,9 @@ class SurfaceMesh
     {
         using Node = Cabana::Grid::Node;
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
-        auto out_view = Out->array(Node())->view();
-        auto in_view = in->array(Node())->view();
-        auto layout = in.layout(Node());
+        auto out_view = out->array(Node())->view();
+        auto in_view = in.array(Node())->view();
+        auto layout = in.layout()->layout(Node());
         auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
@@ -202,13 +202,13 @@ class SurfaceMesh
         auto zdx_view = z_dx.array(Node())->view();
         auto zdy_view = z_dy.array(Node())->view();
         auto w_view = w.array(Node())->view();
-        auto layout = z_dx.layout(Node());
+        auto layout = z_dx.layout()->layout(Node());
         auto node_triple_layout =
-            Beatnik::ArrayUtils::createArrayLayout( layout->localGrid(), 3, Cabana::Grid::Node() );
+            Beatnik::ArrayUtils::createArrayLayout<execution_space, memory_space>( layout->localGrid(), 3, Node() );
         std::shared_ptr<node_array> out = Beatnik::ArrayUtils::createArray<execution_space, memory_space>("omega", 
-                                                       node_triple_layout);
-        auto out_view = out.array(Node())->view();
-        auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
+                                                       node_triple_layout, Node());
+        auto out_view = out->array(Node())->view();
+        auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Node(), Cabana::Grid::Local());
         int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
         Kokkos::parallel_for("Calculate Dx", policy, KOKKOS_LAMBDA(const int i, const int j) {

@@ -94,8 +94,8 @@ class SolverBase
 
     // For testing purposes
     using View_t = Kokkos::View<double***, Kokkos::HostSpace>;
-    virtual View_t get_positions( void ) = 0;
-    virtual View_t get_vorticities( void ) = 0;
+    virtual View_t get_positions( Cabana::Grid::Node ) = 0;
+    virtual View_t get_vorticities( Cabana::Grid::Node ) = 0;
 };
 
 //---------------------------------------------------------------------------//
@@ -271,11 +271,13 @@ class Solver : public SolverBase
         Kokkos::Profiling::popRegion();
     }
 
+    // XXX - Template these functions on EntityType. Currently
+    // causes a linking error when trying to do so.
     // For testing purposes
-    View_t get_positions() override
+    View_t get_positions(Cabana::Grid::Node) override
     {
         //_pm->gather();
-        auto view = _pm->get(Cabana::Grid::Node(), Field::Position())->view();
+        auto view = _pm->get(Field::Position())->array(Cabana::Grid::Node())->view();
         int dim0 = view.extent(0);
         int dim1 = view.extent(1);
         auto temp = Kokkos::create_mirror_view(view);
@@ -284,11 +286,10 @@ class Solver : public SolverBase
         Kokkos::deep_copy(ret, temp); 
         return ret;
     }
-
-    View_t get_vorticities() override
+    View_t get_vorticities(Cabana::Grid::Node) override
     {
         //_pm->gather();
-        auto view = _pm->get(Cabana::Grid::Node(), Field::Vorticity())->view();
+        auto view = _pm->get(Field::Vorticity())->array(Cabana::Grid::Node())->view();
         int dim0 = view.extent(0);
         int dim1 = view.extent(1);
         auto temp = Kokkos::create_mirror_view(view);

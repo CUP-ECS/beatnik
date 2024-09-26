@@ -117,7 +117,7 @@ class SiloWriter
         }
 
         // Fill out coords[] arrays with coordinate values in each dimension
-        auto z = _pm.get( Field::Position() )->node_array()->view();
+        auto z = _pm.get( Field::Position() )->array(Cabana::Grid::Node())->view();
         auto zHost = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), z );
         auto xmin = node_domain.min( 0 );
         auto ymin = node_domain.min( 1 );
@@ -145,7 +145,7 @@ class SiloWriter
 
         // Mesh vorticity values - copy owned portion from the primary
         // execution space to the host execution space
-        auto w = _pm.get( Field::Vorticity() )->node_array()->view();
+        auto w = _pm.get( Field::Vorticity() )->array(Cabana::Grid::Node())->view();
 
         // array that we copy data into and then get a mirror view of.
         Kokkos::View<typename pm_type::node_array::value_type***,
