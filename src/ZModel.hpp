@@ -60,7 +60,14 @@ namespace Order
  * @brief ZModel class handles the specific of the various ZModel versions, 
  * invoking an external class to solve far-field forces if necessary.
  **/
-template <class ExecutionSpace, class MemorySpace, class MethodOrder, class Params>
+
+// NodeArray would be the passed-on array type
+// Not template zmodel on exec, mem space, pull it out of arraytype instead
+// Implement our own arrayops in the strucutre currently in place
+/*Then see if it's worth moving everything to templates
+ * 
+ */
+template <class ExecutionSpace, class MemorySpace, class MethodOrder, class Params, class ArrayType>
 class ZModel
 {
   public:
@@ -70,6 +77,7 @@ class ZModel
     using br_solver_type = BRSolverBase<ExecutionSpace, MemorySpace, Params>;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>; 
+    //using typename ArrayType = 
 
     using Node = Cabana::Grid::Node;
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
@@ -387,6 +395,8 @@ class ZModel
     /**
      * XXX - Until we can put these parallel fors into array ops,
      * the function needs to be tagged on Entity type
+     * Need ArrayOps for Dot, Cross, LaPlace, 
+     * Do different arrayOps inside the finalizeVelocity functions
      */
     void computeVelocities(node_array& z, node_array& z_dx, node_array& z_dy,
                            node_array& w, node_array& zdot, node_array& wdot,
@@ -443,6 +453,7 @@ class ZModel
             V_view(i, j, 0) = zndot * zndot 
                             - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
                             - 2*g*z_view(i, j, 2);
+                            // Make a body/background velocity view that is just z_view(x, x, 2) -> matches dimensions of V_view
         });
 
         // 3. Phase 3: Halo V and apply boundary condtions on it, then calculate
@@ -454,6 +465,7 @@ class ZModel
         _v_halo->gather( ExecutionSpace(), *_V->array(Node()));
         _bc.applyField( _pm.mesh(), *_V->array(Node()), 1 );
 
+        // XXX - try to make this with arrayops?
         double mu = _mu;
         Kokkos::parallel_for( "Interface Vorticity", policy, 
             KOKKOS_LAMBDA(int i, int j) {
