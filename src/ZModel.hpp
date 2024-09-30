@@ -67,7 +67,7 @@ namespace Order
 /*Then see if it's worth moving everything to templates
  * 
  */
-template <class ExecutionSpace, class MemorySpace, class MethodOrder, class Params, class ArrayType>
+template <class ExecutionSpace, class MemorySpace, class MethodOrder, class Params>
 class ZModel
 {
   public:
@@ -410,6 +410,8 @@ class ZModel
         auto z_dx_view = z_dx.array(Node())->view();
         auto z_dy_view = z_dy.array(Node())->view();
         double g = _g, A = _A, dx = _dx, dy = _dy;
+
+        auto h11 = ArrayUtils::ArrayOp::dot(z_dx, z_dx);
 
         // Phase 2: Process the globally-dependent velocity information into 
         // into final interface position derivatives and the information 

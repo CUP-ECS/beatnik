@@ -25,6 +25,8 @@
 #include <Kokkos_Core.hpp>
 #include <NuMesh_Core.hpp>
 
+#include <stdexcept>
+
 namespace Beatnik
 {
 namespace ArrayUtils
@@ -343,6 +345,85 @@ void update( Array_t& a, const double alpha, const Array_t& b,
     {
         NuMesh::Array::ArrayOp::update(*a.array(entity_type()), alpha, *b.array(entity_type()), beta, *c.array(entity_type()), gamma, tag);
     }
+}
+
+template <typename T>
+Kokkos::View<T***> dot_views(const Kokkos::View<T***>& A, const Kokkos::View<T***>& B)
+{
+    // Check dimensions
+    const auto n = A.extent(0); // First dimension of A
+    const auto m = A.extent(1); // Second dimension of A
+    const auto w = A.extent(2); // Third dimension of A
+    const auto mB = B.extent(1); // Second dimension of B
+    const auto p = B.extent(2); // Third dimension of B
+
+    if (w != B.extent(0)) {
+        throw std::invalid_argument("Inner dimensions must match for dot product");
+    }
+
+    // Create the result view
+    Kokkos::View<T***> result("result", n, m, p);
+
+    // Perform the dot product using Kokkos parallel for
+    Kokkos::parallel_for("DotProduct3D", Kokkos::RangePolicy<>(0, n), KOKKOS_LAMBDA(const int i) {
+        for (int j = 0; j < m; ++j) {
+            for (int k = 0; k < p; ++k) {
+                T sum = 0;
+                for (int l = 0; l < w; ++l) {
+                    sum += A(i, j, l) * B(l, j, k);
+                }
+                result(i, j, k) = sum;
+            }
+        }
+    });
+
+    return result;
+}
+
+template<typename T>
+Kokkos::View<T***>
+cross_views(const Kokkos::View<T***>& a, const Kokkos::View<T***>& b) {
+    // Ensure the input views have the correct dimensions
+    int n = a.extent(0);
+    int m = a.extent(1);
+    int w = a.extent(2);
+
+    if (w != 3 || b.extent(0) != n || b.extent(1) != m || b.extent(2) != 3) {
+        throw std::invalid_argument("Both input views must be of size n x m x 3.");
+    }
+
+    //using ExecutionSpace = typename Kokkos::View<T***, MemorySpace>::execution_space;
+
+    // Create output view for cross product results
+    Kokkos::View<T***> result("crossProduct", n, m, 3);
+
+    Kokkos::parallel_for("CrossProductKernel", Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0, 0}, {n, m}), KOKKOS_LAMBDA(int i, int j) {
+        T a_x = a(i, j, 0);
+        T a_y = a(i, j, 1);
+        T a_z = a(i, j, 2);
+        
+        T b_x = b(i, j, 0);
+        T b_y = b(i, j, 1);
+        T b_z = b(i, j, 2);
+
+        // Cross product: a x b = (ay*bz - az*by, az*bx - ax*bz, ax*by - ay*bx)
+        result(i, j, 0) = a_y * b_z - a_z * b_y; // i component
+        result(i, j, 1) = a_z * b_x - a_x * b_z; // j component
+        result(i, j, 2) = a_x * b_y - a_y * b_x; // k component
+    });
+
+    return result;
+}
+
+template <class Array_t>
+std::shared_ptr<Array_t> dot( Array_t& a, const Array_t& b )
+{
+    using entity_type = typename Array_t::entity_type;
+    auto out = clone( a );
+    auto dot_v = dot_views(a.array(entity_type())->view(), b.array(entity_type())->view());
+    auto out_array = out.array(entity_type())->view();
+    Kokkos::deep_copy(out_array, dot_v);
+    return out;
 }
 
 } // end namespace ArrayOp
