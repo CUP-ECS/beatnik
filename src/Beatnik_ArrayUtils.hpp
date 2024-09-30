@@ -334,6 +334,7 @@ void update( Array_t& a, const double alpha, const Array_t& b,
      else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
               std::is_same_v<entity_type, NuMesh::Edge> ||
               std::is_same_v<entity_type, NuMesh::Face>) 
+              // Can combine this into one custom type trait method 
     {
         NuMesh::Array::ArrayOp::update(*a.array(entity_type()), alpha, *b.array(entity_type()), beta, tag);
     }
