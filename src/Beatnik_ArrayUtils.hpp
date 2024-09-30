@@ -146,6 +146,16 @@ createArrayLayout(const std::shared_ptr<numesh_t<ExecutionSpace, MemorySpace>>& 
     return std::make_shared<ArrayLayout<ExecutionSpace, MemorySpace, EntityType>>(mesh, dofs_per_entity, tag);
 }
 
+/**
+ * Create a layout from an existing layout, but with a different dofs_per_entity
+ * Used to copy a Cabana or NuMesh layout with the same constructor arguments
+ * 
+ */
+template <class ExecutionSpace, class MemorySpace, class EntityType>
+std::shared_ptr<ArrayLayout<ExecutionSpace, MemorySpace, EntityType>>
+createArrayLayout(const std::shared_ptr<>) 
+
+
 //---------------------------------------------------------------------------//
 // Array class.
 //---------------------------------------------------------------------------//
@@ -347,41 +357,42 @@ void update( Array_t& a, const double alpha, const Array_t& b,
     }
 }
 
-template <typename T>
-Kokkos::View<T***> dot_views(const Kokkos::View<T***>& A, const Kokkos::View<T***>& B)
+template <typename View_in_t, typename View_out_t>
+void dot_views(View_out_t v_out, const View_in_t& view1, const View_in_t& view2) 
 {
-    // Check dimensions
-    const auto n = A.extent(0); // First dimension of A
-    const auto m = A.extent(1); // Second dimension of A
-    const auto w = A.extent(2); // Third dimension of A
-    const auto mB = B.extent(1); // Second dimension of B
-    const auto p = B.extent(2); // Third dimension of B
+    using memory_space = typename View_in_t::memory_space;
+    using execution_space = typename View_in_t:: execution_space;
 
-    if (w != B.extent(0)) {
-        throw std::invalid_argument("Inner dimensions must match for dot product");
+    // Get the dimensions of the input views
+    const int n = view1.extent(0);
+    const int m = view1.extent(1);
+    const int w = view1.extent(2);
+    const int out_n = v_out.extent(0);
+    const int out_m = v_out.extent(1);
+
+    // Ensure the third dimension is 3 for 3D vectors
+    if (w != 3) {
+        throw std::invalid_argument("Third dimension must be 3 for 3D vectors.");
+    }
+    if (out_n != n) {
+        throw std::invalid_argument("First dimension of in and out views do not match.");
+    }
+    if (out_m != m) {
+        throw std::invalid_argument("Second dimension of in and out views do not match.");
     }
 
-    // Create the result view
-    Kokkos::View<T***> result("result", n, m, p);
-
-    // Perform the dot product using Kokkos parallel for
-    Kokkos::parallel_for("DotProduct3D", Kokkos::RangePolicy<>(0, n), KOKKOS_LAMBDA(const int i) {
-        for (int j = 0; j < m; ++j) {
-            for (int k = 0; k < p; ++k) {
-                T sum = 0;
-                for (int l = 0; l < w; ++l) {
-                    sum += A(i, j, l) * B(l, j, k);
-                }
-                result(i, j, k) = sum;
-            }
-        }
-    });
-
-    return result;
+    // Parallel loop to compute the dot product at each (n, m) location
+    Kokkos::parallel_for("compute_dot_product", 
+        Kokkos::MDRangePolicy<execution_space, Kokkos::Rank<2>>({0, 0}, {n, m}),
+        KOKKOS_LAMBDA(const int i, const int j) {
+            v_out(i, j) = view1(i, j, 0) * view2(i, j, 0)
+                              + view1(i, j, 1) * view2(i, j, 1)
+                              + view1(i, j, 2) * view2(i, j, 2);
+        });
 }
 
-template<typename T>
-Kokkos::View<T***>
+template<typename T, typename MemorySpace>
+Kokkos::View<T***, MemorySpace>
 cross_views(const Kokkos::View<T***>& a, const Kokkos::View<T***>& b) {
     // Ensure the input views have the correct dimensions
     int n = a.extent(0);
@@ -395,7 +406,7 @@ cross_views(const Kokkos::View<T***>& a, const Kokkos::View<T***>& b) {
     //using ExecutionSpace = typename Kokkos::View<T***, MemorySpace>::execution_space;
 
     // Create output view for cross product results
-    Kokkos::View<T***> result("crossProduct", n, m, 3);
+    Kokkos::View<T***, MemorySpace> result("crossProduct", n, m, 3);
 
     Kokkos::parallel_for("CrossProductKernel", Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0, 0}, {n, m}), KOKKOS_LAMBDA(int i, int j) {
         T a_x = a(i, j, 0);
@@ -419,10 +430,28 @@ template <class Array_t>
 std::shared_ptr<Array_t> dot( Array_t& a, const Array_t& b )
 {
     using entity_type = typename Array_t::entity_type;
+    using memory_space = typename Array_t::memory_space;
+
+    auto a_view = a.array(entity_type())->view();
+    auto b_view = b.array(entity_type())->view();
+    int n = a_view.extent(0);
+    int m = a_view.extent(1);
+
+    // The resulting 'dot' array has the shape (i, j, 1)
+    auto scaler_layout = ArrayUtils::createArrayLayout<exec_space, memory_space>( _pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
     auto out = clone( a );
-    auto dot_v = dot_views(a.array(entity_type())->view(), b.array(entity_type())->view());
-    auto out_array = out.array(entity_type())->view();
-    Kokkos::deep_copy(out_array, dot_v);
+    Kokkos::View<double**, memory_space> dot_view("dot_product", n, m);
+    dot_views(dot_view, a_view, b_view);
+    auto out_array = out->array(entity_type())->view();
+
+    // auto hvt_tmp = Kokkos::create_mirror_view(omega_d_test);
+    //     auto hvc_tmp = Kokkos::create_mirror_view(omega_d_correct);
+    //     Kokkos::deep_copy(hvt_tmp, omega_d_test);
+    //     Kokkos::deep_copy(hvc_tmp, omega_d_correct);
+    //     Kokkos::deep_copy(omega_h_test, hvt_tmp);
+    //     Kokkos::deep_copy(omega_h_correct, hvc_tmp);
+
+    Kokkos::deep_copy(out_array, dot_view);
     return out;
 }
 
