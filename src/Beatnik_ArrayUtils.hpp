@@ -146,16 +146,6 @@ createArrayLayout(const std::shared_ptr<numesh_t<ExecutionSpace, MemorySpace>>& 
     return std::make_shared<ArrayLayout<ExecutionSpace, MemorySpace, EntityType>>(mesh, dofs_per_entity, tag);
 }
 
-/**
- * Create a layout from an existing layout, but with a different dofs_per_entity
- * Used to copy a Cabana or NuMesh layout with the same constructor arguments
- * 
- */
-template <class ExecutionSpace, class MemorySpace, class EntityType>
-std::shared_ptr<ArrayLayout<ExecutionSpace, MemorySpace, EntityType>>
-createArrayLayout(const std::shared_ptr<>) 
-
-
 //---------------------------------------------------------------------------//
 // Array class.
 //---------------------------------------------------------------------------//
@@ -432,6 +422,7 @@ std::shared_ptr<Array_t> dot( Array_t& a, const Array_t& b )
 {
     using entity_type = typename Array_t::entity_type;
     using memory_space = typename Array_t::memory_space;
+    using execution_space = typename Array_t::execution_space;
 
     auto a_view = a.array(entity_type())->view();
     auto b_view = b.array(entity_type())->view();
@@ -439,11 +430,21 @@ std::shared_ptr<Array_t> dot( Array_t& a, const Array_t& b )
     int m = a_view.extent(1);
 
     // The resulting 'dot' array has the shape (i, j, 1)
-    auto scaler_layout = ArrayUtils::createArrayLayout<exec_space, memory_space>( _pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
-    auto out = clone( a );
-    Kokkos::View<double**, memory_space> dot_view("dot_product", n, m);
-    dot_views(dot_view, a_view, b_view);
-    auto out_array = out->array(entity_type())->view();
+    std::shared_ptr<ArrayUtils::ArrayLayout<execution_space, memory_space, entity_type>> scaler_layout;
+    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    {
+        scaler_layout = ArrayUtils::createArrayLayout<execution_space, memory_space>(a.layout()->layout(entity_type())->localGrid(), 1, entity_type());
+    }
+    else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
+              std::is_same_v<entity_type, NuMesh::Edge> ||
+              std::is_same_v<entity_type, NuMesh::Face>) 
+    {
+        scaler_layout = ArrayUtils::createArrayLayout<execution_space, memory_space>(a.layout()->layout(entity_type())->mesh(), 1, entity_type());
+    }
+    // auto vertex_triple_layout = Utils::createArrayLayout(nu_mesh, 3, NuMesh::Vertex());
+    auto out = ArrayUtils::createArray<execution_space, memory_space>("dot", scaler_layout, entity_type());
+    auto out_view = out->array(entity_type())->view();
+    dot_views(out_view, a_view, b_view);
 
     // auto hvt_tmp = Kokkos::create_mirror_view(omega_d_test);
     //     auto hvc_tmp = Kokkos::create_mirror_view(omega_d_correct);
@@ -451,8 +452,6 @@ std::shared_ptr<Array_t> dot( Array_t& a, const Array_t& b )
     //     Kokkos::deep_copy(hvc_tmp, omega_d_correct);
     //     Kokkos::deep_copy(omega_h_test, hvt_tmp);
     //     Kokkos::deep_copy(omega_h_correct, hvc_tmp);
-
-    Kokkos::deep_copy(out_array, dot_view);
     return out;
 }
 
