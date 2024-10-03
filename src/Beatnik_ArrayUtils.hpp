@@ -199,6 +199,23 @@ createArray(const std::string& label, const std::shared_ptr<ContainerLayoutType>
 namespace ArrayOp
 {
 
+
+/**
+ * Here, implement Cabana-array-specific ArrayOps not included in Cabana
+ * This is mainly because NuMesh arrays are generally in the (i, x) format
+ * whereas Cabana arrays are generally in the (i, j, x) format,
+ * so they must be treated slightly differently
+ */
+namespace CabanaOp
+{
+
+/**
+ * Cabana has a "dot" ArrayOp, but it computes a single dot product for 
+ * an entire array rather than on a vector-by-vector basis
+ */ 
+
+} // end namespace CabanaOp
+
 template <class ContainerLayoutType, class Scalar, class MemorySpace>
 std::shared_ptr<Array<ContainerLayoutType, Scalar, MemorySpace>>
 clone( const Array<ContainerLayoutType, Scalar, MemorySpace>& array )
@@ -286,8 +303,12 @@ void update( Array_t& a, const double alpha, const Array_t& b,
     }
 }
 
+/**
+ * Computes the dot product of each (x, y, z) vector stored in 
+ * the arrays
+ */
 template <class Array_t, class DecompositionTag>
-std::shared_ptr<Array_t> dot( Array_t& a, const Array_t& b, DecompositionTag tag )
+std::shared_ptr<Array_t> vector_dot( Array_t& a, const Array_t& b, DecompositionTag tag )
 {
     using mesh_type = typename Array_t::mesh_type;
     using entity_type = typename Array_t::entity_type;
