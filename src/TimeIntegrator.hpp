@@ -33,7 +33,10 @@ class TimeIntegrator
     using device_type = Kokkos::Device<exec_space, memory_space>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     using Node = Cabana::Grid::Node;
-    using node_array = Beatnik::ArrayUtils::Array<exec_space, memory_space, Node>;
+    using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
+    using container_layout_type = ArrayUtils::ArrayLayout<local_grid_type, Node>;
+    using node_array = ArrayUtils::Array<container_layout_type, double, memory_space>;
+
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
 
     // using halo_type = Cabana::Grid::Halo<MemorySpace>;
@@ -49,9 +52,9 @@ class TimeIntegrator
         // Create a layout of the temporary arrays we'll need for velocity
         // intermediate positions, and change in vorticity
         auto node_triple_layout =
-            ArrayUtils::createArrayLayout<exec_space, memory_space>( pm.mesh().localGrid(), 3, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout( pm.mesh().localGrid(), 3, Cabana::Grid::Node() );
         auto node_pair_layout =
-            ArrayUtils::createArrayLayout<exec_space, memory_space>( pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout( pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
         //const std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> mesh = pm.mesh().localGrid(); 
         // auto node_pair_layout_2 = Utils::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 2, Cabana::Grid::Node());
         // auto node_triple_layout_2 = Utils::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 3, Cabana::Grid::Node());
@@ -80,14 +83,14 @@ class TimeIntegrator
         // auto zdot_numesh_f = Utils::createArray<exec_space, memory_space>("nu-f", face_triple_layout, NuMesh::Face());
 
 
-        _zdot = ArrayUtils::createArray<exec_space, memory_space>("velocity", 
-                                                       node_triple_layout, Node());
-        _wdot = ArrayUtils::createArray<exec_space, memory_space>("vorticity derivative",
-                                                       node_pair_layout, Node());
-        _ztmp = ArrayUtils::createArray<exec_space, memory_space>("position temporary", 
-                                                       node_triple_layout, Node());
-        _wtmp = ArrayUtils::createArray<exec_space, memory_space>("vorticity temporary", 
-                                                       node_pair_layout, Node());
+        _zdot = ArrayUtils::createArray<double, memory_space>("velocity", 
+                                                       node_triple_layout);
+        _wdot = ArrayUtils::createArray<double, memory_space>("vorticity derivative",
+                                                       node_pair_layout);
+        _ztmp = ArrayUtils::createArray<double, memory_space>("position temporary", 
+                                                       node_triple_layout);
+        _wtmp = ArrayUtils::createArray<double, memory_space>("vorticity temporary", 
+                                                       node_pair_layout);
     }
 
     void step( const double delta_t ) 

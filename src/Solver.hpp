@@ -277,7 +277,7 @@ class Solver : public SolverBase
     View_t get_positions(Cabana::Grid::Node) override
     {
         //_pm->gather();
-        auto view = _pm->get(Field::Position())->array(Cabana::Grid::Node())->view();
+        auto view = _pm->get(Field::Position())->array()->view();
         int dim0 = view.extent(0);
         int dim1 = view.extent(1);
         auto temp = Kokkos::create_mirror_view(view);
@@ -289,7 +289,7 @@ class Solver : public SolverBase
     View_t get_vorticities(Cabana::Grid::Node) override
     {
         //_pm->gather();
-        auto view = _pm->get(Field::Vorticity())->array(Cabana::Grid::Node())->view();
+        auto view = _pm->get(Field::Vorticity())->array()->view();
         int dim0 = view.extent(0);
         int dim1 = view.extent(1);
         auto temp = Kokkos::create_mirror_view(view);

@@ -41,7 +41,9 @@ class SurfaceMesh
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     using Node = Cabana::Grid::Node;
-    using node_array = Beatnik::ArrayUtils::Array<execution_space, memory_space, Node>;
+    using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
+    using container_layout_type = ArrayUtils::ArrayLayout<local_grid_type, Node>;
+    using node_array = ArrayUtils::Array<container_layout_type, double, memory_space>;
 
     // Construct a mesh.
     SurfaceMesh( const std::array<double, 6>& global_bounding_box,
@@ -166,10 +168,10 @@ class SurfaceMesh
     std::shared_ptr<node_array> Dx(const node_array& in, double dx, Cabana::Grid::Node) const
     {
         using Node = Cabana::Grid::Node;
-        auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
-        auto out_view = out->array(Node())->view();
-        auto in_view = in.array(Node())->view();
-        auto layout = in.layout()->layout(Node());
+        auto out = ArrayUtils::ArrayOp::clone(in);
+        auto out_view = out->array()->view();
+        auto in_view = in.array()->view();
+        auto layout = in.clayout()->layout();
         auto index_space = layout->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Local());
         int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
@@ -182,9 +184,9 @@ class SurfaceMesh
     {
         using Node = Cabana::Grid::Node;
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
-        auto out_view = out->array(Node())->view();
-        auto in_view = in.array(Node())->view();
-        auto layout = in.layout()->layout(Node());
+        auto out_view = out->array()->view();
+        auto in_view = in.array()->view();
+        auto layout = in.clayout()->layout();
         auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
@@ -199,15 +201,14 @@ class SurfaceMesh
     std::shared_ptr<node_array> omega(const node_array& w, const node_array& z_dx, const node_array& z_dy, Cabana::Grid::Node) const
     {
         using Node = Cabana::Grid::Node;
-        auto zdx_view = z_dx.array(Node())->view();
-        auto zdy_view = z_dy.array(Node())->view();
-        auto w_view = w.array(Node())->view();
-        auto layout = z_dx.layout()->layout(Node());
-        auto node_triple_layout =
-            Beatnik::ArrayUtils::createArrayLayout<execution_space, memory_space>( layout->localGrid(), 3, Node() );
-        std::shared_ptr<node_array> out = Beatnik::ArrayUtils::createArray<execution_space, memory_space>("omega", 
-                                                       node_triple_layout, Node());
-        auto out_view = out->array(Node())->view();
+        auto zdx_view = z_dx.array()->view();
+        auto zdy_view = z_dy.array()->view();
+        auto w_view = w.array()->view();
+        auto layout = z_dx.clayout()->layout();
+        auto node_triple_layout = ArrayUtils::createArrayLayout( layout->localGrid(), 3, Node() );
+        std::shared_ptr<node_array> out = ArrayUtils::createArray<double, memory_space>("omega", 
+                                                       node_triple_layout);
+        auto out_view = out->array()->view();
         auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Node(), Cabana::Grid::Local());
         int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
@@ -245,7 +246,7 @@ class SurfaceMesh
     std::array<double, 3> _low_point, _high_point;
     std::array<int, 2> _num_nodes;
     const std::array<bool, 2> _periodic;
-    std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> _local_grid;
+    std::shared_ptr<local_grid_type> _local_grid;
     int _rank, _surface_halo_width;
 };
 
