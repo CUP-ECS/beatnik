@@ -47,6 +47,20 @@ namespace Beatnik
  * curvature of surface can make lower-order operators inaccurate */
 namespace Operators
 {
+    //---------------------------------------------------------------------------//
+    //! Square root functor
+    struct SqrtFunctor
+    {
+        //! Constructor.
+        SqrtFunctor( ) {}
+
+        KOKKOS_INLINE_FUNCTION
+        double operator()( double val ) const
+        {
+            return std::sqrt(val);
+        }
+    };
+
     /* Fourth order central difference calculation for derivatives along the 
      * interface surface */
     template <class ViewType>

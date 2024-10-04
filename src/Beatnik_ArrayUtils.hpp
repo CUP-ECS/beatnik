@@ -316,13 +316,9 @@ std::shared_ptr<Array_t> element_cross( Array_t& a, const Array_t& b, Decomposit
 template <class Array_t, class DecompositionTag>
 std::shared_ptr<Array_t> element_multiply( Array_t& a, const Array_t& b, DecompositionTag tag )
 {
-    using mesh_type = typename Array_t::mesh_type;
-    using entity_type = typename Array_t::entity_type;
-    using value_type = typename  Array_t::value_type;
-    using memory_space = typename Array_t::memory_space;
     using execution_space = typename Array_t::execution_space;
 
-    auto out = Cabana::Grid::Array::ArrayOp::clone(a);
+    auto out = Cabana::Grid::ArrayOp::clone(a);
     auto out_view = out->view();
 
     // Check dimensions
@@ -342,17 +338,53 @@ std::shared_ptr<Array_t> element_multiply( Array_t& a, const Array_t& b, Decompo
     }
 
     auto policy = Cabana::Grid::createExecutionPolicy(
-            a.layout()->indexSpace( tag, entity_type(), NuMesh::Local() ),
+            a.layout()->indexSpace( tag, Cabana::Grid::Local() ),
             execution_space() );
      Kokkos::parallel_for(
-        "ArrayOp::update",
-        createExecutionPolicy( a.layout()->indexSpace( tag, entity_type(), Local() ),
-                               execution_space() ),
+        "ArrayOp::update", policy,
         KOKKOS_LAMBDA( const int i, const int j, const int k ) {
             out_view( i, j, k ) = a_view( i, j, k ) * b_view( i, j, k );
         } );
 
     return out;
+}
+
+/**
+ * Element-wise inverse: x -> 1/x
+ */
+template <class Array_t, class DecompositionTag>
+std::enable_if_t<2 == Array_t::num_space_dim, void>
+element_inverse( Array_t& array, DecompositionTag tag )
+{
+    auto view = array.view();
+    Kokkos::parallel_for( "ArrayOp::apply",
+        createExecutionPolicy( array.layout()->indexSpace( tag, Cabana::Grid::Local() ),
+                               typename Array_t::execution_space() ),
+        KOKKOS_LAMBDA( const int i, const int j, const int k) {
+            view( i, j, k ) = 1 / view(i, j, k);
+        } );
+}
+
+/*!
+  \brief Apply some function to every element of an array
+  \param array The array to operate on.
+  \param function A functor that operates on the array elements.
+  \param tag The tag for the decomposition over which to perform the operation.
+*/
+template <class Array_t, class Function, class DecompositionTag>
+std::enable_if_t<2 == Array_t::num_space_dim, void>
+apply( Array_t& array, Function& function, DecompositionTag tag )
+{
+    using entity_t = typename Array_t::entity_type;
+    auto view = array.view();
+    Kokkos::parallel_for(
+        "ArrayOp::apply",
+        createExecutionPolicy( array.layout()->indexSpace( tag, Cabana::Grid::Local() ),
+                               typename Array_t::execution_space() ),
+        KOKKOS_LAMBDA( const int i, const int j, const int k) {
+            double val = view( i, j, k );
+            view( i, j, k ) = function(val);
+        } );
 }
 
 } // end namespace CabanaOp
@@ -409,6 +441,23 @@ void assign( Array_t& array, const double alpha,
 }
 
 template <class Array_t, class DecompositionTag>
+void scale( Array_t& array, const double alpha,
+             DecompositionTag tag )
+{
+    using entity_type = typename Array_t::entity_type;
+    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    {
+        Cabana::Grid::ArrayOp::scale(*array.array(), alpha, tag);
+    }
+    else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
+              std::is_same_v<entity_type, NuMesh::Edge> ||
+              std::is_same_v<entity_type, NuMesh::Face>) 
+    {
+        NuMesh::Array::ArrayOp::scale(*array.array(), alpha, tag);
+    }
+}
+
+template <class Array_t, class DecompositionTag>
 void update( Array_t& a, const double alpha, const Array_t& b,
         const double beta, DecompositionTag tag )
 {
@@ -444,13 +493,48 @@ void update( Array_t& a, const double alpha, const Array_t& b,
     }
 }
 
+template <class Array_t, class Function, class DecompositionTag>
+void apply( Array_t& a, Function& function, DecompositionTag tag )
+{
+    using entity_type = typename Array_t::entity_type;
+    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    {
+        CabanaOp::apply(*a.array(), function, tag);
+    }
+     else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
+              std::is_same_v<entity_type, NuMesh::Edge> ||
+              std::is_same_v<entity_type, NuMesh::Face>) 
+    {
+        NuMesh::Array::ArrayOp::apply(*a.array(), function, tag);
+    }
+}
+
+/**
+ * Element-wise inverse: x -> 1/x
+ */
+template <class Array_t, class DecompositionTag>
+void element_inverse( Array_t& a, DecompositionTag tag )
+{
+    using entity_type = typename Array_t::entity_type;
+    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    {
+        CabanaOp::element_inverse(*a.array(), tag);
+    }
+     else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
+              std::is_same_v<entity_type, NuMesh::Edge> ||
+              std::is_same_v<entity_type, NuMesh::Face>) 
+    {
+        NuMesh::Array::ArrayOp::element_inverse(*a.array(), tag);
+    }
+}
+
 /**
  * Computes the dot product of each (x, y, z) vector stored in 
  * the arrays.
  * The resulting 'dot' array has the shape (m, n, 1)
  */
 template <class Array_t, class DecompositionTag>
-std::shared_ptr<Array_t> element_dot( Array_t& a, const Array_t& b, DecompositionTag tag )
+std::shared_ptr<Array_t> element_dot( const Array_t& a, const Array_t& b, DecompositionTag tag )
 {
     using entity_type = typename Array_t::entity_type;
     using value_type = typename  Array_t::value_type;
@@ -479,7 +563,7 @@ std::shared_ptr<Array_t> element_dot( Array_t& a, const Array_t& b, Decompositio
 }
 
 template <class Array_t, class DecompositionTag>
-std::shared_ptr<Array_t> element_cross( Array_t& a, const Array_t& b, DecompositionTag tag )
+std::shared_ptr<Array_t> element_cross( const Array_t& a, const Array_t& b, DecompositionTag tag )
 {
     using entity_type = typename Array_t::entity_type;
 

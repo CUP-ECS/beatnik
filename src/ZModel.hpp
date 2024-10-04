@@ -346,11 +346,18 @@ class ZModel
     // Compute the final interface velocities and normalized BR velocities
     // from the previously computed Fourier and/or Birkhoff-Rott velocities and the surface
     // normal based on  the order of technique we're using.
-    template <class ViewType>
     KOKKOS_INLINE_FUNCTION 
-    static void finalizeVelocity(Order::Low, double &zndot, ViewType zdot, 
-        int i, int j, ViewType reisz, double norm[3], double deth) 
+    static void finalizeVelocity(Order::Low, node_array zndot, node_array zdot, 
+        node_array reisz, node_array surface_norm, node_array inv_deth) 
     {
+        /*
+        zndot = scalar array
+        norm = surface_normal array
+        reisz = array
+        deth = array
+        zdot = array
+        */
+        
         zndot = -0.5 * reisz(i, j, 0) / deth;
         for (int d = 0; d < 3; d++)
             zdot(i, j, d) = zndot * norm[d];
@@ -415,7 +422,7 @@ class ZModel
         double g = _g, A = _A, dx = _dx, dy = _dy;
 
         /*
-        Part 1:
+        Part 2.2:
             double h11 = Operators::dot(dx_z, dx_z);
             double h12 = Operators::dot(dx_z, dy_z);
             double h22 = Operators::dot(dy_z, dy_z);
@@ -425,21 +432,68 @@ class ZModel
         auto h11 = ArrayUtils::ArrayOp::element_dot(z_dx, z_dx, tag());
         auto h12 = ArrayUtils::ArrayOp::element_dot(z_dx, z_dy, tag());
         auto h22 = ArrayUtils::ArrayOp::element_dot(z_dy, z_dy, tag());
-        auto deth = ArrayUtils::ArrayOp::clone(h11);
-        ArrayUtils::ArrayOp::assign(*deth, 0.0);
-        ArrayUtils::ArrayOp::update(*deth, 1.0, 
-            ArrayUtils::ArrayOp::element_multiply(*h11, *h22, tag), 1.0,
-            ArrayUtils::ArrayOp::element_multiply(*h12, *h12, tag), -1.0,
-            tag()
-        );
+        auto deth = ArrayUtils::ArrayOp::clone(*h11);
+        ArrayUtils::ArrayOp::assign(*deth, 0.0, tag());
+        ArrayUtils::ArrayOp::update(*deth, 1.0,
+            *ArrayUtils::ArrayOp::element_multiply(*h11, *h22, tag()), 1.0,
+            *ArrayUtils::ArrayOp::element_multiply(*h12, *h12, tag()), -1.0,
+            tag());
 
         /*
-        Part 2: Compute the surface normal as (Dx \cross Dy)/sqrt(deth)
+        Part 2.3: Compute the surface normal as (Dx \cross Dy)/sqrt(deth)
             double N[3];
             Operators::cross(N, dx_z, dy_z);
             for (int n = 0; n < 3; n++)
 		        N[n] = N[n] * (1/sqrt(deth));
         */
+        ArrayUtils::ArrayOp::element_inverse(*deth, tag()); // deth -> 1/deth
+        // Copy 1/deth because it is needed in finalizeVelocity functions
+        auto deth_inv = ArrayUtils::ArrayOp::cloneCopy(*deth, tag());
+        Operators::SqrtFunctor sqrt_func;
+        ArrayUtils::ArrayOp::apply(*deth, sqrt_func, tag()); // 1/deth -> 1/sqrt(deth)
+        
+        auto surface_normal = 
+            ArrayUtils::ArrayOp::element_multiply(
+                *ArrayUtils::ArrayOp::element_cross(z_dx, z_dy, tag()), // Dx \cross Dy
+                *deth, // 1/sqrt(deth)
+                tag()
+            );
+        
+        /*
+        Part 2.4: Compute zdot and zndot as needed using specialized helper functions
+                static void finalizeVelocity(Order::Low, double &zndot, ViewType zdot, 
+                    int i, int j, ViewType reisz, double norm[3], double deth) 
+                {
+                    zndot = -0.5 * reisz(i, j, 0) / deth;
+                    for (int d = 0; d < 3; d++)
+                        zdot(i, j, d) = zndot * norm[d];
+                }
+
+                template <class ViewType>
+                KOKKOS_INLINE_FUNCTION
+                static void finalizeVelocity(Order::Medium, double &zndot, 
+                    [[maybe_unused]] ViewType zdot, 
+                    [[maybe_unused]] int i, [[maybe_unused]] int j,
+                    ViewType reisz, [[maybe_unused]] double norm[3], double deth) 
+                {
+                    zndot = -0.5 * reisz(i, j, 0) / deth;
+                }
+
+                template <class ViewType>
+                KOKKOS_INLINE_FUNCTION
+                static void finalizeVelocity(Order::High, double &zndot, ViewType zdot, 
+                    int i, int j, [[maybe_unused]] ViewType reisz, 
+                    [[maybe_unused]] double norm[3], [[maybe_unused]] double deth)
+                {
+                    double interface_velocity[3] = {zdot(i, j, 0), zdot(i, j, 1), zdot(i, j, 2)};
+                    zndot = sqrt(Operators::dot(interface_velocity, interface_velocity));
+                }  
+        */
+        // Clone another 1D array to create zndot, which is also 1D.
+        auto zndot = ArrayUtils::ArrayOp::clone(*h11); 
+        //finalizeVelocity(MethodOrder(), )    
+    
+
 
 
         // Phase 2: Process the globally-dependent velocity information into 
