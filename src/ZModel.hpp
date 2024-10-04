@@ -420,12 +420,12 @@ class ZModel
             double h22 = Operators::dot(dy_z, dy_z);
             double deth = h11*h22 - h12*h12;
         */
-        auto h11 = ArrayUtils::ArrayOp::dot(z_dx, z_dx, Cabana::Grid::Own());
-        auto h12 = ArrayUtils::ArrayOp::dot(z_dx, z_dy, Cabana::Grid::Own());
-        auto h22 = ArrayUtils::ArrayOp::dot(z_dy, z_dy, Cabana::Grid::Own());
-        auto deth = ArrayUtils::ArrayOp::clone(h11);
+        // auto h11 = ArrayUtils::ArrayOp::dot(z_dx, z_dx, Cabana::Grid::Own());
+        // auto h12 = ArrayUtils::ArrayOp::dot(z_dx, z_dy, Cabana::Grid::Own());
+        // auto h22 = ArrayUtils::ArrayOp::dot(z_dy, z_dy, Cabana::Grid::Own());
+        // auto deth = ArrayUtils::ArrayOp::clone(h11);
         
-        double deth = h11*h22 - h12*h12;
+        //double deth = h11*h22 - h12*h12;
 
 
 
