@@ -415,18 +415,31 @@ class ZModel
         double g = _g, A = _A, dx = _dx, dy = _dy;
 
         /*
+        Part 1:
             double h11 = Operators::dot(dx_z, dx_z);
             double h12 = Operators::dot(dx_z, dy_z);
             double h22 = Operators::dot(dy_z, dy_z);
             double deth = h11*h22 - h12*h12;
         */
-        // auto h11 = ArrayUtils::ArrayOp::dot(z_dx, z_dx, Cabana::Grid::Own());
-        // auto h12 = ArrayUtils::ArrayOp::dot(z_dx, z_dy, Cabana::Grid::Own());
-        // auto h22 = ArrayUtils::ArrayOp::dot(z_dy, z_dy, Cabana::Grid::Own());
-        // auto deth = ArrayUtils::ArrayOp::clone(h11);
-        
-        //double deth = h11*h22 - h12*h12;
+        using tag = Cabana::Grid::Own;
+        auto h11 = ArrayUtils::ArrayOp::element_dot(z_dx, z_dx, tag());
+        auto h12 = ArrayUtils::ArrayOp::element_dot(z_dx, z_dy, tag());
+        auto h22 = ArrayUtils::ArrayOp::element_dot(z_dy, z_dy, tag());
+        auto deth = ArrayUtils::ArrayOp::clone(h11);
+        ArrayUtils::ArrayOp::assign(*deth, 0.0);
+        ArrayUtils::ArrayOp::update(*deth, 1.0, 
+            ArrayUtils::ArrayOp::element_multiply(*h11, *h22, tag), 1.0,
+            ArrayUtils::ArrayOp::element_multiply(*h12, *h12, tag), -1.0,
+            tag()
+        );
 
+        /*
+        Part 2: Compute the surface normal as (Dx \cross Dy)/sqrt(deth)
+            double N[3];
+            Operators::cross(N, dx_z, dy_z);
+            for (int n = 0; n < 3; n++)
+		        N[n] = N[n] * (1/sqrt(deth));
+        */
 
 
         // Phase 2: Process the globally-dependent velocity information into 
