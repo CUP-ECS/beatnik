@@ -337,7 +337,7 @@ class ZModel
      * using a far field method and later normalize that for use in the vorticity 
      * calculation. */
     void prepareVelocities(Order::High, node_array& zdot, node_array& z,
-                           [[maybe_unused]]node_array& w, node_array& omega,
+                           [[maybe_unused]] node_array& w, node_array& omega,
                            Cabana::Grid::Node) const
     {
         _br->computeInterfaceVelocity(zdot.array()->view(), z.array()->view(), omega.array()->view());
@@ -347,33 +347,46 @@ class ZModel
     // from the previously computed Fourier and/or Birkhoff-Rott velocities and the surface
     // normal based on  the order of technique we're using.
     template <class DecompositionTag>
-    void finalizeVelocity(Order::Low, node_array& zndot, node_array& zdot, 
+    void finalizeVelocity(Order::Low, [[maybe_unused]] node_array& zndot, node_array& zdot, 
         node_array& reisz, node_array& surface_norm, node_array& inv_deth, DecompositionTag tag) const 
     {
         /*
         zndot = scalar array
         norm = surface_normal array
-        reisz = array
+        reisz = array 
+            The reisz array is (i, j, 2), but we only use the first of the two third dimensions.
         deth = array
         zdot = array
          */
 
         // Step 1: (1/deth) -> (-0.5/deth)
         ArrayUtils::ArrayOp::scale(inv_deth, -0.5, tag);
+        auto reisz_1D = ArrayUtils::ArrayOp::clone(inv_deth);
+        ArrayUtils::ArrayOp::copy_mismatch(*reisz_1D, reisz, tag);
+        auto temp1 = ArrayUtils::ArrayOp::element_multiply(inv_deth, reisz, tag);
  
         // Step 2: zdot = zndot * surface_norm
-        auto zdot_1 = ArrayUtils::ArrayOp::element_multiply(
-            *ArrayUtils::ArrayOp::element_multiply(inv_deth, reisz, tag), //zndot = -0.5 * (1/deth) * reisz
-            surface_norm, tag);
+        printf("temp1: (%d, %d, %d), surface_norm: (%d, %d, %d)\n",
+            temp1->array()->view().extent(0), temp1->array()->view().extent(1), temp1->array()->view().extent(2),
+            surface_norm.array()->view().extent(0), surface_norm.array()->view().extent(1), surface_norm.array()->view().extent(2));
+        // auto zdot_1 = ArrayUtils::ArrayOp::element_multiply(
+        //     *temp1, //zndot = -0.5 * (1/deth) * reisz
+        //     surface_norm,
+        //     tag);
+
+        // auto zdot_1 = ArrayUtils::ArrayOp::element_multiply(
+        //     surface_norm,
+        //     *ArrayUtils::ArrayOp::element_multiply(reisz, inv_deth, tag), //zndot = -0.5 * (1/deth) * reisz
+        //     tag);
 
         // Step 3: Copy back into zdot
-        ArrayUtils::ArrayOp::copy(zdot, *zdot_1, tag);
+        //ArrayUtils::ArrayOp::copy(zdot, *zdot_1, tag);
     }
 
     template <class DecompositionTag>
     void finalizeVelocity(Order::Medium, node_array& zndot, 
         [[maybe_unused]] node_array& zdot, 
-        node_array& reisz, node_array& surface_norm, node_array& inv_deth,
+        node_array& reisz, [[maybe_unused]] node_array& surface_norm, node_array& inv_deth,
         DecompositionTag tag) const
     {
         // Output: zndot = -0.5 * (1/deth) * reisz
@@ -475,14 +488,12 @@ class ZModel
         // Copy 1/deth because it is needed in finalizeVelocity functions
         auto inv_deth = ArrayUtils::ArrayOp::cloneCopy(*deth, tag());
         ArrayUtils::ArrayOp::apply(*deth, sqrt_func, tag()); // 1/deth -> 1/sqrt(deth)
-        auto cross = ArrayUtils::ArrayOp::element_cross(z_dx, z_dy, tag());
-        
-        // auto surface_normal = 
-        //     ArrayUtils::ArrayOp::element_multiply(
-        //         *ArrayUtils::ArrayOp::element_cross(z_dx, z_dy, tag()), // Dx \cross Dy
-        //         *deth, // 1/sqrt(deth)
-        //         tag()
-        //     );
+        auto surface_normal = 
+            ArrayUtils::ArrayOp::element_multiply(
+                *deth, // 1/sqrt(deth)
+                *ArrayUtils::ArrayOp::element_cross(z_dx, z_dy, tag()), // Dx \cross Dy
+                tag()
+            );
         
         /*
         Part 2.4: Compute zdot and zndot as needed using specialized helper functions
@@ -516,7 +527,7 @@ class ZModel
         */
         // Clone another 1D array to create zndot, which is also 1D.
         auto zndot = ArrayUtils::ArrayOp::clone(*h11); 
-        //finalizeVelocity(MethodOrder(), *zndot, zdot, *_reisz, *surface_normal, *inv_deth, tag());
+        finalizeVelocity(MethodOrder(), *zndot, zdot, *_reisz, *surface_normal, *inv_deth, tag());
     
 
 

@@ -193,6 +193,22 @@ namespace CabanaOp
 {
 
 /**
+ * Copy one view into another where the third dimensions to not match
+ * Array b must have the larger third dimension.
+ * Any dimensions in b that are not in a are truncated.
+ */
+template <class Array_t, class DecompositionTag>
+void copy_mismatch( Array_t& a, const Array_t& b, DecompositionTag tag )
+{
+    static_assert( is_array<Array_t>::value, "Cabana::Grid::Array required" );
+    using entity_type = typename Array_t::entity_type;
+    auto a_space = a.layout()->indexSpace( tag, entity_type(), Cabana::Grid::Local() );
+    auto subview_a = Cabana::Grid::createSubview( a.view(), a_space );
+    auto subview_b = Cabana::Grid::createSubview( b.view(), a_space );
+    Kokkos::deep_copy( subview_a, subview_b );
+}
+
+/**
  * Cabana has a "dot" ArrayOp, but it computes a single dot product for 
  * an entire array rather than on a vector-by-vector basis
  */ 
@@ -295,9 +311,11 @@ std::shared_ptr<Array_t> element_cross( Array_t& a, const Array_t& b, Decomposit
 
 /**
  * Element-wise multiplication, where (1, 3, 6) * (4, 7, 3) = (4, 21, 18)
- * If a and b do not have matching third dimenions, place the view with the 
- * smaller third dimenion first.
- */
+ * If a and b do not have matching third dimensions, place the view with the 
+ * smaller third dimension first.
+ * 
+ * If a has a third dimension of 1, out(x, y, z) = b(x, y, z) * a(x, y, 0) for 0 <= z < b extent
+ */ 
 template <class Array_t, class DecompositionTag>
 std::shared_ptr<Array_t> element_multiply( Array_t& a, const Array_t& b, DecompositionTag tag )
 {
@@ -324,41 +342,39 @@ std::shared_ptr<Array_t> element_multiply( Array_t& a, const Array_t& b, Decompo
     }
 
     // Both a and b have matching third dimensions
-    // if (aw == bw) {
-    //     auto policy = Cabana::Grid::createExecutionPolicy(
-    //         a.layout()->indexSpace( tag, Cabana::Grid::Local() ),
-    //         execution_space() );
-    //     Kokkos::parallel_for(
-    //         "ArrayOp::update", policy,
-    //         KOKKOS_LAMBDA( const int i, const int j, const int k ) {
-    //             out_view( i, j, k ) = a_view( i, j, k ) * b_view( i, j, k );
-    //         } );
+    if (aw == bw) {
+        auto policy = Cabana::Grid::createExecutionPolicy(
+            a.layout()->indexSpace( tag, Cabana::Grid::Local() ),
+            execution_space() );
+        Kokkos::parallel_for(
+            "ArrayOp::element_multiply", policy,
+            KOKKOS_LAMBDA( const int i, const int j, const int k ) {
+                out_view( i, j, k ) = a_view( i, j, k ) * b_view( i, j, k );
+            } );
+        return out;
+    }
 
-    //     return out;
-    // }
-
-    // // If a has a third dimension of 1
-    // if ((aw == 1) && (aw < bw))
-    // {
-    //     using entity_type = typename Array_t::entity_type;
-    //     auto policy = Cabana::Grid::createExecutionPolicy(
-    //         a.layout()->localGrid()->indexSpace( tag, entity_type(), Cabana::Grid::Local() ),
-    //         execution_space() );
-    //     Kokkos::parallel_for(
-    //         "ArrayOp::update", policy,
-    //         KOKKOS_LAMBDA( const int i, const int j) {
-    //             for (int)
-    //             out_view( i, j, k ) = a_view( i, j, k ) * b_view( i, j, k );
-    //         } );
-
-    //     return out;
-    // }
-    // else
-    // {
-    //     throw std::invalid_argument("First array argument must have equal or smaller third dimension than second array argument.");
-    // }
-
-    
+    // If a has a third dimension of 1
+    if ((aw == 1) && (aw < bw))
+    {
+        using entity_type = typename Array_t::entity_type;
+        auto policy = Cabana::Grid::createExecutionPolicy(
+            a.layout()->localGrid()->indexSpace( tag, entity_type(), Cabana::Grid::Local() ),
+            execution_space() );
+        Kokkos::parallel_for(
+            "ArrayOp::element_multiply", policy,
+            KOKKOS_LAMBDA( const int i, const int j) {
+                for (int k = 0; k < bw; k++)
+                {
+                    out_view( i, j, k ) = a_view( i, j, 0 ) * b_view( i, j, k );
+                }
+            } );
+        return out;
+    }
+    else
+    {
+        throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::CabanaOp: First array argument must have equal or smaller third dimension than second array argument.");
+    }   
 }
 
 /*!
@@ -415,6 +431,25 @@ std::shared_ptr<Array_t> cloneCopy( const Array_t& array, DecompositionTag tag )
     auto cln = clone( array );
     copy( *cln, array, tag );
     return cln;
+}
+
+/**
+ * Copy one view into another where the third dimensions to not match
+ * Array b must have the larger third dimension.
+ * Any dimensions in b that are not in a are truncated.
+ */
+template <class Array_t, class DecompositionTag>
+void copy_mismatch( Array_t& a, const Array_t& b, DecompositionTag tag )
+{
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
+    {
+        CabanaOp::copy_mismatch(*a.array(), *b.array(), tag);
+    }
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    {
+        NuMesh::Array::ArrayOp::copy_mismatch(*a.array(), *b.array(), tag);
+    }
 }
 
 template <class Array_t, class DecompositionTag>
@@ -528,7 +563,7 @@ std::shared_ptr<Array_t> element_dot( const Array_t& a, const Array_t& b, Decomp
 template <class Array_t, class DecompositionTag>
 std::shared_ptr<Array_t> element_cross( const Array_t& a, const Array_t& b, DecompositionTag tag )
 {
-    auto out = clone(a);
+    auto out = clone(b);
     using mesh_type = typename Array_t::mesh_type;
     if constexpr (is_cabana_mesh<mesh_type>::value)
     {
@@ -549,7 +584,7 @@ std::shared_ptr<Array_t> element_cross( const Array_t& a, const Array_t& b, Deco
 template <class Array_t, class DecompositionTag>
 std::shared_ptr<Array_t> element_multiply( Array_t& a, const Array_t& b, DecompositionTag tag )
 {
-    auto out = clone(a);
+    auto out = clone(b);
     using mesh_type = typename Array_t::mesh_type;
     if constexpr (is_cabana_mesh<mesh_type>::value)
     {
