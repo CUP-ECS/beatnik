@@ -73,23 +73,12 @@ class ArrayLayout
         {
             _layout = Cabana::Grid::createArrayLayout(mesh, dofs_per_entity, tag);
         }
-        else if constexpr (NuMesh::is_numesh_mesh<MeshType>::value)
+        else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value)
         {
-            if constexpr (std::is_same_v<NuMesh::Vertex, entity_type>)
-            {
-                _layout = NuMesh::Array::createArrayLayout(mesh, dofs_per_entity, tag); 
-            }
-            else if  constexpr (std::is_same_v<NuMesh::Edge, entity_type>)
-            {
-                _layout = NuMesh::Array::createArrayLayout(mesh, dofs_per_entity, tag);
-            }
-            else if  constexpr (std::is_same_v<NuMesh::Face, entity_type>)
-            {
-                _layout = NuMesh::Array::createArrayLayout(mesh, dofs_per_entity, tag);
-            }
+            _layout = NuMesh::Array::createArrayLayout(mesh, dofs_per_entity, tag); 
         }
         else
-        { 	// TBH, you might want this to be a compile time error instead
+        {
             static_assert(dependent_false<entity_type>::value, "Unsupported Beatnik::ArrayUtils::ArrayLayout EntityType!");
         }
     }
@@ -151,25 +140,16 @@ class Array
         , _layout( array_layout )
     {
         auto layout = array_layout->layout();
-
-        if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+        if constexpr (is_cabana_mesh<mesh_type>::value)
         {
             _array = Cabana::Grid::createArray<value_type, memory_space>(label, layout);
         }
-        else if  constexpr (std::is_same_v<entity_type, NuMesh::Vertex>)
-        {
-            _array = NuMesh::Array::createArray<value_type, memory_space>(label, layout);
-        }
-        else if  constexpr (std::is_same_v<entity_type, NuMesh::Edge>)
-        {
-            _array = NuMesh::Array::createArray<value_type, memory_space>(label, layout);
-        }
-        else if  constexpr (std::is_same_v<entity_type, NuMesh::Face>)
+        else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value)
         {
             _array = NuMesh::Array::createArray<value_type, memory_space>(label, layout);
         }
         else
-        {	// TBH, you might want this to be a compile time error instead
+        {	
             static_assert(dependent_false<entity_type>::value, "Unsupported Beatnik::ArrayUtils::Array EntityType!");
         }
     }
@@ -417,14 +397,12 @@ clone( const Array<ContainerLayoutType, Scalar, MemorySpace>& array )
 template <class Array_t, class DecompositionTag>
 void copy( Array_t& a, const Array_t& b, DecompositionTag tag )
 {
-    using entity_type = typename Array_t::entity_type;
-    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
     {
         Cabana::Grid::ArrayOp::copy(*a.array(), *b.array(), tag);
     }
-    else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
-              std::is_same_v<entity_type, NuMesh::Edge> ||
-              std::is_same_v<entity_type, NuMesh::Face>) 
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
     {
         NuMesh::Array::ArrayOp::copy(*a.array(), *b.array(), tag);
     }
@@ -443,14 +421,12 @@ template <class Array_t, class DecompositionTag>
 void assign( Array_t& array, const double alpha,
              DecompositionTag tag )
 {
-    using entity_type = typename Array_t::entity_type;
-    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
     {
         Cabana::Grid::ArrayOp::assign(*array.array(), alpha, tag);
     }
-    else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
-              std::is_same_v<entity_type, NuMesh::Edge> ||
-              std::is_same_v<entity_type, NuMesh::Face>) 
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value)
     {
         NuMesh::Array::ArrayOp::assign(*array.array(), alpha, tag);
     }
@@ -460,14 +436,12 @@ template <class Array_t, class DecompositionTag>
 void scale( Array_t& array, const double alpha,
              DecompositionTag tag )
 {
-    using entity_type = typename Array_t::entity_type;
-    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
     {
         Cabana::Grid::ArrayOp::scale(*array.array(), alpha, tag);
     }
-    else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
-              std::is_same_v<entity_type, NuMesh::Edge> ||
-              std::is_same_v<entity_type, NuMesh::Face>) 
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
     {
         NuMesh::Array::ArrayOp::scale(*array.array(), alpha, tag);
     }
@@ -477,15 +451,12 @@ template <class Array_t, class DecompositionTag>
 void update( Array_t& a, const double alpha, const Array_t& b,
         const double beta, DecompositionTag tag )
 {
-    using entity_type = typename Array_t::entity_type;
-    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
     {
         Cabana::Grid::ArrayOp::update(*a.array(), alpha, *b.array(), beta, tag);
     }
-     else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
-              std::is_same_v<entity_type, NuMesh::Edge> ||
-              std::is_same_v<entity_type, NuMesh::Face>) 
-              // Can combine this into one custom type trait method 
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
     {
         NuMesh::Array::ArrayOp::update(*a.array(), alpha, *b.array(), beta, tag);
     }
@@ -496,14 +467,12 @@ void update( Array_t& a, const double alpha, const Array_t& b,
         const double beta, const Array_t& c,
         const double gamma, DecompositionTag tag )
 {
-    using entity_type = typename Array_t::entity_type;
-    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
     {
         Cabana::Grid::ArrayOp::update(*a.array(), alpha, *b.array(), beta, *c.array(), gamma, tag);
     }
-     else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
-              std::is_same_v<entity_type, NuMesh::Edge> ||
-              std::is_same_v<entity_type, NuMesh::Face>) 
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
     {
         NuMesh::Array::ArrayOp::update(*a.array(), alpha, *b.array(), beta, *c.array(), gamma, tag);
     }
@@ -512,14 +481,12 @@ void update( Array_t& a, const double alpha, const Array_t& b,
 template <class Array_t, class Function, class DecompositionTag>
 void apply( Array_t& a, Function& function, DecompositionTag tag )
 {
-    using entity_type = typename Array_t::entity_type;
-    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
     {
         CabanaOp::apply(*a.array(), function, tag);
     }
-     else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
-              std::is_same_v<entity_type, NuMesh::Edge> ||
-              std::is_same_v<entity_type, NuMesh::Face>) 
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
     {
         NuMesh::Array::ArrayOp::apply(*a.array(), function, tag);
     }
@@ -537,7 +504,8 @@ std::shared_ptr<Array_t> element_dot( const Array_t& a, const Array_t& b, Decomp
     using value_type = typename  Array_t::value_type;
     using memory_space = typename Array_t::memory_space;
 
-    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
     {
         auto cabana_out = CabanaOp::element_dot(*a.array(), *b.array(), tag);
         auto layout = ArrayUtils::createArrayLayout(a.clayout()->layout()->localGrid(), 1, entity_type());
@@ -545,9 +513,7 @@ std::shared_ptr<Array_t> element_dot( const Array_t& a, const Array_t& b, Decomp
         Cabana::Grid::ArrayOp::copy(*out->array(), *cabana_out, tag);
         return out;
     }
-    else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
-              std::is_same_v<entity_type, NuMesh::Edge> ||
-              std::is_same_v<entity_type, NuMesh::Face>) 
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
     {
         auto numesh_out = NuMesh::Array::ArrayOp::element_dot(*a.array(), *b.array(), tag);
         auto layout = ArrayUtils::createArrayLayout(a.clayout()->layout()->mesh(), 1, entity_type());
@@ -556,55 +522,49 @@ std::shared_ptr<Array_t> element_dot( const Array_t& a, const Array_t& b, Decomp
         return out;
     }
     
-    throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::element_dot: Invalid entity_type");
+    throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::element_dot: Invalid mesh_type");
 }
 
 template <class Array_t, class DecompositionTag>
 std::shared_ptr<Array_t> element_cross( const Array_t& a, const Array_t& b, DecompositionTag tag )
 {
-    using entity_type = typename Array_t::entity_type;
-
     auto out = clone(a);
-    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
     {
         auto cabana_out = CabanaOp::element_cross(*a.array(), *b.array(), tag); 
         Cabana::Grid::ArrayOp::copy(*out->array(), *cabana_out, tag);
         return out;
     }
-    else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
-              std::is_same_v<entity_type, NuMesh::Edge> ||
-              std::is_same_v<entity_type, NuMesh::Face>) 
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
     {
         auto numesh_out = NuMesh::Array::ArrayOp::element_cross(*a.array(), *b.array(), tag);
         NuMesh::Array::ArrayOp::copy(*out->array(), *numesh_out, tag);
         return out;
     }
 
-    throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::element_cross: Invalid entity_type");
+    throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::element_cross: Invalid mesh_type");
 }
 
 template <class Array_t, class DecompositionTag>
 std::shared_ptr<Array_t> element_multiply( Array_t& a, const Array_t& b, DecompositionTag tag )
 {
-    using entity_type = typename Array_t::entity_type;
-
     auto out = clone(a);
-    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
     {
         auto cabana_out = CabanaOp::element_multiply(*a.array(), *b.array(), tag); 
         Cabana::Grid::ArrayOp::copy(*out->array(), *cabana_out, tag);
         return out;
     }
-    else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
-              std::is_same_v<entity_type, NuMesh::Edge> ||
-              std::is_same_v<entity_type, NuMesh::Face>) 
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
     {
         auto numesh_out = NuMesh::Array::ArrayOp::element_multiply(*a.array(), *b.array(), tag);
         NuMesh::Array::ArrayOp::copy(*out->array(), *numesh_out, tag);
         return out;
     }
 
-    throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::element_multiply: Invalid entity_type");
+    throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::element_multiply: Invalid mesh_type");
 }
 
 } // end namespace ArrayOp
