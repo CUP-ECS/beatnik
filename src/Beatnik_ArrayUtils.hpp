@@ -33,7 +33,7 @@ namespace ArrayUtils
 {
 
 // Cabana helpers
-using cabana_mesh_type = Cabana::Grid::UniformMesh<double, 2>;
+// using cabana_mesh_type = Cabana::Grid::UniformMesh<double, 2>;
 
 template <typename T>
 using is_cabana_uniform_mesh = std::is_same<T, Cabana::Grid::Node>;
@@ -49,7 +49,8 @@ class ArrayLayout
   public:
     /**
      * NuMesh: MeshType = NuMesh::Mesh<ExecutionSpace, MemSpace>
-     * Cabana:: MeshType = Cabana::Grid::LocalGrid<cabana_mesh_type>
+     * Cabana:: MeshType = Cabana::Grid::LocalGrid<cabana_mesh_type>, 
+     *      where the struct isMeshType() is implemented for cabana_mesh_type.
      */
     using mesh_type = MeshType;
     using entity_type = EntityType;
@@ -57,7 +58,7 @@ class ArrayLayout
     // Determine ContainerLayoutType using std::conditional_t
     using array_layout_type = std::conditional_t<
         is_cabana_uniform_mesh<entity_type>::value,
-        Cabana::Grid::ArrayLayout<entity_type, cabana_mesh_type>, // Case A: Cabana UniformMesh
+        Cabana::Grid::ArrayLayout<entity_type, typename mesh_type::mesh_type>, // Case A: Cabana UniformMesh
         std::conditional_t<
             NuMesh::is_numesh_mesh<MeshType>::value,
             NuMesh::Array::ArrayLayout<entity_type, mesh_type>, // Case B: NuMesh Mesh
@@ -136,7 +137,7 @@ class Array
     // Determine array_type using std::conditional_t
     using array_type = std::conditional_t<
         is_cabana_uniform_mesh<entity_type>::value,
-        Cabana::Grid::Array<value_type, entity_type, cabana_mesh_type, memory_space>, // Case A: Cabana Mesh
+        Cabana::Grid::Array<value_type, entity_type, typename mesh_type::mesh_type, memory_space>, // Case A: Cabana Mesh
         std::conditional_t<
             NuMesh::is_numesh_mesh<mesh_type>::value,
             NuMesh::Array::Array<value_type, entity_type, mesh_type, memory_space>, // Case B: NuMesh Mesh
@@ -241,10 +242,10 @@ std::shared_ptr<Array_t> element_dot( Array_t& a, const Array_t& b, Decompositio
         throw std::invalid_argument("Third dimension must be 3 for 3D vectors.");
     }
     if (out_n != n) {
-        throw std::invalid_argument("First dimension of in and out views do not match.");
+        throw std::invalid_argument("First dimension of in and out arrays do not match.");
     }
     if (out_m != m) {
-        throw std::invalid_argument("Second dimension of in and out views do not match.");
+        throw std::invalid_argument("Second dimension of in and out arrays do not match.");
     }
 
     // Parallel loop to compute the dot product at each (n, m) location
@@ -269,8 +270,9 @@ std::shared_ptr<Array_t> element_cross( Array_t& a, const Array_t& b, Decomposit
     using memory_space = typename Array_t::memory_space;
     using execution_space = typename Array_t::execution_space;
 
-    auto layout = Cabana::Grid::createArrayLayout( a.layout()->localGrid(), 1, Cabana::Grid::Node() );
-    auto out = Cabana::Grid::createArray<value_type, memory_space>("cabana_dot", layout);
+    // auto layout = Cabana::Grid::createArrayLayout( a.layout()->localGrid(), 3, Cabana::Grid::Node() );
+    // auto out = Cabana::Grid::createArray<value_type, memory_space>("cabana_dot", layout);
+    auto out = Cabana::Grid::ArrayOp::clone(a);
     auto out_view = out->view();
 
     // Check dimensions
@@ -289,7 +291,7 @@ std::shared_ptr<Array_t> element_cross( Array_t& a, const Array_t& b, Decomposit
 
     // Parallel loop to compute the dot product at each (n, m) location
     auto policy = Cabana::Grid::createExecutionPolicy(
-            layout->localGrid()->indexSpace( tag, entity_type(), Cabana::Grid::Local() ),
+            a.layout()->localGrid()->indexSpace( tag, entity_type(), Cabana::Grid::Local() ),
             execution_space() );
     Kokkos::parallel_for("CrossProductKernel", policy,
         KOKKOS_LAMBDA(int i, int j) {
@@ -312,13 +314,14 @@ std::shared_ptr<Array_t> element_cross( Array_t& a, const Array_t& b, Decomposit
 
 /**
  * Element-wise multiplication, where (1, 3, 6) * (4, 7, 3) = (4, 21, 18)
+ * If a and b do not have matching third dimenions, place the view with the 
+ * smaller third dimenion first.
  */
 template <class Array_t, class DecompositionTag>
 std::shared_ptr<Array_t> element_multiply( Array_t& a, const Array_t& b, DecompositionTag tag )
 {
     using execution_space = typename Array_t::execution_space;
-
-    auto out = Cabana::Grid::ArrayOp::clone(a);
+    auto out = Cabana::Grid::ArrayOp::clone(b);
     auto out_view = out->view();
 
     // Check dimensions
@@ -329,24 +332,52 @@ std::shared_ptr<Array_t> element_multiply( Array_t& a, const Array_t& b, Decompo
     const int bn = b_view.extent(0);
     const int am = a_view.extent(1);
     const int bm = b_view.extent(1);
+    const int aw = a_view.extent(2);
+    const int bw = b_view.extent(2);
 
     if (an != bn) {
-        throw std::invalid_argument("First dimension of a and b views do not match.");
+        throw std::invalid_argument("First dimension of a and b arrays do not match.");
     }
     if (am != bm) {
-        throw std::invalid_argument("Second dimension of a and b views do not match.");
+        throw std::invalid_argument("Second dimension of a and b arrays do not match.");
     }
 
-    auto policy = Cabana::Grid::createExecutionPolicy(
-            a.layout()->indexSpace( tag, Cabana::Grid::Local() ),
-            execution_space() );
-     Kokkos::parallel_for(
-        "ArrayOp::update", policy,
-        KOKKOS_LAMBDA( const int i, const int j, const int k ) {
-            out_view( i, j, k ) = a_view( i, j, k ) * b_view( i, j, k );
-        } );
+    // Both a and b have matching third dimensions
+    // if (aw == bw) {
+    //     auto policy = Cabana::Grid::createExecutionPolicy(
+    //         a.layout()->indexSpace( tag, Cabana::Grid::Local() ),
+    //         execution_space() );
+    //     Kokkos::parallel_for(
+    //         "ArrayOp::update", policy,
+    //         KOKKOS_LAMBDA( const int i, const int j, const int k ) {
+    //             out_view( i, j, k ) = a_view( i, j, k ) * b_view( i, j, k );
+    //         } );
 
-    return out;
+    //     return out;
+    // }
+
+    // // If a has a third dimension of 1
+    // if ((aw == 1) && (aw < bw))
+    // {
+    //     using entity_type = typename Array_t::entity_type;
+    //     auto policy = Cabana::Grid::createExecutionPolicy(
+    //         a.layout()->localGrid()->indexSpace( tag, entity_type(), Cabana::Grid::Local() ),
+    //         execution_space() );
+    //     Kokkos::parallel_for(
+    //         "ArrayOp::update", policy,
+    //         KOKKOS_LAMBDA( const int i, const int j) {
+    //             for (int)
+    //             out_view( i, j, k ) = a_view( i, j, k ) * b_view( i, j, k );
+    //         } );
+
+    //     return out;
+    // }
+    // else
+    // {
+    //     throw std::invalid_argument("First array argument must have equal or smaller third dimension than second array argument.");
+    // }
+
+    
 }
 
 /*!
