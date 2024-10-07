@@ -60,6 +60,18 @@ namespace Operators
             return std::sqrt(val);
         }
     };
+    //! Inverse functor
+    struct InverseFunctor
+    {
+        //! Constructor.
+        InverseFunctor( ) {}
+
+        KOKKOS_INLINE_FUNCTION
+        double operator()( double val ) const
+        {
+            return 1.0 / val;
+        }
+    };
 
     /* Fourth order central difference calculation for derivatives along the 
      * interface surface */

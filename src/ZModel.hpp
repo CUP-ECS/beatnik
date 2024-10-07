@@ -346,9 +346,9 @@ class ZModel
     // Compute the final interface velocities and normalized BR velocities
     // from the previously computed Fourier and/or Birkhoff-Rott velocities and the surface
     // normal based on  the order of technique we're using.
-    KOKKOS_INLINE_FUNCTION 
-    static void finalizeVelocity(Order::Low, node_array zndot, node_array zdot, 
-        node_array reisz, node_array surface_norm, node_array inv_deth) 
+    template <class DecompositionTag>
+    void finalizeVelocity(Order::Low, node_array& zndot, node_array& zdot, 
+        node_array& reisz, node_array& surface_norm, node_array& inv_deth, DecompositionTag tag) const 
     {
         /*
         zndot = scalar array
@@ -356,31 +356,54 @@ class ZModel
         reisz = array
         deth = array
         zdot = array
-        */
-        
-        zndot = -0.5 * reisz(i, j, 0) / deth;
-        for (int d = 0; d < 3; d++)
-            zdot(i, j, d) = zndot * norm[d];
+         */
+
+        // Step 1: (1/deth) -> (-0.5/deth)
+        ArrayUtils::ArrayOp::scale(inv_deth, -0.5, tag);
+ 
+        // Step 2: zdot = zndot * surface_norm
+        auto zdot_1 = ArrayUtils::ArrayOp::element_multiply(
+            *ArrayUtils::ArrayOp::element_multiply(inv_deth, reisz, tag), //zndot = -0.5 * (1/deth) * reisz
+            surface_norm, tag);
+
+        // Step 3: Copy back into zdot
+        ArrayUtils::ArrayOp::copy(zdot, *zdot_1, tag);
     }
 
-    template <class ViewType>
-    KOKKOS_INLINE_FUNCTION
-    static void finalizeVelocity(Order::Medium, double &zndot, 
-        [[maybe_unused]] ViewType zdot, 
-        [[maybe_unused]] int i, [[maybe_unused]] int j,
-        ViewType reisz, [[maybe_unused]] double norm[3], double deth) 
+    template <class DecompositionTag>
+    void finalizeVelocity(Order::Medium, node_array& zndot, 
+        [[maybe_unused]] node_array& zdot, 
+        node_array& reisz, node_array& surface_norm, node_array& inv_deth,
+        DecompositionTag tag) const
     {
-        zndot = -0.5 * reisz(i, j, 0) / deth;
+        // Output: zndot = -0.5 * (1/deth) * reisz
+
+        // Step 1: (1/deth) -> (-0.5/deth)
+        ArrayUtils::ArrayOp::scale(inv_deth, -0.5, tag);
+
+        // Step 2: zndot = (-0.5/deth) * reisz
+        auto result = ArrayUtils::ArrayOp::element_multiply(inv_deth, reisz, tag);
+
+        // Step 3: Copy back into zndot
+        ArrayUtils::ArrayOp::copy(zndot, *result, tag);
     }
 
-    template <class ViewType>
-    KOKKOS_INLINE_FUNCTION
-    static void finalizeVelocity(Order::High, double &zndot, ViewType zdot, 
-        int i, int j, [[maybe_unused]] ViewType reisz, 
-        [[maybe_unused]] double norm[3], [[maybe_unused]] double deth)
+    template <class DecompositionTag>
+    void finalizeVelocity(Order::High, node_array& zndot, node_array& zdot, 
+        [[maybe_unused]] node_array& reisz, 
+        [[maybe_unused]] node_array& surface_norm, [[maybe_unused]] node_array& inv_deth,
+        DecompositionTag tag) const
     {
-        double interface_velocity[3] = {zdot(i, j, 0), zdot(i, j, 1), zdot(i, j, 2)};
-        zndot = sqrt(Operators::dot(interface_velocity, interface_velocity));
+        // Goal:
+        // double interface_velocity[3] = {zdot(i, j, 0), zdot(i, j, 1), zdot(i, j, 2)};
+        // zndot = sqrt(Operators::dot(interface_velocity, interface_velocity));
+
+        Operators::SqrtFunctor sqrt_func;
+        auto interface_velocity = ArrayUtils::ArrayOp::element_dot(zdot, zdot, tag);
+        ArrayUtils::ArrayOp::apply(*interface_velocity, sqrt_func, tag);
+
+        // Copy back into zndot
+        ArrayUtils::ArrayOp::copy(zndot, *interface_velocity, tag);
     }
  
     // External entry point from the TimeIntegration object that uses the
@@ -446,18 +469,20 @@ class ZModel
             for (int n = 0; n < 3; n++)
 		        N[n] = N[n] * (1/sqrt(deth));
         */
-        ArrayUtils::ArrayOp::element_inverse(*deth, tag()); // deth -> 1/deth
-        // Copy 1/deth because it is needed in finalizeVelocity functions
-        auto deth_inv = ArrayUtils::ArrayOp::cloneCopy(*deth, tag());
         Operators::SqrtFunctor sqrt_func;
+        Operators::InverseFunctor inverse_func;
+        ArrayUtils::ArrayOp::apply(*deth, inverse_func, tag()); // deth -> 1/deth
+        // Copy 1/deth because it is needed in finalizeVelocity functions
+        auto inv_deth = ArrayUtils::ArrayOp::cloneCopy(*deth, tag());
         ArrayUtils::ArrayOp::apply(*deth, sqrt_func, tag()); // 1/deth -> 1/sqrt(deth)
+        auto cross = ArrayUtils::ArrayOp::element_cross(z_dx, z_dy, tag());
         
-        auto surface_normal = 
-            ArrayUtils::ArrayOp::element_multiply(
-                *ArrayUtils::ArrayOp::element_cross(z_dx, z_dy, tag()), // Dx \cross Dy
-                *deth, // 1/sqrt(deth)
-                tag()
-            );
+        // auto surface_normal = 
+        //     ArrayUtils::ArrayOp::element_multiply(
+        //         *ArrayUtils::ArrayOp::element_cross(z_dx, z_dy, tag()), // Dx \cross Dy
+        //         *deth, // 1/sqrt(deth)
+        //         tag()
+        //     );
         
         /*
         Part 2.4: Compute zdot and zndot as needed using specialized helper functions
@@ -491,7 +516,7 @@ class ZModel
         */
         // Clone another 1D array to create zndot, which is also 1D.
         auto zndot = ArrayUtils::ArrayOp::clone(*h11); 
-        //finalizeVelocity(MethodOrder(), )    
+        //finalizeVelocity(MethodOrder(), *zndot, zdot, *_reisz, *surface_normal, *inv_deth, tag());
     
 
 
@@ -504,42 +529,42 @@ class ZModel
         auto layout = z.clayout()->layout();
         auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
-        Kokkos::parallel_for( "Interface Velocity", policy, 
-            KOKKOS_LAMBDA(int i, int j) {
-            //  2.1 Compute Dx and Dy of z and w by fourth-order central differencing. 
-            double dx_z[3], dy_z[3];
+        // Kokkos::parallel_for( "Interface Velocity", policy, 
+        //     KOKKOS_LAMBDA(int i, int j) {
+        //     //  2.1 Compute Dx and Dy of z and w by fourth-order central differencing. 
+        //     double dx_z[3], dy_z[3];
 
-            for (int n = 0; n < 3; n++) {
-               dx_z[n] = z_dx_view(i, j, n);
-               dy_z[n] = z_dy_view(i, j, n);
-            }
+        //     for (int n = 0; n < 3; n++) {
+        //        dx_z[n] = z_dx_view(i, j, n);
+        //        dy_z[n] = z_dy_view(i, j, n);
+        //     }
 
-            //  2.2 Compute h11, h12, h22, and det_h from Dx and Dy
-            double h11 = Operators::dot(dx_z, dx_z);
-            double h12 = Operators::dot(dx_z, dy_z);
-            double h22 = Operators::dot(dy_z, dy_z);
-            double deth = h11*h22 - h12*h12;
+        //     //  2.2 Compute h11, h12, h22, and det_h from Dx and Dy
+        //     double h11 = Operators::dot(dx_z, dx_z);
+        //     double h12 = Operators::dot(dx_z, dy_z);
+        //     double h22 = Operators::dot(dy_z, dy_z);
+        //     double deth = h11*h22 - h12*h12;
 
-            //  2.3 Compute the surface normal as (Dx \cross Dy)/sqrt(deth)
-            double N[3];
-            Operators::cross(N, dx_z, dy_z);
-            for (int n = 0; n < 3; n++)
-		        N[n] /= sqrt(deth);
+        //     //  2.3 Compute the surface normal as (Dx \cross Dy)/sqrt(deth)
+        //     double N[3];
+        //     Operators::cross(N, dx_z, dy_z);
+        //     for (int n = 0; n < 3; n++)
+		//         N[n] /= sqrt(deth);
 
-            //  2.4 Compute zdot and zndot as needed using specialized helper functions
-            double zndot;
-            finalizeVelocity(MethodOrder(), zndot, zdot_view, i, j, 
-                             reisz_view, N, deth );
+        //     //  2.4 Compute zdot and zndot as needed using specialized helper functions
+        //     double zndot;
+        //     finalizeVelocity(MethodOrder(), zndot, zdot_view, i, j, 
+        //                      reisz_view, N, deth );
 
-            //  2.5 Compute V from zndot and vorticity 
-	        double w1 = w_view(i, j, 0); 
-            double w2 = w_view(i, j, 1);
+        //     //  2.5 Compute V from zndot and vorticity 
+	    //     double w1 = w_view(i, j, 0); 
+        //     double w2 = w_view(i, j, 1);
 
-            V_view(i, j, 0) = zndot * zndot 
-                            - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
-                            - 2*g*z_view(i, j, 2);
-                            // Make a body/background velocity view that is just z_view(x, x, 2) -> matches dimensions of V_view
-        });
+        //     V_view(i, j, 0) = zndot * zndot 
+        //                     - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
+        //                     - 2*g*z_view(i, j, 2);
+        //                     // Make a body/background velocity view that is just z_view(x, x, 2) -> matches dimensions of V_view
+        // });
 
         // 3. Phase 3: Halo V and apply boundary condtions on it, then calculate
         // central differences of V, laplacians for artificial viscosity, and

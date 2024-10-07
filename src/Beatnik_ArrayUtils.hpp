@@ -349,22 +349,6 @@ std::shared_ptr<Array_t> element_multiply( Array_t& a, const Array_t& b, Decompo
     return out;
 }
 
-/**
- * Element-wise inverse: x -> 1/x
- */
-template <class Array_t, class DecompositionTag>
-std::enable_if_t<2 == Array_t::num_space_dim, void>
-element_inverse( Array_t& array, DecompositionTag tag )
-{
-    auto view = array.view();
-    Kokkos::parallel_for( "ArrayOp::apply",
-        createExecutionPolicy( array.layout()->indexSpace( tag, Cabana::Grid::Local() ),
-                               typename Array_t::execution_space() ),
-        KOKKOS_LAMBDA( const int i, const int j, const int k) {
-            view( i, j, k ) = 1 / view(i, j, k);
-        } );
-}
-
 /*!
   \brief Apply some function to every element of an array
   \param array The array to operate on.
@@ -506,25 +490,6 @@ void apply( Array_t& a, Function& function, DecompositionTag tag )
               std::is_same_v<entity_type, NuMesh::Face>) 
     {
         NuMesh::Array::ArrayOp::apply(*a.array(), function, tag);
-    }
-}
-
-/**
- * Element-wise inverse: x -> 1/x
- */
-template <class Array_t, class DecompositionTag>
-void element_inverse( Array_t& a, DecompositionTag tag )
-{
-    using entity_type = typename Array_t::entity_type;
-    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
-    {
-        CabanaOp::element_inverse(*a.array(), tag);
-    }
-     else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
-              std::is_same_v<entity_type, NuMesh::Edge> ||
-              std::is_same_v<entity_type, NuMesh::Face>) 
-    {
-        NuMesh::Array::ArrayOp::element_inverse(*a.array(), tag);
     }
 }
 
