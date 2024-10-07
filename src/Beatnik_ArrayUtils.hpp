@@ -33,10 +33,11 @@ namespace ArrayUtils
 {
 
 // Cabana helpers
-// using cabana_mesh_type = Cabana::Grid::UniformMesh<double, 2>;
+template <typename T>
+using cabana_mesh_type = typename T::mesh_type;
 
 template <typename T>
-using is_cabana_uniform_mesh = std::is_same<T, Cabana::Grid::Node>;
+using is_cabana_mesh = Cabana::Grid::isMeshType<cabana_mesh_type<T>>;
 // XXX: Make RHS of 40 to not depend on cabana_mesh_type so cabana_mesh_type can be removed.
 
 
@@ -57,8 +58,8 @@ class ArrayLayout
 
     // Determine ContainerLayoutType using std::conditional_t
     using array_layout_type = std::conditional_t<
-        is_cabana_uniform_mesh<entity_type>::value,
-        Cabana::Grid::ArrayLayout<entity_type, typename mesh_type::mesh_type>, // Case A: Cabana UniformMesh
+        is_cabana_mesh<mesh_type>::value,
+        Cabana::Grid::ArrayLayout<entity_type, cabana_mesh_type<mesh_type>>, // Case A: Cabana UniformMesh
         std::conditional_t<
             NuMesh::is_numesh_mesh<MeshType>::value,
             NuMesh::Array::ArrayLayout<entity_type, mesh_type>, // Case B: NuMesh Mesh
@@ -68,7 +69,7 @@ class ArrayLayout
   
     ArrayLayout(const std::shared_ptr<mesh_type>& mesh, const int dofs_per_entity, entity_type tag)
     {
-        if constexpr (is_cabana_uniform_mesh<entity_type>::value)
+        if constexpr (is_cabana_mesh<mesh_type>::value)
         {
             _layout = Cabana::Grid::createArrayLayout(mesh, dofs_per_entity, tag);
         }
@@ -136,8 +137,8 @@ class Array
 
     // Determine array_type using std::conditional_t
     using array_type = std::conditional_t<
-        is_cabana_uniform_mesh<entity_type>::value,
-        Cabana::Grid::Array<value_type, entity_type, typename mesh_type::mesh_type, memory_space>, // Case A: Cabana Mesh
+        is_cabana_mesh<mesh_type>::value,
+        Cabana::Grid::Array<value_type, entity_type, cabana_mesh_type<mesh_type>, memory_space>, // Case A: Cabana Mesh
         std::conditional_t<
             NuMesh::is_numesh_mesh<mesh_type>::value,
             NuMesh::Array::Array<value_type, entity_type, mesh_type, memory_space>, // Case B: NuMesh Mesh
