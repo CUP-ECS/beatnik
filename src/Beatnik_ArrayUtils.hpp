@@ -193,22 +193,6 @@ namespace CabanaOp
 {
 
 /**
- * Copy one view into another where the third dimensions to not match
- * Array b must have the larger third dimension.
- * Any dimensions in b that are not in a are truncated.
- */
-template <class Array_t, class DecompositionTag>
-void copy_mismatch( Array_t& a, const Array_t& b, DecompositionTag tag )
-{
-    static_assert( is_array<Array_t>::value, "Cabana::Grid::Array required" );
-    using entity_type = typename Array_t::entity_type;
-    auto a_space = a.layout()->indexSpace( tag, entity_type(), Cabana::Grid::Local() );
-    auto subview_a = Cabana::Grid::createSubview( a.view(), a_space );
-    auto subview_b = Cabana::Grid::createSubview( b.view(), a_space );
-    Kokkos::deep_copy( subview_a, subview_b );
-}
-
-/**
  * Cabana has a "dot" ArrayOp, but it computes a single dot product for 
  * an entire array rather than on a vector-by-vector basis
  */ 
@@ -220,7 +204,7 @@ std::shared_ptr<Array_t> element_dot( Array_t& a, const Array_t& b, Decompositio
     using memory_space = typename Array_t::memory_space;
     using execution_space = typename Array_t::execution_space;
 
-    auto layout = Cabana::Grid::createArrayLayout( a.layout()->localGrid(), 1, Cabana::Grid::Node() );
+    auto layout = Cabana::Grid::createArrayLayout( a.layout()->localGrid(), 1, entity_type() );
     auto out = Cabana::Grid::createArray<value_type, memory_space>("cabana_dot", layout);
     auto out_view = out->view();
 
@@ -264,7 +248,6 @@ std::shared_ptr<Array_t> element_cross( Array_t& a, const Array_t& b, Decomposit
 {
     using entity_type = typename Array_t::entity_type;
     using value_type = typename  Array_t::value_type;
-    using memory_space = typename Array_t::memory_space;
     using execution_space = typename Array_t::execution_space;
 
     // auto layout = Cabana::Grid::createArrayLayout( a.layout()->localGrid(), 3, Cabana::Grid::Node() );
@@ -312,7 +295,8 @@ std::shared_ptr<Array_t> element_cross( Array_t& a, const Array_t& b, Decomposit
 /**
  * Element-wise multiplication, where (1, 3, 6) * (4, 7, 3) = (4, 21, 18)
  * If a and b do not have matching third dimensions, place the view with the 
- * smaller third dimension first.
+ * smaller third dimension first. Dimensions in b that are not present in a
+ * are truncated.
  * 
  * If a has a third dimension of 1, out(x, y, z) = b(x, y, z) * a(x, y, 0) for 0 <= z < b extent
  */ 
@@ -373,8 +357,61 @@ std::shared_ptr<Array_t> element_multiply( Array_t& a, const Array_t& b, Decompo
     }
     else
     {
-        throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::CabanaOp: First array argument must have equal or smaller third dimension than second array argument.");
+        throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::CabanaOp:element_multiply: First array argument must have equal or smaller third dimension than second array argument.");
     }   
+}
+
+/**
+ * Element-wise multiplication, where (1, 3, 6) * (4, 7, 3) = (4, 21, 18)
+ * If a and b do not have matching third dimensions, place the view with the 
+ * smaller third dimension first.
+ * 
+ * In the third dimension, this function multiplies only the first dimension
+ * in b to the first dimension in b.
+ * Helper function for the reisz array, which has real and imaginary parts
+ * but we only use the real part.
+ */ 
+template <class Array_t, class DecompositionTag>
+std::shared_ptr<Array_t> element_multiply_first_dim( Array_t& a, const Array_t& b, DecompositionTag tag )
+{
+    using entity_type = typename Array_t::entity_type;
+    using execution_space = typename Array_t::execution_space;
+    auto out = Cabana::Grid::ArrayOp::clone(a);
+    auto out_view = out->view();
+
+    // Check dimensions
+    auto a_view = a.view();
+    auto b_view = b.view();
+
+    const int an = a_view.extent(0);
+    const int bn = b_view.extent(0);
+    const int am = a_view.extent(1);
+    const int bm = b_view.extent(1);
+    const int aw = a_view.extent(2);
+
+    if (an != bn) {
+        throw std::invalid_argument("First dimension of a and b arrays do not match.");
+    }
+    if (am != bm) {
+        throw std::invalid_argument("Second dimension of a and b arrays do not match.");
+    }
+
+    if (aw == 1)
+    {
+        auto policy = Cabana::Grid::createExecutionPolicy(
+            a.layout()->localGrid()->indexSpace( tag, entity_type(), Cabana::Grid::Local() ),
+            execution_space() );
+        Kokkos::parallel_for(
+            "ArrayOp::element_multiply", policy,
+            KOKKOS_LAMBDA( const int i, const int j) {
+                out_view( i, j, 0 ) = a_view( i, j, 0 ) * b_view( i, j, 0 );
+            } );
+        return out;
+    }
+    else
+    {
+        throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::CabanaOp::element_multiply_first_dim: First array argument must have third dimension depth of frame of one.");
+    }
 }
 
 /*!
@@ -431,25 +468,6 @@ std::shared_ptr<Array_t> cloneCopy( const Array_t& array, DecompositionTag tag )
     auto cln = clone( array );
     copy( *cln, array, tag );
     return cln;
-}
-
-/**
- * Copy one view into another where the third dimensions to not match
- * Array b must have the larger third dimension.
- * Any dimensions in b that are not in a are truncated.
- */
-template <class Array_t, class DecompositionTag>
-void copy_mismatch( Array_t& a, const Array_t& b, DecompositionTag tag )
-{
-    using mesh_type = typename Array_t::mesh_type;
-    if constexpr (is_cabana_mesh<mesh_type>::value)
-    {
-        CabanaOp::copy_mismatch(*a.array(), *b.array(), tag);
-    }
-    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
-    {
-        NuMesh::Array::ArrayOp::copy_mismatch(*a.array(), *b.array(), tag);
-    }
 }
 
 template <class Array_t, class DecompositionTag>
@@ -600,6 +618,27 @@ std::shared_ptr<Array_t> element_multiply( Array_t& a, const Array_t& b, Decompo
     }
 
     throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::element_multiply: Invalid mesh_type");
+}
+
+template <class Array_t, class DecompositionTag>
+std::shared_ptr<Array_t> element_multiply_first_dim( Array_t& a, const Array_t& b, DecompositionTag tag )
+{
+    auto out = clone(a);
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
+    {
+        auto cabana_out = CabanaOp::element_multiply_first_dim(*a.array(), *b.array(), tag); 
+        Cabana::Grid::ArrayOp::copy(*out->array(), *cabana_out, tag);
+        return out;
+    }
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    {
+        // auto numesh_out = NuMesh::Array::ArrayOp::element_multiply_first_dim(*a.array(), *b.array(), tag);
+        // NuMesh::Array::ArrayOp::copy(*out->array(), *numesh_out, tag);
+        return out;
+    }
+
+    throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::element_multiply_first_dim: Invalid mesh_type");
 }
 
 } // end namespace ArrayOp

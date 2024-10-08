@@ -352,35 +352,25 @@ class ZModel
     {
         /*
         zndot = scalar array
-        norm = surface_normal array
+        norm = surface_normal array: (i, j, 1)
         reisz = array 
             The reisz array is (i, j, 2), but we only use the first of the two third dimensions.
-        deth = array
-        zdot = array
+        deth = array: (i, j, 1)
+        zdot = array: (i, j, 1)
          */
 
         // Step 1: (1/deth) -> (-0.5/deth)
         ArrayUtils::ArrayOp::scale(inv_deth, -0.5, tag);
-        auto reisz_1D = ArrayUtils::ArrayOp::clone(inv_deth);
-        ArrayUtils::ArrayOp::copy_mismatch(*reisz_1D, reisz, tag);
-        auto temp1 = ArrayUtils::ArrayOp::element_multiply(inv_deth, reisz, tag);
+        //auto temp1 = ArrayUtils::ArrayOp::element_multiply_first_dim(inv_deth, reisz, tag);
  
         // Step 2: zdot = zndot * surface_norm
-        printf("temp1: (%d, %d, %d), surface_norm: (%d, %d, %d)\n",
-            temp1->array()->view().extent(0), temp1->array()->view().extent(1), temp1->array()->view().extent(2),
-            surface_norm.array()->view().extent(0), surface_norm.array()->view().extent(1), surface_norm.array()->view().extent(2));
-        // auto zdot_1 = ArrayUtils::ArrayOp::element_multiply(
-        //     *temp1, //zndot = -0.5 * (1/deth) * reisz
-        //     surface_norm,
-        //     tag);
-
-        // auto zdot_1 = ArrayUtils::ArrayOp::element_multiply(
-        //     surface_norm,
-        //     *ArrayUtils::ArrayOp::element_multiply(reisz, inv_deth, tag), //zndot = -0.5 * (1/deth) * reisz
-        //     tag);
+        auto zdot_1 = ArrayUtils::ArrayOp::element_multiply(
+            *ArrayUtils::ArrayOp::element_multiply_first_dim(inv_deth, reisz, tag), //zndot = -0.5 * (1/deth) * reisz
+            surface_norm,
+            tag);
 
         // Step 3: Copy back into zdot
-        //ArrayUtils::ArrayOp::copy(zdot, *zdot_1, tag);
+        ArrayUtils::ArrayOp::copy(zdot, *zdot_1, tag);
     }
 
     template <class DecompositionTag>
@@ -395,7 +385,7 @@ class ZModel
         ArrayUtils::ArrayOp::scale(inv_deth, -0.5, tag);
 
         // Step 2: zndot = (-0.5/deth) * reisz
-        auto result = ArrayUtils::ArrayOp::element_multiply(inv_deth, reisz, tag);
+        auto result = ArrayUtils::ArrayOp::element_multiply_first_dim(inv_deth, reisz, tag);
 
         // Step 3: Copy back into zndot
         ArrayUtils::ArrayOp::copy(zndot, *result, tag);
@@ -463,7 +453,7 @@ class ZModel
             double h12 = Operators::dot(dx_z, dy_z);
             double h22 = Operators::dot(dy_z, dy_z);
             double deth = h11*h22 - h12*h12;
-        */
+         */
         using tag = Cabana::Grid::Own;
         auto h11 = ArrayUtils::ArrayOp::element_dot(z_dx, z_dx, tag());
         auto h12 = ArrayUtils::ArrayOp::element_dot(z_dx, z_dy, tag());
@@ -481,7 +471,7 @@ class ZModel
             Operators::cross(N, dx_z, dy_z);
             for (int n = 0; n < 3; n++)
 		        N[n] = N[n] * (1/sqrt(deth));
-        */
+         */
         Operators::SqrtFunctor sqrt_func;
         Operators::InverseFunctor inverse_func;
         ArrayUtils::ArrayOp::apply(*deth, inverse_func, tag()); // deth -> 1/deth
@@ -496,35 +486,8 @@ class ZModel
             );
         
         /*
-        Part 2.4: Compute zdot and zndot as needed using specialized helper functions
-                static void finalizeVelocity(Order::Low, double &zndot, ViewType zdot, 
-                    int i, int j, ViewType reisz, double norm[3], double deth) 
-                {
-                    zndot = -0.5 * reisz(i, j, 0) / deth;
-                    for (int d = 0; d < 3; d++)
-                        zdot(i, j, d) = zndot * norm[d];
-                }
-
-                template <class ViewType>
-                KOKKOS_INLINE_FUNCTION
-                static void finalizeVelocity(Order::Medium, double &zndot, 
-                    [[maybe_unused]] ViewType zdot, 
-                    [[maybe_unused]] int i, [[maybe_unused]] int j,
-                    ViewType reisz, [[maybe_unused]] double norm[3], double deth) 
-                {
-                    zndot = -0.5 * reisz(i, j, 0) / deth;
-                }
-
-                template <class ViewType>
-                KOKKOS_INLINE_FUNCTION
-                static void finalizeVelocity(Order::High, double &zndot, ViewType zdot, 
-                    int i, int j, [[maybe_unused]] ViewType reisz, 
-                    [[maybe_unused]] double norm[3], [[maybe_unused]] double deth)
-                {
-                    double interface_velocity[3] = {zdot(i, j, 0), zdot(i, j, 1), zdot(i, j, 2)};
-                    zndot = sqrt(Operators::dot(interface_velocity, interface_velocity));
-                }  
-        */
+         * Part 2.4: Compute zdot and zndot as needed using specialized helper functions
+         */
         // Clone another 1D array to create zndot, which is also 1D.
         auto zndot = ArrayUtils::ArrayOp::clone(*h11); 
         finalizeVelocity(MethodOrder(), *zndot, zdot, *_reisz, *surface_normal, *inv_deth, tag());
