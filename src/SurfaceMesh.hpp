@@ -165,7 +165,7 @@ class SurfaceMesh
      * Compute fourth-order central difference calculation for derivatives along the 
      * interface surface
      */
-    std::shared_ptr<node_array> Dx(const node_array& in, double dx, Cabana::Grid::Node) const
+    std::shared_ptr<node_array> Dx(const node_array& in, const double dx, Cabana::Grid::Node) const
     {
         using Node = Cabana::Grid::Node;
         auto out = ArrayUtils::ArrayOp::clone(in);
@@ -180,7 +180,7 @@ class SurfaceMesh
         });
         return out;
     }
-    std::shared_ptr<node_array> Dy(const node_array& in, double dy, Cabana::Grid::Node) const
+    std::shared_ptr<node_array> Dy(const node_array& in, const double dy, Cabana::Grid::Node) const
     {
         using Node = Cabana::Grid::Node;
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
@@ -192,6 +192,24 @@ class SurfaceMesh
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
         Kokkos::parallel_for("Calculate Dx", policy, KOKKOS_LAMBDA(const int i, const int j) {
             for (int k = 0; k < dim2; k++) out_view(i, j, k) = Operators::Dy(in_view, i, j, k, dy);
+        });
+        return out;
+    }
+
+    /* 9-point laplace stencil operator for computing artificial viscosity */
+    std::shared_ptr<node_array> laplace(const node_array& in, const double dx, const double dy, Cabana::Grid::Node) const
+    {
+        using Node = Cabana::Grid::Node;
+        auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
+        auto out_view = out->array()->view();
+        auto in_view = in.array()->view();
+        auto layout = in.clayout()->layout();
+        auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
+        int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
+        auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
+        Kokkos::parallel_for("Calculate Dx", policy, KOKKOS_LAMBDA(const int i, const int j) {
+            // double laplace(ViewType f, int i, int j, int d, double dx, double dy) 
+            for (int k = 0; k < dim2; k++) out_view(i, j, k) = Operators::laplace(in_view, i, j, k, dx, dy);
         });
         return out;
     }
