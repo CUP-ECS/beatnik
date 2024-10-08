@@ -361,25 +361,44 @@ std::shared_ptr<Array_t> element_multiply( Array_t& a, const Array_t& b, Decompo
     }   
 }
 
-/**
- * Element-wise multiplication, where (1, 3, 6) * (4, 7, 3) = (4, 21, 18)
- * If a and b do not have matching third dimensions, place the view with the 
- * smaller third dimension first.
- * 
- * In the third dimension, this function multiplies only the first dimension
- * in b to the first dimension in b.
- * Helper function for the reisz array, which has real and imaginary parts
- * but we only use the real part.
- */ 
 template <class Array_t, class DecompositionTag>
-std::shared_ptr<Array_t> element_multiply_first_dim( Array_t& a, const Array_t& b, DecompositionTag tag )
+std::shared_ptr<Array_t> copyDim( Array_t& a, int dimA, DecompositionTag tag )
 {
     using entity_type = typename Array_t::entity_type;
+    using value_type = typename  Array_t::value_type;
+    using memory_space = typename Array_t::memory_space;
     using execution_space = typename Array_t::execution_space;
-    auto out = Cabana::Grid::ArrayOp::clone(a);
+
+    auto layout = Cabana::Grid::createArrayLayout( a.layout()->localGrid(), 1, entity_type() );
+    auto out = Cabana::Grid::createArray<value_type, memory_space>("cabana_dot", layout);
     auto out_view = out->view();
 
     // Check dimensions
+    auto a_view = a.view();
+
+    const int aw = a_view.extent(2);
+
+    if (dimA >= aw) {
+        throw std::invalid_argument("ArrayUtils::ArrayOp::CabanaOp::copyDim: Provided dimension is larger than the number of dimensions in the b array.");
+    }
+
+    auto policy = Cabana::Grid::createExecutionPolicy(
+        a.layout()->localGrid()->indexSpace( tag, entity_type(), Cabana::Grid::Local() ),
+        execution_space() );
+    Kokkos::parallel_for(
+        "ArrayUtils::ArrayOp::CabanaOp::copyDim", policy,
+        KOKKOS_LAMBDA( const int i, const int j) {
+            out_view( i, j, 0 ) = a_view( i, j, dimA );
+        } );
+    return out;
+}
+
+template <class Array_t, class DecompositionTag>
+void copyDim( Array_t& a, int dimA, Array_t& b, int dimB, DecompositionTag tag )
+{
+    using entity_type = typename Array_t::entity_type;
+    using execution_space = typename Array_t::execution_space;
+
     auto a_view = a.view();
     auto b_view = b.view();
 
@@ -388,30 +407,29 @@ std::shared_ptr<Array_t> element_multiply_first_dim( Array_t& a, const Array_t& 
     const int am = a_view.extent(1);
     const int bm = b_view.extent(1);
     const int aw = a_view.extent(2);
+    const int bw = b_view.extent(2);
 
     if (an != bn) {
-        throw std::invalid_argument("First dimension of a and b arrays do not match.");
+        throw std::invalid_argument("ArrayUtils::ArrayOp::CabanaOp::copyDim: First dimension of a and b arrays do not match.");
     }
     if (am != bm) {
-        throw std::invalid_argument("Second dimension of a and b arrays do not match.");
+        throw std::invalid_argument("ArrayUtils::ArrayOp::CabanaOp::copyDim: Second dimension of a and b arrays do not match.");
+    }
+    if (dimA >= aw) {
+        throw std::invalid_argument("ArrayUtils::ArrayOp::CabanaOp::copyDim: Provided dimension for 'a' is larger than the number of dimensions in the b array.");
+    }
+    if (dimB >= bw) {
+        throw std::invalid_argument("ArrayUtils::ArrayOp::CabanaOp::copyDim: Provided dimension for 'b' is larger than the number of dimensions in the b array.");
     }
 
-    if (aw == 1)
-    {
-        auto policy = Cabana::Grid::createExecutionPolicy(
-            a.layout()->localGrid()->indexSpace( tag, entity_type(), Cabana::Grid::Local() ),
-            execution_space() );
-        Kokkos::parallel_for(
-            "ArrayOp::element_multiply", policy,
-            KOKKOS_LAMBDA( const int i, const int j) {
-                out_view( i, j, 0 ) = a_view( i, j, 0 ) * b_view( i, j, 0 );
-            } );
-        return out;
-    }
-    else
-    {
-        throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::CabanaOp::element_multiply_first_dim: First array argument must have third dimension depth of frame of one.");
-    }
+    auto policy = Cabana::Grid::createExecutionPolicy(
+        a.layout()->localGrid()->indexSpace( tag, entity_type(), Cabana::Grid::Local() ),
+        execution_space() );
+    Kokkos::parallel_for(
+        "ArrayUtils::ArrayOp::CabanaOp::copyDim", policy,
+        KOKKOS_LAMBDA( const int i, const int j) {
+            a_view( i, j, dimA ) = b_view( i, j, dimB );
+    } );
 }
 
 /*!
@@ -460,6 +478,55 @@ void copy( Array_t& a, const Array_t& b, DecompositionTag tag )
         NuMesh::Array::ArrayOp::copy(*a.array(), *b.array(), tag);
     }
 
+}
+
+/**
+ * Create a copy of one dimension in an array
+ */
+template <class Array_t, class DecompositionTag>
+std::shared_ptr<Array_t> copyDim( Array_t& a, int dimA, DecompositionTag tag )
+{
+    using entity_type = typename Array_t::entity_type;
+    using value_type = typename  Array_t::value_type;
+    using memory_space = typename Array_t::memory_space;
+
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
+    {
+        auto cabana_out = CabanaOp::copyDim(*a.array(), dimA, tag);
+        auto layout = ArrayUtils::createArrayLayout(a.clayout()->layout()->localGrid(), 1, entity_type());
+        auto out = ArrayUtils::createArray<value_type, memory_space>("copyDim", layout);
+        Cabana::Grid::ArrayOp::copy(*out->array(), *cabana_out, tag);
+        return out;
+
+    }
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    {
+        throw std::runtime_error("copy with dim not yet implemented in NuMesh");
+
+        // auto numesh_out = NuMesh::Array::ArrayOp::element_dot(*a.array(), *b.array(), tag);
+        // auto layout = ArrayUtils::createArrayLayout(a.clayout()->layout()->mesh(), 1, entity_type());
+        // auto out = ArrayUtils::createArray<value_type, memory_space>("dot", layout);
+        // NuMesh::Array::ArrayOp::copy(*out->array(), *numesh_out, tag);
+        // return out;
+    }
+}
+
+/**
+ * Copy dimB from b into dimA from a 
+ */
+template <class Array_t, class DecompositionTag>
+void copyDim( Array_t& a, int dimA, Array_t& b, int dimB, DecompositionTag tag )
+{
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
+    {
+        CabanaOp::copyDim(*a.array(), dimA, *b.array(), dimB, tag);
+    }
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    {
+        throw std::runtime_error("copy with dim not yet implemented in NuMesh");
+    }
 }
 
 template <class Array_t, class DecompositionTag>
@@ -618,27 +685,6 @@ std::shared_ptr<Array_t> element_multiply( Array_t& a, const Array_t& b, Decompo
     }
 
     throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::element_multiply: Invalid mesh_type");
-}
-
-template <class Array_t, class DecompositionTag>
-std::shared_ptr<Array_t> element_multiply_first_dim( Array_t& a, const Array_t& b, DecompositionTag tag )
-{
-    auto out = clone(a);
-    using mesh_type = typename Array_t::mesh_type;
-    if constexpr (is_cabana_mesh<mesh_type>::value)
-    {
-        auto cabana_out = CabanaOp::element_multiply_first_dim(*a.array(), *b.array(), tag); 
-        Cabana::Grid::ArrayOp::copy(*out->array(), *cabana_out, tag);
-        return out;
-    }
-    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
-    {
-        // auto numesh_out = NuMesh::Array::ArrayOp::element_multiply_first_dim(*a.array(), *b.array(), tag);
-        // NuMesh::Array::ArrayOp::copy(*out->array(), *numesh_out, tag);
-        return out;
-    }
-
-    throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::element_multiply_first_dim: Invalid mesh_type");
 }
 
 } // end namespace ArrayOp
