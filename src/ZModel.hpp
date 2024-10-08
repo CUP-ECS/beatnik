@@ -365,11 +365,13 @@ class ZModel
          *     zdot = zndot * surface_norm;
          */
 
-        // Step 1: (1/deth) -> (-0.5/deth)
-        ArrayUtils::ArrayOp::scale(inv_deth, -0.5, tag);
+        // Step 1: (reisz) -> (-0.5 * reisz)
+        // We can edit the reisz view because it is not used again after this calculation.
+        // We cannot edit inv_deth.
+        auto reisz_D1 = ArrayUtils::ArrayOp::copyDim(reisz, 0, tag); 
+        ArrayUtils::ArrayOp::scale(*reisz_D1, -0.5, tag);
 
         // Step 2: zndot = -0.5 * reisz(i, j, 0) / deth;
-        auto reisz_D1 = ArrayUtils::ArrayOp::copyDim(reisz, 0, tag);
         auto zndot_1 = ArrayUtils::ArrayOp::element_multiply(inv_deth, *reisz_D1, tag);
         ArrayUtils::ArrayOp::copy(zndot, *zndot_1, tag);
        
@@ -544,7 +546,6 @@ class ZModel
         ArrayUtils::ArrayOp::update(*zndot_squared, 1.0, *inner_part, -0.25, *z2, -2.0*_g, tag());
         // Copy result into _V
         ArrayUtils::ArrayOp::copy(*_V, *zndot_squared, tag());
-        // printf("%d, %d: _V: %0.5lf\n", di, dj, _V->array()->view()(di, dj, 0));
 
 
         // 3. Phase 3: Halo V and apply boundary condtions on it, then calculate
