@@ -317,32 +317,56 @@ class ZModel
     /* For low order, we calculate the reisz transform used to compute the magnitude
      * of the interface velocity. This will be projected onto surface normals later 
      * once we have the normals */
+    template <class EntityTag>
     void prepareVelocities(Order::Low, [[maybe_unused]] node_array& zdot,
                            [[maybe_unused]] node_array& z, node_array& w,
                            [[maybe_unused]] node_array& omega,
-                           Cabana::Grid::Node) const
+                           EntityTag etag) const
     {
-        computeReiszTransform(w, Node());
+        if constexpr (std::is_same_v<EntityTag, Cabana::Grid::Node>)
+        {
+            computeReiszTransform(w, etag);
+        } 
+        else if constexpr (std::is_same_v<EntityTag, NuMesh::Face>)
+        {
+            // XXX - Perform unstructured equaivalent
+        } 
     }
 
     /* For medium order, we calculate the fourier velocity that we later 
      * normalize for vorticity calculations and directly compute the 
      * interface velocity (zdot) using a far field method. */
+    template <class EntityTag>
     void prepareVelocities(Order::Medium, node_array& zdot, node_array& z, node_array& w,
-                           node_array& omega, Cabana::Grid::Node) const
+                           node_array& omega, EntityTag etag) const
     {
-        computeReiszTransform(w, Node());
-        _br->computeInterfaceVelocity(zdot.array()->view(), z.array()->view(), omega.array()->view());
+        if constexpr (std::is_same_v<EntityTag, Cabana::Grid::Node>)
+        {
+            computeReiszTransform(w, etag);
+            _br->computeInterfaceVelocity(zdot.array()->view(), z.array()->view(), omega.array()->view());
+        } 
+        else if constexpr (std::is_same_v<EntityTag, NuMesh::Face>)
+        {
+            // XXX - Perform unstructured equaivalent
+        }
     }
 
     /* For high order, we just directly compute the interface velocity (zdot)
      * using a far field method and later normalize that for use in the vorticity 
      * calculation. */
+    template <class EntityTag>
     void prepareVelocities(Order::High, node_array& zdot, node_array& z,
                            [[maybe_unused]] node_array& w, node_array& omega,
-                           Cabana::Grid::Node) const
+                           [[maybe_unused]] EntityTag etag) const
     {
-        _br->computeInterfaceVelocity(zdot.array()->view(), z.array()->view(), omega.array()->view());
+        if constexpr (std::is_same_v<EntityTag, Cabana::Grid::Node>)
+        {
+            _br->computeInterfaceVelocity(zdot.array()->view(), z.array()->view(), omega.array()->view());
+        } 
+        else if constexpr (std::is_same_v<EntityTag, NuMesh::Face>)
+        {
+            // XXX - Perform unstructured equaivalent
+        }
     }
 
     // Compute the final interface velocities and normalized BR velocities
@@ -424,32 +448,34 @@ class ZModel
  
     // External entry point from the TimeIntegration object that uses the
     // problem manager state.
-    void computeDerivatives( node_array& zdot_ptr, node_array& wdot_ptr ) const
+    template <class EntityTag, class DecompositionTag>
+    void computeDerivatives( node_array& zdot_ptr, node_array& wdot_ptr,
+                             EntityTag etag, DecompositionTag dtag ) const
     {
        _pm.gather();
        auto z_orig = _pm.get( Field::Position() );
        auto w_orig = _pm.get( Field::Vorticity() );
-       computeHaloedDerivatives( *z_orig, *w_orig, zdot_ptr, wdot_ptr );
+       computeHaloedDerivatives( *z_orig, *w_orig, zdot_ptr, wdot_ptr, etag, dtag );
     } 
 
     // External entry point from the TimeIntegration object that uses the
     // passed-in state
+    template <class EntityTag, class DecompositionTag>
     void computeDerivatives( node_array& z, node_array& w,
-                             node_array& zdot, node_array& wdot ) const
+                             node_array& zdot, node_array& wdot,
+                             EntityTag etag, DecompositionTag dtag ) const
     {
         _pm.gather( z, w );
-	    computeHaloedDerivatives( z, w, zdot, wdot );
+	    computeHaloedDerivatives( z, w, zdot, wdot, etag, dtag );
     }
 
     /**
-     * XXX - Until we can put these parallel fors into array ops,
-     * the function needs to be tagged on Entity type
-     * Need ArrayOps for Dot, Cross, LaPlace, 
-     * Do different arrayOps inside the finalizeVelocity functions
+     * tag = Cabana::Grid::Own or a NuMesh variant
      */
+    template <class DecompositionTag>
     void computeVelocities(node_array& z, node_array& z_dx, node_array& z_dy,
                            node_array& w, node_array& zdot, node_array& wdot,
-                           Cabana::Grid::Node) const
+                           DecompositionTag tag) const
     {
         /*
         Part 2.2:
@@ -458,21 +484,15 @@ class ZModel
             double h22 = Operators::dot(dy_z, dy_z);
             double deth = h11*h22 - h12*h12;
          */
-        using tag = Cabana::Grid::Own;
-        auto h11 = ArrayUtils::ArrayOp::element_dot(z_dx, z_dx, tag());
-        auto h12 = ArrayUtils::ArrayOp::element_dot(z_dx, z_dy, tag());
-        auto h22 = ArrayUtils::ArrayOp::element_dot(z_dy, z_dy, tag());
+        auto h11 = ArrayUtils::ArrayOp::element_dot(z_dx, z_dx, tag);
+        auto h12 = ArrayUtils::ArrayOp::element_dot(z_dx, z_dy, tag);
+        auto h22 = ArrayUtils::ArrayOp::element_dot(z_dy, z_dy, tag);
         auto deth = ArrayUtils::ArrayOp::clone(*h11);
-        ArrayUtils::ArrayOp::assign(*deth, 0.0, tag());
+        ArrayUtils::ArrayOp::assign(*deth, 0.0, tag);
         ArrayUtils::ArrayOp::update(*deth, 1.0,
-            *ArrayUtils::ArrayOp::element_multiply(*h11, *h22, tag()), 1.0,
-            *ArrayUtils::ArrayOp::element_multiply(*h12, *h12, tag()), -1.0,
-            tag());
-        // printf("%d, %d: deth: %0.5lf\n", di, dj, deth->array()->view()(di, dj, 0));
-        // printf("%d, %d: deth: %0.5lf, z_dx: (%0.5lf, %0.5lf, %0.5lf), z_dx: (%0.5lf, %0.5lf, %0.5lf)\n",
-        //     d_i, d_j, deth->array()->view()(d_i, d_j, 0),
-        //     z_dx.array()->view()(d_i, d_j, 0), z_dx.array()->view()(d_i, d_j, 1), z_dx.array()->view()(d_i, d_j, 2),
-        //     z_dx.array()->view()(d_i, d_j, 0), z_dx.array()->view()(d_i, d_j, 1), z_dx.array()->view()(d_i, d_j, 2));
+            *ArrayUtils::ArrayOp::element_multiply(*h11, *h22, tag), 1.0,
+            *ArrayUtils::ArrayOp::element_multiply(*h12, *h12, tag), -1.0,
+            tag);
 
         /*
         Part 2.3: Compute the surface normal as (Dx \cross Dy)/sqrt(deth)
@@ -483,16 +503,16 @@ class ZModel
          */
         Operators::SqrtFunctor sqrt_func;
         Operators::InverseFunctor inverse_func;
-        auto inv_deth = ArrayUtils::ArrayOp::cloneCopy(*deth, tag());
-        ArrayUtils::ArrayOp::apply(*inv_deth, inverse_func, tag()); // deth -> 1/deth
+        auto inv_deth = ArrayUtils::ArrayOp::cloneCopy(*deth, tag);
+        ArrayUtils::ArrayOp::apply(*inv_deth, inverse_func, tag); // deth -> 1/deth
         // Copy 1/deth because it is needed in finalizeVelocity functions
-        auto inv_sqrt_deth = ArrayUtils::ArrayOp::cloneCopy(*inv_deth, tag()); 
-        ArrayUtils::ArrayOp::apply(*inv_sqrt_deth, sqrt_func, tag()); // 1/deth -> 1/sqrt(deth)
+        auto inv_sqrt_deth = ArrayUtils::ArrayOp::cloneCopy(*inv_deth, tag); 
+        ArrayUtils::ArrayOp::apply(*inv_sqrt_deth, sqrt_func, tag); // 1/deth -> 1/sqrt(deth)
         auto surface_normal = 
             ArrayUtils::ArrayOp::element_multiply(
                 *inv_sqrt_deth, // 1/sqrt(deth)
-                *ArrayUtils::ArrayOp::element_cross(z_dx, z_dy, tag()), // Dx \cross Dy
-                tag()
+                *ArrayUtils::ArrayOp::element_cross(z_dx, z_dy, tag), // Dx \cross Dy
+                tag
             );
         // printf("%d, %d: surface_normal: %0.5lf\n", di, dj, surface_normal->array()->view()(di, dj, 0));
 
@@ -501,8 +521,8 @@ class ZModel
          */
         // Clone another 1D array to create zndot, which is also 1D.
         auto zndot = ArrayUtils::ArrayOp::clone(*h11); 
-        ArrayUtils::ArrayOp::assign(*zndot, 0.0, tag()); // XXX - Should not be needed
-        finalizeVelocity(MethodOrder(), *zndot, zdot, *_reisz, *surface_normal, *inv_deth, tag());
+        ArrayUtils::ArrayOp::assign(*zndot, 0.0, tag); // XXX - Should not be needed
+        finalizeVelocity(MethodOrder(), *zndot, zdot, *_reisz, *surface_normal, *inv_deth, tag);
         // printf("%d, %d: zndot: %0.5lf\n", di, dj, zndot->array()->view()(di, dj, 0));
 
 
@@ -514,38 +534,37 @@ class ZModel
          *                     - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
          *                     - 2*g*z_view(i, j, 2);
          */
-        auto w1 = ArrayUtils::ArrayOp::copyDim(w, 0, tag());
-        auto w2 = ArrayUtils::ArrayOp::copyDim(w, 1, tag());
-        auto z2 = ArrayUtils::ArrayOp::copyDim(z, 2, tag());
-        auto zndot_squared = ArrayUtils::ArrayOp::element_multiply(*zndot, *zndot, tag());
+        auto w1 = ArrayUtils::ArrayOp::copyDim(w, 0, tag);
+        auto w2 = ArrayUtils::ArrayOp::copyDim(w, 1, tag);
+        auto z2 = ArrayUtils::ArrayOp::copyDim(z, 2, tag);
+        auto zndot_squared = ArrayUtils::ArrayOp::element_multiply(*zndot, *zndot, tag);
         auto h22_w1_w1 = ArrayUtils::ArrayOp::element_multiply(
             *h22,
-            *ArrayUtils::ArrayOp::element_multiply(*w1, *w1, tag()),
-            tag()
+            *ArrayUtils::ArrayOp::element_multiply(*w1, *w1, tag),
+            tag
         );
         auto h12_w1_w2 = ArrayUtils::ArrayOp::element_multiply(
             *h12,
-            *ArrayUtils::ArrayOp::element_multiply(*w1, *w2, tag()),
-            tag()
+            *ArrayUtils::ArrayOp::element_multiply(*w1, *w2, tag),
+            tag
         );
         auto h11_w2_w2 = ArrayUtils::ArrayOp::element_multiply(
             *h11,
-            *ArrayUtils::ArrayOp::element_multiply(*w2, *w2, tag()),
-            tag()
+            *ArrayUtils::ArrayOp::element_multiply(*w2, *w2, tag),
+            tag
         );
 
         // Compute (h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth
-        ArrayUtils::ArrayOp::update(*h22_w1_w1, 1.0, *h12_w1_w2, -2.0, *h11_w2_w2, 1.0, tag());
-        auto inner_part = ArrayUtils::ArrayOp::element_multiply(*h22_w1_w1, *inv_deth, tag());
-        // printf("%d, %d: inner_part: %0.5lf\n", di, dj, inner_part->array()->view()(di, dj, 0));
+        ArrayUtils::ArrayOp::update(*h22_w1_w1, 1.0, *h12_w1_w2, -2.0, *h11_w2_w2, 1.0, tag);
+        auto inner_part = ArrayUtils::ArrayOp::element_multiply(*h22_w1_w1, *inv_deth, tag);
 
         // Compute V_view(i, j, 0) = zndot * zndot 
         //                     - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
         //                     - 2*g*z_view(i, j, 2);
         // Result stored in zndot_squared
-        ArrayUtils::ArrayOp::update(*zndot_squared, 1.0, *inner_part, -0.25, *z2, -2.0*_g, tag());
+        ArrayUtils::ArrayOp::update(*zndot_squared, 1.0, *inner_part, -0.25, *z2, -2.0*_g, tag);
         // Copy result into _V
-        ArrayUtils::ArrayOp::copy(*_V, *zndot_squared, tag());
+        ArrayUtils::ArrayOp::copy(*_V, *zndot_squared, tag);
 
 
         // 3. Phase 3: Halo V and apply boundary condtions on it, then calculate
@@ -576,23 +595,25 @@ class ZModel
         auto lap_w = _pm.mesh().laplace(w, _dx, _dy, Node());
 
         // Compute wdot0 and wdot1
-        auto wdot0 = ArrayUtils::ArrayOp::copyDim(*lap_w, 0, tag());
-        ArrayUtils::ArrayOp::update(*wdot0, _mu, *dx_v, _A, tag());
-        auto wdot1 = ArrayUtils::ArrayOp::copyDim(*lap_w, 1, tag());
-        ArrayUtils::ArrayOp::update(*wdot1, _mu, *dy_v, _A, tag());
+        auto wdot0 = ArrayUtils::ArrayOp::copyDim(*lap_w, 0, tag);
+        ArrayUtils::ArrayOp::update(*wdot0, _mu, *dx_v, _A, tag);
+        auto wdot1 = ArrayUtils::ArrayOp::copyDim(*lap_w, 1, tag);
+        ArrayUtils::ArrayOp::update(*wdot1, _mu, *dy_v, _A, tag);
 
         // Copy results into wdot
-        ArrayUtils::ArrayOp::copyDim(wdot, 0, *wdot0, 0, tag());
-        ArrayUtils::ArrayOp::copyDim(wdot, 1, *wdot1, 0, tag());
-        // printf("%d, %d: wdot: (%0.5lf, %0.5lf)\n", di, dj,
-        //     wdot.array()->view()(di, dj, 0), wdot.array()->view()(di, dj, 1));
-        // printf("*******\n");
+        ArrayUtils::ArrayOp::copyDim(wdot, 0, *wdot0, 0, tag);
+        ArrayUtils::ArrayOp::copyDim(wdot, 1, *wdot1, 0, tag);
     }
 
-    // Shared internal entry point from the external points from the
-    // TimeIntegration object
+    /**  
+     * Shared internal entry point from the external points from the TimeIntegration object
+     * etag = Cabana::Grid::Node or NuMesh variant,
+     * dtag = Cabana::Grid::Own or NuMesh variant
+     */
+    template <class EntityTag, class DecompositionTag>
     void computeHaloedDerivatives( node_array& z_array, node_array& w_array,
-                                   node_array& zdot_array, node_array& wdot_array ) const
+                                   node_array& zdot_array, node_array& wdot_array,
+                                   EntityTag etag, DecompositionTag dtag ) const
     {
         // External calls to this object work on Cabana::Grid arrays, but internal
         // methods mostly work on the views, with the entry points responsible
@@ -606,12 +627,12 @@ class ZModel
         // mostly-local parallel calculations in phase 2
 
         // Get dx and dy arrays
-        auto z_dx = _pm.mesh().Dx(z_array, _dx, Node());
-        auto z_dy = _pm.mesh().Dy(z_array, _dy, Node());
+        auto z_dx = _pm.mesh().Dx(z_array, _dx, etag);
+        auto z_dy = _pm.mesh().Dy(z_array, _dy, etag);
 
         // Phase 1.a: Calcuate the omega value for each point
-        auto out = _pm.mesh().omega(w_array, *z_dx, *z_dy, Node());
-        Beatnik::ArrayUtils::ArrayOp::copy(*_omega, *out, Cabana::Grid::Own());
+        auto out = _pm.mesh().omega(w_array, *z_dx, *z_dy, etag);
+        Beatnik::ArrayUtils::ArrayOp::copy(*_omega, *out, dtag);
 
         // auto local_grid = _pm.mesh().localGrid();
         // l2g_type local_l2g = Cabana::Grid::IndexConversion::createL2G( *local_grid, Cabana::Grid::Node() );
@@ -619,8 +640,8 @@ class ZModel
         //printView(local_l2g, 0, z_view, 1, 2, 2);
 
         // Phase 1.b: Compute zdot
-        prepareVelocities(MethodOrder(), zdot_array, z_array, w_array, *_omega, Node());
-        computeVelocities(z_array, *z_dx, *z_dy, w_array, zdot_array, wdot_array, Node());
+        prepareVelocities(MethodOrder(), zdot_array, z_array, w_array, *_omega, etag);
+        computeVelocities(z_array, *z_dx, *z_dy, w_array, zdot_array, wdot_array, dtag);
     }
 
     std::shared_ptr<node_array> getOmega()

@@ -217,7 +217,7 @@ class Solver : public SolverBase
 
     void step() override
     {
-        _ti->step(_dt);
+        _ti->step(_dt, Cabana::Grid::Node(), Cabana::Grid::Own());
         _time += _dt;
     }
 
