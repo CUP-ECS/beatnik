@@ -40,6 +40,8 @@
 #include <BoundaryCondition.hpp>
 #include <Operators.hpp>
 
+int di = 4, dj = 3;
+
 namespace Beatnik
 {
 
@@ -347,29 +349,34 @@ class ZModel
     // from the previously computed Fourier and/or Birkhoff-Rott velocities and the surface
     // normal based on  the order of technique we're using.
     template <class DecompositionTag>
-    void finalizeVelocity(Order::Low, [[maybe_unused]] node_array& zndot, node_array& zdot, 
+    void finalizeVelocity(Order::Low, node_array& zndot, node_array& zdot, 
         node_array& reisz, node_array& surface_norm, node_array& inv_deth, DecompositionTag tag) const 
     {
         /*
-        zndot = scalar array
-        norm = surface_normal array: (i, j, 1)
-        reisz = array 
-            The reisz array is (i, j, 2), but we only use the first of the two third dimensions.
-        deth = array: (i, j, 1)
-        zdot = array: (i, j, 1)
+         * zndot = (i, j, 1)
+         * norm = surface_normal array: (i, j, 1)
+         * reisz = array 
+         *     The reisz array is (i, j, 2), but we only use the first of the two third dimensions.
+         * deth = array: (i, j, 1)
+         * zdot = array: (i, j, 1)
+         * 
+         *  Compute:
+         *     zndot = -0.5 * reisz(i, j, 0) / deth;
+         *     zdot = zndot * surface_norm;
          */
 
         // Step 1: (1/deth) -> (-0.5/deth)
         ArrayUtils::ArrayOp::scale(inv_deth, -0.5, tag);
-       
-        // Step 2: zdot = zndot * surface_norm
-        auto reisz_D1 = ArrayUtils::ArrayOp::copyDim(reisz, 0, tag);
-        auto zdot_1 = ArrayUtils::ArrayOp::element_multiply(
-            *ArrayUtils::ArrayOp::element_multiply(inv_deth, *reisz_D1, tag), //zndot = -0.5 * (1/deth) * reisz
-            surface_norm,
-            tag);
 
-        // Step 3: Copy back into zdot
+        // Step 2: zndot = -0.5 * reisz(i, j, 0) / deth;
+        auto reisz_D1 = ArrayUtils::ArrayOp::copyDim(reisz, 0, tag);
+        auto zndot_1 = ArrayUtils::ArrayOp::element_multiply(inv_deth, *reisz_D1, tag);
+        ArrayUtils::ArrayOp::copy(zndot, *zndot_1, tag);
+       
+        // Step 3: zdot = zndot * surface_norm
+        auto zdot_1 = ArrayUtils::ArrayOp::element_multiply(zndot, surface_norm, tag);
+
+        // Step 4: Copy back into zdot
         ArrayUtils::ArrayOp::copy(zdot, *zdot_1, tag);
     }
 
@@ -379,7 +386,9 @@ class ZModel
         node_array& reisz, [[maybe_unused]] node_array& surface_norm, node_array& inv_deth,
         DecompositionTag tag) const
     {
-        // Output: zndot = -0.5 * (1/deth) * reisz
+        /**
+         * Compute: zndot = -0.5 * reisz(i, j, 0) / deth;
+         */
 
         // Step 1: (1/deth) -> (-0.5/deth)
         ArrayUtils::ArrayOp::scale(inv_deth, -0.5, tag);
@@ -398,10 +407,11 @@ class ZModel
         [[maybe_unused]] node_array& surface_norm, [[maybe_unused]] node_array& inv_deth,
         DecompositionTag tag) const
     {
-        // Goal:
-        // double interface_velocity[3] = {zdot(i, j, 0), zdot(i, j, 1), zdot(i, j, 2)};
-        // zndot = sqrt(Operators::dot(interface_velocity, interface_velocity));
-
+        /**
+         * Compute:
+         *  double interface_velocity[3] = {zdot(i, j, 0), zdot(i, j, 1), zdot(i, j, 2)};
+         *  zndot = sqrt(Operators::dot(interface_velocity, interface_velocity));
+         */
         Operators::SqrtFunctor sqrt_func;
         auto interface_velocity = ArrayUtils::ArrayOp::element_dot(zdot, zdot, tag);
         ArrayUtils::ArrayOp::apply(*interface_velocity, sqrt_func, tag);
@@ -439,14 +449,6 @@ class ZModel
                            node_array& w, node_array& zdot, node_array& wdot,
                            Cabana::Grid::Node) const
     {
-        auto reisz_view = _reisz->array()->view();
-        auto z_view = z.array()->view();
-        auto w_view = w.array()->view();
-        auto zdot_view = zdot.array()->view();
-        auto wdot_view = wdot.array()->view();
-        auto z_dx_view = z_dx.array()->view();
-        auto z_dy_view = z_dy.array()->view();
-
         /*
         Part 2.2:
             double h11 = Operators::dot(dx_z, dx_z);
@@ -464,6 +466,11 @@ class ZModel
             *ArrayUtils::ArrayOp::element_multiply(*h11, *h22, tag()), 1.0,
             *ArrayUtils::ArrayOp::element_multiply(*h12, *h12, tag()), -1.0,
             tag());
+        // printf("%d, %d: deth: %0.5lf\n", di, dj, deth->array()->view()(di, dj, 0));
+        // printf("%d, %d: deth: %0.5lf, z_dx: (%0.5lf, %0.5lf, %0.5lf), z_dx: (%0.5lf, %0.5lf, %0.5lf)\n",
+        //     d_i, d_j, deth->array()->view()(d_i, d_j, 0),
+        //     z_dx.array()->view()(d_i, d_j, 0), z_dx.array()->view()(d_i, d_j, 1), z_dx.array()->view()(d_i, d_j, 2),
+        //     z_dx.array()->view()(d_i, d_j, 0), z_dx.array()->view()(d_i, d_j, 1), z_dx.array()->view()(d_i, d_j, 2));
 
         /*
         Part 2.3: Compute the surface normal as (Dx \cross Dy)/sqrt(deth)
@@ -474,23 +481,28 @@ class ZModel
          */
         Operators::SqrtFunctor sqrt_func;
         Operators::InverseFunctor inverse_func;
-        ArrayUtils::ArrayOp::apply(*deth, inverse_func, tag()); // deth -> 1/deth
-        // Copy 1/deth because it is needed in finalizeVelocity functions
         auto inv_deth = ArrayUtils::ArrayOp::cloneCopy(*deth, tag());
-        ArrayUtils::ArrayOp::apply(*deth, sqrt_func, tag()); // 1/deth -> 1/sqrt(deth)
+        ArrayUtils::ArrayOp::apply(*inv_deth, inverse_func, tag()); // deth -> 1/deth
+        // Copy 1/deth because it is needed in finalizeVelocity functions
+        auto inv_sqrt_deth = ArrayUtils::ArrayOp::cloneCopy(*inv_deth, tag()); 
+        ArrayUtils::ArrayOp::apply(*inv_sqrt_deth, sqrt_func, tag()); // 1/deth -> 1/sqrt(deth)
         auto surface_normal = 
             ArrayUtils::ArrayOp::element_multiply(
-                *deth, // 1/sqrt(deth)
+                *inv_sqrt_deth, // 1/sqrt(deth)
                 *ArrayUtils::ArrayOp::element_cross(z_dx, z_dy, tag()), // Dx \cross Dy
                 tag()
             );
-        
+        // printf("%d, %d: surface_normal: %0.5lf\n", di, dj, surface_normal->array()->view()(di, dj, 0));
+
         /*
          * Part 2.4: Compute zdot and zndot as needed using specialized helper functions
          */
         // Clone another 1D array to create zndot, which is also 1D.
         auto zndot = ArrayUtils::ArrayOp::clone(*h11); 
+        ArrayUtils::ArrayOp::assign(*zndot, 0.0, tag()); // XXX - Should not be needed
         finalizeVelocity(MethodOrder(), *zndot, zdot, *_reisz, *surface_normal, *inv_deth, tag());
+        // printf("%d, %d: zndot: %0.5lf\n", di, dj, zndot->array()->view()(di, dj, 0));
+
 
         /*
          * Part 2.5: Compute V from zndot and vorticity:
@@ -523,14 +535,16 @@ class ZModel
         // Compute (h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth
         ArrayUtils::ArrayOp::update(*h22_w1_w1, 1.0, *h12_w1_w2, -2.0, *h11_w2_w2, 1.0, tag());
         auto inner_part = ArrayUtils::ArrayOp::element_multiply(*h22_w1_w1, *inv_deth, tag());
+        // printf("%d, %d: inner_part: %0.5lf\n", di, dj, inner_part->array()->view()(di, dj, 0));
 
         // Compute V_view(i, j, 0) = zndot * zndot 
         //                     - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
         //                     - 2*g*z_view(i, j, 2);
         // Result stored in zndot_squared
-        ArrayUtils::ArrayOp::update(*zndot_squared, 1.0, *inner_part, 0.25, *z2, 2.0*_g, tag());
+        ArrayUtils::ArrayOp::update(*zndot_squared, 1.0, *inner_part, -0.25, *z2, -2.0*_g, tag());
         // Copy result into _V
         ArrayUtils::ArrayOp::copy(*_V, *zndot_squared, tag());
+        // printf("%d, %d: _V: %0.5lf\n", di, dj, _V->array()->view()(di, dj, 0));
 
 
         // 3. Phase 3: Halo V and apply boundary condtions on it, then calculate
@@ -569,6 +583,9 @@ class ZModel
         // Copy results into wdot
         ArrayUtils::ArrayOp::copyDim(wdot, 0, *wdot0, 0, tag());
         ArrayUtils::ArrayOp::copyDim(wdot, 1, *wdot1, 0, tag());
+        // printf("%d, %d: wdot: (%0.5lf, %0.5lf)\n", di, dj,
+        //     wdot.array()->view()(di, dj, 0), wdot.array()->view()(di, dj, 1));
+        // printf("*******\n");
     }
 
     // Shared internal entry point from the external points from the
@@ -603,76 +620,6 @@ class ZModel
         // Phase 1.b: Compute zdot
         prepareVelocities(MethodOrder(), zdot_array, z_array, w_array, *_omega, Node());
         computeVelocities(z_array, *z_dx, *z_dy, w_array, zdot_array, wdot_array, Node());
-        
-        // auto reisz = _reisz->view();
-        // double g = _g;
-        // double A = _A;
-
-        // Phase 2: Process the globally-dependent velocity information into 
-        // into final interface position derivatives and the information 
-        // needed for calculating the vorticity derivative
-        // auto V_view = _V->view();
-
-        // // // auto local_grid = _pm.mesh().localGrid();
-        // // auto own_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
-        // Kokkos::parallel_for( "Interface Velocity",  
-        //     createExecutionPolicy(own_node_space, ExecutionSpace()), 
-        //     KOKKOS_LAMBDA(int i, int j) {
-        //     //  2.1 Compute Dx and Dy of z and w by fourth-order central differencing. 
-        //     double dx_z[3], dy_z[3];
-
-        //     for (int n = 0; n < 3; n++) {
-        //        dx_z[n] = Operators::Dx(z_view, i, j, n, dx);
-        //        dy_z[n] = Operators::Dy(z_view, i, j, n, dy);
-        //     }
-
-        //     //  2.2 Compute h11, h12, h22, and det_h from Dx and Dy
-        //     double h11 = Operators::dot(dx_z, dx_z);
-        //     double h12 = Operators::dot(dx_z, dy_z);
-        //     double h22 = Operators::dot(dy_z, dy_z);
-        //     double deth = h11*h22 - h12*h12;
-
-        //     //  2.3 Compute the surface normal as (Dx \cross Dy)/sqrt(deth)
-        //     double N[3];
-        //     Operators::cross(N, dx_z, dy_z);
-        //     for (int n = 0; n < 3; n++)
-		//         N[n] /= sqrt(deth);
-
-        //     //  2.4 Compute zdot and zndot as needed using specialized helper functions
-        //     double zndot;
-        //     finalizeVelocity(MethodOrder(), zndot, zdot, i, j, 
-        //                      reisz, N, deth );
-
-        //     //  2.5 Compute V from zndot and vorticity 
-	    //     double w1 = w_view(i, j, 0); 
-        //     double w2 = w_view(i, j, 1);
-
-        //     V_view(i, j, 0) = zndot * zndot 
-        //                     - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
-        //                     - 2*g*z_view(i, j, 2);
-        // });
-
-        // 3. Phase 3: Halo V and apply boundary condtions on it, then calculate
-        // central differences of V, laplacians for artificial viscosity, and
-        // put it all together to calcualte the final vorticity derivative.
-
-        // Halo V and correct any boundary condition corrections so that we can 
-        // compute finite differences correctly.
-        // _v_halo->gather( ExecutionSpace(), *_V);
-        // _bc.applyField( _pm.mesh(), *_V, 1 );
-
-        // double mu = _mu;
-        // Kokkos::parallel_for( "Interface Vorticity",
-        //     createExecutionPolicy(own_node_space, ExecutionSpace()), 
-        //     KOKKOS_LAMBDA(int i, int j) {
-        //     double dx_v = Operators::Dx(V_view, i, j, 0, dx);
-        //     double dy_v = Operators::Dy(V_view, i, j, 0, dy);
-        //     double lap_w0 = Operators::laplace(w_view, i, j, 0, dx, dy);
-        //     double lap_w1 = Operators::laplace(w_view, i, j, 1, dx, dy);
-        //     wdot(i, j, 0) = A * dx_v + mu * lap_w0;
-        //     wdot(i, j, 1) = A * dy_v + mu * lap_w1;
-        // });
-
     }
 
     std::shared_ptr<node_array> getOmega()
