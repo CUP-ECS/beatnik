@@ -18,6 +18,11 @@ TYPED_TEST(CutoffBRSolverTest, testIsOnBoundary)
     int rank, comm_size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
+    if (!(comm_size == 1 || comm_size == 16))
+    {
+        printf("CutoffBRSolver test only supports 1 or 16 ranks. Exiting.\n");
+        exit(1);
+    } 
 
     auto boundary_topology = this->p_br_cutoff_->get_spatial_mesh()->getBoundaryInfo();
     int local_location[3] = {boundary_topology(rank, 1), boundary_topology(rank, 2), boundary_topology(rank, 3)};
@@ -35,6 +40,14 @@ TYPED_TEST(CutoffBRSolverTest, testIsOnBoundary)
  */
 TYPED_TEST(CutoffBRSolverTest, testPeriodicHalo)
 { 
+    int rank, comm_size;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
+    if (!(comm_size == 1 || comm_size == 16))
+    {
+        printf("CutoffBRSolver test only supports 1 or 16 ranks. Exiting.\n");
+        exit(1);
+    } 
     this->tstPeriodicHalo();
 }
 
