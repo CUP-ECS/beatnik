@@ -25,23 +25,13 @@
 #include <Kokkos_Core.hpp>
 #include <NuMesh_Core.hpp>
 
+#include <Beatnik_Types.hpp>
 #include <type_traits>
 
 namespace Beatnik
 {
 namespace ArrayUtils
 {
-
-// Cabana helpers
-template <typename T>
-using cabana_mesh_type = typename T::mesh_type;
-
-template <typename T>
-using is_cabana_mesh = Cabana::Grid::isMeshType<cabana_mesh_type<T>>;
-// XXX: Make RHS of 40 to not depend on cabana_mesh_type so cabana_mesh_type can be removed.
-
-template<typename T>
-struct dependent_false : std::false_type {};
 
 template <class MeshType, class EntityType>
 class ArrayLayout
