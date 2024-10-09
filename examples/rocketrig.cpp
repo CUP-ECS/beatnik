@@ -53,10 +53,11 @@
 
 using namespace Beatnik;
 
-static char* shortargs = (char*)"n:B:t:d:x:F:o:c:H:I:b:g:a:T:m:v:p:i:w:O:S:M:e:h:";
+static char* shortargs = (char*)"Z:n:B:t:d:x:F:o:c:H:I:b:g:a:T:m:v:p:i:w:O:S:M:e:h:";
 
 static option longargs[] = {
     // Basic simulation parameters
+    { "mesh_type", required_argument, NULL, 'Z' },
     { "nodes", required_argument, NULL, 'n' },
     { "bounding_box", required_argument, NULL, 'B'},
     { "timesteps", required_argument, NULL, 't' },
@@ -155,6 +156,8 @@ void help( const int rank, char* progname )
         std::cout << std::left << std::setw( 10 ) << "-x" << std::setw( 40 )
                   << "On-node Parallelism Model (default serial)" << std::left
                   << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-Z" << std::setw( 40 )
+                  << "Mesh type: structured (1) or unstructured (2) (default 1)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-n" << std::setw( 40 )
                   << "Number of points in each dimension (default 128)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-B" << std::setw( 40 )
@@ -218,6 +221,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.write_freq = 10;
 
     // Set default extra parameters
+    cl.params.mesh_type = 1;
     cl.params.cutoff_distance = 0.5;
     cl.params.heffte_configuration = 6;
     cl.params.br_solver = BR_EXACT;
@@ -263,6 +267,20 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid BR solver argument.\n";
                     help( rank, argv[0] );
                 }
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
+            }
+            break;
+        }
+        case 'Z':
+        {
+            cl.params.mesh_type = std::atoi( optarg );
+            if ((!((cl.params.mesh_type == 1) || (cl.params.mesh_type == 2))) && rank == 0)
+            {
+                std::cerr << "Invalid mesh type: " << cl.params.mesh_type << "\n"
+                          << "Must be 1 or 2." << "\n";
+                help( rank, argv[0] );
                 Kokkos::finalize(); 
                 MPI_Finalize(); 
                 exit( -1 );  
@@ -786,6 +804,9 @@ int main( int argc, char* argv[] )
         std::cout << std::left << std::setw( 30 ) << "Thread Setting"
                   << ": " << std::setw( 8 ) << cl.driver
                   << "\n"; // Threading Setting
+        std::cout << std::left << std::setw( 30 ) << "Mesh type"
+                  << ": " << std::setw( 8 ) << cl.params.mesh_type
+                  << "\n"; // Mesh type
         std::cout << std::left << std::setw( 30 ) << "Mesh Dimension"
                   << ": " << cl.num_nodes[0] << ", "
                   << cl.num_nodes[1] << "\n"; // Number of Cells
