@@ -18,243 +18,161 @@
  * NOTE: Only Cabana::Grid::Node layout types are compatiable with this class.
  */
 
-#ifndef BEATNIK_ARRAY_HPP
-#define BEATNIK_ARRAY_HPP
+#ifndef BEATNIK_ARRAYUTILS_HPP
+#define BEATNIK_ARRAYUTILS_HPP
 
 #include <Cabana_Core.hpp>
 #include <Kokkos_Core.hpp>
 #include <NuMesh_Core.hpp>
 
-#include <stdexcept>
+#include <type_traits>
 
 namespace Beatnik
 {
 namespace ArrayUtils
 {
 
-template <class ExecutionSpace, class MemorySpace, class EntityType>
+// Cabana helpers
+template <typename T>
+using cabana_mesh_type = typename T::mesh_type;
+
+template <typename T>
+using is_cabana_mesh = Cabana::Grid::isMeshType<cabana_mesh_type<T>>;
+// XXX: Make RHS of 40 to not depend on cabana_mesh_type so cabana_mesh_type can be removed.
+
+
+template<typename T>
+struct dependent_false : std::false_type {};
+
+template <class MeshType, class EntityType>
 class ArrayLayout
 {
   public:
-    using execution_space = ExecutionSpace;
-    using memory_space = MemorySpace;
+    /**
+     * NuMesh: MeshType = NuMesh::Mesh<ExecutionSpace, MemSpace>
+     * Cabana:: MeshType = Cabana::Grid::LocalGrid<cabana_mesh_type>, 
+     *      where the struct isMeshType() is implemented for cabana_mesh_type.
+     */
+    using mesh_type = MeshType;
     using entity_type = EntityType;
-    // Define types for Cabana and NuMesh
-    using cabana_mesh_t = Cabana::Grid::UniformMesh<double, 2>;
-    using cabana_t = Cabana::Grid::LocalGrid<cabana_mesh_t>;
-    using numesh_t = NuMesh::Mesh<ExecutionSpace, MemorySpace>;
 
-    // The variant type that holds either Cabana or NuMesh
-    using cabana_array_layout_nt = Cabana::Grid::ArrayLayout<Cabana::Grid::Node, cabana_mesh_t>;
-    using numesh_array_layout_vt = NuMesh::Array::ArrayLayout<NuMesh::Vertex, numesh_t>;
-    using numesh_array_layout_et = NuMesh::Array::ArrayLayout<NuMesh::Edge, numesh_t>;
-    using numesh_array_layout_ft = NuMesh::Array::ArrayLayout<NuMesh::Face, numesh_t>;
-
-    // Constructor that takes either a Cabana or NuMesh object
-    template <typename MeshType>
-    ArrayLayout(const std::shared_ptr<MeshType>& mesh, const int dofs_per_entity, EntityType tag)
+    // Determine ContainerLayoutType using std::conditional_t
+    using array_layout_type = std::conditional_t<
+        is_cabana_mesh<mesh_type>::value,
+        Cabana::Grid::ArrayLayout<entity_type, cabana_mesh_type<mesh_type>>, // Case A: Cabana UniformMesh
+        std::conditional_t<
+            NuMesh::is_numesh_mesh<MeshType>::value,
+            NuMesh::Array::ArrayLayout<entity_type, mesh_type>, // Case B: NuMesh Mesh
+            void // Fallback type or an error type if neither condition is satisfied
+        >
+    >;
+  
+    ArrayLayout(const std::shared_ptr<mesh_type>& mesh, const int dofs_per_entity, entity_type tag)
     {
-        if constexpr (std::is_same_v<MeshType, cabana_t>)
+        if constexpr (is_cabana_mesh<mesh_type>::value)
         {
-            _cabana_layout_n = Cabana::Grid::createArrayLayout(mesh, dofs_per_entity, tag);
-            _numesh_layout_v = NULL;
-            _numesh_layout_e = NULL;
-            _numesh_layout_f = NULL;
+            _layout = Cabana::Grid::createArrayLayout(mesh, dofs_per_entity, tag);
         }
-        else if constexpr (std::is_same_v<MeshType, numesh_t>)
+        else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value)
         {
-            if constexpr (std::is_same_v<NuMesh::Vertex, entity_type>)
-            {
-                _cabana_layout_n = NULL;
-                _numesh_layout_v = NuMesh::Array::createArrayLayout(mesh, dofs_per_entity, tag); 
-                _numesh_layout_e = NULL;
-                _numesh_layout_f = NULL;
-            }
-            else if  constexpr (std::is_same_v<NuMesh::Edge, entity_type>)
-            {
-                _cabana_layout_n = NULL;
-                _numesh_layout_v = NULL;
-                _numesh_layout_e = NuMesh::Array::createArrayLayout(mesh, dofs_per_entity, tag);
-                _numesh_layout_f = NULL;
-            }
-            else if  constexpr (std::is_same_v<NuMesh::Face, entity_type>)
-            {
-                _cabana_layout_n = NULL;
-                _numesh_layout_v = NULL;
-                _numesh_layout_e = NULL;
-                _numesh_layout_f = NuMesh::Array::createArrayLayout(mesh, dofs_per_entity, tag);
-            }
+            _layout = NuMesh::Array::createArrayLayout(mesh, dofs_per_entity, tag); 
         }
         else
         {
-            throw std::runtime_error( "Unsupported Beatnik::ArrayUtils::ArrayLayout EntityType!" );
+            static_assert(dependent_false<entity_type>::value, "Unsupported Beatnik::ArrayUtils::ArrayLayout EntityType!");
         }
     }
 
-    std::shared_ptr<cabana_array_layout_nt> layout(Cabana::Grid::Node) const
+    std::shared_ptr<array_layout_type> layout() const
     {
-        return _cabana_layout_n;
+        return _layout;
     }
-    std::shared_ptr<numesh_array_layout_vt> layout(NuMesh::Vertex) const
-    {
-        return _numesh_layout_v;
-    }
-    std::shared_ptr<numesh_array_layout_et> layout(NuMesh::Edge) const
-    {
-        return _numesh_layout_e;
-    }
-    std::shared_ptr<numesh_array_layout_ft> layout(NuMesh::Face) const
-    {
-        return _numesh_layout_f;
-    }
+	
+	static constexpr bool isArrayLayout()
+	{
+		return true;
+	}
 
   private:
-    std::shared_ptr<cabana_array_layout_nt> _cabana_layout_n;
-    std::shared_ptr<numesh_array_layout_vt> _numesh_layout_v;
-    std::shared_ptr<numesh_array_layout_et> _numesh_layout_e;
-    std::shared_ptr<numesh_array_layout_ft> _numesh_layout_f;
+    std::shared_ptr<array_layout_type> _layout;
 };
 
 //---------------------------------------------------------------------------//
 // Array layout creation.
 //---------------------------------------------------------------------------//
-// Define the Cabana local grid type.
-using cabana_mesh_t = Cabana::Grid::UniformMesh<double, 2>;
-using cabana_grid_t = Cabana::Grid::LocalGrid<cabana_mesh_t>;
-
-// // Define the NuMesh type.
-template <class ExecutionSpace, class MemorySpace>
-using numesh_t = NuMesh::Mesh<ExecutionSpace, MemorySpace>;
-// /*!
-//   \brief Cabana version: Create an array layout over the entities of a local grid.
-//   \param local_grid The local grid over which to create the layout.
-//   \param dofs_per_entity The number of degrees-of-freedom per grid entity.
-//   \return Shared pointer to an ArrayLayout.
-//   \note EntityType The entity: Cell, Node, Face, or Edge
-// */
-template <class ExecutionSpace, class MemorySpace, class EntityType>
-std::shared_ptr<ArrayLayout<ExecutionSpace, MemorySpace, EntityType>>
-createArrayLayout(const std::shared_ptr<Cabana::Grid::LocalGrid<cabana_mesh_t>>& cabana_grid, const int dofs_per_entity, EntityType tag)
+template <class MeshType, class EntityType>
+std::shared_ptr<ArrayLayout<MeshType, EntityType>>
+createArrayLayout(const std::shared_ptr<MeshType>& mesh, const int dofs_per_entity, EntityType tag)
 {
-    return std::make_shared<ArrayLayout<ExecutionSpace, MemorySpace, EntityType>>(cabana_grid, dofs_per_entity, tag);
-}
-
-template <class ExecutionSpace, class MemorySpace, class EntityType>
-std::shared_ptr<ArrayLayout<ExecutionSpace, MemorySpace, EntityType>>
-createArrayLayout(const std::shared_ptr<numesh_t<ExecutionSpace, MemorySpace>>& mesh, const int dofs_per_entity, EntityType tag)
-{
-    return std::make_shared<ArrayLayout<ExecutionSpace, MemorySpace, EntityType>>(mesh, dofs_per_entity, tag);
+    return std::make_shared<ArrayLayout<MeshType, EntityType>>(mesh, dofs_per_entity, tag);
 }
 
 //---------------------------------------------------------------------------//
-// Array class.
+// Array class
 //---------------------------------------------------------------------------//
-// template <class ExecutionSpace, class MemorySpace, class Scalar, class EntityType, class MeshType, class... Params>
-template <class ExecutionSpace, class MemorySpace, class EntityType>
+template <class ContainerLayoutType, class Scalar, class MemorySpace>
 class Array
 {
+    static_assert(ContainerLayoutType::isArrayLayout(), "ContainerLayoutType must be a valid array layout.");
+  
   public:
+    using entity_type = typename ContainerLayoutType::entity_type;
+    using mesh_type   = typename ContainerLayoutType::mesh_type;
+    using layout_type = typename ContainerLayoutType::array_layout_type;
+    using value_type = Scalar;
     using memory_space = MemorySpace;
-    using execution_space = ExecutionSpace;
-    using entity_type = EntityType;
-    using value_type = double;
-    using cabana_mesh_t = Cabana::Grid::UniformMesh<double, 2>;
-    using cabana_t = Cabana::Grid::LocalGrid<cabana_mesh_t>;
-    using numesh_t = NuMesh::Mesh<execution_space, memory_space>;
-    using layout_t = ArrayLayout<execution_space, memory_space, EntityType>;
+    using execution_space = typename memory_space::execution_space;
+    using container_layout_type = ContainerLayoutType;
 
-    using cabana_array_layout_nt = Cabana::Grid::ArrayLayout<Cabana::Grid::Node, cabana_mesh_t>;
-    using cabana_array_nt = Cabana::Grid::Array<double, Cabana::Grid::Node, cabana_mesh_t, memory_space>;
-
-    using numesh_array_layout_vt = NuMesh::Array::ArrayLayout<NuMesh::Vertex, numesh_t>;
-    using numesh_array_vt = NuMesh::Array::Array<double, NuMesh::Vertex, numesh_t, memory_space>;
-    using numesh_array_layout_et = NuMesh::Array::ArrayLayout<NuMesh::Edge, numesh_t>;
-    using numesh_array_et = NuMesh::Array::Array<double, NuMesh::Edge, numesh_t, memory_space>;
-    using numesh_array_layout_ft = NuMesh::Array::ArrayLayout<NuMesh::Face, numesh_t>;
-    using numesh_array_ft = NuMesh::Array::Array<double, NuMesh::Face, numesh_t, memory_space>;
-
+    // Determine array_type using std::conditional_t
+    using array_type = std::conditional_t<
+        is_cabana_mesh<mesh_type>::value,
+        Cabana::Grid::Array<value_type, entity_type, cabana_mesh_type<mesh_type>, memory_space>, // Case A: Cabana Mesh
+        std::conditional_t<
+            NuMesh::is_numesh_mesh<mesh_type>::value,
+            NuMesh::Array::Array<value_type, entity_type, mesh_type, memory_space>, // Case B: NuMesh Mesh
+            void // Fallback or error type if neither condition is satisfied
+        >
+    >;
     // Constructor that takes either a Cabana or NuMesh object
-    template <typename LayoutType>
-    Array(const std::string& label, const std::shared_ptr<LayoutType>& array_layout, EntityType entity_type)
+    Array(const std::string& label, const std::shared_ptr<container_layout_type>& array_layout)
         : _label( label )
         , _layout( array_layout )
     {
-        auto layout = array_layout->layout(entity_type);
-
-        if constexpr (std::is_same_v<EntityType, Cabana::Grid::Node>)
+        auto layout = array_layout->layout();
+        if constexpr (is_cabana_mesh<mesh_type>::value)
         {
-            _cabana_array_n = Cabana::Grid::createArray<double, memory_space>(label, layout);
-            _numesh_array_v = NULL;
-            _numesh_array_e = NULL;
-            _numesh_array_f = NULL;
+            _array = Cabana::Grid::createArray<value_type, memory_space>(label, layout);
         }
-        else if  constexpr (std::is_same_v<EntityType, NuMesh::Vertex>)
+        else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value)
         {
-            _cabana_array_n = NULL;
-            _numesh_array_v = NuMesh::Array::createArray<double, memory_space>(label, layout);
-            _numesh_array_e = NULL;
-            _numesh_array_f = NULL;
-        }
-        else if  constexpr (std::is_same_v<EntityType, NuMesh::Edge>)
-        {
-            _cabana_array_n = NULL;
-            _numesh_array_v = NULL;
-            _numesh_array_e = NuMesh::Array::createArray<double, memory_space>(label, layout);
-            _numesh_array_f = NULL;
-        }
-        else if  constexpr (std::is_same_v<EntityType, NuMesh::Face>)
-        {
-            _cabana_array_n = NULL;
-            _numesh_array_v = NULL;
-            _numesh_array_e = NULL;
-            _numesh_array_f = NuMesh::Array::createArray<double, memory_space>(label, layout);
+            _array = NuMesh::Array::createArray<value_type, memory_space>(label, layout);
         }
         else
-        {
-            throw std::runtime_error( "Unsupported Beatnik::ArrayUtils::Array EntityType!" );
+        {	
+            static_assert(dependent_false<entity_type>::value, "Unsupported Beatnik::ArrayUtils::Array EntityType!");
         }
     }
 
     // Getters
-    std::shared_ptr<cabana_array_nt> array(Cabana::Grid::Node) const {return _cabana_array_n;}
-    std::shared_ptr<numesh_array_vt> array(NuMesh::Vertex) const {return _numesh_array_v;}
-    std::shared_ptr<numesh_array_et> array(NuMesh::Edge) const {return _numesh_array_e;}
-    std::shared_ptr<numesh_array_ft> array(NuMesh::Face) const {return _numesh_array_f;}
-
-    std::shared_ptr<layout_t> layout() const {return _layout;}
+    std::shared_ptr<array_type> array() const {return _array;}
+    std::shared_ptr<container_layout_type> clayout() const {return _layout;} // Return the container layout
     std::string label() const {return _label;}
 
   private:
     // Array pointers
-    std::shared_ptr<cabana_array_nt> _cabana_array_n;
-    std::shared_ptr<numesh_array_vt> _numesh_array_v;
-    std::shared_ptr<numesh_array_et> _numesh_array_e;
-    std::shared_ptr<numesh_array_ft> _numesh_array_f;
+    std::shared_ptr<array_type> _array;
 
     // Layout pointers
-    std::shared_ptr<layout_t> _layout;
+    std::shared_ptr<container_layout_type> _layout;
     std::string _label;
 };
 
-//---------------------------------------------------------------------------//
-// Array creation.
-//---------------------------------------------------------------------------//
-/*!
-  \brief Create an array with the given array layout. Views are constructed
-  over the ghosted index space of the layout.
-  \param label A label for the view.
-  \param layout The array layout over which to construct the view.
-  \return Shared pointer to an Array.
-*/
-// template <class LayoutType, class Scalar, class... Params>
-template <class ExecutionSpace, class MemorySpace, class LayoutType, class EntityType>
-std::shared_ptr<Array<ExecutionSpace, MemorySpace, EntityType>>
-createArray(const std::string& label,
-            const std::shared_ptr<LayoutType>& layout,
-            EntityType entity_type)
+template <class Scalar, class MemorySpace, class ContainerLayoutType>
+std::shared_ptr<Array<ContainerLayoutType, Scalar, MemorySpace>>
+createArray(const std::string& label, const std::shared_ptr<ContainerLayoutType>& layout)
 {
-    return std::make_shared<Array<ExecutionSpace, MemorySpace, EntityType>>(
-        label, layout, entity_type);
+    return std::make_shared<Array<ContainerLayoutType, Scalar, MemorySpace>>(label, layout);
 }
 
 //---------------------------------------------------------------------------//
@@ -263,28 +181,352 @@ createArray(const std::string& label,
 namespace ArrayOp
 {
 
-template <class ExecutionSpace, class MemorySpace, class EntityType>
-std::shared_ptr<Array<ExecutionSpace, MemorySpace, EntityType>>
-clone( const Array<ExecutionSpace, MemorySpace, EntityType>& array )
+/**
+ * Here, implement Cabana-array-specific ArrayOps not included in Cabana
+ * This is mainly because NuMesh arrays are generally in the (i, x) format
+ * whereas Cabana arrays are generally in the (i, j, x) format,
+ * so they must be treated slightly differently
+ * 
+ * All Array_t in this namespace are Cabana::Grid::Array arrays.
+ */
+namespace CabanaOp
 {
-    return createArray<ExecutionSpace, MemorySpace>( array.label(), array.layout(), EntityType() );
+
+/**
+ * Cabana has a "dot" ArrayOp, but it computes a single dot product for 
+ * an entire array rather than on a vector-by-vector basis
+ */ 
+template <class Array_t, class DecompositionTag>
+std::shared_ptr<Array_t> element_dot( Array_t& a, const Array_t& b, DecompositionTag tag )
+{
+    using entity_type = typename Array_t::entity_type;
+    using value_type = typename  Array_t::value_type;
+    using memory_space = typename Array_t::memory_space;
+    using execution_space = typename Array_t::execution_space;
+
+    auto layout = Cabana::Grid::createArrayLayout( a.layout()->localGrid(), 1, entity_type() );
+    auto out = Cabana::Grid::createArray<value_type, memory_space>("cabana_dot", layout);
+    auto out_view = out->view();
+
+    // Check dimensions
+    auto a_view = a.view();
+    auto b_view = b.view();
+
+    const int n = a_view.extent(0);
+    const int m = a_view.extent(1);
+    const int w = a_view.extent(2);
+    const int out_n = out_view.extent(0);
+    const int out_m = out_view.extent(1);
+
+    // Ensure the third dimension is 3 for 3D vectors
+    if (w != 3) {
+        throw std::invalid_argument("Third dimension must be 3 for 3D vectors.");
+    }
+    if (out_n != n) {
+        throw std::invalid_argument("First dimension of in and out arrays do not match.");
+    }
+    if (out_m != m) {
+        throw std::invalid_argument("Second dimension of in and out arrays do not match.");
+    }
+
+    // Parallel loop to compute the dot product at each (n, m) location
+    auto policy = Cabana::Grid::createExecutionPolicy(
+            layout->localGrid()->indexSpace( tag, entity_type(), Cabana::Grid::Local() ),
+            execution_space() );
+    Kokkos::parallel_for("compute_dot_product", policy,
+        KOKKOS_LAMBDA(const int i, const int j) {
+            out_view(i, j, 0) = a_view(i, j, 0) * b_view(i, j, 0)
+                              + a_view(i, j, 1) * b_view(i, j, 1)
+                              + a_view(i, j, 2) * b_view(i, j, 2);
+        });
+
+    return out;
+}
+
+template <class Array_t, class DecompositionTag>
+std::shared_ptr<Array_t> element_cross( Array_t& a, const Array_t& b, DecompositionTag tag )
+{
+    using entity_type = typename Array_t::entity_type;
+    using value_type = typename  Array_t::value_type;
+    using execution_space = typename Array_t::execution_space;
+
+    // auto layout = Cabana::Grid::createArrayLayout( a.layout()->localGrid(), 3, Cabana::Grid::Node() );
+    // auto out = Cabana::Grid::createArray<value_type, memory_space>("cabana_dot", layout);
+    auto out = Cabana::Grid::ArrayOp::clone(a);
+    auto out_view = out->view();
+
+    // Check dimensions
+    auto a_view = a.view();
+    auto b_view = b.view();
+
+    const int n = a_view.extent(0);
+    const int m = a_view.extent(1);
+    const int w = a_view.extent(2);
+    const int out_n = out_view.extent(0);
+    const int out_m = out_view.extent(1);
+
+    if (w != 3 || (int)b_view.extent(0) != n || (int)b_view.extent(1) != m || (int)b_view.extent(2) != 3) {
+        throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::CabanaOp::element_cross: Both input views must be of size n x m x 3.");
+    }
+
+    // Parallel loop to compute the dot product at each (n, m) location
+    auto policy = Cabana::Grid::createExecutionPolicy(
+            a.layout()->localGrid()->indexSpace( tag, entity_type(), Cabana::Grid::Local() ),
+            execution_space() );
+    Kokkos::parallel_for("CrossProductKernel", policy,
+        KOKKOS_LAMBDA(int i, int j) {
+        value_type a_x = a_view(i, j, 0);
+        value_type a_y = a_view(i, j, 1);
+        value_type a_z = a_view(i, j, 2);
+        
+        value_type b_x = b_view(i, j, 0);
+        value_type b_y = b_view(i, j, 1);
+        value_type b_z = b_view(i, j, 2);
+
+        // Cross product: a x b = (ay*bz - az*by, az*bx - ax*bz, ax*by - ay*bx)
+        out_view(i, j, 0) = a_y * b_z - a_z * b_y;
+        out_view(i, j, 1) = a_z * b_x - a_x * b_z;
+        out_view(i, j, 2) = a_x * b_y - a_y * b_x;
+    });
+
+    return out;
+}
+
+/**
+ * Element-wise multiplication, where (1, 3, 6) * (4, 7, 3) = (4, 21, 18)
+ * If a and b do not have matching third dimensions, place the view with the 
+ * smaller third dimension first. Dimensions in b that are not present in a
+ * are truncated.
+ * 
+ * If a has a third dimension of 1, out(x, y, z) = b(x, y, z) * a(x, y, 0) for 0 <= z < b extent
+ */ 
+template <class Array_t, class DecompositionTag>
+std::shared_ptr<Array_t> element_multiply( Array_t& a, const Array_t& b, DecompositionTag tag )
+{
+    using execution_space = typename Array_t::execution_space;
+    auto out = Cabana::Grid::ArrayOp::clone(b);
+    auto out_view = out->view();
+
+    // Check dimensions
+    auto a_view = a.view();
+    auto b_view = b.view();
+
+    const int an = a_view.extent(0);
+    const int bn = b_view.extent(0);
+    const int am = a_view.extent(1);
+    const int bm = b_view.extent(1);
+    const int aw = a_view.extent(2);
+    const int bw = b_view.extent(2);
+
+    if (an != bn) {
+        throw std::invalid_argument("First dimension of a and b arrays do not match.");
+    }
+    if (am != bm) {
+        throw std::invalid_argument("Second dimension of a and b arrays do not match.");
+    }
+
+    // Both a and b have matching third dimensions
+    if (aw == bw) {
+        auto policy = Cabana::Grid::createExecutionPolicy(
+            a.layout()->indexSpace( tag, Cabana::Grid::Local() ),
+            execution_space() );
+        Kokkos::parallel_for(
+            "ArrayOp::element_multiply", policy,
+            KOKKOS_LAMBDA( const int i, const int j, const int k ) {
+                out_view( i, j, k ) = a_view( i, j, k ) * b_view( i, j, k );
+            } );
+        return out;
+    }
+
+    // If a has a third dimension of 1
+    if ((aw == 1) && (aw < bw))
+    {
+        using entity_type = typename Array_t::entity_type;
+        auto policy = Cabana::Grid::createExecutionPolicy(
+            a.layout()->localGrid()->indexSpace( tag, entity_type(), Cabana::Grid::Local() ),
+            execution_space() );
+        Kokkos::parallel_for(
+            "ArrayOp::element_multiply", policy,
+            KOKKOS_LAMBDA( const int i, const int j) {
+                for (int k = 0; k < bw; k++)
+                {
+                    out_view( i, j, k ) = a_view( i, j, 0 ) * b_view( i, j, k );
+                }
+            } );
+        return out;
+    }
+    else
+    {
+        throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::CabanaOp:element_multiply: First array argument must have equal or smaller third dimension than second array argument.");
+    }   
+}
+
+template <class Array_t, class DecompositionTag>
+std::shared_ptr<Array_t> copyDim( Array_t& a, int dimA, DecompositionTag tag )
+{
+    using entity_type = typename Array_t::entity_type;
+    using value_type = typename  Array_t::value_type;
+    using memory_space = typename Array_t::memory_space;
+    using execution_space = typename Array_t::execution_space;
+
+    auto layout = Cabana::Grid::createArrayLayout( a.layout()->localGrid(), 1, entity_type() );
+    auto out = Cabana::Grid::createArray<value_type, memory_space>("cabana_dot", layout);
+    auto out_view = out->view();
+
+    // Check dimensions
+    auto a_view = a.view();
+
+    const int aw = a_view.extent(2);
+
+    if (dimA >= aw) {
+        throw std::invalid_argument("ArrayUtils::ArrayOp::CabanaOp::copyDim: Provided dimension is larger than the number of dimensions in the b array.");
+    }
+
+    auto policy = Cabana::Grid::createExecutionPolicy(
+        a.layout()->localGrid()->indexSpace( tag, entity_type(), Cabana::Grid::Local() ),
+        execution_space() );
+    Kokkos::parallel_for(
+        "ArrayUtils::ArrayOp::CabanaOp::copyDim", policy,
+        KOKKOS_LAMBDA( const int i, const int j) {
+            out_view( i, j, 0 ) = a_view( i, j, dimA );
+        } );
+    return out;
+}
+
+template <class Array_t, class DecompositionTag>
+void copyDim( Array_t& a, int dimA, Array_t& b, int dimB, DecompositionTag tag )
+{
+    using entity_type = typename Array_t::entity_type;
+    using execution_space = typename Array_t::execution_space;
+
+    auto a_view = a.view();
+    auto b_view = b.view();
+
+    const int an = a_view.extent(0);
+    const int bn = b_view.extent(0);
+    const int am = a_view.extent(1);
+    const int bm = b_view.extent(1);
+    const int aw = a_view.extent(2);
+    const int bw = b_view.extent(2);
+
+    if (an != bn) {
+        throw std::invalid_argument("ArrayUtils::ArrayOp::CabanaOp::copyDim: First dimension of a and b arrays do not match.");
+    }
+    if (am != bm) {
+        throw std::invalid_argument("ArrayUtils::ArrayOp::CabanaOp::copyDim: Second dimension of a and b arrays do not match.");
+    }
+    if (dimA >= aw) {
+        throw std::invalid_argument("ArrayUtils::ArrayOp::CabanaOp::copyDim: Provided dimension for 'a' is larger than the number of dimensions in the b array.");
+    }
+    if (dimB >= bw) {
+        throw std::invalid_argument("ArrayUtils::ArrayOp::CabanaOp::copyDim: Provided dimension for 'b' is larger than the number of dimensions in the b array.");
+    }
+
+    auto policy = Cabana::Grid::createExecutionPolicy(
+        a.layout()->localGrid()->indexSpace( tag, entity_type(), Cabana::Grid::Local() ),
+        execution_space() );
+    Kokkos::parallel_for(
+        "ArrayUtils::ArrayOp::CabanaOp::copyDim", policy,
+        KOKKOS_LAMBDA( const int i, const int j) {
+            a_view( i, j, dimA ) = b_view( i, j, dimB );
+    } );
+}
+
+/*!
+  \brief Apply some function to every element of an array
+  \param array The array to operate on.
+  \param function A functor that operates on the array elements.
+  \param tag The tag for the decomposition over which to perform the operation.
+*/
+template <class Array_t, class Function, class DecompositionTag>
+std::enable_if_t<2 == Array_t::num_space_dim, void>
+apply( Array_t& array, Function& function, DecompositionTag tag )
+{
+    using entity_t = typename Array_t::entity_type;
+    auto view = array.view();
+    Kokkos::parallel_for(
+        "ArrayOp::apply",
+        createExecutionPolicy( array.layout()->indexSpace( tag, Cabana::Grid::Local() ),
+                               typename Array_t::execution_space() ),
+        KOKKOS_LAMBDA( const int i, const int j, const int k) {
+            double val = view( i, j, k );
+            view( i, j, k ) = function(val);
+        } );
+}
+
+} // end namespace CabanaOp
+
+template <class ContainerLayoutType, class Scalar, class MemorySpace>
+std::shared_ptr<Array<ContainerLayoutType, Scalar, MemorySpace>>
+clone( const Array<ContainerLayoutType, Scalar, MemorySpace>& array )
+{
+    using memory_space = typename Array<ContainerLayoutType, Scalar, MemorySpace>::memory_space;
+    using value_type = typename Array<ContainerLayoutType, Scalar, MemorySpace>::value_type;
+    return createArray<value_type, memory_space>( array.label(), array.clayout() );
 }
 
 template <class Array_t, class DecompositionTag>
 void copy( Array_t& a, const Array_t& b, DecompositionTag tag )
 {
-    using entity_type = typename Array_t::entity_type;
-    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
     {
-        Cabana::Grid::ArrayOp::copy(*a.array(entity_type()), *b.array(entity_type()), tag);
+        Cabana::Grid::ArrayOp::copy(*a.array(), *b.array(), tag);
     }
-    else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
-              std::is_same_v<entity_type, NuMesh::Edge> ||
-              std::is_same_v<entity_type, NuMesh::Face>) 
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
     {
-        NuMesh::Array::ArrayOp::copy(*a.array(entity_type()), *b.array(entity_type()), tag);
+        NuMesh::Array::ArrayOp::copy(*a.array(), *b.array(), tag);
     }
 
+}
+
+/**
+ * Create a copy of one dimension in an array
+ */
+template <class Array_t, class DecompositionTag>
+std::shared_ptr<Array_t> copyDim( Array_t& a, int dimA, DecompositionTag tag )
+{
+    using entity_type = typename Array_t::entity_type;
+    using value_type = typename  Array_t::value_type;
+    using memory_space = typename Array_t::memory_space;
+
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
+    {
+        auto cabana_out = CabanaOp::copyDim(*a.array(), dimA, tag);
+        auto layout = ArrayUtils::createArrayLayout(a.clayout()->layout()->localGrid(), 1, entity_type());
+        auto out = ArrayUtils::createArray<value_type, memory_space>("copyDim", layout);
+        Cabana::Grid::ArrayOp::copy(*out->array(), *cabana_out, tag);
+        return out;
+
+    }
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    {
+        throw std::runtime_error("copy with dim not yet implemented in NuMesh");
+
+        // auto numesh_out = NuMesh::Array::ArrayOp::element_dot(*a.array(), *b.array(), tag);
+        // auto layout = ArrayUtils::createArrayLayout(a.clayout()->layout()->mesh(), 1, entity_type());
+        // auto out = ArrayUtils::createArray<value_type, memory_space>("dot", layout);
+        // NuMesh::Array::ArrayOp::copy(*out->array(), *numesh_out, tag);
+        // return out;
+    }
+}
+
+/**
+ * Copy dimB from b into dimA from a 
+ */
+template <class Array_t, class DecompositionTag>
+void copyDim( Array_t& a, int dimA, Array_t& b, int dimB, DecompositionTag tag )
+{
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
+    {
+        CabanaOp::copyDim(*a.array(), dimA, *b.array(), dimB, tag);
+    }
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    {
+        throw std::runtime_error("copy with dim not yet implemented in NuMesh");
+    }
 }
 
 template <class Array_t, class DecompositionTag>
@@ -299,16 +541,29 @@ template <class Array_t, class DecompositionTag>
 void assign( Array_t& array, const double alpha,
              DecompositionTag tag )
 {
-    using entity_type = typename Array_t::entity_type;
-    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
     {
-        Cabana::Grid::ArrayOp::assign(*array.array(entity_type()), alpha, tag);
+        Cabana::Grid::ArrayOp::assign(*array.array(), alpha, tag);
     }
-    else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
-              std::is_same_v<entity_type, NuMesh::Edge> ||
-              std::is_same_v<entity_type, NuMesh::Face>) 
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value)
     {
-        NuMesh::Array::ArrayOp::assign(*array.array(entity_type()), alpha, tag);
+        NuMesh::Array::ArrayOp::assign(*array.array(), alpha, tag);
+    }
+}
+
+template <class Array_t, class DecompositionTag>
+void scale( Array_t& array, const double alpha,
+             DecompositionTag tag )
+{
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
+    {
+        Cabana::Grid::ArrayOp::scale(*array.array(), alpha, tag);
+    }
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    {
+        NuMesh::Array::ArrayOp::scale(*array.array(), alpha, tag);
     }
 }
 
@@ -316,17 +571,14 @@ template <class Array_t, class DecompositionTag>
 void update( Array_t& a, const double alpha, const Array_t& b,
         const double beta, DecompositionTag tag )
 {
-    using entity_type = typename Array_t::entity_type;
-    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
     {
-        Cabana::Grid::ArrayOp::update(*a.array(entity_type()), alpha, *b.array(entity_type()), beta, tag);
+        Cabana::Grid::ArrayOp::update(*a.array(), alpha, *b.array(), beta, tag);
     }
-     else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
-              std::is_same_v<entity_type, NuMesh::Edge> ||
-              std::is_same_v<entity_type, NuMesh::Face>) 
-              // Can combine this into one custom type trait method 
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
     {
-        NuMesh::Array::ArrayOp::update(*a.array(entity_type()), alpha, *b.array(entity_type()), beta, tag);
+        NuMesh::Array::ArrayOp::update(*a.array(), alpha, *b.array(), beta, tag);
     }
 }
 
@@ -335,130 +587,110 @@ void update( Array_t& a, const double alpha, const Array_t& b,
         const double beta, const Array_t& c,
         const double gamma, DecompositionTag tag )
 {
-    using entity_type = typename Array_t::entity_type;
-    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
     {
-        Cabana::Grid::ArrayOp::update(*a.array(entity_type()), alpha, *b.array(entity_type()), beta, *c.array(entity_type()), gamma, tag);
+        Cabana::Grid::ArrayOp::update(*a.array(), alpha, *b.array(), beta, *c.array(), gamma, tag);
     }
-     else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
-              std::is_same_v<entity_type, NuMesh::Edge> ||
-              std::is_same_v<entity_type, NuMesh::Face>) 
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
     {
-        NuMesh::Array::ArrayOp::update(*a.array(entity_type()), alpha, *b.array(entity_type()), beta, *c.array(entity_type()), gamma, tag);
+        NuMesh::Array::ArrayOp::update(*a.array(), alpha, *b.array(), beta, *c.array(), gamma, tag);
     }
 }
 
-template <typename View_in_t, typename View_out_t>
-void dot_views(View_out_t v_out, const View_in_t& view1, const View_in_t& view2) 
+template <class Array_t, class Function, class DecompositionTag>
+void apply( Array_t& a, Function& function, DecompositionTag tag )
 {
-    using memory_space = typename View_in_t::memory_space;
-    using execution_space = typename View_in_t:: execution_space;
-
-    // Get the dimensions of the input views
-    const int n = view1.extent(0);
-    const int m = view1.extent(1);
-    const int w = view1.extent(2);
-    const int out_n = v_out.extent(0);
-    const int out_m = v_out.extent(1);
-
-    // Ensure the third dimension is 3 for 3D vectors
-    if (w != 3) {
-        throw std::invalid_argument("Third dimension must be 3 for 3D vectors.");
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
+    {
+        CabanaOp::apply(*a.array(), function, tag);
     }
-    if (out_n != n) {
-        throw std::invalid_argument("First dimension of in and out views do not match.");
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    {
+        NuMesh::Array::ArrayOp::apply(*a.array(), function, tag);
     }
-    if (out_m != m) {
-        throw std::invalid_argument("Second dimension of in and out views do not match.");
-    }
-
-    // Parallel loop to compute the dot product at each (n, m) location
-    Kokkos::parallel_for("compute_dot_product", 
-        Kokkos::MDRangePolicy<execution_space, Kokkos::Rank<2>>({0, 0}, {n, m}),
-        KOKKOS_LAMBDA(const int i, const int j) {
-            v_out(i, j) = view1(i, j, 0) * view2(i, j, 0)
-                              + view1(i, j, 1) * view2(i, j, 1)
-                              + view1(i, j, 2) * view2(i, j, 2);
-        });
 }
 
-template<typename T, typename MemorySpace>
-Kokkos::View<T***, MemorySpace>
-cross_views(const Kokkos::View<T***>& a, const Kokkos::View<T***>& b) {
-    // Ensure the input views have the correct dimensions
-    int n = a.extent(0);
-    int m = a.extent(1);
-    int w = a.extent(2);
-
-    if (w != 3 || b.extent(0) != n || b.extent(1) != m || b.extent(2) != 3) {
-        throw std::invalid_argument("Both input views must be of size n x m x 3.");
-    }
-
-    //using ExecutionSpace = typename Kokkos::View<T***, MemorySpace>::execution_space;
-
-    // Create output view for cross product results
-    Kokkos::View<T***, MemorySpace> result("crossProduct", n, m, 3);
-
-    Kokkos::parallel_for("CrossProductKernel", Kokkos::MDRangePolicy<Kokkos::Rank<2>>({0, 0}, {n, m}), KOKKOS_LAMBDA(int i, int j) {
-        T a_x = a(i, j, 0);
-        T a_y = a(i, j, 1);
-        T a_z = a(i, j, 2);
-        
-        T b_x = b(i, j, 0);
-        T b_y = b(i, j, 1);
-        T b_z = b(i, j, 2);
-
-        // Cross product: a x b = (ay*bz - az*by, az*bx - ax*bz, ax*by - ay*bx)
-        result(i, j, 0) = a_y * b_z - a_z * b_y; // i component
-        result(i, j, 1) = a_z * b_x - a_x * b_z; // j component
-        result(i, j, 2) = a_x * b_y - a_y * b_x; // k component
-    });
-
-    return result;
-}
-
-template <class Array_t>
-std::shared_ptr<Array_t> dot( Array_t& a, const Array_t& b )
+/**
+ * Computes the dot product of each (x, y, z) vector stored in 
+ * the arrays.
+ * The resulting 'dot' array has the shape (m, n, 1)
+ */
+template <class Array_t, class DecompositionTag>
+std::shared_ptr<Array_t> element_dot( const Array_t& a, const Array_t& b, DecompositionTag tag )
 {
     using entity_type = typename Array_t::entity_type;
+    using value_type = typename  Array_t::value_type;
     using memory_space = typename Array_t::memory_space;
-    using execution_space = typename Array_t::execution_space;
 
-    auto a_view = a.array(entity_type())->view();
-    auto b_view = b.array(entity_type())->view();
-    int n = a_view.extent(0);
-    int m = a_view.extent(1);
-
-    // The resulting 'dot' array has the shape (i, j, 1)
-    std::shared_ptr<ArrayUtils::ArrayLayout<execution_space, memory_space, entity_type>> scaler_layout;
-    if constexpr (std::is_same_v<entity_type, Cabana::Grid::Node>)
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
     {
-        scaler_layout = ArrayUtils::createArrayLayout<execution_space, memory_space>(a.layout()->layout(entity_type())->localGrid(), 1, entity_type());
+        auto cabana_out = CabanaOp::element_dot(*a.array(), *b.array(), tag);
+        auto layout = ArrayUtils::createArrayLayout(a.clayout()->layout()->localGrid(), 1, entity_type());
+        auto out = ArrayUtils::createArray<value_type, memory_space>("dot", layout);
+        Cabana::Grid::ArrayOp::copy(*out->array(), *cabana_out, tag);
+        return out;
     }
-    else if constexpr (std::is_same_v<entity_type, NuMesh::Vertex> ||
-              std::is_same_v<entity_type, NuMesh::Edge> ||
-              std::is_same_v<entity_type, NuMesh::Face>) 
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
     {
-        scaler_layout = ArrayUtils::createArrayLayout<execution_space, memory_space>(a.layout()->layout(entity_type())->mesh(), 1, entity_type());
+        auto numesh_out = NuMesh::Array::ArrayOp::element_dot(*a.array(), *b.array(), tag);
+        auto layout = ArrayUtils::createArrayLayout(a.clayout()->layout()->mesh(), 1, entity_type());
+        auto out = ArrayUtils::createArray<value_type, memory_space>("dot", layout);
+        NuMesh::Array::ArrayOp::copy(*out->array(), *numesh_out, tag);
+        return out;
     }
-    // auto vertex_triple_layout = Utils::createArrayLayout(nu_mesh, 3, NuMesh::Vertex());
-    auto out = ArrayUtils::createArray<execution_space, memory_space>("dot", scaler_layout, entity_type());
-    auto out_view = out->array(entity_type())->view();
-    dot_views(out_view, a_view, b_view);
+    
+    throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::element_dot: Invalid mesh_type");
+}
 
-    // auto hvt_tmp = Kokkos::create_mirror_view(omega_d_test);
-    //     auto hvc_tmp = Kokkos::create_mirror_view(omega_d_correct);
-    //     Kokkos::deep_copy(hvt_tmp, omega_d_test);
-    //     Kokkos::deep_copy(hvc_tmp, omega_d_correct);
-    //     Kokkos::deep_copy(omega_h_test, hvt_tmp);
-    //     Kokkos::deep_copy(omega_h_correct, hvc_tmp);
-    return out;
+template <class Array_t, class DecompositionTag>
+std::shared_ptr<Array_t> element_cross( const Array_t& a, const Array_t& b, DecompositionTag tag )
+{
+    auto out = clone(b);
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
+    {
+        auto cabana_out = CabanaOp::element_cross(*a.array(), *b.array(), tag); 
+        Cabana::Grid::ArrayOp::copy(*out->array(), *cabana_out, tag);
+        return out;
+    }
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    {
+        auto numesh_out = NuMesh::Array::ArrayOp::element_cross(*a.array(), *b.array(), tag);
+        NuMesh::Array::ArrayOp::copy(*out->array(), *numesh_out, tag);
+        return out;
+    }
+
+    throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::element_cross: Invalid mesh_type");
+}
+
+template <class Array_t, class DecompositionTag>
+std::shared_ptr<Array_t> element_multiply( Array_t& a, const Array_t& b, DecompositionTag tag )
+{
+    auto out = clone(b);
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
+    {
+        auto cabana_out = CabanaOp::element_multiply(*a.array(), *b.array(), tag); 
+        Cabana::Grid::ArrayOp::copy(*out->array(), *cabana_out, tag);
+        return out;
+    }
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    {
+        auto numesh_out = NuMesh::Array::ArrayOp::element_multiply(*a.array(), *b.array(), tag);
+        NuMesh::Array::ArrayOp::copy(*out->array(), *numesh_out, tag);
+        return out;
+    }
+
+    throw std::invalid_argument("Beatnik::ArrayUtils::ArrayOp::element_multiply: Invalid mesh_type");
 }
 
 } // end namespace ArrayOp
 
-} // end namespace Array
+} // end namespace ArrayUtils
 
 } // end namespace Beatnik
 
-#endif // BEATNIK_ARRAY_HPP
+#endif // BEATNIK_ARRAYUTILS_HPP

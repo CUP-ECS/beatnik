@@ -47,6 +47,9 @@ namespace Beatnik
  */
 struct Params
 {
+    /* Mesh type. For options, see SolverBase class */
+    int mesh_type;
+
     /* Save the period from command-line args to pass to 
      * ProblemManager to seed the random number generator
      * to initialize position
@@ -89,7 +92,12 @@ class SolverBase
   public:
     virtual ~SolverBase() = default;
     virtual void setup( void ) = 0;
-    virtual void step( void ) = 0;
+    /**
+     * Mesh type options:
+     *  1: Structured, 2D (Regular, rectangular, domain decomposition)
+     *  2: Unstructured, 2D (Domain decomposed into triangles with potential for mesh refinement)
+     */
+    virtual void step( const int mesh_type ) = 0;
     virtual void solve( const double t_final, const int write_freq ) = 0;
 
     // For testing purposes
@@ -215,9 +223,21 @@ class Solver : public SolverBase
 	    // XXX - Apply boundary conditions
     }
 
-    void step() override
+    void step(const int mesh_type) override
     {
-        _ti->step(_dt);
+        if (mesh_type == 1)
+        {
+            _ti->step(_dt, Cabana::Grid::Node(), Cabana::Grid::Own());
+        }
+        else if (mesh_type == 2)
+        {
+            throw std::invalid_argument("Solver::step: Unstructured mesh not yet implemented.");
+            // _ti->step(_dt, NuMesh::Face(), NuMesh::Own());
+        }
+        else
+        {
+            throw std::invalid_argument("Solver::step: Invalid mesh_type argument.");
+        }
         _time += _dt;
     }
 
@@ -240,7 +260,7 @@ class Solver : public SolverBase
             if ( 0 == _surface_mesh->rank() )
                 printf( "Step %d / %d at time = %f\n", t, num_step, _time );
 
-            step();
+            step(_params.mesh_type);
             t++;
             // 4. Output mesh state periodically
             if ( write_freq && (0 == t % write_freq ))
@@ -277,7 +297,7 @@ class Solver : public SolverBase
     View_t get_positions(Cabana::Grid::Node) override
     {
         //_pm->gather();
-        auto view = _pm->get(Field::Position())->array(Cabana::Grid::Node())->view();
+        auto view = _pm->get(Field::Position())->array()->view();
         int dim0 = view.extent(0);
         int dim1 = view.extent(1);
         auto temp = Kokkos::create_mirror_view(view);
@@ -289,7 +309,7 @@ class Solver : public SolverBase
     View_t get_vorticities(Cabana::Grid::Node) override
     {
         //_pm->gather();
-        auto view = _pm->get(Field::Vorticity())->array(Cabana::Grid::Node())->view();
+        auto view = _pm->get(Field::Vorticity())->array()->view();
         int dim0 = view.extent(0);
         int dim1 = view.extent(1);
         auto temp = Kokkos::create_mirror_view(view);

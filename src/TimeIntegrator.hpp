@@ -33,7 +33,10 @@ class TimeIntegrator
     using device_type = Kokkos::Device<exec_space, memory_space>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     using Node = Cabana::Grid::Node;
-    using node_array = Beatnik::ArrayUtils::Array<exec_space, memory_space, Node>;
+    using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
+    using container_layout_type = ArrayUtils::ArrayLayout<local_grid_type, Node>;
+    using node_array = ArrayUtils::Array<container_layout_type, double, memory_space>;
+
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
 
     // using halo_type = Cabana::Grid::Halo<MemorySpace>;
@@ -49,9 +52,9 @@ class TimeIntegrator
         // Create a layout of the temporary arrays we'll need for velocity
         // intermediate positions, and change in vorticity
         auto node_triple_layout =
-            ArrayUtils::createArrayLayout<exec_space, memory_space>( pm.mesh().localGrid(), 3, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout( pm.mesh().localGrid(), 3, Cabana::Grid::Node() );
         auto node_pair_layout =
-            ArrayUtils::createArrayLayout<exec_space, memory_space>( pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout( pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
         //const std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> mesh = pm.mesh().localGrid(); 
         // auto node_pair_layout_2 = Utils::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 2, Cabana::Grid::Node());
         // auto node_triple_layout_2 = Utils::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 3, Cabana::Grid::Node());
@@ -80,23 +83,28 @@ class TimeIntegrator
         // auto zdot_numesh_f = Utils::createArray<exec_space, memory_space>("nu-f", face_triple_layout, NuMesh::Face());
 
 
-        _zdot = ArrayUtils::createArray<exec_space, memory_space>("velocity", 
-                                                       node_triple_layout, Node());
-        _wdot = ArrayUtils::createArray<exec_space, memory_space>("vorticity derivative",
-                                                       node_pair_layout, Node());
-        _ztmp = ArrayUtils::createArray<exec_space, memory_space>("position temporary", 
-                                                       node_triple_layout, Node());
-        _wtmp = ArrayUtils::createArray<exec_space, memory_space>("vorticity temporary", 
-                                                       node_pair_layout, Node());
+        _zdot = ArrayUtils::createArray<double, memory_space>("velocity", 
+                                                       node_triple_layout);
+        _wdot = ArrayUtils::createArray<double, memory_space>("vorticity derivative",
+                                                       node_pair_layout);
+        _ztmp = ArrayUtils::createArray<double, memory_space>("position temporary", 
+                                                       node_triple_layout);
+        _wtmp = ArrayUtils::createArray<double, memory_space>("vorticity temporary", 
+                                                       node_pair_layout);
     }
-
-    void step( const double delta_t ) 
+    
+    /**
+     * EntityTag = Cabana::Grid::Node or NuMesh variant
+     * DecompositionTag = Cabana::Grid::Own or NuMesh variant
+     */
+    template <class EntityTag, class DecompositionTag>
+    void step( const double delta_t, EntityTag etag, DecompositionTag dtag ) 
     { 
         // Compute the derivatives of position and vorticity at our current point
         auto z_orig = _pm.get( Field::Position() );
         auto w_orig = _pm.get( Field::Vorticity() );
-        auto z_tmp = ArrayUtils::ArrayOp::cloneCopy(*z_orig, Cabana::Grid::Own());
-        auto w_tmp = ArrayUtils::ArrayOp::cloneCopy(*w_orig, Cabana::Grid::Own());
+        auto z_tmp = ArrayUtils::ArrayOp::cloneCopy(*z_orig, dtag);
+        auto w_tmp = ArrayUtils::ArrayOp::cloneCopy(*w_orig, dtag);
 
         // TVD RK3 Step One - derivative at forward euler point
         auto z_dot = _zdot;
@@ -104,33 +112,33 @@ class TimeIntegrator
 
         // Find foward euler point using initial derivative. The zmodel solver
 	    // uses the problem manager position and derivative by default.
-        _zm.computeDerivatives(*z_dot, *w_dot);
+        _zm.computeDerivatives(*z_dot, *w_dot, etag, dtag);
         
         // X_tmp = X_tmp + X_dot*delta_t
         // update2: Update two vectors such that a = alpha * a + beta * b.
-        ArrayUtils::ArrayOp::update(*z_tmp, 1.0, *z_dot, delta_t, Cabana::Grid::Own());
-        ArrayUtils::ArrayOp::update(*w_tmp, 1.0, *w_dot, delta_t, Cabana::Grid::Own());
+        ArrayUtils::ArrayOp::update(*z_tmp, 1.0, *z_dot, delta_t, dtag);
+        ArrayUtils::ArrayOp::update(*w_tmp, 1.0, *w_dot, delta_t, dtag);
         
         // Compute derivative at forward euler point from the temporaries
-        _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot);
+        _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot, etag, dtag);
  
         // TVD RK3 Step Two - derivative at half-step position
         // derivatives
         // X_tmp = X_tmp*0.25 + X_orig*0.75 + X_dot*delta_t*0.25
         // update3: Update three vectors such that a = alpha * a + beta * b + gamma * c.
-        ArrayUtils::ArrayOp::update(*z_tmp, 0.25, *z_orig, 0.75, *z_dot, (delta_t*0.25), Cabana::Grid::Own());
-        ArrayUtils::ArrayOp::update(*w_tmp, 0.25, *w_orig, 0.75, *w_dot, (delta_t*0.25), Cabana::Grid::Own());
+        ArrayUtils::ArrayOp::update(*z_tmp, 0.25, *z_orig, 0.75, *z_dot, (delta_t*0.25), dtag);
+        ArrayUtils::ArrayOp::update(*w_tmp, 0.25, *w_orig, 0.75, *w_dot, (delta_t*0.25), dtag);
 
         // Get the derivatives at the half-setp
-        _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot);
+        _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot, etag, dtag);
         
         // TVD RK3 Step Three - Combine start, forward euler, and half step
         // derivatives to take the final full step.
         // (unew = 1/3 uold + 2/3 utmp + 2/3 du_dt_tmp * deltat)
         // X_orig = X_orig*(1/3) + X_tmp*(2/3) + X_dot*delta_t*(2/3)
         // update3: Update three vectors such that a = alpha * a + beta * b + gamma * c.
-        ArrayUtils::ArrayOp::update(*z_orig, (1.0/3.0), *z_tmp, (2.0/3.0), *z_dot, (delta_t*2.0/3.0), Cabana::Grid::Own());
-        ArrayUtils::ArrayOp::update(*w_orig, (1.0/3.0), *w_tmp, (2.0/3.0), *w_dot, (delta_t*2.0/3.0), Cabana::Grid::Own());
+        ArrayUtils::ArrayOp::update(*z_orig, (1.0/3.0), *z_tmp, (2.0/3.0), *z_dot, (delta_t*2.0/3.0), dtag);
+        ArrayUtils::ArrayOp::update(*w_orig, (1.0/3.0), *w_tmp, (2.0/3.0), *w_dot, (delta_t*2.0/3.0), dtag);
         // printf("*******z_DOT******\n");
         // printView(local_l2g, 0, z_dot->view(), 1, 3, 3);
         // printf("*******z_TMP******\n");
