@@ -94,12 +94,14 @@ class ZModel
 
     ZModel( const pm_type & pm, const BoundaryCondition &bc,
             const br_solver_type *br, /* pointer because could be null */
+            const Params params,
             const double dx, const double dy, 
             const double A, const double g, const double mu,
             const int heffte_configuration)
         : _pm( pm )
         , _bc( bc )
         , _br( br )
+        , _params( params )
         , _dx( dx )
         , _dy( dy )
         , _A( A )
@@ -127,10 +129,17 @@ class ZModel
             "V", node_scalar_layout);
 
         /* We need a halo for _V so that we can do fourth-order central differencing on
-         * it. This requires a depth 2 stencil with adjacent faces */
-        int halo_depth = 2; 
-        _v_halo = Cabana::Grid::createHalo( Cabana::Grid::FaceHaloPattern<2>(),
+         * it. This requires a depth 2 stencil with adjacent faces.
+         * 
+         * Only initialize for structured meshes
+         */
+        if (_params.mesh_type == 1)
+        {
+            int halo_depth = 2; 
+             _v_halo = Cabana::Grid::createHalo( Cabana::Grid::FaceHaloPattern<2>(),
                             halo_depth, *_V->array() );
+        }
+        
 
         /* Storage for the reisz transform of the vorticity. In the low and 
          * medium order models, it is used to calculate the vorticity 
@@ -143,53 +152,53 @@ class ZModel
         /* If we're not the hgh order model, initialize the FFT solver and 
          * the working space it will need. 
          * XXX figure out how to make this conditional on model order. */
-        Cabana::Grid::Experimental::FastFourierTransformParams params;
+        Cabana::Grid::Experimental::FastFourierTransformParams fft_params;
         _C1 = ArrayUtils::createArray<double, memory_space>("C1", node_double_layout);
         _C2 = ArrayUtils::createArray<double, memory_space>("C2", node_double_layout);
 
         switch (_heffte_configuration) {
             case 0:
-                params.setAllToAll(false);
-                params.setPencils(false);
-                params.setReorder(false);
+                fft_params.setAllToAll(false);
+                fft_params.setPencils(false);
+                fft_params.setReorder(false);
                 break;
             case 1:
-                params.setAllToAll(false);
-                params.setPencils(false);
-                params.setReorder(true);
+                fft_params.setAllToAll(false);
+                fft_params.setPencils(false);
+                fft_params.setReorder(true);
                 break;
             case 2:
-                params.setAllToAll(false);
-                params.setPencils(true);
-                params.setReorder(false);
+                fft_params.setAllToAll(false);
+                fft_params.setPencils(true);
+                fft_params.setReorder(false);
                 break;
             case 3:
-                params.setAllToAll(false);
-                params.setPencils(true);
-                params.setReorder(true);
+                fft_params.setAllToAll(false);
+                fft_params.setPencils(true);
+                fft_params.setReorder(true);
                 break;
             case 4:
-                params.setAllToAll(true);
-                params.setPencils(false);
-                params.setReorder(false);
+                fft_params.setAllToAll(true);
+                fft_params.setPencils(false);
+                fft_params.setReorder(false);
                 break;
             case 5:
-                params.setAllToAll(true);
-                params.setPencils(false);
-                params.setReorder(true);
+                fft_params.setAllToAll(true);
+                fft_params.setPencils(false);
+                fft_params.setReorder(true);
                 break;
             case 6:
-                params.setAllToAll(true);
-                params.setPencils(true);
-                params.setReorder(false);
+                fft_params.setAllToAll(true);
+                fft_params.setPencils(true);
+                fft_params.setReorder(false);
                 break;
             case 7:
-                params.setAllToAll(true);
-                params.setPencils(true);
-                params.setReorder(true);
+                fft_params.setAllToAll(true);
+                fft_params.setPencils(true);
+                fft_params.setReorder(true);
                 break;
         }
-        _fft = Cabana::Grid::Experimental::createHeffteFastFourierTransform<double, memory_space>(*node_double_layout->layout(), params);
+        _fft = Cabana::Grid::Experimental::createHeffteFastFourierTransform<double, memory_space>(*node_double_layout->layout(), fft_params);
     }
 
     double computeMinTimestep(double atwood, double g)
@@ -470,12 +479,13 @@ class ZModel
     }
 
     /**
-     * tag = Cabana::Grid::Own or a NuMesh variant
+     * dtag = Cabana::Grid::Own or a NuMesh variant
+     * etag = Cabana::Grid::Own or NuMesh variant
      */
-    template <class DecompositionTag>
+    template <class EntityTag, class DecompositionTag>
     void computeVelocities(node_array& z, node_array& z_dx, node_array& z_dy,
                            node_array& w, node_array& zdot, node_array& wdot,
-                           DecompositionTag tag) const
+                           EntityTag etag, DecompositionTag dtag) const
     {
         /*
         Part 2.2:
@@ -484,15 +494,15 @@ class ZModel
             double h22 = Operators::dot(dy_z, dy_z);
             double deth = h11*h22 - h12*h12;
          */
-        auto h11 = ArrayUtils::ArrayOp::element_dot(z_dx, z_dx, tag);
-        auto h12 = ArrayUtils::ArrayOp::element_dot(z_dx, z_dy, tag);
-        auto h22 = ArrayUtils::ArrayOp::element_dot(z_dy, z_dy, tag);
+        auto h11 = ArrayUtils::ArrayOp::element_dot(z_dx, z_dx, dtag);
+        auto h12 = ArrayUtils::ArrayOp::element_dot(z_dx, z_dy, dtag);
+        auto h22 = ArrayUtils::ArrayOp::element_dot(z_dy, z_dy, dtag);
         auto deth = ArrayUtils::ArrayOp::clone(*h11);
-        ArrayUtils::ArrayOp::assign(*deth, 0.0, tag);
+        ArrayUtils::ArrayOp::assign(*deth, 0.0, dtag);
         ArrayUtils::ArrayOp::update(*deth, 1.0,
-            *ArrayUtils::ArrayOp::element_multiply(*h11, *h22, tag), 1.0,
-            *ArrayUtils::ArrayOp::element_multiply(*h12, *h12, tag), -1.0,
-            tag);
+            *ArrayUtils::ArrayOp::element_multiply(*h11, *h22, dtag), 1.0,
+            *ArrayUtils::ArrayOp::element_multiply(*h12, *h12, dtag), -1.0,
+            dtag);
 
         /*
         Part 2.3: Compute the surface normal as (Dx \cross Dy)/sqrt(deth)
@@ -503,16 +513,16 @@ class ZModel
          */
         Operators::SqrtFunctor sqrt_func;
         Operators::InverseFunctor inverse_func;
-        auto inv_deth = ArrayUtils::ArrayOp::cloneCopy(*deth, tag);
-        ArrayUtils::ArrayOp::apply(*inv_deth, inverse_func, tag); // deth -> 1/deth
+        auto inv_deth = ArrayUtils::ArrayOp::cloneCopy(*deth, dtag);
+        ArrayUtils::ArrayOp::apply(*inv_deth, inverse_func, dtag); // deth -> 1/deth
         // Copy 1/deth because it is needed in finalizeVelocity functions
-        auto inv_sqrt_deth = ArrayUtils::ArrayOp::cloneCopy(*inv_deth, tag); 
-        ArrayUtils::ArrayOp::apply(*inv_sqrt_deth, sqrt_func, tag); // 1/deth -> 1/sqrt(deth)
+        auto inv_sqrt_deth = ArrayUtils::ArrayOp::cloneCopy(*inv_deth, dtag); 
+        ArrayUtils::ArrayOp::apply(*inv_sqrt_deth, sqrt_func, dtag); // 1/deth -> 1/sqrt(deth)
         auto surface_normal = 
             ArrayUtils::ArrayOp::element_multiply(
                 *inv_sqrt_deth, // 1/sqrt(deth)
-                *ArrayUtils::ArrayOp::element_cross(z_dx, z_dy, tag), // Dx \cross Dy
-                tag
+                *ArrayUtils::ArrayOp::element_cross(z_dx, z_dy, dtag), // Dx \cross Dy
+                dtag
             );
         // printf("%d, %d: surface_normal: %0.5lf\n", di, dj, surface_normal->array()->view()(di, dj, 0));
 
@@ -521,8 +531,8 @@ class ZModel
          */
         // Clone another 1D array to create zndot, which is also 1D.
         auto zndot = ArrayUtils::ArrayOp::clone(*h11); 
-        ArrayUtils::ArrayOp::assign(*zndot, 0.0, tag); // XXX - Should not be needed
-        finalizeVelocity(MethodOrder(), *zndot, zdot, *_reisz, *surface_normal, *inv_deth, tag);
+        ArrayUtils::ArrayOp::assign(*zndot, 0.0, dtag); // XXX - Should not be needed
+        finalizeVelocity(MethodOrder(), *zndot, zdot, *_reisz, *surface_normal, *inv_deth, dtag);
         // printf("%d, %d: zndot: %0.5lf\n", di, dj, zndot->array()->view()(di, dj, 0));
 
 
@@ -534,37 +544,37 @@ class ZModel
          *                     - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
          *                     - 2*g*z_view(i, j, 2);
          */
-        auto w1 = ArrayUtils::ArrayOp::copyDim(w, 0, tag);
-        auto w2 = ArrayUtils::ArrayOp::copyDim(w, 1, tag);
-        auto z2 = ArrayUtils::ArrayOp::copyDim(z, 2, tag);
-        auto zndot_squared = ArrayUtils::ArrayOp::element_multiply(*zndot, *zndot, tag);
+        auto w1 = ArrayUtils::ArrayOp::copyDim(w, 0, dtag);
+        auto w2 = ArrayUtils::ArrayOp::copyDim(w, 1, dtag);
+        auto z2 = ArrayUtils::ArrayOp::copyDim(z, 2, dtag);
+        auto zndot_squared = ArrayUtils::ArrayOp::element_multiply(*zndot, *zndot, dtag);
         auto h22_w1_w1 = ArrayUtils::ArrayOp::element_multiply(
             *h22,
-            *ArrayUtils::ArrayOp::element_multiply(*w1, *w1, tag),
-            tag
+            *ArrayUtils::ArrayOp::element_multiply(*w1, *w1, dtag),
+            dtag
         );
         auto h12_w1_w2 = ArrayUtils::ArrayOp::element_multiply(
             *h12,
-            *ArrayUtils::ArrayOp::element_multiply(*w1, *w2, tag),
-            tag
+            *ArrayUtils::ArrayOp::element_multiply(*w1, *w2, dtag),
+            dtag
         );
         auto h11_w2_w2 = ArrayUtils::ArrayOp::element_multiply(
             *h11,
-            *ArrayUtils::ArrayOp::element_multiply(*w2, *w2, tag),
-            tag
+            *ArrayUtils::ArrayOp::element_multiply(*w2, *w2, dtag),
+            dtag
         );
 
         // Compute (h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth
-        ArrayUtils::ArrayOp::update(*h22_w1_w1, 1.0, *h12_w1_w2, -2.0, *h11_w2_w2, 1.0, tag);
-        auto inner_part = ArrayUtils::ArrayOp::element_multiply(*h22_w1_w1, *inv_deth, tag);
+        ArrayUtils::ArrayOp::update(*h22_w1_w1, 1.0, *h12_w1_w2, -2.0, *h11_w2_w2, 1.0, dtag);
+        auto inner_part = ArrayUtils::ArrayOp::element_multiply(*h22_w1_w1, *inv_deth, dtag);
 
         // Compute V_view(i, j, 0) = zndot * zndot 
         //                     - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
         //                     - 2*g*z_view(i, j, 2);
         // Result stored in zndot_squared
-        ArrayUtils::ArrayOp::update(*zndot_squared, 1.0, *inner_part, -0.25, *z2, -2.0*_g, tag);
+        ArrayUtils::ArrayOp::update(*zndot_squared, 1.0, *inner_part, -0.25, *z2, -2.0*_g, dtag);
         // Copy result into _V
-        ArrayUtils::ArrayOp::copy(*_V, *zndot_squared, tag);
+        ArrayUtils::ArrayOp::copy(*_V, *zndot_squared, dtag);
 
 
         // 3. Phase 3: Halo V and apply boundary condtions on it, then calculate
@@ -573,9 +583,15 @@ class ZModel
 
         // Halo V and correct any boundary condition corrections so that we can 
         // compute finite differences correctly.
-        _v_halo->gather( ExecutionSpace(), *_V->array());
-        _bc.applyField( _pm.mesh(), *_V->array(), 1 );
-
+        if (_params.mesh_type == 1)
+        {
+            _v_halo->gather( ExecutionSpace(), *_V->array());
+            _bc.applyField( _pm.mesh(), *_V->array(), 1 );
+        }
+        else if (_params.mesh_type == 2)
+        {
+            // XXX - Unstructured gather operation
+        }
 
         /**
          * Compute:
@@ -590,19 +606,19 @@ class ZModel
                 wdot_view(i, j, 1) = A * dy_v + mu * lap_w1;
             });
          */
-        auto dx_v = _pm.mesh().Dx(*_V, _dx, Node());
-        auto dy_v = _pm.mesh().Dy(*_V, _dy, Node());
+        auto dx_v = _pm.mesh().Dx(*_V, _dx, etag);
+        auto dy_v = _pm.mesh().Dy(*_V, _dy, etag);
         auto lap_w = _pm.mesh().laplace(w, _dx, _dy, Node());
 
         // Compute wdot0 and wdot1
-        auto wdot0 = ArrayUtils::ArrayOp::copyDim(*lap_w, 0, tag);
-        ArrayUtils::ArrayOp::update(*wdot0, _mu, *dx_v, _A, tag);
-        auto wdot1 = ArrayUtils::ArrayOp::copyDim(*lap_w, 1, tag);
-        ArrayUtils::ArrayOp::update(*wdot1, _mu, *dy_v, _A, tag);
+        auto wdot0 = ArrayUtils::ArrayOp::copyDim(*lap_w, 0, dtag);
+        ArrayUtils::ArrayOp::update(*wdot0, _mu, *dx_v, _A, dtag);
+        auto wdot1 = ArrayUtils::ArrayOp::copyDim(*lap_w, 1, dtag);
+        ArrayUtils::ArrayOp::update(*wdot1, _mu, *dy_v, _A, dtag);
 
         // Copy results into wdot
-        ArrayUtils::ArrayOp::copyDim(wdot, 0, *wdot0, 0, tag);
-        ArrayUtils::ArrayOp::copyDim(wdot, 1, *wdot1, 0, tag);
+        ArrayUtils::ArrayOp::copyDim(wdot, 0, *wdot0, 0, dtag);
+        ArrayUtils::ArrayOp::copyDim(wdot, 1, *wdot1, 0, dtag);
     }
 
     /**  
@@ -641,7 +657,7 @@ class ZModel
 
         // Phase 1.b: Compute zdot
         prepareVelocities(MethodOrder(), zdot_array, z_array, w_array, *_omega, etag);
-        computeVelocities(z_array, *z_dx, *z_dy, w_array, zdot_array, wdot_array, dtag);
+        computeVelocities(z_array, *z_dx, *z_dy, w_array, zdot_array, wdot_array, etag, dtag);
     }
 
     std::shared_ptr<node_array> getOmega()
@@ -693,6 +709,7 @@ class ZModel
     const pm_type & _pm;
     const BoundaryCondition & _bc;
     const br_solver_type *_br;
+    const Params _params;
     double _dx, _dy;
     double _A, _g, _mu;
     const int _heffte_configuration;

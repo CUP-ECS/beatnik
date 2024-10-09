@@ -207,7 +207,7 @@ class Solver : public SolverBase
 
         // Create the ZModel solver
         _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder, Params>>(
-            *_pm, _bc, _br.get(), dx, dy, _atwood, _g, _mu, _params.heffte_configuration);
+            *_pm, _bc, _br.get(), _params, dx, dy, _atwood, _g, _mu, _params.heffte_configuration);
 
         // Make a time integrator to move the zmodel forward
         _ti = std::make_unique<TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>>( *_pm, _bc, *_zm );
