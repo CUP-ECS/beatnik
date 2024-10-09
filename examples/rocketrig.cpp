@@ -107,7 +107,7 @@ struct ClArgs
     double magnitude;/**< Magnitude of scale of initial interface */
     double variation; /**< Variation in scale of initial interface */
     double period;   /**< Period of initial variation in interface */
-    enum Beatnik::BoundaryType boundary;  /**< Type of boundary conditions */
+    enum MeshBoundaryType boundary;  /**< Type of boundary conditions */
     double gravity; /**< Gravitational accelaration in -Z direction in Gs */
     double atwood;  /**< Atwood pressure differential number */
     int model;      /**< Model used to set initial conditions */
@@ -157,7 +157,7 @@ void help( const int rank, char* progname )
                   << "On-node Parallelism Model (default serial)" << std::left
                   << "\n";
         std::cout << std::left << std::setw( 10 ) << "-Z" << std::setw( 40 )
-                  << "Mesh type: structured (1) or unstructured (2) (default 1)" << std::left << "\n";
+                  << "Mesh type: structured (0) or unstructured (1) (default 0)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-n" << std::setw( 40 )
                   << "Number of points in each dimension (default 128)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-B" << std::setw( 40 )
@@ -221,7 +221,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.write_freq = 10;
 
     // Set default extra parameters
-    cl.params.mesh_type = 1;
+    cl.params.mesh_type = MeshType::MESH_STRUCTURED;
     cl.params.cutoff_distance = 0.5;
     cl.params.heffte_configuration = 6;
     cl.params.br_solver = BR_EXACT;
@@ -232,7 +232,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.num_nodes = { 128, 128 };
     cl.bounding_box = 1.0;
     cl.initial_condition = IC_COS;
-    cl.boundary = Beatnik::BoundaryType::PERIODIC;
+    cl.boundary = MeshBoundaryType::PERIODIC;
     cl.tilt = 0.0;
     cl.magnitude = 0.05;
     cl.variation = 0.00;
@@ -275,11 +275,13 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         }
         case 'Z':
         {
-            cl.params.mesh_type = std::atoi( optarg );
-            if ((!((cl.params.mesh_type == 1) || (cl.params.mesh_type == 2))) && rank == 0)
+            int val = std::atoi( optarg );
+            if (val == 0) cl.params.mesh_type = MeshType::MESH_STRUCTURED;
+            else if (val == 1) cl.params.mesh_type = MeshType::MESH_UNSTRUCTURED;
+            else if (rank == 0)
             {
                 std::cerr << "Invalid mesh type: " << cl.params.mesh_type << "\n"
-                          << "Must be 1 or 2." << "\n";
+                          << "Must be 0 or 1." << "\n";
                 help( rank, argv[0] );
                 Kokkos::finalize(); 
                 MPI_Finalize(); 
@@ -407,9 +409,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         {
             std::string order(optarg);
             if (order.compare("periodic") == 0) {
-                cl.boundary = Beatnik::BoundaryType::PERIODIC;
+                cl.boundary = MeshBoundaryType::PERIODIC;
             } else if (order.compare("free") == 0) {
-                cl.boundary = Beatnik::BoundaryType::FREE;
+                cl.boundary = MeshBoundaryType::FREE;
             } else {
                 if ( rank == 0 )
                 {
@@ -634,7 +636,7 @@ struct MeshInitFunc
 
     MeshInitFunc( std::array<double, 6> box, enum InitialConditionModel i,
                   double t, double m, double v, double p, 
-                  const std::array<int, 2> nodes, enum Beatnik::BoundaryType boundary )
+                  const std::array<int, 2> nodes, enum Beatnik::MeshBoundaryType boundary )
         : _i(i)
         , _t( t )
         , _m( m )
@@ -664,7 +666,7 @@ struct MeshInitFunc
          * coordinate in mesh space */
         for (int i = 0; i < 2; i++) {
             lcoord[i] = coord[i];
-            if (_b == BoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
+            if (_b == Beatnik::MeshBoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
                 lcoord[i] += 0.5;
             }
         }
@@ -720,7 +722,7 @@ struct MeshInitFunc
     double _t, _m, _v, _p;
     Kokkos::Array<int, 3> _ncells;
     double _dx, _dy;
-    enum Beatnik::BoundaryType _b;
+    enum Beatnik::MeshBoundaryType _b;
 };
 
 // Create Solver and Run

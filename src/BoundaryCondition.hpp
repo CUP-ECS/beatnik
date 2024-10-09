@@ -24,7 +24,7 @@
 #endif
 
 // Include Statements
-
+#include <Beatnik_Types.hpp>
 #include <SurfaceMesh.hpp>
 
 #include <Kokkos_Core.hpp>
@@ -32,17 +32,6 @@
 
 namespace Beatnik
 {
-/**
- * @struct BoundaryType
- * @brief Struct which contains enums of boundary type options for each boundary
- * These are used for setting ghost cell values prior to calculating surface
- * normals
- */
-enum BoundaryType
-{
-    PERIODIC = 0,
-    FREE = 1,
-};
 
 /**
  * @struct BoundaryCondition
@@ -54,26 +43,26 @@ struct BoundaryCondition
 {
     bool isPeriodicBoundary(std::array<int, 2> dir) const
     {
-        if ((dir[0] == -1) && (boundary_type[0] == PERIODIC))
+        if ((dir[0] == -1) && (boundary_type[0] == MeshBoundaryType::PERIODIC))
             return true;
-        if ((dir[0] == 1) && (boundary_type[2] == PERIODIC))
+        if ((dir[0] == 1) && (boundary_type[2] == MeshBoundaryType::PERIODIC))
             return true;
-        if ((dir[1] == -1) && (boundary_type[1] == PERIODIC))
+        if ((dir[1] == -1) && (boundary_type[1] == MeshBoundaryType::PERIODIC))
             return true;
-        if ((dir[1] == 1) && (boundary_type[3] == PERIODIC))
+        if ((dir[1] == 1) && (boundary_type[3] == MeshBoundaryType::PERIODIC))
             return true;
         return false;
     }
 
     bool isFreeBoundary(std::array<int, 2> dir) const
     {
-        if ((dir[0] == -1) && (boundary_type[0] == FREE))
+        if ((dir[0] == -1) && (boundary_type[0] == MeshBoundaryType::FREE))
             return true;
-        if ((dir[0] == 1) && (boundary_type[2] == FREE))
+        if ((dir[0] == 1) && (boundary_type[2] == MeshBoundaryType::FREE))
             return true;
-        if ((dir[1] == -1) && (boundary_type[1] == FREE))
+        if ((dir[1] == -1) && (boundary_type[1] == MeshBoundaryType::FREE))
             return true;
-        if ((dir[1] == 1) && (boundary_type[3] == FREE))
+        if ((dir[1] == 1) && (boundary_type[3] == MeshBoundaryType::FREE))
             return true;
         return false;
     }

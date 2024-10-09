@@ -16,6 +16,7 @@
 
 #include <Cabana_Grid.hpp>
 
+#include <Beatnik_Types.hpp>
 #include <BoundaryCondition.hpp>
 #include <SurfaceMesh.hpp>
 #include <ProblemManager.hpp>
@@ -48,7 +49,7 @@ namespace Beatnik
 struct Params
 {
     /* Mesh type. For options, see SolverBase class */
-    int mesh_type;
+    MeshType mesh_type;
 
     /* Save the period from command-line args to pass to 
      * ProblemManager to seed the random number generator
@@ -94,8 +95,8 @@ class SolverBase
     virtual void setup( void ) = 0;
     /**
      * Mesh type options:
-     *  1: Structured, 2D (Regular, rectangular, domain decomposition)
-     *  2: Unstructured, 2D (Domain decomposed into triangles with potential for mesh refinement)
+     *  0: Structured, 2D (Regular, rectangular, domain decomposition)
+     *  1: Unstructured, 2D (Domain decomposed into triangles with potential for mesh refinement)
      */
     virtual void step( const int mesh_type ) = 0;
     virtual void solve( const double t_final, const int write_freq ) = 0;
@@ -152,8 +153,8 @@ class Solver : public SolverBase
         , _params( params )
     {
 
-        _params.periodic[0] = (bc.boundary_type[0] == PERIODIC);
-        _params.periodic[1] = (bc.boundary_type[1] == PERIODIC);
+        _params.periodic[0] = (bc.boundary_type[0] == MeshBoundaryType::PERIODIC);
+        _params.periodic[1] = (bc.boundary_type[1] == MeshBoundaryType::PERIODIC);
 
         // Create a mesh one which to do the solve and a problem manager to
         // handle state
@@ -225,11 +226,11 @@ class Solver : public SolverBase
 
     void step(const int mesh_type) override
     {
-        if (mesh_type == 1)
+        if (mesh_type == MeshType::MESH_STRUCTURED)
         {
             _ti->step(_dt, Cabana::Grid::Node(), Cabana::Grid::Own());
         }
-        else if (mesh_type == 2)
+        else if (mesh_type == 1)
         {
             throw std::invalid_argument("Solver::step: Unstructured mesh not yet implemented.");
             // _ti->step(_dt, NuMesh::Face(), NuMesh::Own());

@@ -33,6 +33,7 @@
 
 #include <memory>
 
+#include <Beatnik_Types.hpp>
 #include <SurfaceMesh.hpp>
 #include <CreateBRSolver.hpp>
 #include <Beatnik_ArrayUtils.hpp>
@@ -133,7 +134,7 @@ class ZModel
          * 
          * Only initialize for structured meshes
          */
-        if (_params.mesh_type == 1)
+        if (_params.mesh_type == MeshType::MESH_STRUCTURED)
         {
             int halo_depth = 2; 
              _v_halo = Cabana::Grid::createHalo( Cabana::Grid::FaceHaloPattern<2>(),
@@ -583,12 +584,12 @@ class ZModel
 
         // Halo V and correct any boundary condition corrections so that we can 
         // compute finite differences correctly.
-        if (_params.mesh_type == 1)
+        if (_params.mesh_type == MeshType::MESH_STRUCTURED)
         {
             _v_halo->gather( ExecutionSpace(), *_V->array());
             _bc.applyField( _pm.mesh(), *_V->array(), 1 );
         }
-        else if (_params.mesh_type == 2)
+        else if (_params.mesh_type == MeshType::MESH_UNSTRUCTURED)
         {
             // XXX - Unstructured gather operation
         }

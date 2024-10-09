@@ -16,6 +16,7 @@
 
 #include <Cabana_Grid.hpp>
 
+#include <Beatnik_Types.hpp>
 #include <BoundaryCondition.hpp>
 #include <SurfaceMesh.hpp>
 #include <SpatialMesh.hpp>
