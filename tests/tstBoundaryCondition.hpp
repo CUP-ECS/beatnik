@@ -83,6 +83,8 @@ class BoundaryConditionTest : public TestingBase<T>
         
         double dx = 0.3, dy = 0.4;
 
+        ASSERT_EQ(1, comm_size) << "Only testing with one process is supported at this time.\n";
+
         if (comm_size == 1)
         {
             for (int i = 0; i < dim0; i++)

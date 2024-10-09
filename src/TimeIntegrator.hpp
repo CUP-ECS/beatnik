@@ -40,7 +40,7 @@ class TimeIntegrator
     using Node = Cabana::Grid::Node;
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
 
-//    using halo_type = Cabana::Grid::Halo<MemorySpace>;
+    // using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
   public:
     TimeIntegrator( const ProblemManager<exec_space, mem_space> & pm,
@@ -137,48 +137,6 @@ class TimeIntegrator
 	        w_orig(i, j, d) = ( 1.0 / 3.0 ) * w_orig(i, j, d) 
                     + ( 2.0 / 3.0 ) * w_tmp(i, j, d) 
                     + ( 2.0 / 3.0 ) * delta_t * w_dot(i, j, d);
-            }
-        });
-    }
-
-    template <class l2g_type, class View>
-    void printView(l2g_type local_L2G, int rank, View z, int option, int DEBUG_X, int DEBUG_Y) const
-    {
-        int dims = z.extent(2);
-
-        std::array<long, 2> rmin, rmax;
-        for (int d = 0; d < 2; d++) {
-            rmin[d] = local_L2G.local_own_min[d];
-            rmax[d] = local_L2G.local_own_max[d];
-        }
-        Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
-
-       Kokkos::parallel_for("print views",
-            Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
-            KOKKOS_LAMBDA(int i, int j) {
-            
-            // local_gi = global versions of the local indicies, and convention for remote 
-            int local_li[2] = {i, j};
-            int local_gi[2] = {0, 0};   // i, j
-            local_L2G(local_li, local_gi);
-            //printf("global: %d %d\n", local_gi[0], local_gi[1]);
-            if (option == 1){
-                if (dims == 3) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
-                }
-                else if (dims == 2) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
-                }
-            }
-            else if (option == 2) {
-                if (local_gi[0] == DEBUG_X && local_gi[1] == DEBUG_Y) {
-                    if (dims == 3) {
-                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf: %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
-                    }   
-                    else if (dims == 2) {
-                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf\n", rank, i, j, local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
-                    }
-                }
             }
         });
     }

@@ -34,8 +34,7 @@
 namespace Beatnik
 {
 
-/*
- * Convenience base class so that examples that use this don't need to know
+/* Convenience base class so that examples that use this don't need to know
  * the details of the problem manager/mesh/etc templating.
  */
 template <class ExecutionSpace, class MemorySpace, class Params>

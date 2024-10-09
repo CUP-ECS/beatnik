@@ -33,7 +33,6 @@ void BR(double out[3], PositionView z, PositionView z2, VorticityView w2,
     zsize = 0.0;
     for (int d = 0; d < 3; d++) {
         omega[d] = w2(k, l, 1) * Beatnik::Operators::Dx(z2, k, l, d, dx) - w2(k, l, 0) * Beatnik::Operators::Dy(z2, k, l, d, dy);
-        //omega[d] = omega_view(k, l, d);
         zdiff[d] = z(i, j, d) - (z2(k, l, d) + offset[d]);
         zsize += zdiff[d] * zdiff[d];
     }  
@@ -114,7 +113,6 @@ class ExactBRSolverTest : public TestingBase<T>
         int is_periodic = pm_->mesh().is_periodic(); // 1 if periodic
         for (int i = 0; i < 4; i++)
         {
-            // variable = (condition) ? expressionTrue : expressionFalse;
             // PERIODIC = 0, FREE = 1 in BoundaryCondition object
             this->single_bc_.boundary_type[i] = (is_periodic) ? Beatnik::BoundaryType::PERIODIC : Beatnik::BoundaryType::FREE;
         }
@@ -132,7 +130,7 @@ class ExactBRSolverTest : public TestingBase<T>
     }
 
   public:
-    /* Vorticity is initlized to zero in ProblemManager. Set the single and distributed
+    /* Vorticity is initialized to zero in ProblemManager. Set the single and distributed
      * vorticities to non-zero values based on global index to keep
      * the values the same in the single and distributed versions.
      */
@@ -168,13 +166,6 @@ class ExactBRSolverTest : public TestingBase<T>
                 for (int n = 0; n < 3; n++)
                     w_dist(i, j, n) = (double) (g0_adj*g1_adj) * 0.005;
         });
-
-        // Kokkos::parallel_for("Check vorticity init",
-        //     Cabana::Grid::createExecutionPolicy(local_node_space_single, ExecutionSpace()),
-        //     KOKKOS_LAMBDA(int k, int l) {
-        //         printf("ws: %0.8lf, %0.8lf, %0.8lf, wd:, %0.8lf, %0.8lf, %0.8lf\n", w_sing(k, l, 0), w_sing(k, l, 1), w_sing(k, l, 2),
-        //                 w_dist(k, l, 0), w_dist(k, l, 1), w_dist(k, l, 2));
-        // });
     }
 
     template <class pm_bc_type, class BoundaryCondition, class AtomicView>
@@ -184,14 +175,6 @@ class ExactBRSolverTest : public TestingBase<T>
                                               node_view zremote, node_view wremote,
                                               l2g_type remote_L2G)
     {
-        /* Project the Birkhoff-Rott calculation between all pairs of points on the 
-         * interface, including accounting for any periodic boundary conditions.
-         * Right now we brute force all of the points with no tiling to improve
-         * memory access or optimizations to remove duplicate calculations. */
-
-        // Get the local index spaces of pieces we're working with. For the local surface piece
-        // this is just the nodes we own. For the remote surface piece, we extract it from the
-        // L2G converter they sent us.
         auto local_grid = pm_->mesh().localGrid();
         auto local_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         std::array<long, 2> rmin, rmax;

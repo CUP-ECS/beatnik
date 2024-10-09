@@ -50,7 +50,6 @@ namespace Beatnik
  * @class ExactBRSolver
  * @brief Directly solves the Birkhoff-Rott integral using brute-force 
  * all-pairs calculation
- * XXX - Make all functions but computeInterfaceVelocity private?
  **/
 template <class ExecutionSpace, class MemorySpace, class Params>
 class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
@@ -169,11 +168,7 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         Kokkos::parallel_for("Exact BR Force Team Loop", mesh_policy, 
             KOKKOS_LAMBDA(member_type team) 
         {
-            //int thread_id = team.league_rank () * team.team_size () + team.team_rank ();
-            // Figure out the i/j pieces of the block this team member is responsible for
             int league_rank = team.league_rank();
-            //int team_rank = team.team_rank();
-            //int team_size = team.team_size();
             int i = (league_rank / l_num_cols) + halo_width;
             int j = (league_rank % l_num_cols) + halo_width;
         
@@ -364,7 +359,7 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             rmin[d] = local_L2G.local_own_min[d];
             rmax[d] = local_L2G.local_own_max[d];
         }
-	Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
+	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
         Kokkos::parallel_for("print views",
             Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
