@@ -379,7 +379,7 @@ std::shared_ptr<Array_t> copyDim( Array_t& a, int dimA, DecompositionTag tag )
     const int aw = a_view.extent(2);
 
     if (dimA >= aw) {
-        throw std::invalid_argument("ArrayUtils::ArrayOp::CabanaOp::copyDim: Provided dimension is larger than the number of dimensions in the b array.");
+        throw std::invalid_argument("ArrayUtils::ArrayOp::CabanaOp::copyDim: Provided dimension is larger than the number of dimensions in the array.");
     }
 
     auto policy = Cabana::Grid::createExecutionPolicy(
@@ -481,7 +481,7 @@ void copy( Array_t& a, const Array_t& b, DecompositionTag tag )
 }
 
 /**
- * Create a copy of one dimension in an array
+ * Create a copy of one dimension of an array
  */
 template <class Array_t, class DecompositionTag>
 std::shared_ptr<Array_t> copyDim( Array_t& a, int dimA, DecompositionTag tag )
@@ -502,13 +502,11 @@ std::shared_ptr<Array_t> copyDim( Array_t& a, int dimA, DecompositionTag tag )
     }
     else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
     {
-        throw std::runtime_error("copy with dim not yet implemented in NuMesh");
-
-        // auto numesh_out = NuMesh::Array::ArrayOp::element_dot(*a.array(), *b.array(), tag);
-        // auto layout = ArrayUtils::createArrayLayout(a.clayout()->layout()->mesh(), 1, entity_type());
-        // auto out = ArrayUtils::createArray<value_type, memory_space>("dot", layout);
-        // NuMesh::Array::ArrayOp::copy(*out->array(), *numesh_out, tag);
-        // return out;
+        auto numesh_out = NuMesh::Array::ArrayOp::copyDim(*a.array(), dimA, tag);
+        auto layout = ArrayUtils::createArrayLayout(a.clayout()->layout()->mesh(), 1, entity_type());
+        auto out = ArrayUtils::createArray<value_type, memory_space>("copyDim", layout);
+        NuMesh::Array::ArrayOp::copy(*out->array(), *numesh_out, tag);
+        return out;
     }
 }
 
@@ -525,7 +523,7 @@ void copyDim( Array_t& a, int dimA, Array_t& b, int dimB, DecompositionTag tag )
     }
     else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
     {
-        throw std::runtime_error("copy with dim not yet implemented in NuMesh");
+        NuMesh::Array::ArrayOp::copyDim(*a.array(), dimA, *b.array(), dimB, tag);
     }
 }
 
