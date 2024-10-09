@@ -4,7 +4,7 @@
 #include "gtest/gtest.h"
 
 #include <Cabana_Core.hpp>
-#include <Cajita.hpp>
+#include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
 
 #include <Mesh.hpp>
@@ -25,19 +25,19 @@
 template <class T>
 class MeshTest : public ::testing::Test
 {
-    // We need Cajita Arrays
+    // We need Cabana Arrays
     // Convenience type declarations
-    using Cell = Cajita::Node;
+    using Cell = Cabana::Grid::Node;
 
     using node_array =
-        Cajita::Array<double, Cajita::Node, Cajita::UniformMesh<double, 2>,
+        Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
                       typename T::MemorySpace>;
     using mesh_type = Beatnik::Mesh<typename T::ExecutionSpace, typename T::MemorySpace>;
 
   public:
     virtual void SetUp() override
     {
-        // Allocate and initialize the Cajita mesh
+        // Allocate and initialize the Cabana mesh
         globalNumNodes_ = { boxNodes_, boxNodes_ };
         globalBoundingBox_ = {-1, -1, -1, 1, 1, 1};
 
@@ -57,7 +57,7 @@ class MeshTest : public ::testing::Test
     const double boxWidth_ = 1.0;
     const int haloWidth_ = 2;
     const int boxNodes_ = 512;
-    Cajita::DimBlockPartitioner<2> partitioner_;
+    Cabana::Grid::DimBlockPartitioner<2> partitioner_;
 
     std::unique_ptr<mesh_type> testMeshPeriodic_;
     std::unique_ptr<mesh_type> testMeshNonperiodic_;
