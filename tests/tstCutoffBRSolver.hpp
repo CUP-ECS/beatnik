@@ -24,9 +24,9 @@ class CutoffBRSolverTest : public TestingBase<T>
 
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
-    using node_array_layout = std::shared_ptr<Cabana::Grid::ArrayLayout<Cabana::Grid::Node, mesh_type>>;
+    using mesh_array_type_layout = std::shared_ptr<Cabana::Grid::ArrayLayout<Cabana::Grid::Node, mesh_type>>;
 
-    using node_array = Cabana::Grid::Array<double, Cabana::Grid::Node, mesh_type, MemorySpace>;
+    using mesh_array_type = Cabana::Grid::Array<double, Cabana::Grid::Node, mesh_type, MemorySpace>;
 
     using br_type = Beatnik::CutoffBRSolver<ExecutionSpace, MemorySpace, Beatnik::Params>;
     using pm_type = Beatnik::ProblemManager<ExecutionSpace, MemorySpace>;

@@ -87,9 +87,9 @@ class ZModel
 
     using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
     using container_layout_type = ArrayUtils::ArrayLayout<local_grid_type, Node>;
-    using node_array = ArrayUtils::Array<container_layout_type, double, memory_space>;
+    using mesh_array_type = ArrayUtils::Array<container_layout_type, double, memory_space>;
 
-    // using node_view = typename node_array::view_type;
+    // using node_view = typename mesh_array_type::view_type;
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
@@ -328,9 +328,9 @@ class ZModel
      * of the interface velocity. This will be projected onto surface normals later 
      * once we have the normals */
     template <class EntityTag>
-    void prepareVelocities(Order::Low, [[maybe_unused]] node_array& zdot,
-                           [[maybe_unused]] node_array& z, node_array& w,
-                           [[maybe_unused]] node_array& omega,
+    void prepareVelocities(Order::Low, [[maybe_unused]] mesh_array_type& zdot,
+                           [[maybe_unused]] mesh_array_type& z, mesh_array_type& w,
+                           [[maybe_unused]] mesh_array_type& omega,
                            EntityTag etag) const
     {
         if constexpr (std::is_same_v<EntityTag, Cabana::Grid::Node>)
@@ -347,8 +347,8 @@ class ZModel
      * normalize for vorticity calculations and directly compute the 
      * interface velocity (zdot) using a far field method. */
     template <class EntityTag>
-    void prepareVelocities(Order::Medium, node_array& zdot, node_array& z, node_array& w,
-                           node_array& omega, EntityTag etag) const
+    void prepareVelocities(Order::Medium, mesh_array_type& zdot, mesh_array_type& z, mesh_array_type& w,
+                           mesh_array_type& omega, EntityTag etag) const
     {
         if constexpr (std::is_same_v<EntityTag, Cabana::Grid::Node>)
         {
@@ -365,8 +365,8 @@ class ZModel
      * using a far field method and later normalize that for use in the vorticity 
      * calculation. */
     template <class EntityTag>
-    void prepareVelocities(Order::High, node_array& zdot, node_array& z,
-                           [[maybe_unused]] node_array& w, node_array& omega,
+    void prepareVelocities(Order::High, mesh_array_type& zdot, mesh_array_type& z,
+                           [[maybe_unused]] mesh_array_type& w, mesh_array_type& omega,
                            [[maybe_unused]] EntityTag etag) const
     {
         if constexpr (std::is_same_v<EntityTag, Cabana::Grid::Node>)
@@ -383,8 +383,8 @@ class ZModel
     // from the previously computed Fourier and/or Birkhoff-Rott velocities and the surface
     // normal based on  the order of technique we're using.
     template <class DecompositionTag>
-    void finalizeVelocity(Order::Low, node_array& zndot, node_array& zdot, 
-        node_array& reisz, node_array& surface_norm, node_array& inv_deth, DecompositionTag tag) const 
+    void finalizeVelocity(Order::Low, mesh_array_type& zndot, mesh_array_type& zdot, 
+        mesh_array_type& reisz, mesh_array_type& surface_norm, mesh_array_type& inv_deth, DecompositionTag tag) const 
     {
         /*
          * zndot = (i, j, 1)
@@ -417,9 +417,9 @@ class ZModel
     }
 
     template <class DecompositionTag>
-    void finalizeVelocity(Order::Medium, node_array& zndot, 
-        [[maybe_unused]] node_array& zdot, 
-        node_array& reisz, [[maybe_unused]] node_array& surface_norm, node_array& inv_deth,
+    void finalizeVelocity(Order::Medium, mesh_array_type& zndot, 
+        [[maybe_unused]] mesh_array_type& zdot, 
+        mesh_array_type& reisz, [[maybe_unused]] mesh_array_type& surface_norm, mesh_array_type& inv_deth,
         DecompositionTag tag) const
     {
         /**
@@ -438,9 +438,9 @@ class ZModel
     }
 
     template <class DecompositionTag>
-    void finalizeVelocity(Order::High, node_array& zndot, node_array& zdot, 
-        [[maybe_unused]] node_array& reisz, 
-        [[maybe_unused]] node_array& surface_norm, [[maybe_unused]] node_array& inv_deth,
+    void finalizeVelocity(Order::High, mesh_array_type& zndot, mesh_array_type& zdot, 
+        [[maybe_unused]] mesh_array_type& reisz, 
+        [[maybe_unused]] mesh_array_type& surface_norm, [[maybe_unused]] mesh_array_type& inv_deth,
         DecompositionTag tag) const
     {
         /**
@@ -459,7 +459,7 @@ class ZModel
     // External entry point from the TimeIntegration object that uses the
     // problem manager state.
     template <class EntityTag, class DecompositionTag>
-    void computeDerivatives( node_array& zdot_ptr, node_array& wdot_ptr,
+    void computeDerivatives( mesh_array_type& zdot_ptr, mesh_array_type& wdot_ptr,
                              EntityTag etag, DecompositionTag dtag ) const
     {
        _pm.gather();
@@ -471,8 +471,8 @@ class ZModel
     // External entry point from the TimeIntegration object that uses the
     // passed-in state
     template <class EntityTag, class DecompositionTag>
-    void computeDerivatives( node_array& z, node_array& w,
-                             node_array& zdot, node_array& wdot,
+    void computeDerivatives( mesh_array_type& z, mesh_array_type& w,
+                             mesh_array_type& zdot, mesh_array_type& wdot,
                              EntityTag etag, DecompositionTag dtag ) const
     {
         _pm.gather( z, w );
@@ -484,8 +484,8 @@ class ZModel
      * etag = Cabana::Grid::Own or NuMesh variant
      */
     template <class EntityTag, class DecompositionTag>
-    void computeVelocities(node_array& z, node_array& z_dx, node_array& z_dy,
-                           node_array& w, node_array& zdot, node_array& wdot,
+    void computeVelocities(mesh_array_type& z, mesh_array_type& z_dx, mesh_array_type& z_dy,
+                           mesh_array_type& w, mesh_array_type& zdot, mesh_array_type& wdot,
                            EntityTag etag, DecompositionTag dtag) const
     {
         /*
@@ -628,8 +628,8 @@ class ZModel
      * dtag = Cabana::Grid::Own or NuMesh variant
      */
     template <class EntityTag, class DecompositionTag>
-    void computeHaloedDerivatives( node_array& z_array, node_array& w_array,
-                                   node_array& zdot_array, node_array& wdot_array,
+    void computeHaloedDerivatives( mesh_array_type& z_array, mesh_array_type& w_array,
+                                   mesh_array_type& zdot_array, mesh_array_type& wdot_array,
                                    EntityTag etag, DecompositionTag dtag ) const
     {
         // External calls to this object work on Cabana::Grid arrays, but internal
@@ -661,7 +661,7 @@ class ZModel
         computeVelocities(z_array, *z_dx, *z_dy, w_array, zdot_array, wdot_array, etag, dtag);
     }
 
-    std::shared_ptr<node_array> getOmega()
+    std::shared_ptr<mesh_array_type> getOmega()
     {
         return _omega;
     }
@@ -714,13 +714,13 @@ class ZModel
     double _dx, _dy;
     double _A, _g, _mu;
     const int _heffte_configuration;
-    std::shared_ptr<node_array> _V;
+    std::shared_ptr<mesh_array_type> _V;
     std::shared_ptr<halo_type> _v_halo;
-    std::shared_ptr<node_array> _omega;
+    std::shared_ptr<mesh_array_type> _omega;
 
     /* XXX Make this conditional on not being the high-order model */ 
-    std::shared_ptr<node_array> _reisz;
-    std::shared_ptr<node_array> _C1, _C2; 
+    std::shared_ptr<mesh_array_type> _reisz;
+    std::shared_ptr<mesh_array_type> _C1, _C2; 
     std::shared_ptr<Cabana::Grid::Experimental::HeffteFastFourierTransform<Cabana::Grid::Node, mesh_type, double, memory_space, exec_space, Cabana::Grid::Experimental::Impl::FFTBackendDefault>> _fft;
 }; // class ZModel
 

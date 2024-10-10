@@ -63,7 +63,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     
     using Node = Cabana::Grid::Node;
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
-    using node_array = typename pm_type::node_array;
+    using mesh_array_type = typename pm_type::mesh_array_type;
     //using node_view = typename pm_type::node_view;
     using node_view = Kokkos::View<double***, device_type>;
 

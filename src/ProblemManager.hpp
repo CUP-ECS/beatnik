@@ -85,7 +85,7 @@ class ProblemManager
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
     using container_layout_type = ArrayUtils::ArrayLayout<local_grid_type, Node>;
-    using node_array = ArrayUtils::Array<container_layout_type, double, mem_space>;
+    using mesh_array_type = ArrayUtils::Array<container_layout_type, double, mem_space>;
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
     using surface_mesh_type = SurfaceMesh<exec_space, mem_space>;
@@ -189,7 +189,7 @@ class ProblemManager
      * @param Field::Position
      * @return Returns Returns Cabana::Array of current position at nodes
      **/
-    std::shared_ptr<node_array> get( Field::Position ) const
+    std::shared_ptr<mesh_array_type> get( Field::Position ) const
     {
         return _position;
     };
@@ -200,7 +200,7 @@ class ProblemManager
      * @param Field::Vorticity
      * @return Returns Cabana::Array of current vorticity at nodes
      **/
-    std::shared_ptr<node_array> get( Field::Vorticity ) const
+    std::shared_ptr<mesh_array_type> get( Field::Vorticity ) const
     {
         return _vorticity;
     };
@@ -220,7 +220,7 @@ class ProblemManager
      * Gather state data from neighbors for temporary position and vorticity 
      * arrays managed by other modules 
      */
-    void gather( node_array &position, node_array &vorticity) const
+    void gather( mesh_array_type &position, mesh_array_type &vorticity) const
     {
         _surface_halo->gather( ExecutionSpace(), *position.array(), *vorticity.array() );
         _bc.applyPosition(_surface_mesh, *position.array());
@@ -248,7 +248,7 @@ class ProblemManager
 
     // Basic long-term quantities stored in the mesh and periodically written
     // to storage (specific computiontional methods may store additional state)
-    std::shared_ptr<node_array> _position, _vorticity;
+    std::shared_ptr<mesh_array_type> _position, _vorticity;
 
     // Halo communication pattern for problem-manager stored data
     std::shared_ptr<halo_type> _surface_halo;

@@ -26,7 +26,7 @@ class TimeIntegratorTest : public TestingBase<T>
     using zm_type_h = Beatnik::ZModel<ExecutionSpace, MemorySpace, Beatnik::Order::High, Beatnik::Params>;
     using ti_type = Beatnik::TimeIntegrator<ExecutionSpace, MemorySpace, zm_type_h>;
     using Node = Cabana::Grid::Node;
-    using node_array =
+    using mesh_array_type =
         Cabana::Grid::Array<double, Node, Cabana::Grid::UniformMesh<double, 2>,
                       MemorySpace>;
   protected:
@@ -34,7 +34,7 @@ class TimeIntegratorTest : public TestingBase<T>
     int rank_, comm_size_;
     int mesh_size = this->meshSize_;
     std::shared_ptr<ti_type> ti_;
-    std::shared_ptr<node_array> z, w;
+    std::shared_ptr<mesh_array_type> z, w;
 
     void SetUp() override
     {

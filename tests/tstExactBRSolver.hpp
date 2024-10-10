@@ -60,10 +60,10 @@ class ExactBRSolverTest : public TestingBase<T>
 
     using l2g_type = Cabana::Grid::IndexConversion::L2G<Cabana::Grid::UniformMesh<double, 2>, Cabana::Grid::Node>;
 
-    using node_array =
+    using mesh_array_type =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
                       MemorySpace>;
-    using node_view = typename node_array::view_type;
+    using node_view = typename mesh_array_type::view_type;
 
   protected:
     MPI_Comm comm_, comm_single_; 
@@ -74,8 +74,8 @@ class ExactBRSolverTest : public TestingBase<T>
     std::shared_ptr<surface_mesh_type> single_mesh_;
     std::shared_ptr<pm_type> single_pm_;
     std::shared_ptr<zm_type_h> single_zm_;
-    std::shared_ptr<node_array> zdot_correct_;
-    std::shared_ptr<node_array> zdot_test_;
+    std::shared_ptr<mesh_array_type> zdot_correct_;
+    std::shared_ptr<mesh_array_type> zdot_test_;
 
 
     void SetUp() override

@@ -148,14 +148,14 @@ class SiloWriter
         auto w = _pm.get( Field::Vorticity() )->array()->view();
 
         // array that we copy data into and then get a mirror view of.
-        Kokkos::View<typename pm_type::node_array::value_type***,
+        Kokkos::View<typename pm_type::mesh_array_type::value_type***,
                      Kokkos::LayoutLeft,
-                     typename pm_type::node_array::memory_space>
+                     typename pm_type::mesh_array_type::memory_space>
             w1Owned( "w1o", node_domain.extent( 0 ), node_domain.extent( 1 ),
                     1 );
-        Kokkos::View<typename pm_type::node_array::value_type***,
+        Kokkos::View<typename pm_type::mesh_array_type::value_type***,
                      Kokkos::LayoutLeft,
-                     typename pm_type::node_array::memory_space>
+                     typename pm_type::mesh_array_type::memory_space>
             w2Owned( "w2o", node_domain.extent( 0 ), node_domain.extent( 1 ),
                     1 );
 

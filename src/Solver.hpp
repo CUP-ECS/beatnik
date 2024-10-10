@@ -126,7 +126,7 @@ class Solver : public SolverBase
 {
   public:
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
-    using node_array =
+    using mesh_array_type =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>, MemorySpace>;
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
     using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder, Params>;

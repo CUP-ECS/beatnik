@@ -43,7 +43,7 @@ class SurfaceMesh
     using Node = Cabana::Grid::Node;
     using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
     using container_layout_type = ArrayUtils::ArrayLayout<local_grid_type, Node>;
-    using node_array = ArrayUtils::Array<container_layout_type, double, memory_space>;
+    using mesh_array_type = ArrayUtils::Array<container_layout_type, double, memory_space>;
 
     // Construct a mesh.
     SurfaceMesh( const std::array<double, 6>& global_bounding_box,
@@ -165,7 +165,7 @@ class SurfaceMesh
      * Compute fourth-order central difference calculation for derivatives along the 
      * interface surface
      */
-    std::shared_ptr<node_array> Dx(const node_array& in, const double dx, Cabana::Grid::Node) const
+    std::shared_ptr<mesh_array_type> Dx(const mesh_array_type& in, const double dx, Cabana::Grid::Node) const
     {
         using Node = Cabana::Grid::Node;
         auto out = ArrayUtils::ArrayOp::clone(in);
@@ -180,7 +180,7 @@ class SurfaceMesh
         });
         return out;
     }
-    std::shared_ptr<node_array> Dy(const node_array& in, const double dy, Cabana::Grid::Node) const
+    std::shared_ptr<mesh_array_type> Dy(const mesh_array_type& in, const double dy, Cabana::Grid::Node) const
     {
         using Node = Cabana::Grid::Node;
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
@@ -197,7 +197,7 @@ class SurfaceMesh
     }
 
     /* 9-point laplace stencil operator for computing artificial viscosity */
-    std::shared_ptr<node_array> laplace(const node_array& in, const double dx, const double dy, Cabana::Grid::Node) const
+    std::shared_ptr<mesh_array_type> laplace(const mesh_array_type& in, const double dx, const double dy, Cabana::Grid::Node) const
     {
         using Node = Cabana::Grid::Node;
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
@@ -214,9 +214,9 @@ class SurfaceMesh
         return out;
     }
 
-    // XXX - Assert that the mesh and node_arrays are the right type 
+    // XXX - Assert that the mesh and mesh_array_types are the right type 
     // at the beginning of these functions
-    std::shared_ptr<node_array> omega(const node_array& w, const node_array& z_dx, const node_array& z_dy, Cabana::Grid::Node) const
+    std::shared_ptr<mesh_array_type> omega(const mesh_array_type& w, const mesh_array_type& z_dx, const mesh_array_type& z_dy, Cabana::Grid::Node) const
     {
         using Node = Cabana::Grid::Node;
         auto zdx_view = z_dx.array()->view();
@@ -224,7 +224,7 @@ class SurfaceMesh
         auto w_view = w.array()->view();
         auto layout = z_dx.clayout()->layout();
         auto node_triple_layout = ArrayUtils::createArrayLayout( layout->localGrid(), 3, Node() );
-        std::shared_ptr<node_array> out = ArrayUtils::createArray<double, memory_space>("omega", 
+        std::shared_ptr<mesh_array_type> out = ArrayUtils::createArray<double, memory_space>("omega", 
                                                        node_triple_layout);
         auto out_view = out->array()->view();
         auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Node(), Cabana::Grid::Local());

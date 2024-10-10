@@ -35,7 +35,7 @@ class TimeIntegrator
     using Node = Cabana::Grid::Node;
     using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
     using container_layout_type = ArrayUtils::ArrayLayout<local_grid_type, Node>;
-    using node_array = ArrayUtils::Array<container_layout_type, double, memory_space>;
+    using mesh_array_type = ArrayUtils::Array<container_layout_type, double, memory_space>;
 
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
 
@@ -190,7 +190,7 @@ class TimeIntegrator
     const ProblemManager<ExecutionSpace, MemorySpace> & _pm;
     const BoundaryCondition &_bc;
     const ZModelType & _zm;
-    std::shared_ptr<node_array> _zdot, _wdot, _wtmp, _ztmp;
+    std::shared_ptr<mesh_array_type> _zdot, _wdot, _wtmp, _ztmp;
 };
 
 } // end namespace Beatnik
