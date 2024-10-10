@@ -40,19 +40,18 @@ namespace Beatnik
  * @class SiloWriter
  * @brief SiloWriter class to write results to Silo file using PMPIO
  **/
-template <class ExecutionSpace, class MemorySpace>
+template <class ProblemManagerType>
 class SiloWriter
 {
   public:
-    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
+    using memory_space = typename ProblemManagerType::memory_space;
+    using value_type = typename ProblemManagerType::beatnik_mesh_type::value_type;
     /**
      * Constructor
      * Create new SiloWriter
      *
      * @param pm Problem manager object
      */
-    template <class ProblemManagerType>
     SiloWriter( ProblemManagerType& pm )
         : _pm( pm )
     {
@@ -148,14 +147,10 @@ class SiloWriter
         auto w = _pm.get( Field::Vorticity() )->array()->view();
 
         // array that we copy data into and then get a mirror view of.
-        Kokkos::View<typename pm_type::mesh_array_type::value_type***,
-                     Kokkos::LayoutLeft,
-                     typename pm_type::mesh_array_type::memory_space>
+        Kokkos::View<value_type***, Kokkos::LayoutLeft, memory_space>
             w1Owned( "w1o", node_domain.extent( 0 ), node_domain.extent( 1 ),
                     1 );
-        Kokkos::View<typename pm_type::mesh_array_type::value_type***,
-                     Kokkos::LayoutLeft,
-                     typename pm_type::mesh_array_type::memory_space>
+        Kokkos::View<value_type***, Kokkos::LayoutLeft, memory_space>
             w2Owned( "w2o", node_domain.extent( 0 ), node_domain.extent( 1 ),
                     1 );
 
@@ -400,7 +395,7 @@ class SiloWriter
     }
         
   private:
-    const pm_type &_pm;
+    const ProblemManagerType &_pm;
 }; 
 
 }; // namespace Beatnik

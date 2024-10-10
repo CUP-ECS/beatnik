@@ -12,9 +12,9 @@
 #ifndef BEATNIK_CREATEMESH_HPP
 #define BEATNIK_CREATEMESH_HPP
 
-#include <BRSolverBase.hpp>
-#include <ExactBRSolver.hpp>
-#include <CutoffBRSolver.hpp>
+#include <MeshBase.hpp>
+#include <StructuredMesh.hpp>
+#include <UnstructuredMesh.hpp>
 
 
 namespace Beatnik
@@ -24,21 +24,24 @@ namespace Beatnik
 /* Separate header for createBRSolver to avoid circular 
  * dependencies between BRSolverBase and the BR solver options.
  */
-template <class ExecutionSpace, class MemorySpace, class MeshTypeTag, class EntityType, class Scalar, class Params>
-std::unique_ptr<MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag, EntityType, Scalar, Params>>
-createMesh( const pm_type &pm, const BoundaryCondition &bc,
-                const double epsilon, const double dx, const double dy,
-                const Params params )
+template <class ExecutionSpace, class MemorySpace, class MeshTypeTag>
+std::unique_ptr<MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>>
+createMesh( const std::array<double, 6>& global_bounding_box,
+            const std::array<int, 2>& num_nodes,
+	        const std::array<bool, 2>& periodic,
+            const Cabana::Grid::BlockPartitioner<2>& partitioner,
+            const int min_halo_width, MPI_Comm comm )
 {
     if constexpr (std::is_same_v<MeshTypeTag, Mesh::Structured>)
     {
-        using br_type = Beatnik::ExactBRSolver<ExecutionSpace, MemorySpace, Params>;
-        return std::make_unique<br_type>(pm, bc, epsilon, dx, dy, params);
+        using beatnik_mesh_type = StructuredMesh<ExecutionSpace, MemorySpace, MeshTypeTag>;
+        return std::make_unique<beatnik_mesh_type>(global_bounding_box, num_nodes, periodic,
+            partitioner, min_halo_width, comm);
     }
     else if constexpr (std::is_same_v<MeshTypeTag, Mesh::Unstructured>)
     {
-        using br_type = Beatnik::CutoffBRSolver<ExecutionSpace, MemorySpace, Params>;
-        return std::make_unique<br_type>(pm, bc, epsilon, dx, dy, params);
+        using beatnik_mesh_type = UnstructuredMesh<ExecutionSpace, MemorySpace, MeshTypeTag>;
+        return std::make_unique<beatnik_mesh_type>(comm, periodic);
     }
     std::cerr << "createMesh:: Invalid mesh type.\n";
     Kokkos::finalize();

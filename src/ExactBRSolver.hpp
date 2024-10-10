@@ -37,7 +37,7 @@
 
 #include <memory>
 
-#include <SurfaceMesh.hpp>
+#include <StructuredMesh.hpp>
 #include <ProblemManager.hpp>
 #include <Operators.hpp>
 #include <BRSolverBase.hpp>
@@ -51,34 +51,23 @@ namespace Beatnik
  * @brief Directly solves the Birkhoff-Rott integral using brute-force 
  * all-pairs calculation
  **/
-template <class ExecutionSpace, class MemorySpace, class Params>
-class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
+template <class ProblemManagerType, class Params>
+class ExactBRSolver : public BRSolverBase<ProblemManagerType, Params>
 {
   public:
-    using exec_space = ExecutionSpace;
-    using memory_space = MemorySpace;
-    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
-    using spatial_mesh_type = SpatialMesh<ExecutionSpace, MemorySpace>;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
-    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
-    
-    using Node = Cabana::Grid::Node;
-    using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
-    using mesh_array_type = typename pm_type::mesh_array_type;
-    //using node_view = typename pm_type::node_view;
-    using node_view = Kokkos::View<double***, device_type>;
+    using execution_space = typename ProblemManagerType::execution_space;
+    using node_view = typename BRSolverBase<ProblemManagerType, Params>::node_view;
+    using mesh_type = typename ProblemManagerType::mesh_type::mesh_type; // This is a Cabana::Grid::Mesh type
+    using entity_type = typename ProblemManagerType::entity_type;
+    using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, entity_type>;
 
-    using halo_type = Cabana::Grid::Halo<MemorySpace>;
-
-    ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc,
-                   const double epsilon, const double dx, const double dy,
-                   const Params params)
+    ExactBRSolver( const ProblemManagerType &pm, const BoundaryCondition &bc,
+                   const double epsilon, const double dx, const double dy)
         : _pm( pm )
         , _bc( bc )
         , _epsilon( epsilon )
         , _dx( dx )
         , _dy( dy )
-        , _params( params )
         , _local_L2G( *_pm.mesh().localGrid() )
         , _comm( _pm.mesh().localGrid()->globalGrid().comm() )
     {
@@ -163,8 +152,8 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         int l_num_cols = lmax[1] - lmin[1];
         int r_num_cols = rmax[1] - rmin[1];
         
-        typedef typename Kokkos::TeamPolicy<exec_space>::member_type member_type;
-        Kokkos::TeamPolicy<exec_space> mesh_policy(local_size, Kokkos::AUTO);
+        typedef typename Kokkos::TeamPolicy<execution_space>::member_type member_type;
+        Kokkos::TeamPolicy<execution_space> mesh_policy(local_size, Kokkos::AUTO);
         Kokkos::parallel_for("Exact BR Force Team Loop", mesh_policy, 
             KOKKOS_LAMBDA(member_type team) 
         {
@@ -391,10 +380,9 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
   private:
     
-    const pm_type & _pm;
+    const ProblemManagerType & _pm;
     const BoundaryCondition & _bc;
     double _epsilon, _dx, _dy;
-    const Params _params;
     
     l2g_type _local_L2G;
     MPI_Comm _comm;

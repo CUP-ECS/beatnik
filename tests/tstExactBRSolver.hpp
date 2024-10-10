@@ -53,7 +53,7 @@ class ExactBRSolverTest : public TestingBase<T>
     using MemorySpace = typename T::MemorySpace;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
 
-    using surface_mesh_type = Beatnik::SurfaceMesh<ExecutionSpace,MemorySpace>;
+    using surface_mesh_type = Beatnik::StructuredMesh<ExecutionSpace,MemorySpace>;
     using pm_type = Beatnik::ProblemManager<ExecutionSpace, MemorySpace>;
     using br_exact_type = Beatnik::ExactBRSolver<ExecutionSpace, MemorySpace, Beatnik::Params>;
     using zm_type_h = Beatnik::ZModel<ExecutionSpace, MemorySpace, Beatnik::Order::High, Beatnik::Params>;

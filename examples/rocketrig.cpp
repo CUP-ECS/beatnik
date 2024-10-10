@@ -92,6 +92,7 @@ static option longargs[] = {
 
 enum InitialConditionModel {IC_COS = 0, IC_SECH2, IC_GAUSSIAN, IC_RANDOM, IC_FILE};
 enum SolverOrder {ORDER_LOW = 0, ORDER_MEDIUM, ORDER_HIGH};
+enum MeshType {MESH_STRUCTURED = 0, MESH_UNSTRUCTURED};
 
 /**
  * @struct ClArgs
@@ -101,6 +102,7 @@ enum SolverOrder {ORDER_LOW = 0, ORDER_MEDIUM, ORDER_HIGH};
 struct ClArgs
 {
     /* Problem physical setup */
+    enum MeshType mesh_type;
     // std::array<double, 6> global_bounding_box;    /**< Size of initial spatial domain: MOVED TO PARAMS */
     enum InitialConditionModel initial_condition; /**< Model used to set initial conditions */
     double tilt;    /**< Initial tilt of interface */
@@ -221,7 +223,6 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.write_freq = 10;
 
     // Set default extra parameters
-    cl.params.mesh_type = MeshType::MESH_STRUCTURED;
     cl.params.cutoff_distance = 0.5;
     cl.params.heffte_configuration = 6;
     cl.params.br_solver = BR_EXACT;
@@ -229,6 +230,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     // cl.params.period below
 
     /* Default problem is the cosine rocket rig */
+    cl.mesh_type = MeshType::MESH_STRUCTURED;
     cl.num_nodes = { 128, 128 };
     cl.bounding_box = 1.0;
     cl.initial_condition = IC_COS;
@@ -276,11 +278,11 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         case 'Z':
         {
             int val = std::atoi( optarg );
-            if (val == 0) cl.params.mesh_type = MeshType::MESH_STRUCTURED;
-            else if (val == 1) cl.params.mesh_type = MeshType::MESH_UNSTRUCTURED;
+            if (val == 0) cl.mesh_type = MeshType::MESH_STRUCTURED;
+            else if (val == 1) cl.mesh_type = MeshType::MESH_UNSTRUCTURED;
             else if (rank == 0)
             {
-                std::cerr << "Invalid mesh type: " << cl.params.mesh_type << "\n"
+                std::cerr << "Invalid mesh type: " << cl.mesh_type << "\n"
                           << "Must be 0 or 1." << "\n";
                 help( rank, argv[0] );
                 Kokkos::finalize(); 
@@ -746,23 +748,29 @@ void rocketrig( ClArgs& cl )
                               cl.num_nodes, cl.boundary );
 
     std::shared_ptr<Beatnik::SolverBase> solver;
-    if (cl.params.solver_order == SolverOrder::ORDER_LOW) {
+    if ((cl.params.solver_order == SolverOrder::ORDER_LOW) && (cl.mesh_type == MeshType::MESH_STRUCTURED)) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t,
+            bc, Beatnik::Order::Low(), Beatnik::Mesh::Structured(), cl.mu, cl.eps, cl.delta_t,
             cl.params );
-    } else if (cl.params.solver_order == SolverOrder::ORDER_MEDIUM) {
+    } else if (cl.params.solver_order == SolverOrder::ORDER_MEDIUM && (cl.mesh_type == MeshType::MESH_STRUCTURED)) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t,
+            bc, Beatnik::Order::Medium(), Beatnik::Mesh::Structured(),cl.mu, cl.eps, cl.delta_t,
             cl.params );
-    } else if (cl.params.solver_order == SolverOrder::ORDER_HIGH) {
+    } else if (cl.params.solver_order == SolverOrder::ORDER_HIGH && (cl.mesh_type == MeshType::MESH_STRUCTURED)) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t,
+            bc, Beatnik::Order::High(), Beatnik::Mesh::Structured(),cl.mu, cl.eps, cl.delta_t,
+            cl.params );
+    } else if (cl.params.solver_order == SolverOrder::ORDER_HIGH && (cl.mesh_type == MeshType::MESH_UNSTRUCTURED)) {
+        solver = Beatnik::createSolver(
+            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
+            partitioner, cl.atwood, cl.gravity, initializer,
+            bc, Beatnik::Order::High(), Beatnik::Mesh::Unstructured(),cl.mu, cl.eps, cl.delta_t,
             cl.params );
     } else {
         std::cerr << "Invalid Model Order parameter!\n";
@@ -807,7 +815,7 @@ int main( int argc, char* argv[] )
                   << ": " << std::setw( 8 ) << cl.driver
                   << "\n"; // Threading Setting
         std::cout << std::left << std::setw( 30 ) << "Mesh type"
-                  << ": " << std::setw( 8 ) << cl.params.mesh_type
+                  << ": " << std::setw( 8 ) << cl.mesh_type
                   << "\n"; // Mesh type
         std::cout << std::left << std::setw( 30 ) << "Mesh Dimension"
                   << ": " << cl.num_nodes[0] << ", "

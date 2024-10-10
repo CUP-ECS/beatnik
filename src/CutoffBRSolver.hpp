@@ -36,7 +36,7 @@
 
 #include <BRSolverBase.hpp>
 #include <HaloComm.hpp>
-#include <SurfaceMesh.hpp>
+#include <StructuredMesh.hpp>
 #include <ProblemManager.hpp>
 #include <Operators.hpp>
 
@@ -50,24 +50,16 @@ namespace Beatnik
  * all-pairs calculation, limited by a cutoff distance
  * XXX - Make all functions but computeInterfaceVelocity private?
  **/
-template <class ExecutionSpace, class MemorySpace, class Params>
-class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
+template <class ProblemManagerType, class Params>
+class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
 {
   public:
-    using exec_space = ExecutionSpace;
-    using memory_space = MemorySpace;
-    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
-    using spatial_mesh_type = SpatialMesh<ExecutionSpace, MemorySpace>;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
-    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
+    using execution_space = typename ProblemManagerType::execution_space;
+    using memory_space = typename ProblemManagerType::memory_space;
+    using spatial_mesh_type = SpatialMesh<execution_space, memory_space>;
+    using device_type = Kokkos::Device<execution_space, memory_space>;
     
-    using Node = Cabana::Grid::Node;
-    using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
-    using mesh_array_type = typename pm_type::mesh_array_type;
-    //using node_view = typename pm_type::node_view;
     using node_view = Kokkos::View<double***, device_type>;
-
-    using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
     using particle_node = Cabana::MemberTypes<double[3], // xyz position in space                           0
                                               double[3], // Own omega for BR                                1
@@ -88,7 +80,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     using local_grid_layout = Cabana::Grid::LocalGrid<spatial_mesh_layout>;
 
 
-    CutoffBRSolver( const pm_type &pm, const BoundaryCondition &bc,
+    CutoffBRSolver( const ProblemManagerType &pm, const BoundaryCondition &bc,
                     const double epsilon, const double dx, const double dy,
                     const Params params)
         : _pm( pm )
@@ -207,7 +199,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         l2g_type local_L2G = _local_L2G;
 
 	    // We should convert this to a Cabana::simd_parallel_for at some point to get better write behavior
-        Kokkos::parallel_for("populate_particles", Kokkos::MDRangePolicy<exec_space, Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
+        Kokkos::parallel_for("populate_particles", Kokkos::MDRangePolicy<execution_space, Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
         KOKKOS_LAMBDA(int i, int j) {
 
             int particle_id = (i - istart) * (jend - jstart) + (j - jstart);
@@ -259,7 +251,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         int rank = _rank;
         auto rank3d_part = Cabana::slice<7>(particle_array);
         auto id3d_part = Cabana::slice<8>(particle_array);
-        Kokkos::parallel_for("3D origin rank", Kokkos::RangePolicy<exec_space>(0, particle_array.size()), KOKKOS_LAMBDA(int i) {
+        Kokkos::parallel_for("3D origin rank", Kokkos::RangePolicy<execution_space>(0, particle_array.size()), KOKKOS_LAMBDA(int i) {
             rank3d_part(i) = rank;
             id3d_part(i) = i;
         });
@@ -335,7 +327,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             getPeriodicNeighbors(is_neighbor);
 
 
-            Kokkos::parallel_for("fix_haloed_particle_positions", Kokkos::RangePolicy<exec_space>(local_count, total_size), 
+            Kokkos::parallel_for("fix_haloed_particle_positions", Kokkos::RangePolicy<execution_space>(local_count, total_size), 
                              KOKKOS_LAMBDA(int index) {
 
                 /* If local process is not on a boundary, exit. No particles
@@ -422,7 +414,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         auto omega_part = Cabana::slice<1>(particle_array);
         auto zdot_part = Cabana::slice<2>(particle_array);
         auto weight_part = Cabana::slice<3>(particle_array);
-        Kokkos::parallel_for("compute_BR_with_neighbors", Kokkos::RangePolicy<exec_space>(0, owned_3D_count), 
+        Kokkos::parallel_for("compute_BR_with_neighbors", Kokkos::RangePolicy<execution_space>(0, owned_3D_count), 
                              KOKKOS_LAMBDA(int my_id) {
             int num_neighbors = Cabana::NeighborList<list_type>::numNeighbor(neighbor_list, my_id);
             double brsum[3] = {0.0, 0.0, 0.0};
@@ -461,7 +453,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
         auto zdot_part = Cabana::slice<2>(particle_array);
         auto idx_part = Cabana::slice<4>(particle_array);
-        Kokkos::parallel_for("update_zdot", Kokkos::RangePolicy<exec_space>(0, particle_array.size()), 
+        Kokkos::parallel_for("update_zdot", Kokkos::RangePolicy<execution_space>(0, particle_array.size()), 
             KOKKOS_LAMBDA(int i) {
             int i_index = idx_part(i, 0);
             int j_index = idx_part(i, 1);
@@ -542,11 +534,10 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     }
 
   private:
-    const pm_type & _pm;
+    const ProblemManagerType & _pm;
     const BoundaryCondition & _bc;
     double _epsilon, _dx, _dy;
     const Params _params;
-    l2g_type _local_L2G;
     
     MPI_Comm _comm;
     int _rank, _comm_size;

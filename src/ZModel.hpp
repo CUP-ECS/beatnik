@@ -34,7 +34,7 @@
 #include <memory>
 
 #include <Beatnik_Types.hpp>
-#include <SurfaceMesh.hpp>
+#include <StructuredMesh.hpp>
 #include <CreateBRSolver.hpp>
 #include <Beatnik_ArrayUtils.hpp>
 
@@ -45,17 +45,6 @@ int di = 4, dj = 3;
 
 namespace Beatnik
 {
-
-
-// Type tags designating difference orders of the zmodel
-namespace Order
-{
-    struct Low {};
-
-    struct Medium {};
-
-    struct High {};
-} // namespace Order
 
 /**
  * The ZModel Class
@@ -70,39 +59,25 @@ namespace Order
 /*Then see if it's worth moving everything to templates
  * 
  */
-template <class ExecutionSpace, class MemorySpace, class MethodOrder, class Params>
+template <class ProblemManagerType, class BRSolverType>
 class ZModel
 {
   public:
-    using exec_space = ExecutionSpace;
-    using memory_space = MemorySpace;
-    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
-    using br_solver_type = BRSolverBase<ExecutionSpace, MemorySpace, Params>;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
-    using mesh_type = Cabana::Grid::UniformMesh<double, 2>; 
-    //using typename ArrayType = 
+    using execution_space = typename ProblemManagerType::execution_space;
+    using memory_space = typename ProblemManagerType::memory_space;
+    using mesh_type_tag = typename ProblemManagerType::mesh_type_tag;
+    using mesh_type = typename ProblemManagerType::mesh_type::mesh_type; // This is a Cabana::Grid::Mesh type
+    using mesh_array_type = typename ProblemManagerType::mesh_array_type;
+    using halo_type = Cabana::Grid::Halo<memory_space>;
 
-    using Node = Cabana::Grid::Node;
-    using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
-
-    using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
-    using container_layout_type = ArrayUtils::ArrayLayout<local_grid_type, Node>;
-    using mesh_array_type = ArrayUtils::Array<container_layout_type, double, memory_space>;
-
-    // using node_view = typename mesh_array_type::view_type;
-
-    using halo_type = Cabana::Grid::Halo<MemorySpace>;
-
-    ZModel( const pm_type & pm, const BoundaryCondition &bc,
-            const br_solver_type *br, /* pointer because could be null */
-            const Params params,
+    ZModel( const ProblemManagerType & pm, const BoundaryCondition &bc,
+            const BRSolverType *br, /* pointer because could be null */
             const double dx, const double dy, 
             const double A, const double g, const double mu,
             const int heffte_configuration)
         : _pm( pm )
         , _bc( bc )
         , _br( br )
-        , _params( params )
         , _dx( dx )
         , _dy( dy )
         , _A( A )
@@ -533,7 +508,7 @@ class ZModel
         // Clone another 1D array to create zndot, which is also 1D.
         auto zndot = ArrayUtils::ArrayOp::clone(*h11); 
         ArrayUtils::ArrayOp::assign(*zndot, 0.0, dtag); // XXX - Should not be needed
-        finalizeVelocity(MethodOrder(), *zndot, zdot, *_reisz, *surface_normal, *inv_deth, dtag);
+        finalizeVelocity(ModelOrderTag(), *zndot, zdot, *_reisz, *surface_normal, *inv_deth, dtag);
         // printf("%d, %d: zndot: %0.5lf\n", di, dj, zndot->array()->view()(di, dj, 0));
 
 
@@ -584,12 +559,12 @@ class ZModel
 
         // Halo V and correct any boundary condition corrections so that we can 
         // compute finite differences correctly.
-        if (_params.mesh_type == MeshType::MESH_STRUCTURED)
+        if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
         {
             _v_halo->gather( ExecutionSpace(), *_V->array());
             _bc.applyField( _pm.mesh(), *_V->array(), 1 );
         }
-        else if (_params.mesh_type == MeshType::MESH_UNSTRUCTURED)
+        else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
         {
             // XXX - Unstructured gather operation
         }
@@ -657,7 +632,7 @@ class ZModel
         //printView(local_l2g, 0, z_view, 1, 2, 2);
 
         // Phase 1.b: Compute zdot
-        prepareVelocities(MethodOrder(), zdot_array, z_array, w_array, *_omega, etag);
+        prepareVelocities(ModelOrderTag(), zdot_array, z_array, w_array, *_omega, etag);
         computeVelocities(z_array, *z_dx, *z_dy, w_array, zdot_array, wdot_array, etag, dtag);
     }
 
@@ -707,10 +682,9 @@ class ZModel
     }
 
   private:
-    const pm_type & _pm;
+    const ProblemManagerType & _pm;
     const BoundaryCondition & _bc;
-    const br_solver_type *_br;
-    const Params _params;
+    const BRSolverType *_br;
     double _dx, _dy;
     double _A, _g, _mu;
     const int _heffte_configuration;
@@ -721,7 +695,7 @@ class ZModel
     /* XXX Make this conditional on not being the high-order model */ 
     std::shared_ptr<mesh_array_type> _reisz;
     std::shared_ptr<mesh_array_type> _C1, _C2; 
-    std::shared_ptr<Cabana::Grid::Experimental::HeffteFastFourierTransform<Cabana::Grid::Node, mesh_type, double, memory_space, exec_space, Cabana::Grid::Experimental::Impl::FFTBackendDefault>> _fft;
+    std::shared_ptr<Cabana::Grid::Experimental::HeffteFastFourierTransform<Cabana::Grid::Node, mesh_type, double, memory_space, execution_space, Cabana::Grid::Experimental::Impl::FFTBackendDefault>> _fft;
 }; // class ZModel
 
 } // namespace Beatnik

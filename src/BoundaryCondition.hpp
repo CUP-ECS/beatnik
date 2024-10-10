@@ -25,7 +25,7 @@
 
 // Include Statements
 #include <Beatnik_Types.hpp>
-#include <SurfaceMesh.hpp>
+#include <StructuredMesh.hpp>
 
 #include <Kokkos_Core.hpp>
 #include "Operators.hpp"
@@ -73,7 +73,7 @@ struct BoundaryCondition
     void applyField(const MeshType &mesh, ArrayType field, int dof) const
     {
         using exec_space = typename ArrayType::execution_space;
-        auto local_grid = *(mesh.localGrid());
+        auto local_grid = *(mesh.layoutObj());
         auto f = field.view();
         
         /* Loop through the directions to correct boundary index spaces when
@@ -233,7 +233,7 @@ struct BoundaryCondition
     {
         using exec_space = typename ArrayType::execution_space;
 
-        auto local_grid = *(mesh.localGrid());
+        auto local_grid = *(mesh.layoutObj());
 
         /* Loop through the directions to correct periodic boundaries */
         for (int i = -1; i < 2; i++) {

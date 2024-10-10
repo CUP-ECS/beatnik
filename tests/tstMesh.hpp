@@ -32,7 +32,7 @@ class MeshTest : public TestingBase<T>
     using mesh_array_type =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
                       typename T::MemorySpace>;
-    using mesh_type = Beatnik::SurfaceMesh<typename T::ExecutionSpace, typename T::MemorySpace>;
+    using mesh_type = Beatnik::StructuredMesh<typename T::ExecutionSpace, typename T::MemorySpace>;
 
   protected:
     void SetUp() override

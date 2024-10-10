@@ -24,20 +24,55 @@ enum MeshBoundaryType {PERIODIC = 0, FREE = 1};
 
 enum BRSolverType {BR_EXACT = 0, BR_CUTOFF = 1};
 
-enum MeshType {MESH_STRUCTURED = 0, MESH_UNSTRUCTURED = 1};
-
-
 //---------------------------------------------------------------------------//
 // Mesh tags
 //---------------------------------------------------------------------------//
 namespace Mesh
 {
+    struct Structured {};
 
-struct Structured {};
-
-struct Unstructured {};
-
+    struct Unstructured {};
 } // end namespace Mesh
+
+
+//---------------------------------------------------------------------------//
+// Tags designating different orders of the zmodel
+//---------------------------------------------------------------------------//
+namespace Order
+{
+    struct Low {};
+
+    struct Medium {};
+
+    struct High {};
+} // namespace Order
+
+
+//---------------------------------------------------------------------------//
+// Tags designating different fields of state array entities
+//---------------------------------------------------------------------------//
+/**
+ * @namespace Field
+ * @brief Field namespace to track state array entities
+ **/
+namespace Field
+{
+
+    /**
+     * @struct Position
+     * @brief Tag structure for the position of the surface mesh point in 
+     * 3-space
+     **/
+    struct Position {};
+
+    /**
+     * @struct Vorticity
+     * @brief Tag structure for the magnitude of vorticity at each surface mesh 
+     * point 
+     **/
+    struct Vorticity {};
+
+}; // end namespace Field
 
 //---------------------------------------------------------------------------//
 // Static type checkers

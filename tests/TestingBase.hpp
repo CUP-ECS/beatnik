@@ -134,7 +134,7 @@ class TestingBase : public ::testing::Test
 
     using mesh_array_type = Cabana::Grid::Array<double, Cabana::Grid::Node, mesh_type, MemorySpace>;
 
-    using surface_mesh_type = Beatnik::SurfaceMesh<ExecutionSpace,MemorySpace>;
+    using surface_mesh_type = Beatnik::StructuredMesh<ExecutionSpace,MemorySpace>;
     using pm_type = Beatnik::ProblemManager<ExecutionSpace, MemorySpace>;
     using br_cutoff_type = Beatnik::CutoffBRSolver<ExecutionSpace, MemorySpace, Beatnik::Params>;
     using br_exact_type = Beatnik::ExactBRSolver<ExecutionSpace, MemorySpace, Beatnik::Params>;

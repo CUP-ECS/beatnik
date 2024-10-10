@@ -25,24 +25,14 @@ namespace Beatnik
 
 // The time integrator requires temporary state for runge kutta interpolation
 // which are stored as part of this object 
-template <class ExecutionSpace, class MemorySpace, class ZModelType>
+template <class ProblemManagerType, class ZModelType>
 class TimeIntegrator
 {
-    using exec_space = ExecutionSpace;
-    using memory_space = MemorySpace;
-    using device_type = Kokkos::Device<exec_space, memory_space>;
-    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
-    using Node = Cabana::Grid::Node;
-    using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
-    using container_layout_type = ArrayUtils::ArrayLayout<local_grid_type, Node>;
-    using mesh_array_type = ArrayUtils::Array<container_layout_type, double, memory_space>;
-
-    using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
-
-    // using halo_type = Cabana::Grid::Halo<MemorySpace>;
+    using memory_space = typename ProblemManagerType::memory_space;
+    using mesh_array_type = typename ProblemManagerType::mesh_array_type;
 
   public:
-    TimeIntegrator( const ProblemManager<exec_space, memory_space> & pm,
+    TimeIntegrator( const ProblemManagerType & pm,
                     const BoundaryCondition & bc,
                     const ZModelType & zm )
     : _pm(pm)
@@ -187,9 +177,9 @@ class TimeIntegrator
     }
 
   private:
-    const ProblemManager<ExecutionSpace, MemorySpace> & _pm;
-    const BoundaryCondition &_bc;
-    const ZModelType & _zm;
+    const ProblemManagerType& _pm;
+    const BoundaryCondition&_bc;
+    const ZModelType& _zm;
     std::shared_ptr<mesh_array_type> _zdot, _wdot, _wtmp, _ztmp;
 };
 

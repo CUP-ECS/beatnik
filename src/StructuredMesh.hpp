@@ -30,21 +30,21 @@ namespace Beatnik
 {
 //---------------------------------------------------------------------------//
 /*!
-  \class SurfaceMesh
+  \class StructuredMesh
   \brief Logically uniform Cartesian mesh.
 */
-template <class ExecutionSpace, class MemorySpace, class MeshTypeTag, class EntityType, class Scalar>
-class SurfaceMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag, EntityType, Scalar>
+template <class ExecutionSpace, class MemorySpace, class MeshTypeTag>
+class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
 {
   public:
     using memory_space = MemorySpace;
     using execution_space = ExecutionSpace;
-    using Node = Cabana::Grid::Node;
-    using local_grid_type = typename MeshBase::mesh_type;
-    using mesh_array_type = typename MeshBase::mesh_array_type;
+    using mesh_type_tag = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_type_tag;
+    using entity_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::entity_type;
+    using local_grid_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_type;
+    using mesh_array_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_array_type;
 
-    // Construct a mesh.
-    SurfaceMesh( const std::array<double, 6>& global_bounding_box,
+    StructuredMesh( const std::array<double, 6>& global_bounding_box,
           const std::array<int, 2>& num_nodes,
 	      const std::array<bool, 2>& periodic,
           const Cabana::Grid::BlockPartitioner<2>& partitioner,
@@ -126,7 +126,7 @@ class SurfaceMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag, En
     }
 
     // Get the local grid.
-    const std::shared_ptr<local_grid_type> localGrid() const
+    std::shared_ptr<local_grid_type> layoutObj() const override
     {
         return _local_grid;
     }
@@ -163,9 +163,8 @@ class SurfaceMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag, En
      * Compute fourth-order central difference calculation for derivatives along the 
      * interface surface
      */
-    std::shared_ptr<mesh_array_type> Dx(const mesh_array_type& in, const double dx, Cabana::Grid::Node) const override
+    std::shared_ptr<mesh_array_type> Dx(const mesh_array_type& in, const double dx) const override
     {
-        using Node = Cabana::Grid::Node;
         auto out = ArrayUtils::ArrayOp::clone(in);
         auto out_view = out->array()->view();
         auto in_view = in.array()->view();
@@ -178,9 +177,8 @@ class SurfaceMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag, En
         });
         return out;
     }
-    std::shared_ptr<mesh_array_type> Dy(const mesh_array_type& in, const double dy, Cabana::Grid::Node) const override
+    std::shared_ptr<mesh_array_type> Dy(const mesh_array_type& in, const double dy) const override
     {
-        using Node = Cabana::Grid::Node;
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
         auto out_view = out->array()->view();
         auto in_view = in.array()->view();
@@ -195,9 +193,8 @@ class SurfaceMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag, En
     }
 
     /* 9-point laplace stencil operator for computing artificial viscosity */
-    std::shared_ptr<mesh_array_type> laplace(const mesh_array_type& in, const double dx, const double dy, Cabana::Grid::Node) const override
+    std::shared_ptr<mesh_array_type> laplace(const mesh_array_type& in, const double dx, const double dy) const override
     {
-        using Node = Cabana::Grid::Node;
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
         auto out_view = out->array()->view();
         auto in_view = in.array()->view();
@@ -214,7 +211,7 @@ class SurfaceMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag, En
 
     // XXX - Assert that the mesh and mesh_array_types are the right type 
     // at the beginning of these functions
-    std::shared_ptr<mesh_array_type> omega(const mesh_array_type& w, const mesh_array_type& z_dx, const mesh_array_type& z_dy, Cabana::Grid::Node) const override
+    std::shared_ptr<mesh_array_type> omega(const mesh_array_type& w, const mesh_array_type& z_dx, const mesh_array_type& z_dy) const override
     {
         using Node = Cabana::Grid::Node;
         auto zdx_view = z_dx.array()->view();

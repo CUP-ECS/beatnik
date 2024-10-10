@@ -23,20 +23,20 @@ namespace Beatnik
 /* Separate header for createBRSolver to avoid circular 
  * dependencies between BRSolverBase and the BR solver options.
  */
-template <class pm_type, class ExecutionSpace, class MemorySpace, class Params>
-std::unique_ptr<BRSolverBase<ExecutionSpace, MemorySpace, Params>>
-createBRSolver( const pm_type &pm, const BoundaryCondition &bc,
+template <class ProblemManagerType, class Params>
+std::unique_ptr<BRSolverBase<ProblemManagerType, Params>>
+createBRSolver( const ProblemManagerType &pm, const BoundaryCondition &bc,
                 const double epsilon, const double dx, const double dy,
                 const Params params )
 {
     if ( params.br_solver == BR_EXACT )
     {
-        using br_type = Beatnik::ExactBRSolver<ExecutionSpace, MemorySpace, Params>;
-        return std::make_unique<br_type>(pm, bc, epsilon, dx, dy, params);
+        using br_type = Beatnik::ExactBRSolver<ProblemManagerType, Params>;
+        return std::make_unique<br_type>(pm, bc, epsilon, dx, dy);
     }
     if ( params.br_solver == BR_CUTOFF )
     {
-        using br_type = Beatnik::CutoffBRSolver<ExecutionSpace, MemorySpace, Params>;
+        using br_type = Beatnik::CutoffBRSolver<ProblemManagerType, Params>;
         return std::make_unique<br_type>(pm, bc, epsilon, dx, dy, params);
     }
     std::cerr << "Invalid BR solver type.\n";

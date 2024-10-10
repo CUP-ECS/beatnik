@@ -18,7 +18,7 @@
 
 #include <Beatnik_Types.hpp>
 #include <BoundaryCondition.hpp>
-#include <SurfaceMesh.hpp>
+#include <CreateMesh.hpp>
 #include <ProblemManager.hpp>
 #include <SiloWriter.hpp>
 #include <TimeIntegrator.hpp>
@@ -48,9 +48,6 @@ namespace Beatnik
  */
 struct Params
 {
-    /* Mesh type. For options, see SolverBase class */
-    MeshType mesh_type;
-
     /* Save the period from command-line args to pass to 
      * ProblemManager to seed the random number generator
      * to initialize position
@@ -121,16 +118,20 @@ class SolverBase
  *    as const references.
  */
 
-template <class ExecutionSpace, class MemorySpace, class ModelOrder>
+template <class ExecutionSpace, class MemorySpace, class ModelOrderTag, class MeshTypeTag>
 class Solver : public SolverBase
 {
   public:
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_array_type =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>, MemorySpace>;
-    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
-    using zmodel_type = ZModel<ExecutionSpace, MemorySpace, ModelOrder, Params>;
-    using ti_type = TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>;
+    using beatnik_mesh_type = MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>;
+    using entity_type = typename beatnik_mesh_type::entity_type;
+    using pm_type = ProblemManager<beatnik_mesh_type>;
+    using br_solver_type = BRSolverBase<pm_type, Params>;
+    using zmodel_type = ZModel<pm_type, br_solver_type>;
+    using ti_type = TimeIntegrator<pm_type, zmodel_type>;
+    using silo_writer_type = SiloWriter<pm_type>;
+    
     using View_t = Kokkos::View<double***, Kokkos::HostSpace>;
 
 
@@ -158,9 +159,8 @@ class Solver : public SolverBase
 
         // Create a mesh one which to do the solve and a problem manager to
         // handle state
-        _surface_mesh = std::make_unique<SurfaceMesh<ExecutionSpace, MemorySpace>>(
-            _params.global_bounding_box, num_nodes, _params.periodic, partitioner,
-	    _halo_min, comm );
+        _mesh = createMesh<ExecutionSpace, MemorySpace, MeshTypeTag>(_params.global_bounding_box, num_nodes, _params.periodic,
+                            partitioner, _halo_min, comm );
 
         // XXX - Check that our timestep is small enough to handle the mesh size,
         // atwood number and acceleration, and solution method. 
@@ -195,7 +195,7 @@ class Solver : public SolverBase
 
         // Create a problem manager to manage mesh state
         _pm = std::make_unique<pm_type>(
-            *_surface_mesh, _bc, _params.period, create_functor );
+            *_mesh, _bc, _params.period, create_functor );
 
         if (_params.solver_order == 1 || _params.solver_order  == 2)
         {
@@ -207,14 +207,14 @@ class Solver : public SolverBase
         }
 
         // Create the ZModel solver
-        _zm = std::make_unique<ZModel<ExecutionSpace, MemorySpace, ModelOrder, Params>>(
+        _zm = std::make_unique<zmodel_type>(
             *_pm, _bc, _br.get(), _params, dx, dy, _atwood, _g, _mu, _params.heffte_configuration);
 
         // Make a time integrator to move the zmodel forward
-        _ti = std::make_unique<TimeIntegrator<ExecutionSpace, MemorySpace, zmodel_type>>( *_pm, _bc, *_zm );
+        _ti = std::make_unique<ti_type>( *_pm, _bc, *_zm );
 
         // Set up Silo for I/O
-        _silo = std::make_unique<SiloWriter<ExecutionSpace, MemorySpace>>( *_pm );
+        _silo = std::make_unique<silo_writer_type>( *_pm );
     }
 
     void setup() override
@@ -226,14 +226,14 @@ class Solver : public SolverBase
 
     void step(const int mesh_type) override
     {
-        if (mesh_type == MeshType::MESH_STRUCTURED)
+        if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
         {
-            _ti->step(_dt, Cabana::Grid::Node(), Cabana::Grid::Own());
+             _ti->step(_dt, entity_type(), Cabana::Grid::Own());
         }
-        else if (mesh_type == 1)
+        else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
+            // XXX - TODO
             throw std::invalid_argument("Solver::step: Unstructured mesh not yet implemented.");
-            // _ti->step(_dt, NuMesh::Face(), NuMesh::Own());
         }
         else
         {
@@ -332,17 +332,17 @@ class Solver : public SolverBase
     BoundaryCondition _bc;
     Params _params;
     
-    std::unique_ptr<SurfaceMesh<ExecutionSpace, MemorySpace>> _surface_mesh;
+    std::unique_ptr<beatnik_mesh_type> _mesh;
     std::unique_ptr<pm_type> _pm;
-    std::unique_ptr<BRSolverBase<ExecutionSpace, MemorySpace, Params>> _br;
+    std::unique_ptr<br_solver_type> _br;
     std::unique_ptr<zmodel_type> _zm;
     std::unique_ptr<ti_type> _ti;
-    std::unique_ptr<SiloWriter<ExecutionSpace, MemorySpace>> _silo;
+    std::unique_ptr<silo_writer_type> _silo;
 };
 
 //---------------------------------------------------------------------------//
 // Creation method.
-template <class InitFunc, class ModelOrder, class Params>
+template <class InitFunc, class ModelOrderTag, class MeshTypeTag, class Params>
 std::shared_ptr<SolverBase>
 createSolver( const std::string& device, MPI_Comm comm,
               const std::array<int, 2>& global_num_cell,
@@ -350,7 +350,8 @@ createSolver( const std::string& device, MPI_Comm comm,
               const double atwood, const double g, 
               const InitFunc& create_functor, 
               const BoundaryCondition& bc, 
-              const ModelOrder,
+              const ModelOrderTag,
+              const MeshTypeTag,
               const double mu,
               const double epsilon, 
               const double delta_t,
@@ -360,7 +361,7 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #if defined( KOKKOS_ENABLE_SERIAL )
         return std::make_shared<
-            Beatnik::Solver<Kokkos::Serial, Kokkos::HostSpace, ModelOrder>>(
+            Beatnik::Solver<Kokkos::Serial, Kokkos::HostSpace, ModelOrderTag, MeshTypeTag>>(
             comm, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t, params);
 #else
@@ -371,7 +372,7 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #if defined( KOKKOS_ENABLE_THREADS )
         return std::make_shared<
-            Beatnik::Solver<Kokkos::Threads, Kokkos::HostSpace, ModelOrder>>(
+            Beatnik::Solver<Kokkos::Threads, Kokkos::HostSpace, ModelOrderTag, MeshTypeTag>>(
             comm, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t, params);
 #else
@@ -382,7 +383,7 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #if defined( KOKKOS_ENABLE_OPENMP )
         return std::make_shared<
-            Beatnik::Solver<Kokkos::OpenMP, Kokkos::HostSpace, ModelOrder>>(
+            Beatnik::Solver<Kokkos::OpenMP, Kokkos::HostSpace, ModelOrderTag, MeshTypeTag>>(
             comm, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t, params);
 #else
@@ -393,7 +394,7 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #if defined(KOKKOS_ENABLE_CUDA)
         return std::make_shared<
-            Beatnik::Solver<Kokkos::Cuda, Kokkos::CudaSpace, ModelOrder>>(
+            Beatnik::Solver<Kokkos::Cuda, Kokkos::CudaSpace, ModelOrderTag, MeshTypeTag>>(
             comm, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t, params);
 #else
@@ -404,7 +405,7 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #ifdef KOKKOS_ENABLE_HIP
         return std::make_shared<Beatnik::Solver<Kokkos::HIP, 
-            Kokkos::Experimental::HIPSpace, ModelOrder>>(
+            Kokkos::Experimental::HIPSpace, ModelOrderTag, MeshTypeTag>>(
                 comm, global_num_cell, partitioner, atwood, g, 
                 create_functor, bc, mu, epsilon, delta_t, params);
 #else
