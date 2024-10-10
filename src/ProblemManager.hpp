@@ -88,7 +88,7 @@ class ProblemManager
     using mesh_array_type = ArrayUtils::Array<container_layout_type, double, mem_space>;
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
-    using surface_mesh_type = SurfaceMesh<exec_space, mem_space>;
+    using surface_mesh_type = MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag, EntityType, Scalar>
 
     template <class InitFunc>
     ProblemManager( const surface_mesh_type & surface_mesh,

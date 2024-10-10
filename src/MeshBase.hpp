@@ -14,11 +14,14 @@
 
 #include <Beatnik_Config.hpp>
 
+#include <Kokkos_Core.hpp>
 #include <Cabana_Grid.hpp>
+#include <NuMesh_Core.hpp>
 
 #include <Beatnik_Types.hpp>
+#include <Beatnik_ArrayUtils.hpp>
 
-#include <Kokkos_Core.hpp>
+
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -31,7 +34,7 @@ namespace Beatnik
 /* Convenience base class so that examples that use this don't need to know
  * the details of the problem manager/mesh/etc templating.
  */
-template <class ExecutionSpace, class MemorySpace, class MeshTypeTag, class EntityType, class Scalar, class Params>
+template <class ExecutionSpace, class MemorySpace, class MeshTypeTag, class EntityType, class Scalar>
 class MeshBase
 {
   public:
@@ -42,49 +45,22 @@ class MeshBase
 
     using mesh_type = std::conditional_t<
         std::is_same_v<MeshTypeTag, Mesh::Structured>,
-        Cabana::Grid::LocalGrid<Cabana::Grid::UniformMesh<double, 2>>,
+        Cabana::Grid::LocalGrid<Cabana::Grid::UniformMesh<value_type, 2>>,
         std::conditional_t<
             std::is_same_v<MeshTypeTag, Mesh::Unstructured>,
             NuMesh::Mesh<execution_space, memory_space>,
             void
         >
-    :;
+    >;
 
-    using container_layout_type = ArrayUtils::ArrayLayout<mesh_type, entity_type>
-    using mesh_array_type = ArrayUtils::Array<container_layout_type, double, mem_space>;
+    using container_layout_type = ArrayUtils::ArrayLayout<mesh_type, entity_type>;
+    using mesh_array_type = ArrayUtils::Array<container_layout_type, value_type, memory_space>;
     
-
-    // using array_layout_type = std::conditional_t<
-    //     is_cabana_mesh<mesh_type>::value,
-    //     Cabana::Grid::ArrayLayout<entity_type, cabana_mesh_type<mesh_type>>, // Case A: Cabana UniformMesh
-    //     std::conditional_t<
-    //         NuMesh::is_numesh_mesh<MeshType>::value,
-    //         NuMesh::Array::ArrayLayout<entity_type, mesh_type>, // Case B: NuMesh Mesh
-    //         void // Fallback type or an error type if neither condition is satisfied
-    //     >
-    // >;
-
-    // using container_layout_type = ArrayUtils::ArrayLayout<local_grid_type, Node>;
-    // using mesh_array_type = ArrayUtils::Array<container_layout_type, double, memory_space>;
-
-    // using entity_type = typename ContainerLayoutType::entity_type;
-    // using mesh_type   = typename ContainerLayoutType::mesh_type;
-    // using layout_type = typename ContainerLayoutType::array_layout_type;
-    // using value_type = Scalar;
-
-
-    // // Determine array_type using std::conditional_t
-    // using array_type = std::conditional_t<
-    //     is_cabana_mesh<mesh_type>::value,
-    //     Cabana::Grid::Array<value_type, entity_type, cabana_mesh_type<mesh_type>, memory_space>, // Case A: Cabana Mesh
-    //     std::conditional_t<
-    //         NuMesh::is_numesh_mesh<mesh_type>::value,
-    //         NuMesh::Array::Array<value_type, entity_type, mesh_type, memory_space>, // Case B: NuMesh Mesh
-    //         void // Fallback or error type if neither condition is satisfied
-    //     >
-    // >;
     virtual ~MeshBase() = default;
-    virtual void computeInterfaceVelocity(node_view zdot, node_view z, node_view o) const = 0;
+    virtual mesh_array_type Dx(const mesh_array_type& in, const double dx) const = 0;
+    virtual mesh_array_type Dy(const mesh_array_type& in, const double dy) const = 0;
+    virtual mesh_array_type omega(const mesh_array_type& w, const mesh_array_type& z_dx, const mesh_array_type& z_dy) const = 0;
+    virtual mesh_array_type laplace(const mesh_array_type& in, const double dx, const double dy) const = 0;
 };
 
 } // end namespace Beantik

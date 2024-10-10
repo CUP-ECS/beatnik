@@ -24,23 +24,23 @@ namespace Beatnik
 /* Separate header for createBRSolver to avoid circular 
  * dependencies between BRSolverBase and the BR solver options.
  */
-template <class pm_type, class ExecutionSpace, class MemorySpace, class Params>
-std::unique_ptr<BRSolverBase<ExecutionSpace, MemorySpace, Params>>
-createBRSolver( const pm_type &pm, const BoundaryCondition &bc,
+template <class ExecutionSpace, class MemorySpace, class MeshTypeTag, class EntityType, class Scalar, class Params>
+std::unique_ptr<MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag, EntityType, Scalar, Params>>
+createMesh( const pm_type &pm, const BoundaryCondition &bc,
                 const double epsilon, const double dx, const double dy,
                 const Params params )
 {
-    if ( params.br_solver == BRSolverType::BR_EXACT )
+    if constexpr (std::is_same_v<MeshTypeTag, Mesh::Structured>)
     {
         using br_type = Beatnik::ExactBRSolver<ExecutionSpace, MemorySpace, Params>;
         return std::make_unique<br_type>(pm, bc, epsilon, dx, dy, params);
     }
-    if ( params.br_solver == BRSolverType::BR_CUTOFF )
+    else if constexpr (std::is_same_v<MeshTypeTag, Mesh::Unstructured>)
     {
         using br_type = Beatnik::CutoffBRSolver<ExecutionSpace, MemorySpace, Params>;
         return std::make_unique<br_type>(pm, bc, epsilon, dx, dy, params);
     }
-    std::cerr << "Invalid BR solver type.\n";
+    std::cerr << "createMesh:: Invalid mesh type.\n";
     Kokkos::finalize();
     MPI_Finalize();
     exit(-1);

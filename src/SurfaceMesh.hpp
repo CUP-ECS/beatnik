@@ -16,6 +16,7 @@
 
 #include <Kokkos_Core.hpp>
 
+#include <MeshBase.hpp>
 #include <Operators.hpp>
 #include <Beatnik_ArrayUtils.hpp>
 
@@ -32,18 +33,15 @@ namespace Beatnik
   \class SurfaceMesh
   \brief Logically uniform Cartesian mesh.
 */
-template <class ExecutionSpace, class MemorySpace>
-class SurfaceMesh
+template <class ExecutionSpace, class MemorySpace, class MeshTypeTag, class EntityType, class Scalar>
+class SurfaceMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag, EntityType, Scalar>
 {
   public:
     using memory_space = MemorySpace;
     using execution_space = ExecutionSpace;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
-    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     using Node = Cabana::Grid::Node;
-    using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
-    using container_layout_type = ArrayUtils::ArrayLayout<local_grid_type, Node>;
-    using mesh_array_type = ArrayUtils::Array<container_layout_type, double, memory_space>;
+    using local_grid_type = typename MeshBase::mesh_type;
+    using mesh_array_type = typename MeshBase::mesh_array_type;
 
     // Construct a mesh.
     SurfaceMesh( const std::array<double, 6>& global_bounding_box,
@@ -128,7 +126,7 @@ class SurfaceMesh
     }
 
     // Get the local grid.
-    const std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> localGrid() const
+    const std::shared_ptr<local_grid_type> localGrid() const
     {
         return _local_grid;
     }
@@ -165,7 +163,7 @@ class SurfaceMesh
      * Compute fourth-order central difference calculation for derivatives along the 
      * interface surface
      */
-    std::shared_ptr<mesh_array_type> Dx(const mesh_array_type& in, const double dx, Cabana::Grid::Node) const
+    std::shared_ptr<mesh_array_type> Dx(const mesh_array_type& in, const double dx, Cabana::Grid::Node) const override
     {
         using Node = Cabana::Grid::Node;
         auto out = ArrayUtils::ArrayOp::clone(in);
@@ -180,7 +178,7 @@ class SurfaceMesh
         });
         return out;
     }
-    std::shared_ptr<mesh_array_type> Dy(const mesh_array_type& in, const double dy, Cabana::Grid::Node) const
+    std::shared_ptr<mesh_array_type> Dy(const mesh_array_type& in, const double dy, Cabana::Grid::Node) const override
     {
         using Node = Cabana::Grid::Node;
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
@@ -197,7 +195,7 @@ class SurfaceMesh
     }
 
     /* 9-point laplace stencil operator for computing artificial viscosity */
-    std::shared_ptr<mesh_array_type> laplace(const mesh_array_type& in, const double dx, const double dy, Cabana::Grid::Node) const
+    std::shared_ptr<mesh_array_type> laplace(const mesh_array_type& in, const double dx, const double dy, Cabana::Grid::Node) const override
     {
         using Node = Cabana::Grid::Node;
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
@@ -216,7 +214,7 @@ class SurfaceMesh
 
     // XXX - Assert that the mesh and mesh_array_types are the right type 
     // at the beginning of these functions
-    std::shared_ptr<mesh_array_type> omega(const mesh_array_type& w, const mesh_array_type& z_dx, const mesh_array_type& z_dy, Cabana::Grid::Node) const
+    std::shared_ptr<mesh_array_type> omega(const mesh_array_type& w, const mesh_array_type& z_dx, const mesh_array_type& z_dy, Cabana::Grid::Node) const override
     {
         using Node = Cabana::Grid::Node;
         auto zdx_view = z_dx.array()->view();
