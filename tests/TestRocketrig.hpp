@@ -162,6 +162,7 @@ int init_default_ClArgs( ClArgs& cl )
     cl.write_freq = 0;
 
     // Set default extra parameters
+    cl.params.mesh_type = 1;
     cl.params.cutoff_distance = 0.5;
     cl.params.heffte_configuration = 6;
     cl.params.br_solver = Beatnik::BR_EXACT;
