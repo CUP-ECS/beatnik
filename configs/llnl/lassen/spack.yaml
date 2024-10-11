@@ -5,7 +5,7 @@ spack:
       - spectrum-mpi@rolling-release
       - heffte +fftw +cuda cuda_arch=70
       - kokkos +hwloc +cuda +cuda_lambda +wrapper cuda_arch=70
-      - cabana @master +cajita +heffte +mpi +cuda +arborx cuda_arch=70
+      - cabana @master +grid +heffte +mpi +cuda +arborx cuda_arch=70
     - ['%gcc@8.3.1']
   - silo@4.11 +mpi
   - hdf5 +mpi
