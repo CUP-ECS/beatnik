@@ -242,6 +242,9 @@ struct BoundaryCondition
     template <class MeshType, class ArrayType> 
     void applyPosition(const MeshType &mesh, ArrayType position) const
     {
+        int rank;
+        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
         using exec_space = typename ArrayType::execution_space;
 
         auto local_grid = *(mesh.localGrid());
@@ -258,6 +261,16 @@ struct BoundaryCondition
                      * here */
                     auto periodic_space = mesh.periodicIndexSpace(Cabana::Grid::Ghost(), 
                         Cabana::Grid::Node(), dir);
+                    printf("mesh_PIS: R%d: %d %d: (%d, %d), (%d, %d)\n", rank, i, j, periodic_space.min(0), periodic_space.max(0),
+                        periodic_space.min(1), periodic_space.max(1));
+                    auto periodic_space1 = local_grid.periodicIndexSpace(Cabana::Grid::Ghost(), 
+                        Cabana::Grid::Node(), dir);
+                    printf("grid_PIS: R%d: %d %d: (%d, %d), (%d, %d)\n", rank, i, j, periodic_space1.min(0), periodic_space1.max(0),
+                        periodic_space1.min(1), periodic_space1.max(1));
+                    auto periodic_space2 = local_grid.sharedIndexSpace(Cabana::Grid::Ghost(), 
+                        Cabana::Grid::Node(), dir);
+                    printf("shar_SIS: R%d: %d %d: (%d, %d), (%d, %d)\n", rank, i, j, periodic_space2.min(0), periodic_space2.max(0),
+                        periodic_space2.min(1), periodic_space2.max(1));
                     auto z = position.view();
 
                     Kokkos::Array<int, 2> kdir = {i, j};
