@@ -75,6 +75,7 @@ class MeshBase
     using mesh_array_type = ArrayUtils::Array<container_layout_type, value_type, memory_space>;
     
     virtual ~MeshBase() = default;
+
     /*
      * Return the object needed to create an array layout
      */
@@ -83,6 +84,24 @@ class MeshBase
     virtual std::shared_ptr<mesh_array_type> Dy(const mesh_array_type& in, const double dy) const = 0;
     virtual std::shared_ptr<mesh_array_type> omega(const mesh_array_type& w, const mesh_array_type& z_dx, const mesh_array_type& z_dy) const = 0;
     virtual std::shared_ptr<mesh_array_type> laplace(const mesh_array_type& in, const double dx, const double dy) const = 0;
+    virtual int is_periodic(void) const = 0;
+    virtual int rank(void) const = 0;
+
+    /**
+     * Temporary function to get the periodic index space of a structured mesh,
+     * until this functionality gets added into Cabana.
+     * Unstructured mesh does not implement this function.
+     */
+    virtual Cabana::Grid::IndexSpace<2> periodicIndexSpace(Cabana::Grid::Ghost, Cabana::Grid::Node, std::array<int, 2> dir) const = 0;
+
+    /**
+     * More functions only needed for structured meshes
+     * XXX - find a way to remove these?
+     */
+    virtual const std::array<double, 3> & boundingBoxMin() const = 0;
+    virtual const std::array<double, 3> & boundingBoxMax() const = 0;
+    virtual int mesh_size() const = 0;
+    virtual int halo_width() const = 0;
 };
 
 } // end namespace Beantik

@@ -57,7 +57,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     // Get whether the mesh is periodic
     // XXX - Assumes if the x-boundary is periodic, the mesh
     // is also periodic along the y-boundary
-    int is_periodic() const
+    int is_periodic() const override
     {
         return _periodic[0];
     }
@@ -66,7 +66,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
      * Compute fourth-order central difference calculation for derivatives along the 
      * interface surface
      */
-    std::shared_ptr<mesh_array_type> Dx(const mesh_array_type& in, const double dx, Cabana::Grid::Node) const override
+    std::shared_ptr<mesh_array_type> Dx(const mesh_array_type& in, const double dx) const override
     {
         auto out = ArrayUtils::ArrayOp::clone(in);
         // auto out_view = out->array()->view();
@@ -80,7 +80,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         // });
         return out;
     }
-    std::shared_ptr<mesh_array_type> Dy(const mesh_array_type& in, const double dy, Cabana::Grid::Node) const override
+    std::shared_ptr<mesh_array_type> Dy(const mesh_array_type& in, const double dy) const override
     {
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
         // auto out_view = out->array()->view();
@@ -96,7 +96,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     }
 
     /* 9-point laplace stencil operator for computing artificial viscosity */
-    std::shared_ptr<mesh_array_type> laplace(const mesh_array_type& in, const double dx, const double dy, Cabana::Grid::Node) const override
+    std::shared_ptr<mesh_array_type> laplace(const mesh_array_type& in, const double dx, const double dy) const override
     {
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
         // auto out_view = out->array()->view();
@@ -114,7 +114,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
     // XXX - Assert that the mesh and mesh_array_types are the right type 
     // at the beginning of these functions
-    std::shared_ptr<mesh_array_type> omega(const mesh_array_type& w, const mesh_array_type& z_dx, const mesh_array_type& z_dy, Cabana::Grid::Node) const override
+    std::shared_ptr<mesh_array_type> omega(const mesh_array_type& w, const mesh_array_type& z_dx, const mesh_array_type& z_dy) const override
     {
         // using Node = Cabana::Grid::Node;
         // auto zdx_view = z_dx.array()->view();
@@ -135,7 +135,24 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         return NULL;
     }
 
-    int rank() const { return _rank; }
+    /**
+     * These functions are only needed for structured meshes, but it must be overridden here
+     * to avoid errors.
+     */
+    Cabana::Grid::IndexSpace<2>
+    periodicIndexSpace(Cabana::Grid::Ghost, Cabana::Grid::Node, std::array<int, 2> dir) const override
+    { 
+        std::array<long, 2> zero_size;
+        for ( std::size_t d = 0; d < 2; ++d )
+            zero_size[d] = 0;
+        return Cabana::Grid::IndexSpace<2>( zero_size, zero_size );
+    }
+    const std::array<double, 3> & boundingBoxMin() const override { return {0.0, 0.0, 0.0}; }
+    const std::array<double, 3> & boundingBoxMax() const override { return {0.0, 0.0, 0.0}; }
+    int mesh_size() const override { return NULL; }
+    int halo_width() const override { return NULL; }
+
+    int rank() const override { return _rank; }
 
   private:
     MPI_Comm _comm;

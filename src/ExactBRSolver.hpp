@@ -68,8 +68,8 @@ class ExactBRSolver : public BRSolverBase<ProblemManagerType, Params>
         , _epsilon( epsilon )
         , _dx( dx )
         , _dy( dy )
-        , _local_L2G( *_pm.mesh().localGrid() )
-        , _comm( _pm.mesh().localGrid()->globalGrid().comm() )
+        , _local_L2G( *_pm.mesh().layoutObj() )
+        , _comm( _pm.mesh().layoutObj()->globalGrid().comm() )
     {
         MPI_Comm_size(_comm, &_num_procs);
         MPI_Comm_rank(_comm, &_rank);
@@ -95,7 +95,7 @@ class ExactBRSolver : public BRSolverBase<ProblemManagerType, Params>
         // Get the local index spaces of pieces we're working with. For the local surface piece
         // this is just the nodes we own. For the remote surface piece, we extract it from the
         // L2G converter they sent us.
-        auto local_grid = _pm.mesh().localGrid();
+        auto local_grid = _pm.mesh().layoutObj();
         auto local_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         std::array<long, 2> rmin, rmax;
         for (int d = 0; d < 2; d++) {
@@ -132,14 +132,14 @@ class ExactBRSolver : public BRSolverBase<ProblemManagerType, Params>
         double dx = _dx, dy = _dy;
 
         // Mesh dimensions for Simpson weight calc
-        int mesh_size = _pm.mesh().get_surface_mesh_size();
+        int mesh_size = _pm.mesh().mesh_size();
     
         /* If the mesh is periodic, the index range is from
          * (halo width) to (halo width + mesh size)
          * If the mesh is non-periodic, the index range is from
          * (halo width) to (halo width + mesh size - 1)
          */
-        int halo_width = _pm.mesh().get_halo_width();
+        int halo_width = _pm.mesh().halo_width();
         std::array<long, 2> lmin;
         std::array<long, 2> lmax;
         for ( int d = 0; d < 2; ++d ) {
@@ -217,11 +217,11 @@ class ExactBRSolver : public BRSolverBase<ProblemManagerType, Params>
      */
     void computeInterfaceVelocity(node_view zdot, node_view z, node_view o) const override
     {
-        auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
+        auto local_node_space = _pm.mesh().layoutObj()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
         /* Zero out all of the i/j points */
         Kokkos::parallel_for("Exact BR Zero Loop",
-            Cabana::Grid::createExecutionPolicy(local_node_space, ExecutionSpace()),
+            Cabana::Grid::createExecutionPolicy(local_node_space, execution_space()),
             KOKKOS_LAMBDA(int i, int j) {
             for (int n = 0; n < 3; n++)
                zdot(i, j, n) = 0.0;
@@ -241,8 +241,8 @@ class ExactBRSolver : public BRSolverBase<ProblemManagerType, Params>
         node_view zremote2(Kokkos::ViewAllocateWithoutInitializing ("zremote2"), z.extent(0), z.extent(1), z.extent(2));
         node_view oremote1(Kokkos::ViewAllocateWithoutInitializing ("oremote1"), o.extent(0), o.extent(1), o.extent(2));
         node_view oremote2(Kokkos::ViewAllocateWithoutInitializing ("oremote2"), o.extent(0), o.extent(1), o.extent(2));
-        l2g_type L2G_remote1 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cabana::Grid::Node());
-        l2g_type L2G_remote2 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cabana::Grid::Node());
+        l2g_type L2G_remote1 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().layoutObj(), Cabana::Grid::Node());
+        l2g_type L2G_remote2 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().layoutObj(), Cabana::Grid::Node());
         
         int zextents1[3];
         int zextents2[3];

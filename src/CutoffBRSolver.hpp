@@ -56,10 +56,13 @@ class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
   public:
     using execution_space = typename ProblemManagerType::execution_space;
     using memory_space = typename ProblemManagerType::memory_space;
+    using node_view = typename BRSolverBase<ProblemManagerType, Params>::node_view;
+    using mesh_type = typename ProblemManagerType::mesh_type::mesh_type; // This is a Cabana::Grid::Mesh type
+    using entity_type = typename ProblemManagerType::entity_type;
+    using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, entity_type>;
     using spatial_mesh_type = SpatialMesh<execution_space, memory_space>;
-    using device_type = Kokkos::Device<execution_space, memory_space>;
     
-    using node_view = Kokkos::View<double***, device_type>;
+    // using node_view = Kokkos::View<double***, device_type>;
 
     using particle_node = Cabana::MemberTypes<double[3], // xyz position in space                           0
                                               double[3], // Own omega for BR                                1
@@ -73,7 +76,7 @@ class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
                                               >;
     // XXX Change the final parameter of particle_array_type, vector type, to
     // be aligned with the machine we are using
-    using particle_array_type = Cabana::AoSoA<particle_node, device_type, 4>;
+    using particle_array_type = Cabana::AoSoA<particle_node, memory_space, 4>;
 
     // XXX - Get these from SpatialMesh class?
     using spatial_mesh_layout = Cabana::Grid::UniformMesh<double, 3>;
@@ -89,15 +92,15 @@ class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
         , _dx( dx )
         , _dy( dy )
         , _params( params )
-        , _local_L2G( *_pm.mesh().localGrid() )
+        , _local_L2G( *_pm.mesh().layoutObj() )
     {
-	    _comm = _pm.mesh().localGrid()->globalGrid().comm();
+	    _comm = _pm.mesh().layoutObj()->globalGrid().comm();
 
         MPI_Comm_rank( _comm, &_rank );
         MPI_Comm_size( _comm, &_comm_size );
 
         // Create the spatial mesh
-        _spatial_mesh = std::make_shared<SpatialMesh<ExecutionSpace, MemorySpace>>(
+        _spatial_mesh = std::make_shared<SpatialMesh<execution_space, memory_space>>(
             params.global_bounding_box, params.periodic,
 	        params.cutoff_distance, _comm );
     }
@@ -171,7 +174,7 @@ class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
     {
         Kokkos::Profiling::pushRegion("initializeParticles");
 
-        auto local_grid = _pm.mesh().localGrid();
+        auto local_grid = _pm.mesh().layoutObj();
         auto local_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
         int istart = local_space.min(0), jstart = local_space.min(1);
@@ -195,7 +198,7 @@ class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
         auto rank2d_part = Cabana::slice<6>(particle_array);
         auto rank3d_part = Cabana::slice<7>(particle_array);
 
-        int mesh_dimension = _pm.mesh().get_surface_mesh_size();
+        int mesh_dimension = _pm.mesh().mesh_size();
         l2g_type local_L2G = _local_L2G;
 
 	    // We should convert this to a Cabana::simd_parallel_for at some point to get better write behavior
@@ -311,7 +314,7 @@ class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
         /* See https://kokkos.org/kokkos-core-wiki/API/core/view/deep_copy.html
          * "How to get layout incompatiable views copied"
          */
-        Kokkos::View<int*[4], device_type> boundary_topology_device("boundary_topology_device", _comm_size+1);
+        Kokkos::View<int*[4], memory_space> boundary_topology_device("boundary_topology_device", _comm_size+1);
         auto hv_tmp = Kokkos::create_mirror_view(boundary_topology_device);
         Kokkos::deep_copy(hv_tmp, boundary_topology);
         Kokkos::deep_copy(boundary_topology_device, hv_tmp);
@@ -540,6 +543,7 @@ class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
     const Params _params;
     
     MPI_Comm _comm;
+    l2g_type _local_L2G;
     int _rank, _comm_size;
     std::shared_ptr<spatial_mesh_type> _spatial_mesh;
 };

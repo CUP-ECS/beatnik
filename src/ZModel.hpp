@@ -59,7 +59,7 @@ namespace Beatnik
 /*Then see if it's worth moving everything to templates
  * 
  */
-template <class ProblemManagerType, class BRSolverType>
+template <class ProblemManagerType, class BRSolverType, class ModelOrderTag>
 class ZModel
 {
   public:
@@ -88,11 +88,11 @@ class ZModel
         // Need the node triple layout for storing vector normals and the 
         // node double layout for storing x and y surface derivative
         auto node_double_layout =
-            ArrayUtils::createArrayLayout( _pm.mesh().localGrid(), 2, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout( _pm.mesh().layoutObj(), 2, Cabana::Grid::Node() );
         auto node_triple_layout =
-            ArrayUtils::createArrayLayout( _pm.mesh().localGrid(), 3, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout( _pm.mesh().layoutObj(), 3, Cabana::Grid::Node() );
         auto node_scalar_layout =
-            ArrayUtils::createArrayLayout( _pm.mesh().localGrid(), 1, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout( _pm.mesh().layoutObj(), 1, Cabana::Grid::Node() );
 
         
         // Initize omega view
@@ -109,7 +109,7 @@ class ZModel
          * 
          * Only initialize for structured meshes
          */
-        if (_params.mesh_type == MeshType::MESH_STRUCTURED)
+        if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
         {
             int halo_depth = 2; 
              _v_halo = Cabana::Grid::createHalo( Cabana::Grid::FaceHaloPattern<2>(),
@@ -236,7 +236,7 @@ class ZModel
         auto local_grid = w.clayout()->layout()->localGrid();
         auto& global_grid = local_grid->globalGrid();
         auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>( *local_grid );
-        auto local_nodes = local_grid->indexSpace(Cabana::Grid::Own(), Node(), Cabana::Grid::Local());
+        auto local_nodes = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
         /* Get the views we'll be computing with in parallel loops */
         auto C1 = _C1->array()->view();
@@ -247,7 +247,7 @@ class ZModel
         /* First put w into the real parts of C1 and C2 (and zero out
          * any imaginary parts left from previous runs!) */
         Kokkos::parallel_for("Build FFT Arrays", 
-                     Cabana::Grid::createExecutionPolicy(local_nodes, ExecutionSpace()), 
+                     Cabana::Grid::createExecutionPolicy(local_nodes, execution_space()), 
                      KOKKOS_LAMBDA(const int i, const int j) {
             C1(i, j, 0) = w_view(i, j, 0);
             C1(i, j, 1) = 0;
@@ -267,7 +267,7 @@ class ZModel
 
         /* Now construct reisz from the weighted sum of those FFTs to take the inverse FFT. */
         parallel_for("Combine FFTs", 
-                     Cabana::Grid::createExecutionPolicy(local_nodes, ExecutionSpace()), 
+                     Cabana::Grid::createExecutionPolicy(local_nodes, execution_space()), 
                      KOKKOS_LAMBDA(const int i, const int j) {
             int indicies[2] = {i, j};
             double location[2];
@@ -454,15 +454,43 @@ class ZModel
 	    computeHaloedDerivatives( z, w, zdot, wdot, etag, dtag );
     }
 
-    /**
-     * dtag = Cabana::Grid::Own or a NuMesh variant
-     * etag = Cabana::Grid::Own or NuMesh variant
+    /**  
+     * Shared internal entry point from the external points from the TimeIntegration object
+     * etag = Cabana::Grid::Node or NuMesh variant,
+     * dtag = Cabana::Grid::Own or NuMesh variant
      */
     template <class EntityTag, class DecompositionTag>
-    void computeVelocities(mesh_array_type& z, mesh_array_type& z_dx, mesh_array_type& z_dy,
-                           mesh_array_type& w, mesh_array_type& zdot, mesh_array_type& wdot,
-                           EntityTag etag, DecompositionTag dtag) const
+    void computeHaloedDerivatives( mesh_array_type& z_array, mesh_array_type& w_array,
+                                   mesh_array_type& zdot_array, mesh_array_type& wdot_array,
+                                   EntityTag etag, DecompositionTag dtag ) const
     {
+        // External calls to this object work on Cabana::Grid arrays, but internal
+        // methods mostly work on the views, with the entry points responsible
+        // for handling the halos.
+	    // double dx = _dx, dy = _dy;
+ 
+        // Phase 1: Globally-dependent bulk synchronous calculations that 
+        // namely the reisz transform and/or far-field force solve to calculate
+        // interface velocity and velocity normal magnitudes, using the
+        // appropriate method. We do not attempt to overlap this with the 
+        // mostly-local parallel calculations in phase 2
+
+        // Get dx and dy arrays
+        auto z_dx = _pm.mesh().Dx(z_array, _dx);
+        auto z_dy = _pm.mesh().Dy(z_array, _dy);
+
+        // Phase 1.a: Calcuate the omega value for each point
+        auto out = _pm.mesh().omega(w_array, *z_dx, *z_dy);
+        Beatnik::ArrayUtils::ArrayOp::copy(*_omega, *out, dtag);
+
+        // auto local_grid = _pm.mesh().localGrid();
+        // l2g_type local_l2g = Cabana::Grid::IndexConversion::createL2G( *local_grid, Cabana::Grid::Node() );
+        //printf("****Z_VIEW***\n");
+        //printView(local_l2g, 0, z_view, 1, 2, 2);
+
+        // Phase 1.b: Compute zdot
+        prepareVelocities(ModelOrderTag(), zdot_array, z_array, w_array, *_omega, etag);
+
         /*
         Part 2.2:
             double h11 = Operators::dot(dx_z, dx_z);
@@ -470,9 +498,9 @@ class ZModel
             double h22 = Operators::dot(dy_z, dy_z);
             double deth = h11*h22 - h12*h12;
          */
-        auto h11 = ArrayUtils::ArrayOp::element_dot(z_dx, z_dx, dtag);
-        auto h12 = ArrayUtils::ArrayOp::element_dot(z_dx, z_dy, dtag);
-        auto h22 = ArrayUtils::ArrayOp::element_dot(z_dy, z_dy, dtag);
+        auto h11 = ArrayUtils::ArrayOp::element_dot(*z_dx, *z_dx, dtag);
+        auto h12 = ArrayUtils::ArrayOp::element_dot(*z_dx, *z_dy, dtag);
+        auto h22 = ArrayUtils::ArrayOp::element_dot(*z_dy, *z_dy, dtag);
         auto deth = ArrayUtils::ArrayOp::clone(*h11);
         ArrayUtils::ArrayOp::assign(*deth, 0.0, dtag);
         ArrayUtils::ArrayOp::update(*deth, 1.0,
@@ -497,7 +525,7 @@ class ZModel
         auto surface_normal = 
             ArrayUtils::ArrayOp::element_multiply(
                 *inv_sqrt_deth, // 1/sqrt(deth)
-                *ArrayUtils::ArrayOp::element_cross(z_dx, z_dy, dtag), // Dx \cross Dy
+                *ArrayUtils::ArrayOp::element_cross(*z_dx, *z_dy, dtag), // Dx \cross Dy
                 dtag
             );
         // printf("%d, %d: surface_normal: %0.5lf\n", di, dj, surface_normal->array()->view()(di, dj, 0));
@@ -508,7 +536,7 @@ class ZModel
         // Clone another 1D array to create zndot, which is also 1D.
         auto zndot = ArrayUtils::ArrayOp::clone(*h11); 
         ArrayUtils::ArrayOp::assign(*zndot, 0.0, dtag); // XXX - Should not be needed
-        finalizeVelocity(ModelOrderTag(), *zndot, zdot, *_reisz, *surface_normal, *inv_deth, dtag);
+        finalizeVelocity(ModelOrderTag(), *zndot, zdot_array, *_reisz, *surface_normal, *inv_deth, dtag);
         // printf("%d, %d: zndot: %0.5lf\n", di, dj, zndot->array()->view()(di, dj, 0));
 
 
@@ -520,9 +548,9 @@ class ZModel
          *                     - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
          *                     - 2*g*z_view(i, j, 2);
          */
-        auto w1 = ArrayUtils::ArrayOp::copyDim(w, 0, dtag);
-        auto w2 = ArrayUtils::ArrayOp::copyDim(w, 1, dtag);
-        auto z2 = ArrayUtils::ArrayOp::copyDim(z, 2, dtag);
+        auto w1 = ArrayUtils::ArrayOp::copyDim(w_array, 0, dtag);
+        auto w2 = ArrayUtils::ArrayOp::copyDim(w_array, 1, dtag);
+        auto z2 = ArrayUtils::ArrayOp::copyDim(z_array, 2, dtag);
         auto zndot_squared = ArrayUtils::ArrayOp::element_multiply(*zndot, *zndot, dtag);
         auto h22_w1_w1 = ArrayUtils::ArrayOp::element_multiply(
             *h22,
@@ -561,7 +589,7 @@ class ZModel
         // compute finite differences correctly.
         if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
         {
-            _v_halo->gather( ExecutionSpace(), *_V->array());
+            _v_halo->gather( execution_space(), *_V->array());
             _bc.applyField( _pm.mesh(), *_V->array(), 1 );
         }
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
@@ -582,9 +610,9 @@ class ZModel
                 wdot_view(i, j, 1) = A * dy_v + mu * lap_w1;
             });
          */
-        auto dx_v = _pm.mesh().Dx(*_V, _dx, etag);
-        auto dy_v = _pm.mesh().Dy(*_V, _dy, etag);
-        auto lap_w = _pm.mesh().laplace(w, _dx, _dy, Node());
+        auto dx_v = _pm.mesh().Dx(*_V, _dx);
+        auto dy_v = _pm.mesh().Dy(*_V, _dy);
+        auto lap_w = _pm.mesh().laplace(w_array, _dx, _dy);
 
         // Compute wdot0 and wdot1
         auto wdot0 = ArrayUtils::ArrayOp::copyDim(*lap_w, 0, dtag);
@@ -593,47 +621,8 @@ class ZModel
         ArrayUtils::ArrayOp::update(*wdot1, _mu, *dy_v, _A, dtag);
 
         // Copy results into wdot
-        ArrayUtils::ArrayOp::copyDim(wdot, 0, *wdot0, 0, dtag);
-        ArrayUtils::ArrayOp::copyDim(wdot, 1, *wdot1, 0, dtag);
-    }
-
-    /**  
-     * Shared internal entry point from the external points from the TimeIntegration object
-     * etag = Cabana::Grid::Node or NuMesh variant,
-     * dtag = Cabana::Grid::Own or NuMesh variant
-     */
-    template <class EntityTag, class DecompositionTag>
-    void computeHaloedDerivatives( mesh_array_type& z_array, mesh_array_type& w_array,
-                                   mesh_array_type& zdot_array, mesh_array_type& wdot_array,
-                                   EntityTag etag, DecompositionTag dtag ) const
-    {
-        // External calls to this object work on Cabana::Grid arrays, but internal
-        // methods mostly work on the views, with the entry points responsible
-        // for handling the halos.
-	    // double dx = _dx, dy = _dy;
- 
-        // Phase 1: Globally-dependent bulk synchronous calculations that 
-        // namely the reisz transform and/or far-field force solve to calculate
-        // interface velocity and velocity normal magnitudes, using the
-        // appropriate method. We do not attempt to overlap this with the 
-        // mostly-local parallel calculations in phase 2
-
-        // Get dx and dy arrays
-        auto z_dx = _pm.mesh().Dx(z_array, _dx, etag);
-        auto z_dy = _pm.mesh().Dy(z_array, _dy, etag);
-
-        // Phase 1.a: Calcuate the omega value for each point
-        auto out = _pm.mesh().omega(w_array, *z_dx, *z_dy, etag);
-        Beatnik::ArrayUtils::ArrayOp::copy(*_omega, *out, dtag);
-
-        // auto local_grid = _pm.mesh().localGrid();
-        // l2g_type local_l2g = Cabana::Grid::IndexConversion::createL2G( *local_grid, Cabana::Grid::Node() );
-        //printf("****Z_VIEW***\n");
-        //printView(local_l2g, 0, z_view, 1, 2, 2);
-
-        // Phase 1.b: Compute zdot
-        prepareVelocities(ModelOrderTag(), zdot_array, z_array, w_array, *_omega, etag);
-        computeVelocities(z_array, *z_dx, *z_dy, w_array, zdot_array, wdot_array, etag, dtag);
+        ArrayUtils::ArrayOp::copyDim(wdot_array, 0, *wdot0, 0, dtag);
+        ArrayUtils::ArrayOp::copyDim(wdot_array, 1, *wdot1, 0, dtag);
     }
 
     std::shared_ptr<mesh_array_type> getOmega()

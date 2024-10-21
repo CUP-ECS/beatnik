@@ -212,7 +212,7 @@ class ExactBRSolverTest : public TestingBase<T>
         double dx = this->dx_, dy = this->dy_;
 
         // Mesh dimensions for Simpson weight calc
-        int num_nodes = pm_->mesh().get_surface_mesh_size();
+        int num_nodes = pm_->mesh().mesh_size();
 
         /* Now loop over the cross product of all the node on the interface */
         auto pair_space = Beatnik::Operators::crossIndexSpace(local_space, remote_space);

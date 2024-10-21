@@ -141,7 +141,7 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
     }
 	
     // Get the mesh size
-    int get_surface_mesh_size() const
+    int mesh_size() const override
     {
         return _num_nodes[0];
     }
@@ -149,12 +149,12 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
     // Get whether the mesh is periodic
     // XXX - Assumes if the x-boundary is periodic, the mesh
     // is also periodic along the y-boundary
-    int is_periodic() const
+    int is_periodic() const override
     {
         return _periodic[0];
     }
 
-    int get_halo_width() const
+    int halo_width() const override
     {
         return _surface_halo_width;
     }
@@ -235,15 +235,14 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
     // Get the boundary indexes on the periodic boundary. local_grid.boundaryIndexSpace()
     // doesn't work on periodic boundaries.
     // XXX Needs more error checking to make sure the boundary is in fact periodic
-    template <class DecompositionType, class EntityType>
     Cabana::Grid::IndexSpace<2>
-    periodicIndexSpace(DecompositionType dt, EntityType et, std::array<int, 2> dir) const
+    periodicIndexSpace(Cabana::Grid::Ghost, Cabana::Grid::Node, std::array<int, 2> dir) const override
     {
         auto & global_grid = _local_grid->globalGrid();
         for ( int d = 0; d < 2; d++ ) {
             if ((dir[d] == -1 && global_grid.onLowBoundary(d))
                 || (dir[d] == 1 && global_grid.onHighBoundary(d))) {
-                return _local_grid->sharedIndexSpace(dt, et, dir);
+                return _local_grid->sharedIndexSpace(Cabana::Grid::Ghost(), Cabana::Grid::Node(), dir);
             }
         }
 
@@ -253,7 +252,7 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
         return Cabana::Grid::IndexSpace<2>( zero_size, zero_size );
     }
 
-    int rank() const { return _rank; }
+    int rank() const override { return _rank; }
 
   private:
     std::array<double, 3> _low_point, _high_point;

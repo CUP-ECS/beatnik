@@ -95,7 +95,7 @@ class SolverBase
      *  0: Structured, 2D (Regular, rectangular, domain decomposition)
      *  1: Unstructured, 2D (Domain decomposed into triangles with potential for mesh refinement)
      */
-    virtual void step( const int mesh_type ) = 0;
+    virtual void step( void ) = 0;
     virtual void solve( const double t_final, const int write_freq ) = 0;
 
     // For testing purposes
@@ -128,7 +128,7 @@ class Solver : public SolverBase
     using entity_type = typename beatnik_mesh_type::entity_type;
     using pm_type = ProblemManager<beatnik_mesh_type>;
     using br_solver_type = BRSolverBase<pm_type, Params>;
-    using zmodel_type = ZModel<pm_type, br_solver_type>;
+    using zmodel_type = ZModel<pm_type, br_solver_type, ModelOrderTag>;
     using ti_type = TimeIntegrator<pm_type, zmodel_type>;
     using silo_writer_type = SiloWriter<pm_type>;
     
@@ -199,7 +199,7 @@ class Solver : public SolverBase
 
         if (_params.solver_order == 1 || _params.solver_order  == 2)
         {
-            _br = Beatnik::createBRSolver<pm_type, ExecutionSpace, MemorySpace, Params>(*_pm, _bc, _eps, dx, dy, _params);
+            _br = Beatnik::createBRSolver<pm_type, Params>(*_pm, _bc, _eps, dx, dy, _params);
         }
         else
         {
@@ -208,7 +208,7 @@ class Solver : public SolverBase
 
         // Create the ZModel solver
         _zm = std::make_unique<zmodel_type>(
-            *_pm, _bc, _br.get(), _params, dx, dy, _atwood, _g, _mu, _params.heffte_configuration);
+            *_pm, _bc, _br.get(), dx, dy, _atwood, _g, _mu, _params.heffte_configuration);
 
         // Make a time integrator to move the zmodel forward
         _ti = std::make_unique<ti_type>( *_pm, _bc, *_zm );
@@ -224,13 +224,13 @@ class Solver : public SolverBase
 	    // XXX - Apply boundary conditions
     }
 
-    void step(const int mesh_type) override
+    void step() override
     {
-        if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
+        if constexpr (std::is_same_v<MeshTypeTag, Mesh::Structured>)
         {
              _ti->step(_dt, entity_type(), Cabana::Grid::Own());
         }
-        else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
+        else if constexpr (std::is_same_v<MeshTypeTag, Mesh::Unstructured>)
         {
             // XXX - TODO
             throw std::invalid_argument("Solver::step: Unstructured mesh not yet implemented.");
@@ -258,10 +258,10 @@ class Solver : public SolverBase
         // Start advancing time.
         do
         {
-            if ( 0 == _surface_mesh->rank() )
+            if ( 0 == _mesh->rank() )
                 printf( "Step %d / %d at time = %f\n", t, num_step, _time );
 
-            step(_params.mesh_type);
+            step();
             t++;
             // 4. Output mesh state periodically
             if ( write_freq && (0 == t % write_freq ))
@@ -280,7 +280,7 @@ class Solver : public SolverBase
             {
                 auto z = _pm->get(Cabana::Grid::Node(), Field::Position())->view();
                 auto w = _pm->get(Cabana::Grid::Node(), Field::Vorticity())->view();
-                int mesh_size = _pm->mesh().get_surface_mesh_size();
+                int mesh_size = _pm->mesh().mesh_size();
                 int periodic = _params.periodic[0];
                 // void writeView(int rank, int comm_size, int mesh_size, const View v)
                 BeatnikTest::Utils::writeView(rank, comm_size, mesh_size, periodic, z);

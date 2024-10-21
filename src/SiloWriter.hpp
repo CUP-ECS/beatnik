@@ -45,6 +45,7 @@ class SiloWriter
 {
   public:
     using memory_space = typename ProblemManagerType::memory_space;
+    using execution_space = typename ProblemManagerType::execution_space;
     using value_type = typename ProblemManagerType::beatnik_mesh_type::value_type;
     /**
      * Constructor
@@ -54,10 +55,7 @@ class SiloWriter
      */
     SiloWriter( ProblemManagerType& pm )
         : _pm( pm )
-    {
-        if ( DEBUG && _pm.mesh().rank() == 0 )
-            std::cerr << "Created Beatnik SiloWriter\n";
-    };
+    {};
 
     /**
      * Write File
@@ -79,7 +77,7 @@ class SiloWriter
         int rank = _pm.mesh().rank();
 
         // Retrieve the Local Grid and Local Mesh
-        const auto & local_grid = _pm.mesh().localGrid();
+        const auto & local_grid = _pm.mesh().layoutObj();
 
         // Set DB Options: Time Step, Time Stamp and Delta Time
         optlist = DBMakeOptlist( 10 );
@@ -156,7 +154,7 @@ class SiloWriter
 
         Kokkos::parallel_for(
             "SiloWriter::wowned copy",
-            createExecutionPolicy( node_domain, ExecutionSpace() ),
+            createExecutionPolicy( node_domain, execution_space() ),
             KOKKOS_LAMBDA( const int i, const int j ) {
                 w1Owned( i - xmin, j - ymin, 0 ) = w( i, j, 0 );
                 w2Owned( i - xmin, j - ymin, 0 ) = w( i, j, 1 );
