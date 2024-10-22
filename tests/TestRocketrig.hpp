@@ -248,9 +248,9 @@ class Rocketrig
 
     void rocketrig()
     {
-        int comm_size, rank;                         // Initialize Variables
-        MPI_Comm_size( MPI_COMM_WORLD, &comm_size ); // Number of Ranks
-        MPI_Comm_rank( MPI_COMM_WORLD, &rank );      // Get My Rank
+        int comm_size, rank;
+        MPI_Comm_size( MPI_COMM_WORLD, &comm_size ); 
+        MPI_Comm_rank( MPI_COMM_WORLD, &rank );     
         ClArgs cl = _cl;
 
         Cabana::Grid::DimBlockPartitioner<2> partitioner; // Create Cabana::Grid Partitioner

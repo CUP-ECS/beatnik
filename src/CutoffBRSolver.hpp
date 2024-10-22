@@ -53,16 +53,19 @@ namespace Beatnik
 template <class ProblemManagerType, class Params>
 class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
 {
+    // Cutoff solver only supports structured meshes
+    static_assert(std::is_same<typename ProblemManagerType::mesh_type_tag, Mesh::Structured>::value, 
+                  "CutoffBRSolver can only use type Mesh::Structured");
+
   public:
     using execution_space = typename ProblemManagerType::execution_space;
     using memory_space = typename ProblemManagerType::memory_space;
-    using node_view = typename BRSolverBase<ProblemManagerType, Params>::node_view;
+    using view_t = typename BRSolverBase<ProblemManagerType, Params>::view_t;
     using mesh_type = typename ProblemManagerType::mesh_type::mesh_type; // This is a Cabana::Grid::Mesh type
     using entity_type = typename ProblemManagerType::entity_type;
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, entity_type>;
     using spatial_mesh_type = SpatialMesh<execution_space, memory_space>;
-    
-    // using node_view = Kokkos::View<double***, device_type>;
+
 
     using particle_node = Cabana::MemberTypes<double[3], // xyz position in space                           0
                                               double[3], // Own omega for BR                                1
@@ -79,8 +82,11 @@ class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
     using particle_array_type = Cabana::AoSoA<particle_node, memory_space, 4>;
 
     // XXX - Get these from SpatialMesh class?
-    using spatial_mesh_layout = Cabana::Grid::UniformMesh<double, 3>;
-    using local_grid_layout = Cabana::Grid::LocalGrid<spatial_mesh_layout>;
+
+    // using mesh_type = Cabana::Grid::UniformMesh<double, 3>;
+    // using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
+    using spatial_mesh_layout = typename spatial_mesh_type::mesh_type;
+    using local_grid_layout = typename spatial_mesh_type::local_grid_type;
 
 
     CutoffBRSolver( const ProblemManagerType &pm, const BoundaryCondition &bc,
@@ -92,6 +98,7 @@ class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
         , _dx( dx )
         , _dy( dy )
         , _params( params )
+        , _local_L2G( *_pm.mesh().layoutObj() )
     {
 	    _comm = _pm.mesh().layoutObj()->globalGrid().comm();
 
@@ -169,7 +176,7 @@ class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
     /**
      * Creates a populates particle array
      **/
-    void initializeParticles(particle_array_type &particle_array, node_view z, node_view o) const
+    void initializeParticles(particle_array_type &particle_array, view_t z, view_t o) const
     {
         Kokkos::Profiling::pushRegion("initializeParticles");
 
@@ -198,7 +205,7 @@ class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
         auto rank3d_part = Cabana::slice<7>(particle_array);
 
         int mesh_dimension = _pm.mesh().mesh_size();
-        l2g_type local_L2G = Cabana::Grid::IndexConversion::createL2G( *_pm.mesh().layoutObj(), entity_type() );
+        l2g_type local_L2G = _local_L2G;
 
 	    // We should convert this to a Cabana::simd_parallel_for at some point to get better write behavior
         Kokkos::parallel_for("populate_particles", Kokkos::MDRangePolicy<execution_space, Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
@@ -476,7 +483,7 @@ class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
      * This function is called three times per time step to compute the initial, forward, and half-step
      * derivatives for velocity and vorticity.
      */
-    void computeInterfaceVelocity(node_view zdot, node_view z, node_view o) const override
+    void computeInterfaceVelocity(view_t zdot, view_t z, view_t o) const override
     {
         particle_array_type particle_array;
         initializeParticles(particle_array, z, o);
@@ -540,6 +547,7 @@ class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
     const BoundaryCondition & _bc;
     double _epsilon, _dx, _dy;
     const Params _params;
+    l2g_type _local_L2G;
     
     MPI_Comm _comm;
     int _rank, _comm_size;

@@ -54,9 +54,13 @@ namespace Beatnik
 template <class ProblemManagerType, class Params>
 class ExactBRSolver : public BRSolverBase<ProblemManagerType, Params>
 {
+    // Exact BR solver only supports structured meshes
+    static_assert(std::is_same<typename ProblemManagerType::mesh_type_tag, Mesh::Structured>::value, 
+                  "ExactBRSolver can only use type Mesh::Structured");
+
   public:
     using execution_space = typename ProblemManagerType::execution_space;
-    using node_view = typename BRSolverBase<ProblemManagerType, Params>::node_view;
+    using view_t = typename BRSolverBase<ProblemManagerType, Params>::view_t;
     using mesh_type = typename ProblemManagerType::mesh_type::mesh_type; // This is a Cabana::Grid::Mesh type
     using entity_type = typename ProblemManagerType::entity_type;
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, entity_type>;
@@ -82,9 +86,9 @@ class ExactBRSolver : public BRSolverBase<ProblemManagerType, Params>
         else return 9.0/8.0;
     }
 
-    void computeInterfaceVelocityPiece(node_view zdot, node_view z, 
-                                       node_view zremote, 
-                                       node_view oremote,
+    void computeInterfaceVelocityPiece(view_t zdot, view_t z, 
+                                       view_t zremote, 
+                                       view_t oremote,
                                        l2g_type remote_L2G) const
     {
         /* Project the Birkhoff-Rott calculation between all pairs of points on the 
@@ -215,7 +219,7 @@ class ExactBRSolver : public BRSolverBase<ProblemManagerType, Params>
      * This function is called three times per time step to compute the initial, forward, and half-step
      * derivatives for velocity and vorticity.
      */
-    void computeInterfaceVelocity(node_view zdot, node_view z, node_view o) const override
+    void computeInterfaceVelocity(view_t zdot, view_t z, view_t o) const override
     {
         auto local_node_space = _pm.mesh().layoutObj()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
@@ -237,10 +241,10 @@ class ExactBRSolver : public BRSolverBase<ProblemManagerType, Params>
 
         // Create views for receiving data. Alternate which views are being sent and received into
         // *remote2 sends first, so it needs to be deep copied. *remote1 can just be allocated
-        node_view zremote1(Kokkos::ViewAllocateWithoutInitializing ("zremote1"), z.extent(0), z.extent(1), z.extent(2));
-        node_view zremote2(Kokkos::ViewAllocateWithoutInitializing ("zremote2"), z.extent(0), z.extent(1), z.extent(2));
-        node_view oremote1(Kokkos::ViewAllocateWithoutInitializing ("oremote1"), o.extent(0), o.extent(1), o.extent(2));
-        node_view oremote2(Kokkos::ViewAllocateWithoutInitializing ("oremote2"), o.extent(0), o.extent(1), o.extent(2));
+        view_t zremote1(Kokkos::ViewAllocateWithoutInitializing ("zremote1"), z.extent(0), z.extent(1), z.extent(2));
+        view_t zremote2(Kokkos::ViewAllocateWithoutInitializing ("zremote2"), z.extent(0), z.extent(1), z.extent(2));
+        view_t oremote1(Kokkos::ViewAllocateWithoutInitializing ("oremote1"), o.extent(0), o.extent(1), o.extent(2));
+        view_t oremote2(Kokkos::ViewAllocateWithoutInitializing ("oremote2"), o.extent(0), o.extent(1), o.extent(2));
         l2g_type L2G_remote1 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().layoutObj(), Cabana::Grid::Node());
         l2g_type L2G_remote2 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().layoutObj(), Cabana::Grid::Node());
         
@@ -252,14 +256,14 @@ class ExactBRSolver : public BRSolverBase<ProblemManagerType, Params>
         // Now create references to these buffers. We go ahead and assign them here to get 
         // same type declarations. The loop reassigns these references as needed each time
         // around the loop.
-        node_view *zsend_view = NULL; 
-        node_view *osend_view = NULL;
+        view_t *zsend_view = NULL; 
+        view_t *osend_view = NULL;
         int * zsend_extents = NULL;
         int * osend_extents = NULL;
         l2g_type * L2G_send = NULL;
 
-        node_view *zrecv_view = NULL; 
-        node_view *orecv_view = NULL;
+        view_t *zrecv_view = NULL; 
+        view_t *orecv_view = NULL;
         int * zrecv_extents = NULL;
         int * orecv_extents = NULL;
         l2g_type * L2G_recv = NULL;

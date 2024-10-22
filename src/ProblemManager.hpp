@@ -78,12 +78,12 @@ class ProblemManager
         // The actual arrays storing mesh quantities
         // 1. The spatial positions of the interface
         _position = ArrayUtils::createArray<double, memory_space>("position", node_triple_layout);
-	    //ArrayUtils::ArrayOp::assign( *_position, 0.0, Cabana::Grid::Ghost() );
+	    // ArrayUtils::ArrayOp::assign( *_position, 0.0 );
 
 
         // 2. The magnitude of vorticity at the interface 
         _vorticity = ArrayUtils::createArray<double, memory_space>("vorticity", node_pair_layout);
-	    //ArrayUtils::ArrayOp::assign( *_vorticity, 0.0, Cabana::Grid::Ghost() );
+	    // ArrayUtils::ArrayOp::assign( *_vorticity, 0.0 );
 
         /* Halo pattern for the position and vorticity. The halo is two cells 
          * deep to be able to do fourth-order central differencing to 
@@ -100,6 +100,10 @@ class ProblemManager
                                 halo_depth, *_position->array(), *_vorticity->array());
             initialize( create_functor );
             gather();
+        }
+        else 
+        {
+            throw std::invalid_argument("ProblemManager constructor: Unfinished unstructured implementation.");
         }
     }
 
@@ -187,6 +191,7 @@ class ProblemManager
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
             // XXX - TODO
+            throw std::invalid_argument("ProblemManager::gather: Not yet implemented for unstructured meshes.");
         }
     }
 
@@ -205,6 +210,7 @@ class ProblemManager
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
             // XXX - TODO
+            throw std::invalid_argument("ProblemManager::gather: Not yet implemented for unstructured meshes.");
         }
     }
 

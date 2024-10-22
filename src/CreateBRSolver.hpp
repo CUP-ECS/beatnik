@@ -32,14 +32,24 @@ createBRSolver( const ProblemManagerType &pm, const BoundaryCondition &bc,
     using mesh_type_tag = typename ProblemManagerType::mesh_type_tag;
     if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
     {
-        using br_type = Beatnik::ExactBRSolver<ProblemManagerType, Params>;
-        return std::make_unique<br_type>(pm, bc, epsilon, dx, dy);
+        // Structured variants of BR Solvers
+        if ( params.br_solver == BR_EXACT )
+        {
+            using br_type = Beatnik::ExactBRSolver<ProblemManagerType, Params>;
+            return std::make_unique<br_type>(pm, bc, epsilon, dx, dy);
+        }
+        if ( params.br_solver == BR_CUTOFF )
+        {
+            using br_type = Beatnik::CutoffBRSolver<ProblemManagerType, Params>;
+            return std::make_unique<br_type>(pm, bc, epsilon, dx, dy, params);
+        }
     }
     else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
     {
-        using br_type = Beatnik::CutoffBRSolver<ProblemManagerType, Params>;
-        return std::make_unique<br_type>(pm, bc, epsilon, dx, dy, params);
+        // Unstructured variants of BR Solvers
+        throw std::invalid_argument("createBRSolver: BR Solver not yet implemented for unstructured meshes.");
     }
+
     std::cerr << "Invalid BR solver type.\n";
     Kokkos::finalize();
     MPI_Finalize();

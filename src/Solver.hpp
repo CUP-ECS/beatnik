@@ -197,20 +197,15 @@ class Solver : public SolverBase
         _pm = std::make_unique<pm_type>(
             *_mesh, _bc, _params.period, create_functor );
 
-        // ExactBR solvers only used for structutured meshes
-        if constexpr (std::is_same_v<MeshTypeTag, Mesh::Structured>)
-        {
-            if (_params.solver_order == 1 || _params.solver_order  == 2)
-            {
-                _br = Beatnik::createBRSolver<pm_type, Params>(*_pm, _bc, _eps, dx, dy, _params);
-            }
-            else
-            {
-                _br = NULL;
-            }
-        }
-        else {_br = NULL;}
         
+        if (_params.solver_order == 1 || _params.solver_order  == 2)
+        {
+            _br = Beatnik::createBRSolver<pm_type, Params>(*_pm, _bc, _eps, dx, dy, _params);
+        }
+        else
+        {
+            _br = NULL;
+        }
 
         // Create the ZModel solver
         _zm = std::make_unique<zmodel_type>(
@@ -304,26 +299,34 @@ class Solver : public SolverBase
     View_t get_positions(Cabana::Grid::Node) override
     {
         //_pm->gather();
-        auto view = _pm->get(Field::Position())->array()->view();
-        int dim0 = view.extent(0);
-        int dim1 = view.extent(1);
-        auto temp = Kokkos::create_mirror_view(view);
-        View_t ret = View_t("ret_p", dim0, dim1, 3);
-        // Kokkos::deep_copy(temp, view);
-        // Kokkos::deep_copy(ret, temp); 
-        return ret;
+        if constexpr (std::is_same_v<MeshTypeTag, Mesh::Structured>)
+        {
+            auto view = _pm->get(Field::Position())->array()->view();
+            int dim0 = view.extent(0);
+            int dim1 = view.extent(1);
+            auto temp = Kokkos::create_mirror_view(view);
+            View_t ret = View_t("ret_p", dim0, dim1, 3);
+            Kokkos::deep_copy(temp, view);
+            Kokkos::deep_copy(ret, temp); 
+            return ret;
+        }
+        else { throw std::invalid_argument("Solver::get_positions: Unstructured mesh not yet supported.\n");} 
     }
     View_t get_vorticities(Cabana::Grid::Node) override
     {
         //_pm->gather();
-        auto view = _pm->get(Field::Vorticity())->array()->view();
-        int dim0 = view.extent(0);
-        int dim1 = view.extent(1);
-        auto temp = Kokkos::create_mirror_view(view);
-        View_t ret = View_t("ret_w", dim0, dim1, 2);
-        // Kokkos::deep_copy(temp, view);
-        // Kokkos::deep_copy(ret, temp); 
-        return ret;
+        if constexpr (std::is_same_v<MeshTypeTag, Mesh::Structured>)
+        {
+            auto view = _pm->get(Field::Vorticity())->array()->view();
+            int dim0 = view.extent(0);
+            int dim1 = view.extent(1);
+            auto temp = Kokkos::create_mirror_view(view);
+            View_t ret = View_t("ret_w", dim0, dim1, 2);
+            Kokkos::deep_copy(temp, view);
+            Kokkos::deep_copy(ret, temp); 
+            return ret;
+        }
+        else { throw std::invalid_argument("Solver::get_positions: Unstructured mesh not yet supported.\n");} 
     }   
 
   private:

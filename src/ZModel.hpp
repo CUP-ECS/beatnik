@@ -177,6 +177,10 @@ class ZModel
             }
             _fft = Cabana::Grid::Experimental::createHeffteFastFourierTransform<double, memory_space>(*node_double_layout->layout(), fft_params);
         }
+        else 
+        {
+            throw std::invalid_argument("ZModel constructor: Unfinished implementation for unstructured meshes.");
+        }
     }
 
     double computeMinTimestep(double atwood, double g)
@@ -317,6 +321,7 @@ class ZModel
         else if constexpr (std::is_same_v<EntityTag, NuMesh::Face>)
         {
             // XXX - Perform unstructured equaivalent
+            throw std::invalid_argument("ZModel::prepareVelocities: Not yet implemented for unstructured meshes.");
         } 
     }
 
@@ -335,6 +340,7 @@ class ZModel
         else if constexpr (std::is_same_v<EntityTag, NuMesh::Face>)
         {
             // XXX - Perform unstructured equaivalent
+            throw std::invalid_argument("ZModel::prepareVelocities: Not yet implemented for unstructured meshes.");
         }
     }
 
@@ -353,6 +359,7 @@ class ZModel
         else if constexpr (std::is_same_v<EntityTag, NuMesh::Face>)
         {
             // XXX - Perform unstructured equaivalent
+            throw std::invalid_argument("ZModel::prepareVelocities: Not yet implemented for unstructured meshes.");
         }
     }
 
@@ -594,9 +601,10 @@ class ZModel
             _v_halo->gather( execution_space(), *_V->array());
             _bc.applyField( _pm.mesh(), *_V->array(), 1 );
         }
-        else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
+        else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
             // XXX - Unstructured gather operation
+            throw std::invalid_argument("ZModel::computeHaloedDerivatives: Not yet implemented for unstructured meshes.");
         }
 
         /**

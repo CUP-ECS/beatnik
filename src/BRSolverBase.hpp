@@ -44,9 +44,9 @@ class BRSolverBase
   public:
     using memory_space = typename ProblemManagerType::memory_space;
     using value_type = typename ProblemManagerType::beatnik_mesh_type::value_type;
-    using node_view = Kokkos::View<value_type***, memory_space>;
+    using view_t = Kokkos::View<value_type***, memory_space>;
     virtual ~BRSolverBase() = default;
-    virtual void computeInterfaceVelocity(node_view zdot, node_view z, node_view o) const = 0;
+    virtual void computeInterfaceVelocity(view_t zdot, view_t z, view_t o) const = 0;
 };
 
 } // end namespace Beantik
