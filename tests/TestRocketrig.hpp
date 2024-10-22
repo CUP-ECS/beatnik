@@ -24,7 +24,7 @@ struct ClArgs
     double magnitude;/**< Magnitude of scale of initial interface */
     double variation; /**< Variation in scale of initial interface */
     double period;   /**< Period of initial variation in interface */
-    enum Beatnik::BoundaryType boundary;  /**< Type of boundary conditions */
+    enum Beatnik::MeshBoundaryType boundary;  /**< Type of boundary conditions */
     double gravity; /**< Gravitational accelaration in -Z direction in Gs */
     double atwood;  /**< Atwood pressure differential number */
     int model;      /**< Model used to set initial conditions */
@@ -65,7 +65,7 @@ struct MeshInitFunc
 
     MeshInitFunc( std::array<double, 6> box, enum InitialConditionModel i,
                   double t, double m, double v, double p, 
-                  const std::array<int, 2> nodes, enum Beatnik::BoundaryType boundary )
+                  const std::array<int, 2> nodes, enum Beatnik::MeshBoundaryType boundary )
         : _i(i)
         , _t( t )
         , _m( m )
@@ -95,7 +95,7 @@ struct MeshInitFunc
          * coordinate in mesh space */
         for (int i = 0; i < 2; i++) {
             lcoord[i] = coord[i];
-            if (_b == Beatnik::BoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
+            if (_b == Beatnik::MeshBoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
                 lcoord[i] += 0.5;
             }
         }
@@ -151,7 +151,7 @@ struct MeshInitFunc
     double _t, _m, _v, _p;
     Kokkos::Array<int, 3> _ncells;
     double _dx, _dy;
-    enum Beatnik::BoundaryType _b;
+    enum Beatnik::MeshBoundaryType _b;
 };
 
 int init_default_ClArgs( ClArgs& cl )
@@ -162,7 +162,6 @@ int init_default_ClArgs( ClArgs& cl )
     cl.write_freq = 0;
 
     // Set default extra parameters
-    cl.params.mesh_type = 1;
     cl.params.cutoff_distance = 0.5;
     cl.params.heffte_configuration = 6;
     cl.params.br_solver = Beatnik::BR_EXACT;
@@ -173,7 +172,7 @@ int init_default_ClArgs( ClArgs& cl )
     cl.num_nodes = { 64, 64 };
     cl.bounding_box = 1.0;
     cl.initial_condition = IC_COS;
-    cl.boundary = Beatnik::BoundaryType::PERIODIC;
+    cl.boundary = Beatnik::MeshBoundaryType::PERIODIC;
     cl.tilt = 0.0;
     cl.magnitude = 0.05;
     cl.variation = 0.00;
@@ -274,19 +273,22 @@ class Rocketrig
             _solver = Beatnik::createSolver(
                 cl.driver, MPI_COMM_WORLD, cl.num_nodes,
                 partitioner, cl.atwood, cl.gravity, initializer,
-                bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t,
+                bc, Beatnik::Order::Low(), Beatnik::Mesh::Structured(),
+                cl.mu, cl.eps, cl.delta_t,
                 cl.params );
         } else if (cl.params.solver_order == SolverOrder::ORDER_MEDIUM) {
             _solver = Beatnik::createSolver(
                 cl.driver, MPI_COMM_WORLD, cl.num_nodes,
                 partitioner, cl.atwood, cl.gravity, initializer,
-                bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t,
+                bc, Beatnik::Order::Medium(), Beatnik::Mesh::Structured(),
+                cl.mu, cl.eps, cl.delta_t,
                 cl.params );
         } else if (cl.params.solver_order == SolverOrder::ORDER_HIGH) {
             _solver = Beatnik::createSolver(
                 cl.driver, MPI_COMM_WORLD, cl.num_nodes,
                 partitioner, cl.atwood, cl.gravity, initializer,
-                bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t,
+                bc, Beatnik::Order::High(), Beatnik::Mesh::Structured(),
+                cl.mu, cl.eps, cl.delta_t,
                 cl.params );
         } else {
             std::cerr << "Invalid Model Order parameter!\n";

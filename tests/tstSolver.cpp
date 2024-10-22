@@ -25,7 +25,7 @@ TYPED_TEST(SolverTest, testFileIO)
 
     // Adjust command-line args for this test
     cl.num_nodes = {64, 64};
-    cl.boundary = Beatnik::BoundaryType::PERIODIC;
+    cl.boundary = Beatnik::MeshBoundaryType::PERIODIC;
     cl.params.solver_order = SolverOrder::ORDER_LOW;
     finalize_ClArgs(cl);
 
@@ -64,7 +64,7 @@ TYPED_TEST(SolverTest, testPeriodicLowOrderSolver)
 
     // Adjust command-line args for this test
     cl.num_nodes = {64, 64};
-    cl.boundary = Beatnik::BoundaryType::PERIODIC;
+    cl.boundary = Beatnik::MeshBoundaryType::PERIODIC;
     cl.params.solver_order = SolverOrder::ORDER_LOW;
     finalize_ClArgs(cl);
 
@@ -86,7 +86,7 @@ TYPED_TEST(SolverTest, testFreeLowOrderSolver)
 
     // Adjust command-line args for this test
     cl.num_nodes = {64, 64};
-    cl.boundary = Beatnik::BoundaryType::FREE;
+    cl.boundary = Beatnik::MeshBoundaryType::FREE;
     cl.params.solver_order = SolverOrder::ORDER_LOW;
     finalize_ClArgs(cl);
 
@@ -114,7 +114,7 @@ TYPED_TEST(SolverTest, testPeriodicCutoffSolver)
 
     // Adjust command-line args for this test
     cl.num_nodes = {64, 64};
-    cl.boundary = Beatnik::BoundaryType::PERIODIC;
+    cl.boundary = Beatnik::MeshBoundaryType::PERIODIC;
     cl.params.solver_order = SolverOrder::ORDER_HIGH;
     cl.params.br_solver = Beatnik::BRSolverType::BR_CUTOFF;
     cl.params.cutoff_distance = 0.25;
@@ -138,7 +138,7 @@ TYPED_TEST(SolverTest, testFreeCutoffSolver)
 
     // Adjust command-line args for this test
     cl.num_nodes = {64, 64};
-    cl.boundary = Beatnik::BoundaryType::FREE;
+    cl.boundary = Beatnik::MeshBoundaryType::FREE;
     cl.params.solver_order = SolverOrder::ORDER_HIGH;
     cl.params.br_solver = Beatnik::BRSolverType::BR_CUTOFF;
     cl.params.cutoff_distance = 0.25;
@@ -162,7 +162,7 @@ TYPED_TEST(SolverTest, testPeriodicExactSolver)
 
     // Adjust command-line args for this test
     cl.num_nodes = {64, 64};
-    cl.boundary = Beatnik::BoundaryType::PERIODIC;
+    cl.boundary = Beatnik::MeshBoundaryType::PERIODIC;
     cl.params.solver_order = SolverOrder::ORDER_HIGH;
     cl.params.br_solver = Beatnik::BRSolverType::BR_EXACT;
     finalize_ClArgs(cl);
@@ -185,7 +185,7 @@ TYPED_TEST(SolverTest, testFreeExactSolver)
 
     // Adjust command-line args for this test
     cl.num_nodes = {64, 64};
-    cl.boundary = Beatnik::BoundaryType::FREE;
+    cl.boundary = Beatnik::MeshBoundaryType::FREE;
     cl.params.solver_order = SolverOrder::ORDER_HIGH;
     cl.params.br_solver = Beatnik::BRSolverType::BR_EXACT;
     finalize_ClArgs(cl);
