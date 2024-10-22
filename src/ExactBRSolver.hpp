@@ -351,7 +351,7 @@ class ExactBRSolver : public BRSolverBase<ProblemManagerType, Params>
 	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
         Kokkos::parallel_for("print views",
-            Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
+            Cabana::Grid::createExecutionPolicy(remote_space, execution_space()),
             KOKKOS_LAMBDA(int i, int j) {
             
             int local_li[2] = {i, j};

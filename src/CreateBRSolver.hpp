@@ -29,12 +29,13 @@ createBRSolver( const ProblemManagerType &pm, const BoundaryCondition &bc,
                 const double epsilon, const double dx, const double dy,
                 const Params params )
 {
-    if ( params.br_solver == BR_EXACT )
+    using mesh_type_tag = typename ProblemManagerType::mesh_type_tag;
+    if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
     {
         using br_type = Beatnik::ExactBRSolver<ProblemManagerType, Params>;
         return std::make_unique<br_type>(pm, bc, epsilon, dx, dy);
     }
-    if ( params.br_solver == BR_CUTOFF )
+    else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
     {
         using br_type = Beatnik::CutoffBRSolver<ProblemManagerType, Params>;
         return std::make_unique<br_type>(pm, bc, epsilon, dx, dy, params);

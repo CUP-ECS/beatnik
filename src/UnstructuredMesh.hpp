@@ -47,6 +47,10 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         MPI_Comm_rank( comm, &_rank );
 
         _mesh = NuMesh::createMesh<execution_space, memory_space>(_comm);
+
+        // XXX - Do we need these?
+        _low_point = {0.0, 0.0, 0.0};
+        _high_point = {0.0, 0.0, 0.0};
     }
 
     std::shared_ptr<mesh_type> layoutObj() const override
@@ -147,21 +151,23 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
             zero_size[d] = 0;
         return Cabana::Grid::IndexSpace<2>( zero_size, zero_size );
     }
-    const std::array<double, 3> & boundingBoxMin() const override { return {0.0, 0.0, 0.0}; }
-    const std::array<double, 3> & boundingBoxMax() const override { return {0.0, 0.0, 0.0}; }
-    int mesh_size() const override { return NULL; }
-    int halo_width() const override { return NULL; }
+    const std::array<double, 3> & boundingBoxMin() const override {return _low_point;}
+    const std::array<double, 3> & boundingBoxMax() const override {return _high_point;}
+    int mesh_size() const override { return -1; }
+    int halo_width() const override { return -1; }
 
     int rank() const override { return _rank; }
 
   private:
     MPI_Comm _comm;
+    std::shared_ptr<mesh_type> _mesh;
+
     const std::array<bool, 2> _periodic;
     int _rank;
-    // std::array<double, 3> _low_point, _high_point;
+    std::array<double, 3> _low_point, _high_point;
     // std::array<int, 2> _num_nodes;
     // const std::array<bool, 2> _periodic;
-    std::shared_ptr<mesh_type> _mesh;
+    
     
 };
 

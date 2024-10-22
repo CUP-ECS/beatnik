@@ -68,6 +68,7 @@ class ZModel
     using mesh_type_tag = typename ProblemManagerType::mesh_type_tag;
     using mesh_type = typename ProblemManagerType::mesh_type::mesh_type; // This is a Cabana::Grid::Mesh type
     using mesh_array_type = typename ProblemManagerType::mesh_array_type;
+    using entity_type = typename ProblemManagerType::entity_type;
     using halo_type = Cabana::Grid::Halo<memory_space>;
 
     ZModel( const ProblemManagerType & pm, const BoundaryCondition &bc,
@@ -88,11 +89,11 @@ class ZModel
         // Need the node triple layout for storing vector normals and the 
         // node double layout for storing x and y surface derivative
         auto node_double_layout =
-            ArrayUtils::createArrayLayout( _pm.mesh().layoutObj(), 2, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout( _pm.mesh().layoutObj(), 2, entity_type() );
         auto node_triple_layout =
-            ArrayUtils::createArrayLayout( _pm.mesh().layoutObj(), 3, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout( _pm.mesh().layoutObj(), 3, entity_type() );
         auto node_scalar_layout =
-            ArrayUtils::createArrayLayout( _pm.mesh().layoutObj(), 1, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout( _pm.mesh().layoutObj(), 1, entity_type() );
 
         
         // Initize omega view
@@ -104,8 +105,18 @@ class ZModel
         _V = ArrayUtils::createArray<double, memory_space>(
             "V", node_scalar_layout);
 
+        /* Storage for the reisz transform of the vorticity. In the low and 
+         * medium order models, it is used to calculate the vorticity 
+         * derivative. In the low order model, it is also projected onto the 
+         * surface normal to compute the interface velocity.  
+         * XXX Make this conditional on the model we run. */
+        _reisz = ArrayUtils::createArray<double, memory_space>("reisz", node_double_layout);
+        ArrayUtils::ArrayOp::assign( *_reisz, 0.0 );
+
         /* We need a halo for _V so that we can do fourth-order central differencing on
          * it. This requires a depth 2 stencil with adjacent faces.
+         *
+         * We also only need fft variables for structured meshes
          * 
          * Only initialize for structured meshes
          */
@@ -114,67 +125,58 @@ class ZModel
             int halo_depth = 2; 
              _v_halo = Cabana::Grid::createHalo( Cabana::Grid::FaceHaloPattern<2>(),
                             halo_depth, *_V->array() );
+
+            /* If we're not the hgh order model, initialize the FFT solver and 
+            * the working space it will need. 
+            * XXX figure out how to make this conditional on model order. */
+            Cabana::Grid::Experimental::FastFourierTransformParams fft_params;
+            _C1 = ArrayUtils::createArray<double, memory_space>("C1", node_double_layout);
+            _C2 = ArrayUtils::createArray<double, memory_space>("C2", node_double_layout);
+
+            switch (_heffte_configuration) {
+                case 0:
+                    fft_params.setAllToAll(false);
+                    fft_params.setPencils(false);
+                    fft_params.setReorder(false);
+                    break;
+                case 1:
+                    fft_params.setAllToAll(false);
+                    fft_params.setPencils(false);
+                    fft_params.setReorder(true);
+                    break;
+                case 2:
+                    fft_params.setAllToAll(false);
+                    fft_params.setPencils(true);
+                    fft_params.setReorder(false);
+                    break;
+                case 3:
+                    fft_params.setAllToAll(false);
+                    fft_params.setPencils(true);
+                    fft_params.setReorder(true);
+                    break;
+                case 4:
+                    fft_params.setAllToAll(true);
+                    fft_params.setPencils(false);
+                    fft_params.setReorder(false);
+                    break;
+                case 5:
+                    fft_params.setAllToAll(true);
+                    fft_params.setPencils(false);
+                    fft_params.setReorder(true);
+                    break;
+                case 6:
+                    fft_params.setAllToAll(true);
+                    fft_params.setPencils(true);
+                    fft_params.setReorder(false);
+                    break;
+                case 7:
+                    fft_params.setAllToAll(true);
+                    fft_params.setPencils(true);
+                    fft_params.setReorder(true);
+                    break;
+            }
+            _fft = Cabana::Grid::Experimental::createHeffteFastFourierTransform<double, memory_space>(*node_double_layout->layout(), fft_params);
         }
-        
-
-        /* Storage for the reisz transform of the vorticity. In the low and 
-         * medium order models, it is used to calculate the vorticity 
-         * derivative. In the low order model, it is also projected onto the 
-         * surface normal to compute the interface velocity.  
-         * XXX Make this conditional on the model we run. */
-        _reisz = ArrayUtils::createArray<double, memory_space>("reisz", node_double_layout);
-        ArrayUtils::ArrayOp::assign( *_reisz, 0.0, Cabana::Grid::Ghost() );
-
-        /* If we're not the hgh order model, initialize the FFT solver and 
-         * the working space it will need. 
-         * XXX figure out how to make this conditional on model order. */
-        Cabana::Grid::Experimental::FastFourierTransformParams fft_params;
-        _C1 = ArrayUtils::createArray<double, memory_space>("C1", node_double_layout);
-        _C2 = ArrayUtils::createArray<double, memory_space>("C2", node_double_layout);
-
-        switch (_heffte_configuration) {
-            case 0:
-                fft_params.setAllToAll(false);
-                fft_params.setPencils(false);
-                fft_params.setReorder(false);
-                break;
-            case 1:
-                fft_params.setAllToAll(false);
-                fft_params.setPencils(false);
-                fft_params.setReorder(true);
-                break;
-            case 2:
-                fft_params.setAllToAll(false);
-                fft_params.setPencils(true);
-                fft_params.setReorder(false);
-                break;
-            case 3:
-                fft_params.setAllToAll(false);
-                fft_params.setPencils(true);
-                fft_params.setReorder(true);
-                break;
-            case 4:
-                fft_params.setAllToAll(true);
-                fft_params.setPencils(false);
-                fft_params.setReorder(false);
-                break;
-            case 5:
-                fft_params.setAllToAll(true);
-                fft_params.setPencils(false);
-                fft_params.setReorder(true);
-                break;
-            case 6:
-                fft_params.setAllToAll(true);
-                fft_params.setPencils(true);
-                fft_params.setReorder(false);
-                break;
-            case 7:
-                fft_params.setAllToAll(true);
-                fft_params.setPencils(true);
-                fft_params.setReorder(true);
-                break;
-        }
-        _fft = Cabana::Grid::Experimental::createHeffteFastFourierTransform<double, memory_space>(*node_double_layout->layout(), fft_params);
     }
 
     double computeMinTimestep(double atwood, double g)
@@ -643,7 +645,7 @@ class ZModel
 	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
         Kokkos::parallel_for("print views",
-            Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
+            Cabana::Grid::createExecutionPolicy(remote_space, execution_space()),
             KOKKOS_LAMBDA(int i, int j) {
             
             int local_li[2] = {i, j};

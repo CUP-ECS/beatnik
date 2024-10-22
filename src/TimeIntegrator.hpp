@@ -29,6 +29,7 @@ template <class ProblemManagerType, class ZModelType>
 class TimeIntegrator
 {
     using memory_space = typename ProblemManagerType::memory_space;
+    using entity_type = typename ProblemManagerType::entity_type;
     using mesh_array_type = typename ProblemManagerType::mesh_array_type;
 
   public:
@@ -42,9 +43,9 @@ class TimeIntegrator
         // Create a layout of the temporary arrays we'll need for velocity
         // intermediate positions, and change in vorticity
         auto node_triple_layout =
-            ArrayUtils::createArrayLayout( pm.mesh().layoutObj(), 3, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout( pm.mesh().layoutObj(), 3, entity_type() );
         auto node_pair_layout =
-            ArrayUtils::createArrayLayout( pm.mesh().layoutObj(), 2, Cabana::Grid::Node() );
+            ArrayUtils::createArrayLayout( pm.mesh().layoutObj(), 2, entity_type() );
         //const std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> mesh = pm.mesh().localGrid(); 
         // auto node_pair_layout_2 = Utils::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 2, Cabana::Grid::Node());
         // auto node_triple_layout_2 = Utils::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 3, Cabana::Grid::Node());
@@ -136,45 +137,45 @@ class TimeIntegrator
         //printf("*******z_ORIG******\n");
     }
 
-    template <class l2g_type, class View>
-    void printView(l2g_type local_L2G, int rank, View z, int option, int DEBUG_X, int DEBUG_Y) const
-    {
-        int dims = z.extent(2);
+    // template <class l2g_type, class View>
+    // void printView(l2g_type local_L2G, int rank, View z, int option, int DEBUG_X, int DEBUG_Y) const
+    // {
+    //     int dims = z.extent(2);
 
-        std::array<long, 2> rmin, rmax;
-        for (int d = 0; d < 2; d++) {
-            rmin[d] = local_L2G.local_own_min[d];
-            rmax[d] = local_L2G.local_own_max[d];
-        }
-	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
+    //     std::array<long, 2> rmin, rmax;
+    //     for (int d = 0; d < 2; d++) {
+    //         rmin[d] = local_L2G.local_own_min[d];
+    //         rmax[d] = local_L2G.local_own_max[d];
+    //     }
+	//     Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
-        Kokkos::parallel_for("print views",
-            Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
-            KOKKOS_LAMBDA(int i, int j) {
+    //     Kokkos::parallel_for("print views",
+    //         Cabana::Grid::createExecutionPolicy(remote_space, execution_space()),
+    //         KOKKOS_LAMBDA(int i, int j) {
             
-            int local_li[2] = {i, j};
-            int local_gi[2] = {0, 0};   // global i, j
-            local_L2G(local_li, local_gi);
-            if (option == 1){
-                if (dims == 3) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
-                }
-                else if (dims == 2) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
-                }
-            }
-            else if (option == 2) {
-                if (local_gi[0] == DEBUG_X && local_gi[1] == DEBUG_Y) {
-                    if (dims == 3) {
-                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf: %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
-                    }   
-                    else if (dims == 2) {
-                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
-                    }
-                }
-            }
-        });
-    }
+    //         int local_li[2] = {i, j};
+    //         int local_gi[2] = {0, 0};   // global i, j
+    //         local_L2G(local_li, local_gi);
+    //         if (option == 1){
+    //             if (dims == 3) {
+    //                 printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
+    //             }
+    //             else if (dims == 2) {
+    //                 printf("R%d %d %d %d %d %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
+    //             }
+    //         }
+    //         else if (option == 2) {
+    //             if (local_gi[0] == DEBUG_X && local_gi[1] == DEBUG_Y) {
+    //                 if (dims == 3) {
+    //                     printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf: %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
+    //                 }   
+    //                 else if (dims == 2) {
+    //                     printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
+    //                 }
+    //             }
+    //         }
+    //     });
+    // }
 
   private:
     const ProblemManagerType& _pm;

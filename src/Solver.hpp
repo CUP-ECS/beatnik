@@ -197,14 +197,20 @@ class Solver : public SolverBase
         _pm = std::make_unique<pm_type>(
             *_mesh, _bc, _params.period, create_functor );
 
-        if (_params.solver_order == 1 || _params.solver_order  == 2)
+        // ExactBR solvers only used for structutured meshes
+        if constexpr (std::is_same_v<MeshTypeTag, Mesh::Structured>)
         {
-            _br = Beatnik::createBRSolver<pm_type, Params>(*_pm, _bc, _eps, dx, dy, _params);
+            if (_params.solver_order == 1 || _params.solver_order  == 2)
+            {
+                _br = Beatnik::createBRSolver<pm_type, Params>(*_pm, _bc, _eps, dx, dy, _params);
+            }
+            else
+            {
+                _br = NULL;
+            }
         }
-        else
-        {
-            _br = NULL;
-        }
+        else {_br = NULL;}
+        
 
         // Create the ZModel solver
         _zm = std::make_unique<zmodel_type>(
@@ -303,8 +309,8 @@ class Solver : public SolverBase
         int dim1 = view.extent(1);
         auto temp = Kokkos::create_mirror_view(view);
         View_t ret = View_t("ret_p", dim0, dim1, 3);
-        Kokkos::deep_copy(temp, view);
-        Kokkos::deep_copy(ret, temp); 
+        // Kokkos::deep_copy(temp, view);
+        // Kokkos::deep_copy(ret, temp); 
         return ret;
     }
     View_t get_vorticities(Cabana::Grid::Node) override
@@ -315,8 +321,8 @@ class Solver : public SolverBase
         int dim1 = view.extent(1);
         auto temp = Kokkos::create_mirror_view(view);
         View_t ret = View_t("ret_w", dim0, dim1, 2);
-        Kokkos::deep_copy(temp, view);
-        Kokkos::deep_copy(ret, temp); 
+        // Kokkos::deep_copy(temp, view);
+        // Kokkos::deep_copy(ret, temp); 
         return ret;
     }   
 

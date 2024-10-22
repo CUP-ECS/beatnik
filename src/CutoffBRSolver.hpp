@@ -92,7 +92,6 @@ class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
         , _dx( dx )
         , _dy( dy )
         , _params( params )
-        , _local_L2G( *_pm.mesh().layoutObj() )
     {
 	    _comm = _pm.mesh().layoutObj()->globalGrid().comm();
 
@@ -199,7 +198,7 @@ class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
         auto rank3d_part = Cabana::slice<7>(particle_array);
 
         int mesh_dimension = _pm.mesh().mesh_size();
-        l2g_type local_L2G = _local_L2G;
+        l2g_type local_L2G = Cabana::Grid::IndexConversion::createL2G( *_pm.mesh().layoutObj(), entity_type() );
 
 	    // We should convert this to a Cabana::simd_parallel_for at some point to get better write behavior
         Kokkos::parallel_for("populate_particles", Kokkos::MDRangePolicy<execution_space, Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
@@ -508,7 +507,7 @@ class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
 	Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
         Kokkos::parallel_for("print views",
-            Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
+            Cabana::Grid::createExecutionPolicy(remote_space, execution_space()),
             KOKKOS_LAMBDA(int i, int j) {
             
             // local_gi = global versions of the local indicies, and convention for remote 
@@ -543,7 +542,6 @@ class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
     const Params _params;
     
     MPI_Comm _comm;
-    l2g_type _local_L2G;
     int _rank, _comm_size;
     std::shared_ptr<spatial_mesh_type> _spatial_mesh;
 };

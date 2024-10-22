@@ -539,6 +539,23 @@ void assign( Array_t& array, const double alpha,
     }
 }
 
+/**
+ * Untagged version of assign which defaults to all entities
+ */
+template <class Array_t>
+void assign( Array_t& array, const double alpha )
+{
+    using mesh_type = typename Array_t::mesh_type;
+    if constexpr (is_cabana_mesh<mesh_type>::value)
+    {
+        Cabana::Grid::ArrayOp::assign(*array.array(), alpha, Cabana::Grid::Ghost());
+    }
+    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value)
+    {
+        NuMesh::Array::ArrayOp::assign(*array.array(), alpha, NuMesh::Ghost());
+    }
+}
+
 template <class Array_t, class DecompositionTag>
 void scale( Array_t& array, const double alpha,
              DecompositionTag tag )
