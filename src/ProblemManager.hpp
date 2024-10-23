@@ -184,7 +184,7 @@ class ProblemManager
     {
         if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
         {
-             _surface_halo->gather( execution_space(), *_position->array(), *_vorticity->array() );
+            _surface_halo->gather( execution_space(), *_position->array(), *_vorticity->array() );
             _bc.applyPosition(_mesh, *_position->array());
             _bc.applyField(_mesh, *_vorticity->array(), 2);
         }
