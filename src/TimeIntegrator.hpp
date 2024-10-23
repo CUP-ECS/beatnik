@@ -113,7 +113,7 @@ class TimeIntegrator
         // Find foward euler point using initial derivative. The zmodel solver
 	    // uses the problem manager position and derivative by default.
         _zm.computeDerivatives(*z_dot, *w_dot, etag, dtag);
-        printView(local_L2G, rank, z_dot->array()->view(), 1, 1, 1);
+        
         // X_tmp = X_tmp + X_dot*delta_t
         // update2: Update two vectors such that a = alpha * a + beta * b.
         ArrayUtils::ArrayOp::update(*z_tmp, 1.0, *z_dot, delta_t, dtag);
@@ -121,17 +121,18 @@ class TimeIntegrator
         
         // Compute derivative at forward euler point from the temporaries
         _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot, etag, dtag);
- 
+        
         // TVD RK3 Step Two - derivative at half-step position
         // derivatives
         // X_tmp = X_tmp*0.25 + X_orig*0.75 + X_dot*delta_t*0.25
         // update3: Update three vectors such that a = alpha * a + beta * b + gamma * c.
         ArrayUtils::ArrayOp::update(*z_tmp, 0.25, *z_orig, 0.75, *z_dot, (delta_t*0.25), dtag);
         ArrayUtils::ArrayOp::update(*w_tmp, 0.25, *w_orig, 0.75, *w_dot, (delta_t*0.25), dtag);
-
-        // Get the derivatives at the half-setp
-        _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot, etag, dtag);
         
+        // Get the derivatives at the half-setp
+        // Still same up to here
+        _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot, etag, dtag);
+        printView(local_L2G, rank, z_tmp->array()->view(), 1, 1, 1);
         // TVD RK3 Step Three - Combine start, forward euler, and half step
         // derivatives to take the final full step.
         // (unew = 1/3 uold + 2/3 utmp + 2/3 du_dt_tmp * deltat)
