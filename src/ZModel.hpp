@@ -623,6 +623,13 @@ class ZModel
         auto dx_v = _pm.mesh().Dx(*_V, _dx);
         auto dy_v = _pm.mesh().Dy(*_V, _dy);
         auto lap_w = _pm.mesh().laplace(w_array, _dx, _dy);
+        // lap_w 0, 7 and 0, 8 are different, but w_arrays are the same
+        if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
+        {
+            using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, entity_type>;
+            // l2g_type local_L2G = Cabana::Grid::IndexConversion::createL2G( *lap_w->clayout()->layout()->localGrid(), entity_type() );
+            // printView(local_L2G, lap_w->array()->view(), 2, 0, 7);
+        }
 
         // Compute wdot0 and wdot1
         auto wdot0 = ArrayUtils::ArrayOp::copyDim(*lap_w, 0, dtag);
@@ -641,7 +648,7 @@ class ZModel
     }
 
     template <class l2g_type, class View>
-    void printView(l2g_type local_L2G, int rank, View z, int option, int DEBUG_X, int DEBUG_Y) const
+    void printView(l2g_type local_L2G, View z, int option, int DEBUG_X, int DEBUG_Y) const
     {
         int dims = z.extent(2);
 
@@ -652,6 +659,7 @@ class ZModel
         }
 	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
+        using execution_space = typename ProblemManagerType::execution_space;
         Kokkos::parallel_for("print views",
             Cabana::Grid::createExecutionPolicy(remote_space, execution_space()),
             KOKKOS_LAMBDA(int i, int j) {
@@ -661,20 +669,26 @@ class ZModel
             local_L2G(local_li, local_gi);
             if (option == 1){
                 if (dims == 3) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
+                    printf("%d %d %.12lf %.12lf %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
                 }
                 else if (dims == 2) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
+                    printf("%d %d %.12lf %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
+                }
+                else if (dims == 1) {
+                    printf("%d %d %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0));
                 }
             }
             else if (option == 2) {
                 if (local_gi[0] == DEBUG_X && local_gi[1] == DEBUG_Y) {
                     if (dims == 3) {
-                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf: %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
-                    }   
-                    else if (dims == 2) {
-                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
+                    printf("%d %d %.12lf %.12lf %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
                     }
+                    else if (dims == 2) {
+                        printf("%d %d %.12lf %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
+                    }
+                    else if (dims == 1) {
+                    printf("%d %d %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0));
+                }
                 }
             }
         });

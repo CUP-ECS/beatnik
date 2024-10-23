@@ -82,6 +82,8 @@ class TimeIntegrator
                                                        node_triple_layout);
         _wtmp = ArrayUtils::createArray<double, memory_space>("vorticity temporary", 
                                                        node_pair_layout);
+        ArrayUtils::ArrayOp::assign(*_zdot, 0.0);
+        ArrayUtils::ArrayOp::assign(*_wdot, 0.0);
     }
     
     /**
@@ -119,12 +121,11 @@ class TimeIntegrator
         // update2: Update two vectors such that a = alpha * a + beta * b.
         ArrayUtils::ArrayOp::update(*z_tmp, 1.0, *z_dot, delta_t, dtag);
         ArrayUtils::ArrayOp::update(*w_tmp, 1.0, *w_dot, delta_t, dtag);
-        
         // Compute derivative at forward euler point from the temporaries
         _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot, etag, dtag);
         // w_dot not the same after the above line, but zdot is the same
         
-        // printView(local_L2G, rank, z_dot->array()->view(), 1, 1, 1);
+        // printView(local_L2G, rank, w_dot->array()->view(), 1, 1, 1);
         // TVD RK3 Step Two - derivative at half-step position
         // derivatives
         // X_tmp = X_tmp*0.25 + X_orig*0.75 + X_dot*delta_t*0.25
@@ -134,7 +135,7 @@ class TimeIntegrator
         
         // Get the derivatives at the half-setp
         // Still same up to here
-        _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot, etag, dtag);
+        //_zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot, etag, dtag);
         // zdot different after the line above.
         
         // TVD RK3 Step Three - Combine start, forward euler, and half step
