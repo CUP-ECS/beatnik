@@ -104,7 +104,7 @@ class TimeIntegrator
 
         l2g_type local_L2G = Cabana::Grid::IndexConversion::createL2G( *z_orig->clayout()->layout()->localGrid(), entity_type() );
 
-        printView(local_L2G, rank, z_orig->array()->view(), 1, 1, 1);
+        
 
         // TVD RK3 Step One - derivative at forward euler point
         auto z_dot = _zdot;
@@ -113,7 +113,7 @@ class TimeIntegrator
         // Find foward euler point using initial derivative. The zmodel solver
 	    // uses the problem manager position and derivative by default.
         _zm.computeDerivatives(*z_dot, *w_dot, etag, dtag);
-        
+        printView(local_L2G, rank, z_dot->array()->view(), 1, 1, 1);
         // X_tmp = X_tmp + X_dot*delta_t
         // update2: Update two vectors such that a = alpha * a + beta * b.
         ArrayUtils::ArrayOp::update(*z_tmp, 1.0, *z_dot, delta_t, dtag);
