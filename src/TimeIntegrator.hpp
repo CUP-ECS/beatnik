@@ -125,17 +125,18 @@ class TimeIntegrator
         _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot, etag, dtag);
         // w_dot not the same after the above line, but zdot is the same
         
-        // printView(local_L2G, rank, w_dot->array()->view(), 1, 1, 1);
+        
         // TVD RK3 Step Two - derivative at half-step position
         // derivatives
         // X_tmp = X_tmp*0.25 + X_orig*0.75 + X_dot*delta_t*0.25
         // update3: Update three vectors such that a = alpha * a + beta * b + gamma * c.
         ArrayUtils::ArrayOp::update(*z_tmp, 0.25, *z_orig, 0.75, *z_dot, (delta_t*0.25), dtag);
         ArrayUtils::ArrayOp::update(*w_tmp, 0.25, *w_orig, 0.75, *w_dot, (delta_t*0.25), dtag);
-        
+        printView(local_L2G, rank, w_tmp->array()->view(), 1, 1, 1);
+        printView(local_L2G, rank, z_tmp->array()->view(), 1, 1, 1);
         // Get the derivatives at the half-setp
         // Still same up to here
-        //_zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot, etag, dtag);
+        _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot, etag, dtag);
         // zdot different after the line above.
         
         // TVD RK3 Step Three - Combine start, forward euler, and half step
@@ -145,7 +146,7 @@ class TimeIntegrator
         // update3: Update three vectors such that a = alpha * a + beta * b + gamma * c.
         ArrayUtils::ArrayOp::update(*z_orig, (1.0/3.0), *z_tmp, (2.0/3.0), *z_dot, (delta_t*2.0/3.0), dtag);
         ArrayUtils::ArrayOp::update(*w_orig, (1.0/3.0), *w_tmp, (2.0/3.0), *w_dot, (delta_t*2.0/3.0), dtag);
-
+        //printView(local_L2G, rank, w_orig->array()->view(), 1, 1, 1);
         // printView(local_L2G, rank, z_orig->array()->view(), 1, 1, 1);
         // printf("*******z_DOT******\n");
         // printView(local_l2g, 0, z_dot->view(), 1, 3, 3);

@@ -195,18 +195,12 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
     /* 9-point laplace stencil operator for computing artificial viscosity */
     std::shared_ptr<mesh_array_type> laplace(const mesh_array_type& in, const double dx, const double dy) const override
     {
-        //using l2g_type = Cabana::Grid::IndexConversion::L2G<local_grid_type, entity_type>;
-        auto local_L2G = Cabana::Grid::IndexConversion::createL2G( *in.clayout()->layout()->localGrid(), entity_type() );
-        // printView(local_L2G, in.array()->view(), 1, 0, 7);
-        // in views are the same
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
         auto out_view = out->array()->view();
         auto in_view = in.array()->view();
         auto layout = in.clayout()->layout();
         auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
-        printf("index space: (%d, %d), (%d, %d), dim2: %d\n", index_space.min(0), index_space.max(0),
-            index_space.min(1), index_space.max(1), dim2);
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
         Kokkos::parallel_for("Calculate laplace", policy, KOKKOS_LAMBDA(const int i, const int j) {
             // double laplace(ViewType f, int i, int j, int d, double dx, double dy) 
