@@ -89,7 +89,8 @@ class SolverTest : public ::testing::Test
                 return;
             }
         }
-        int halo_width = 0;
+        // Ignore halo values because these are not written to the mesh file and could be incorrect
+        int halo_width = 2;
         int dim0 = testView.extent(0), dim1 = testView.extent(1), dim2 = testView.extent(2);
         for (int i = halo_width; i < (dim0-halo_width); i++)
         {
@@ -109,7 +110,9 @@ class SolverTest : public ::testing::Test
     {
         this->init(cl);
         int mesh_size = cl.num_nodes[0];
-        int periodic = !(cl.boundary);
+        int periodic = -1;
+        if (cl.boundary == Beatnik::MeshBoundaryType::FREE) { periodic = 0; }
+        else { periodic = 1; }
         std::string z_path = filepath;
         std::string w_path = filepath;
         std::string z_name = Utils::get_filename(this->rank_, this->comm_size_, mesh_size, periodic, 'z');
