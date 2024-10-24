@@ -10,10 +10,15 @@ spack:
   - silo@4.11 +mpi
   - hdf5 +mpi
   - blt
-  - caliper+kokkos+mpi+papi
   concretizer:
     unify: true
   view: true
+  packages:
+    spectrum-mpi:
+      externals:
+        - spec: spectrum-mpi@rolling-release
+          prefix: /usr/tce/packages/spectrum-mpi/spectrum-mpi-rolling-release-gcc-8.3.1/
+      buildable: False
   compilers:
   - compiler:
       spec: clang@=12.0.1
