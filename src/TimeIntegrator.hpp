@@ -100,11 +100,16 @@ class TimeIntegrator
     template <class EntityTag, class DecompositionTag>
     void step( const double delta_t, EntityTag etag, DecompositionTag dtag ) 
     { 
+
+
         // Compute the derivatives of position and vorticity at our current point
         auto z_orig = _pm.get( Field::Position() );
         auto w_orig = _pm.get( Field::Vorticity() );
         auto z_tmp = ArrayUtils::ArrayOp::cloneCopy(*z_orig, dtag);
         auto w_tmp = ArrayUtils::ArrayOp::cloneCopy(*w_orig, dtag);
+
+        auto local_L2G =  Cabana::Grid::IndexConversion::createL2G( *z_orig->clayout()->layout()->localGrid(), etag );
+
 
         // TVD RK3 Step One - derivative at forward euler point
         auto z_dot = _zdot;
@@ -121,7 +126,7 @@ class TimeIntegrator
         
         // Compute derivative at forward euler point from the temporaries
         _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot, etag, dtag);
- 
+        
         // TVD RK3 Step Two - derivative at half-step position
         // derivatives
         // X_tmp = X_tmp*0.25 + X_orig*0.75 + X_dot*delta_t*0.25
@@ -131,7 +136,7 @@ class TimeIntegrator
 
         // Get the derivatives at the half-setp
         _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot, etag, dtag);
-        
+        // printView(local_L2G, z_dot->array()->view(), 1, 1, 1);
         // TVD RK3 Step Three - Combine start, forward euler, and half step
         // derivatives to take the final full step.
         // (unew = 1/3 uold + 2/3 utmp + 2/3 du_dt_tmp * deltat)
@@ -147,7 +152,7 @@ class TimeIntegrator
     }
 
     template <class l2g_type, class View>
-    void printView(l2g_type local_L2G, int rank, View z, int option, int DEBUG_X, int DEBUG_Y) const
+    void printView(l2g_type local_L2G, View z, int option, int DEBUG_X, int DEBUG_Y) const
     {
         int dims = z.extent(2);
 
@@ -159,7 +164,7 @@ class TimeIntegrator
 	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
         Kokkos::parallel_for("print views",
-            Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
+            Cabana::Grid::createExecutionPolicy(remote_space, exec_space()),
             KOKKOS_LAMBDA(int i, int j) {
             
             int local_li[2] = {i, j};
@@ -167,19 +172,25 @@ class TimeIntegrator
             local_L2G(local_li, local_gi);
             if (option == 1){
                 if (dims == 3) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
+                    printf("%d %d %.12lf %.12lf %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
                 }
                 else if (dims == 2) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
+                    printf("%d %d %.12lf %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
                 }
+				else if (dims == 1) {
+					printf("%d %d %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0));
+				}
             }
             else if (option == 2) {
                 if (local_gi[0] == DEBUG_X && local_gi[1] == DEBUG_Y) {
                     if (dims == 3) {
-                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf: %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
-                    }   
+                    printf("%d %d %.12lf %.12lf %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
+                    }
                     else if (dims == 2) {
-                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
+                        printf("%d %d %.12lf %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
+                    }
+                    else if (dims == 1) {
+                        printf("%d %d %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0));
                     }
                 }
             }

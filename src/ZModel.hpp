@@ -678,7 +678,7 @@ class ZModel
 	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
         Kokkos::parallel_for("print views",
-            Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
+            Cabana::Grid::createExecutionPolicy(remote_space, exec_space()),
             KOKKOS_LAMBDA(int i, int j) {
             
             int local_li[2] = {i, j};
@@ -686,19 +686,25 @@ class ZModel
             local_L2G(local_li, local_gi);
             if (option == 1){
                 if (dims == 3) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
+                    printf("%d %d %.12lf %.12lf %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
                 }
                 else if (dims == 2) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
+                    printf("%d %d %.12lf %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
                 }
+				else if (dims == 1) {
+					printf("%d %d %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0));
+				}
             }
             else if (option == 2) {
                 if (local_gi[0] == DEBUG_X && local_gi[1] == DEBUG_Y) {
                     if (dims == 3) {
-                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf: %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
-                    }   
+                    printf("%d %d %.12lf %.12lf %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1), z(i, j, 2));
+                    }
                     else if (dims == 2) {
-                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
+                        printf("%d %d %.12lf %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0), z(i, j, 1));
+                    }
+                    else if (dims == 1) {
+                        printf("%d %d %.12lf\n", local_gi[0], local_gi[1], z(i, j, 0));
                     }
                 }
             }
