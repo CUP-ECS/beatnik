@@ -46,33 +46,6 @@ class TimeIntegrator
             ArrayUtils::createArrayLayout( pm.mesh().layoutObj(), 3, entity_type() );
         auto node_pair_layout =
             ArrayUtils::createArrayLayout( pm.mesh().layoutObj(), 2, entity_type() );
-        //const std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> mesh = pm.mesh().localGrid(); 
-        // auto node_pair_layout_2 = Utils::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 2, Cabana::Grid::Node());
-        // auto node_triple_layout_2 = Utils::createArrayLayout<ExecutionSpace, MemorySpace>(pm.mesh().localGrid(), 3, Cabana::Grid::Node());
-
-        // std::array<int, 2> global_num_cell = { 7, 7 };
-        // std::array<double, 2> global_low_corner = { -1.0, -1.0 };
-        // std::array<double, 2> global_high_corner = { 1.0, 1.0 };
-        // std::array<bool, 2> is_dim_periodic = { true, true };
-        // Cabana::Grid::DimBlockPartitioner<2> partitioner;
-
-
-        // auto nu_mesh = NuMesh::createMesh<exec_space, memory_space>(MPI_COMM_WORLD);
-        // nu_mesh->initialize_ve(global_low_corner, global_high_corner, global_num_cell,
-        //                         is_dim_periodic, partitioner, MPI_COMM_WORLD);
-        // nu_mesh->initialize_faces();
-        // nu_mesh->initialize_edges();
-        // nu_mesh->gather_edges();
-        // nu_mesh->assign_ghost_edges_to_faces();
-        // auto vertex_triple_layout = Utils::createArrayLayout(nu_mesh, 3, NuMesh::Vertex());
-        // auto edge_triple_layout = Utils::createArrayLayout(nu_mesh, 3, NuMesh::Edge());
-        // auto face_triple_layout = Utils::createArrayLayout(nu_mesh, 3, NuMesh::Face());
-
-        // auto zdot_array_2 = Utils::createArray<exec_space, memory_space>("cabana-v", node_pair_layout_2, Cabana::Grid::Node());
-        // auto zdot_numesh_v = Utils::createArray<exec_space, memory_space>("nu-v", vertex_triple_layout, NuMesh::Vertex());
-        // auto zdot_numesh_e = Utils::createArray<exec_space, memory_space>("nu-e", edge_triple_layout, NuMesh::Edge());
-        // auto zdot_numesh_f = Utils::createArray<exec_space, memory_space>("nu-f", face_triple_layout, NuMesh::Face());
-
 
         _zdot = ArrayUtils::createArray<double, memory_space>("velocity", 
                                                        node_triple_layout);
@@ -93,20 +66,11 @@ class TimeIntegrator
     template <class EntityTag, class DecompositionTag>
     void step( const double delta_t, EntityTag etag, DecompositionTag dtag ) 
     { 
-        int rank;
-        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-        using mesh_type = typename ProblemManagerType::mesh_type::mesh_type; // This is a Cabana::Grid::Mesh type
-        using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, entity_type>;
-        
         // Compute the derivatives of position and vorticity at our current point
         auto z_orig = _pm.get( Field::Position() );
         auto w_orig = _pm.get( Field::Vorticity() );
         auto z_tmp = ArrayUtils::ArrayOp::cloneCopy(*z_orig, dtag);
         auto w_tmp = ArrayUtils::ArrayOp::cloneCopy(*w_orig, dtag);
-
-        l2g_type local_L2G = Cabana::Grid::IndexConversion::createL2G( *z_orig->clayout()->layout()->localGrid(), entity_type() );
-
-        
 
         // TVD RK3 Step One - derivative at forward euler point
         auto z_dot = _zdot;
@@ -115,7 +79,6 @@ class TimeIntegrator
         // Find foward euler point using initial derivative. The zmodel solver
 	    // uses the problem manager position and derivative by default.
         _zm.computeDerivatives(*z_dot, *w_dot, etag, dtag);
-        // w_dot same after the above call
 
         // X_tmp = X_tmp + X_dot*delta_t
         // update2: Update two vectors such that a = alpha * a + beta * b.
@@ -132,10 +95,8 @@ class TimeIntegrator
         // update3: Update three vectors such that a = alpha * a + beta * b + gamma * c.
         ArrayUtils::ArrayOp::update(*z_tmp, 0.25, *z_orig, 0.75, *z_dot, (delta_t*0.25), dtag);
         ArrayUtils::ArrayOp::update(*w_tmp, 0.25, *w_orig, 0.75, *w_dot, (delta_t*0.25), dtag);
-        // printView(local_L2G, rank, w_tmp->array()->view(), 1, 1, 1);
-        // printView(local_L2G, rank, z_tmp->array()->view(), 1, 1, 1);
+        
         // Get the derivatives at the half-setp
-        // Still same up to here
         _zm.computeDerivatives( *z_tmp, *w_tmp, *z_dot, *w_dot, etag, dtag);
         // zdot different after the line above.
         
@@ -146,13 +107,6 @@ class TimeIntegrator
         // update3: Update three vectors such that a = alpha * a + beta * b + gamma * c.
         ArrayUtils::ArrayOp::update(*z_orig, (1.0/3.0), *z_tmp, (2.0/3.0), *z_dot, (delta_t*2.0/3.0), dtag);
         ArrayUtils::ArrayOp::update(*w_orig, (1.0/3.0), *w_tmp, (2.0/3.0), *w_dot, (delta_t*2.0/3.0), dtag);
-        //printView(local_L2G, rank, w_orig->array()->view(), 1, 1, 1);
-        // printView(local_L2G, rank, z_orig->array()->view(), 1, 1, 1);
-        // printf("*******z_DOT******\n");
-        // printView(local_l2g, 0, z_dot->view(), 1, 3, 3);
-        // printf("*******z_TMP******\n");
-        // printView(local_l2g, 0, z_tmp->view(), 1, 3, 3);
-        //printf("*******z_ORIG******\n");
     }
 
     template <class l2g_type, class View>

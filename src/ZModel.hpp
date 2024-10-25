@@ -358,7 +358,7 @@ class ZModel
         } 
         else if constexpr (std::is_same_v<EntityTag, NuMesh::Face>)
         {
-            // XXX - Perform unstructured equaivalent
+            // XXX - Perform unstructured equivalent
             throw std::invalid_argument("ZModel::prepareVelocities: Not yet implemented for unstructured meshes.");
         }
     }
@@ -476,7 +476,6 @@ class ZModel
         // External calls to this object work on Cabana::Grid arrays, but internal
         // methods mostly work on the views, with the entry points responsible
         // for handling the halos.
-	    // double dx = _dx, dy = _dy;
  
         // Phase 1: Globally-dependent bulk synchronous calculations that 
         // namely the reisz transform and/or far-field force solve to calculate
@@ -491,11 +490,6 @@ class ZModel
         // Phase 1.a: Calcuate the omega value for each point
         auto out = _pm.mesh().omega(w_array, *z_dx, *z_dy);
         Beatnik::ArrayUtils::ArrayOp::copy(*_omega, *out, dtag);
-
-        // auto local_grid = _pm.mesh().localGrid();
-        // l2g_type local_l2g = Cabana::Grid::IndexConversion::createL2G( *local_grid, Cabana::Grid::Node() );
-        //printf("****Z_VIEW***\n");
-        //printView(local_l2g, 0, z_view, 1, 2, 2);
 
         // Phase 1.b: Compute zdot
         prepareVelocities(ModelOrderTag(), zdot_array, z_array, w_array, *_omega, etag);
@@ -537,7 +531,6 @@ class ZModel
                 *ArrayUtils::ArrayOp::element_cross(*z_dx, *z_dy, dtag), // Dx \cross Dy
                 dtag
             );
-        // printf("%d, %d: surface_normal: %0.5lf\n", di, dj, surface_normal->array()->view()(di, dj, 0));
 
         /*
          * Part 2.4: Compute zdot and zndot as needed using specialized helper functions
@@ -546,8 +539,6 @@ class ZModel
         auto zndot = ArrayUtils::ArrayOp::clone(*h11); 
         ArrayUtils::ArrayOp::assign(*zndot, 0.0, dtag); // XXX - Should not be needed
         finalizeVelocity(ModelOrderTag(), *zndot, zdot_array, *_reisz, *surface_normal, *inv_deth, dtag);
-        // printf("%d, %d: zndot: %0.5lf\n", di, dj, zndot->array()->view()(di, dj, 0));
-
 
         /*
          * Part 2.5: Compute V from zndot and vorticity:
@@ -623,13 +614,6 @@ class ZModel
         auto dx_v = _pm.mesh().Dx(*_V, _dx);
         auto dy_v = _pm.mesh().Dy(*_V, _dy);
         auto lap_w = _pm.mesh().laplace(w_array, _dx, _dy);
-        // lap_w 0, 7 and 0, 8 are different, but w_arrays are the same
-        if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
-        {
-            using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, entity_type>;
-            // l2g_type local_L2G = Cabana::Grid::IndexConversion::createL2G( *lap_w->clayout()->layout()->localGrid(), entity_type() );
-            // printView(local_L2G, lap_w->array()->view(), 2, 0, 7);
-        }
 
         // Compute wdot0 and wdot1
         auto wdot0 = ArrayUtils::ArrayOp::copyDim(*lap_w, 0, dtag);

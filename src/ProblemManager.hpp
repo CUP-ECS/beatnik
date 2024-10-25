@@ -229,7 +229,7 @@ class ProblemManager
     // Halo communication pattern for problem-manager stored data
     std::shared_ptr<halo_type> _surface_halo;
 
-}; // template class ProblemManager
+};
 
 } // namespace Beatnik
 

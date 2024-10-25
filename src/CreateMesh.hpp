@@ -21,8 +21,8 @@ namespace Beatnik
 {
 
 
-/* Separate header for createBRSolver to avoid circular 
- * dependencies between BRSolverBase and the BR solver options.
+/* Separate header for createMesh to avoid circular 
+ * dependencies between MeshBase and the mesh classes.
  */
 template <class ExecutionSpace, class MemorySpace, class MeshTypeTag>
 std::unique_ptr<MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>>
@@ -51,4 +51,4 @@ createMesh( const std::array<double, 6>& global_bounding_box,
 
 } // end namespace Beatnik
 
-#endif /* BEATNIK_CREATEBRSOLVER_HPP */
+#endif /* BEATNIK_CREATEMESH_HPP */
