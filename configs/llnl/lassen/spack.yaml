@@ -5,15 +5,20 @@ spack:
       - spectrum-mpi@rolling-release
       - heffte +fftw +cuda cuda_arch=70
       - kokkos +hwloc +cuda +cuda_lambda +wrapper cuda_arch=70
-      - cabana @master +cajita +heffte +mpi +cuda +arborx cuda_arch=70
+      - cabana @master +grid +heffte +mpi +cuda +arborx cuda_arch=70
     - ['%gcc@8.3.1']
   - silo@4.11 +mpi
   - hdf5 +mpi
   - blt
-  - caliper+kokkos+mpi+papi
   concretizer:
     unify: true
   view: true
+  packages:
+    spectrum-mpi:
+      externals:
+        - spec: spectrum-mpi@rolling-release
+          prefix: /usr/tce/packages/spectrum-mpi/spectrum-mpi-rolling-release-gcc-8.3.1/
+      buildable: False
   compilers:
   - compiler:
       spec: clang@=12.0.1
