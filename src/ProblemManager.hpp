@@ -148,7 +148,7 @@ class ProblemManager
 
         // Get Local Grid and Local Mesh
         auto local_grid = *( _surface_mesh.localGrid() );
-        auto local_mesh = Cabana::Grid::createLocalMesh<device_type>( local_grid );
+        auto local_mesh = Cabana::Grid::createLocalMesh<mem_space>( local_grid );
 
 	    // Get State Arrays
         auto z = get( Cabana::Grid::Node(), Field::Position() );

@@ -5,6 +5,7 @@
 
 #include <Cabana_Core.hpp>
 #include <Cabana_Grid.hpp>
+#include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
 
 #include <mpi.h>
@@ -30,6 +31,7 @@ class MeshTest : public TestingBase<T>
     using Cell = Cabana::Grid::Node;
 
     using node_array =
+        Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
                       typename T::MemorySpace>;
     using mesh_type = Beatnik::SurfaceMesh<typename T::ExecutionSpace, typename T::MemorySpace>;
