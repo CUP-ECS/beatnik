@@ -1,5 +1,5 @@
 #include <Cabana_Core.hpp>
-#include <Cajita.hpp>
+#include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
 #include <ProblemManager.hpp>
 

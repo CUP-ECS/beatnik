@@ -2,6 +2,7 @@
 
 #include <Cabana_Core.hpp>
 #include <Cabana_Grid.hpp>
+#include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
 
 #include <SurfaceMesh.hpp>
@@ -40,6 +41,7 @@ TYPED_TEST( MeshTest, PeriodicGridSetup )
     {
         EXPECT_EQ( cabana_nodes,
                    global_grid.globalNumEntity( Cabana::Grid::Node(), i ) );
+                   global_grid.globalNumEntity( Cabana::Grid::Node(), i ) );
     }
 };
 TYPED_TEST( MeshTest, NonperiodicGridSetup )
@@ -60,6 +62,7 @@ TYPED_TEST( MeshTest, NonperiodicGridSetup )
     /* Make sure the number of owned nodes is our share of what was requested */
     auto own_local_node_space = local_grid->indexSpace(
         Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local() );
+        Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local() );
     for ( int i = 0; i < 2; i++ )
     {
         EXPECT_EQ( own_local_node_space.extent( i ),
@@ -71,6 +74,7 @@ TYPED_TEST( MeshTest, NonperiodicGridSetup )
      * the ghosts in each dimension. 
      */
     auto ghost_local_node_space = local_grid->indexSpace(
+        Cabana::Grid::Ghost(), Cabana::Grid::Node(), Cabana::Grid::Local() );
         Cabana::Grid::Ghost(), Cabana::Grid::Node(), Cabana::Grid::Local() );
     for ( int i = 0; i < 2; i++ ) {
         EXPECT_EQ( ghost_local_node_space.extent( i ),
