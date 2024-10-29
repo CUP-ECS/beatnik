@@ -2,7 +2,7 @@
 
 ## Description
 
-Beatnik is a benchmark for global communication based on Pandya and Shkoller's 3D fluid interace "Z-Model" in the Cabana/Cajita mesh framework [1]. The goals 
+Beatnik is a benchmark for global communication based on Pandya and Shkoller's 3D fluid interace "Z-Model" in the Cabana mesh framework [1]. The goals 
 of Beatnik are to:
   1. Provide an interesting and meaningful benchmark for numerical methods that require global communication, for example for far-field force calculations. This includes fast fourier transforms, distance sort cutoff-based methods, and (eventually) fast multi-pole methods.
   1. Understand the performance characteristics of different parallel decompositions of the Z-Model based on both a 2D decomposition based on logical mesh location location and a space-filling curve mesh decomposition.
@@ -29,6 +29,7 @@ By default, Beatnik solves a simple multi-mode rocket rig problem sized for a si
   * `-F [write-frequency]` - Interval between timesteps when I/O is written
   * `-O [solution order]` - Order of solver to use ('high', 'medium', or 'low'). 'low' is the default.
   * `-w [weak scaling factor]` - Scale up the problem specification, including the x/y bounding box, to be N times larger
+  * `-S [BR solver type]` - If using the high-order solution, whether to use the 'exact' or 'cutoff' BR solver. 'exact' is the default
 
 ### Problem-specific command line parameters
 
@@ -42,6 +43,7 @@ By default, Beatnik solves a simple multi-mode rocket rig problem sized for a si
   * `-a [atwood]` -  Atwood's constant for the difference in pressure between the two fluids 
   * `-M [mu]` - Mu, the artificial viscosity constant used in the Z-Model
   * `-e [epsilon]` - Epsilon, the desingularization constant used in the Z-Model expressed as a fraction of the distance between interface mesh points
+  * `-c [cutoff distance]` - If using the 'cutoff' BR solver, the cutoff distance for which to consider neighboring particles
   
 ### Example 1: Periodic Multi-mode Rocket Rig
 The simplest test case and the one to which the rocketrig example program defaults is an initial interface distributed according to a cosine function. Simple usage examples:
@@ -65,13 +67,17 @@ Beatnik is being implemented in multiple distinct steps, with associated planned
     1. Support for periodic boundary conditions and free boundary conditions
     1. Simple benchmark examples including a single-mode Gaussian roll-up test and the multi-mode rocket rig experiment.
     1. Direct support for weak scaling of benchmarks through command line arguments
+   
+  * Version 1.1 Features
+
+    1. Support for exact or cutoff-based BR solvers
+    2. Support for Gaussian and randomized initial particle positions in the z-direction
+    3. Added tests using the [BLT](https://github.com/LLNL/blt) framework
 
   * Version 1.X Planned Features
 
-    1. Rearchitecting of the z-model solve into explicitly-coupled surface mesh and spatial mesh solvers
-    1. A spatial mesh cutoff-based approach for calculating far-field forces using the Cabana particle framework. The goal of this work is to understand the accuracy/performance tradeoffs in the Z-Model, particularly in the medium-order
     1. Improved timestep, desingularization, and artificial viscosity parameter handling. The goal of this is to provide good defaults when other input parameters are changed.
-    1. Additional interface initialization options, including Gaussian random and file-based interface initialization (also useful for checkpointing)
+    1. File-based interface initialization (also useful for checkpointing)
     1. Support for coupling with other applications through either I/O (e.g. ADIOS) or Communication (e.g. Portage) 
     1. Additional test case definitions
 
@@ -79,6 +85,7 @@ Beatnik is being implemented in multiple distinct steps, with associated planned
 
     1. Direct fast multi-pole or P3M solver for scalable, high precision high-order model solves.
     1. Support for multiple interface manifolds in a single simulation.
+    2. Support for unstructured and adaptive meshes
 
 ## Acknowledgment, Contributors, and Copyright Information
 
