@@ -33,7 +33,8 @@
 
 #include <memory>
 
-#include <Mesh.hpp>
+#include <SurfaceMesh.hpp>
+#include <CreateBRSolver.hpp>
 
 #include <BoundaryCondition.hpp>
 #include <Operators.hpp>
@@ -58,13 +59,14 @@ namespace Order
  * @brief ZModel class handles the specific of the various ZModel versions, 
  * invoking an external class to solve far-field forces if necessary.
  **/
-template <class ExecutionSpace, class MemorySpace, class MethodOrder, class BRSolver>
+template <class ExecutionSpace, class MemorySpace, class MethodOrder, class Params>
 class ZModel
 {
   public:
     using exec_space = ExecutionSpace;
     using memory_space = MemorySpace;
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
+    using br_solver_type = BRSolverBase<ExecutionSpace, MemorySpace, Params>;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>; 
 
@@ -78,9 +80,10 @@ class ZModel
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
     ZModel( const pm_type & pm, const BoundaryCondition &bc,
-            const BRSolver *br, /* pointer because could be null */
+            const br_solver_type *br, /* pointer because could be null */
             const double dx, const double dy, 
-            const double A, const double g, const double mu)
+            const double A, const double g, const double mu,
+            const int heffte_configuration)
         : _pm( pm )
         , _bc( bc )
         , _br( br )
@@ -89,6 +92,7 @@ class ZModel
         , _A( A )
         , _g( g )
         , _mu( mu )
+        , _heffte_configuration( heffte_configuration )
     {
         // Need the node triple layout for storing vector normals and the 
         // node double layout for storing x and y surface derivative
@@ -98,6 +102,11 @@ class ZModel
             Cabana::Grid::createArrayLayout( _pm.mesh().localGrid(), 3, Cabana::Grid::Node() );
         auto node_scalar_layout =
             Cabana::Grid::createArrayLayout( _pm.mesh().localGrid(), 1, Cabana::Grid::Node() );
+
+        
+        // Initize omega view
+        _omega = Cabana::Grid::createArray<double, memory_space>(
+            "omega", node_triple_layout );
 
         // Temporary used for central differencing of vorticities along the 
         // surface in calculating the vorticity derivative
@@ -125,10 +134,49 @@ class ZModel
         _C1 = Cabana::Grid::createArray<double, memory_space>("C1", node_double_layout);
         _C2 = Cabana::Grid::createArray<double, memory_space>("C2", node_double_layout);
 
-        params.setAllToAll(true);
-        params.setPencils(true);
-        params.setReorder(false);
-        _fft = Cabana::Grid::Experimental::createHeffteFastFourierTransform<double, memory_space>(exec_space{}, *node_double_layout, params);
+        switch (_heffte_configuration) {
+            case 0:
+                params.setAllToAll(false);
+                params.setPencils(false);
+                params.setReorder(false);
+                break;
+            case 1:
+                params.setAllToAll(false);
+                params.setPencils(false);
+                params.setReorder(true);
+                break;
+            case 2:
+                params.setAllToAll(false);
+                params.setPencils(true);
+                params.setReorder(false);
+                break;
+            case 3:
+                params.setAllToAll(false);
+                params.setPencils(true);
+                params.setReorder(true);
+                break;
+            case 4:
+                params.setAllToAll(true);
+                params.setPencils(false);
+                params.setReorder(false);
+                break;
+            case 5:
+                params.setAllToAll(true);
+                params.setPencils(false);
+                params.setReorder(true);
+                break;
+            case 6:
+                params.setAllToAll(true);
+                params.setPencils(true);
+                params.setReorder(false);
+                break;
+            case 7:
+                params.setAllToAll(true);
+                params.setPencils(true);
+                params.setReorder(true);
+                break;
+        }
+        _fft = Cabana::Grid::Experimental::createHeffteFastFourierTransform<double, memory_space>(*node_double_layout, params);
     }
 
     double computeMinTimestep(double atwood, double g)
@@ -252,11 +300,31 @@ class ZModel
         _fft->reverse(*_reisz, Cabana::Grid::Experimental::FFTScaleFull());
     }
 
+    /* Calcuate omega for each point and store in _omega
+     */
+    void prepareOmega(node_view z, node_view w) const
+    {
+        double dx = _dx;
+        double dy = _dy;
+        auto omega = _omega->view();
+
+        auto local_grid = _pm.mesh().localGrid();
+        auto own_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
+        Kokkos::parallel_for( "Omega",  
+            createExecutionPolicy(own_node_space, ExecutionSpace()), 
+            KOKKOS_LAMBDA(int i, int j) {
+            for (int d = 0; d < 3; d++) {
+                omega(i, j, d) = w(i, j, 1) * Operators::Dx(z, i, j, d, dx) - w(i, j, 0) * Operators::Dy(z, i, j, d, dy);
+            }
+        });
+    }
+
     /* For low order, we calculate the reisz transform used to compute the magnitude
      * of the interface velocity. This will be projected onto surface normals later 
      * once we have the normals */
     void prepareVelocities(Order::Low, [[maybe_unused]] node_view zdot,
-                           [[maybe_unused]] node_view z, node_view w) const
+                           [[maybe_unused]] node_view z, node_view w,
+                           [[maybe_unused]] node_view omega_view) const
     {
         computeReiszTransform(w);
     }
@@ -264,18 +332,20 @@ class ZModel
     /* For medium order, we calculate the fourier velocity that we later 
      * normalize for vorticity calculations and directly compute the 
      * interface velocity (zdot) using a far field method. */
-    void prepareVelocities(Order::Medium, node_view zdot, node_view z, node_view w) const
+    void prepareVelocities(Order::Medium, node_view zdot, node_view z, node_view w,
+                           node_view omega_view) const
     {
         computeReiszTransform(w);
-        _br->computeInterfaceVelocity(zdot, z, w);
+        _br->computeInterfaceVelocity(zdot, z, omega_view);
     }
 
     /* For high order, we just directly compute the interface velocity (zdot)
      * using a far field method and later normalize that for use in the vorticity 
      * calculation. */
-    void prepareVelocities(Order::High, node_view zdot, node_view z, node_view w) const
+    void prepareVelocities(Order::High, node_view zdot, node_view z,
+                           [[maybe_unused]]node_view w, node_view omega_view) const
     {
-        _br->computeInterfaceVelocity(zdot, z, w);
+        _br->computeInterfaceVelocity(zdot, z, omega_view);
     }
 
     // Compute the final interface velocities and normalized BR velocities
@@ -327,7 +397,7 @@ class ZModel
                              node_view zdot, node_view wdot ) const
     {
         _pm.gather( z, w );
-	computeHaloedDerivatives( z.view(), w.view(), zdot, wdot );
+	    computeHaloedDerivatives( z.view(), w.view(), zdot, wdot );
     }
 
     // Shared internal entry point from the external points from the
@@ -338,14 +408,20 @@ class ZModel
         // External calls to this object work on Cabana::Grid arrays, but internal
         // methods mostly work on the views, with the entry points responsible
         // for handling the halos.
-	double dx = _dx, dy = _dy;
+	    double dx = _dx, dy = _dy;
  
         // Phase 1: Globally-dependent bulk synchronous calculations that 
         // namely the reisz transform and/or far-field force solve to calculate
         // interface velocity and velocity normal magnitudes, using the
         // appropriate method. We do not attempt to overlap this with the 
         // mostly-local parallel calculations in phase 2
-        prepareVelocities(MethodOrder(), zdot, z_view, w_view);
+
+        // Phase 1.a: Calcuate the omega value for each point
+        prepareOmega(z_view, w_view);
+
+        // Phase 1.b: Compute zdot
+        auto omega_view = _omega->view();
+        prepareVelocities(MethodOrder(), zdot, z_view, w_view, omega_view);
 
         auto reisz = _reisz->view();
         double g = _g;
@@ -379,7 +455,7 @@ class ZModel
             double N[3];
             Operators::cross(N, dx_z, dy_z);
             for (int n = 0; n < 3; n++)
-		N[n] /= sqrt(deth);
+		        N[n] /= sqrt(deth);
 
             //  2.4 Compute zdot and zndot as needed using specialized helper functions
             double zndot;
@@ -387,12 +463,12 @@ class ZModel
                              reisz, N, deth );
 
             //  2.5 Compute V from zndot and vorticity 
-	    double w1 = w_view(i, j, 0); 
+	        double w1 = w_view(i, j, 0); 
             double w2 = w_view(i, j, 1);
 
-	    V_view(i, j, 0) = zndot * zndot 
-                         - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
-                         - 2*g*z_view(i, j, 2);
+            V_view(i, j, 0) = zndot * zndot 
+                            - 0.25*(h22*w1*w1 - 2.0*h12*w1*w2 + h11*w2*w2)/deth 
+                            - 2*g*z_view(i, j, 2);
         });
 
         // 3. Phase 3: Halo V and apply boundary condtions on it, then calculate
@@ -418,14 +494,21 @@ class ZModel
 
     }
 
+    typename node_array::view_type getOmega()
+    {
+        return _omega->view();
+    }
+
   private:
     const pm_type & _pm;
     const BoundaryCondition & _bc;
-    const BRSolver *_br;
+    const br_solver_type *_br;
     double _dx, _dy;
     double _A, _g, _mu;
+    const int _heffte_configuration;
     std::shared_ptr<node_array> _V;
     std::shared_ptr<halo_type> _v_halo;
+    std::shared_ptr<node_array> _omega;
 
     /* XXX Make this conditional on not being the high-order model */ 
     std::shared_ptr<node_array> _reisz;

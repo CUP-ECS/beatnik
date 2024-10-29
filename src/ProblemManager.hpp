@@ -33,7 +33,7 @@
 
 #include <memory>
 
-#include <Mesh.hpp>
+#include <SurfaceMesh.hpp>
 #include <BoundaryCondition.hpp>
 
 namespace Beatnik
@@ -89,41 +89,43 @@ class ProblemManager
         typename node_array::view_type;
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
-    using mesh_type = Mesh<exec_space, mem_space>;
+    using surface_mesh_type = SurfaceMesh<exec_space, mem_space>;
 
     template <class InitFunc>
-    ProblemManager( const mesh_type & mesh,
+    ProblemManager( const surface_mesh_type & surface_mesh,
                     const BoundaryCondition & bc, 
+                    const double period,
                     const InitFunc& create_functor )
-        : _mesh( mesh )
+        : _surface_mesh( surface_mesh )
         , _bc( bc )
-    // , other initializers
+        , _period( period )
+        // , other initializers
     {
         // The layouts of our various arrays for values on the staggered mesh
-        // and other associated data strutures. Do there need to be version with
+        // and other associated data structures. Does there need to be version with
         // halos associated with them?
         auto node_triple_layout =
-            Cabana::Grid::createArrayLayout( _mesh.localGrid(), 3, Cabana::Grid::Node() );
+            Cabana::Grid::createArrayLayout( _surface_mesh.localGrid(), 3, Cabana::Grid::Node() );
         auto node_pair_layout =
-            Cabana::Grid::createArrayLayout( _mesh.localGrid(), 2, Cabana::Grid::Node() );
+            Cabana::Grid::createArrayLayout( _surface_mesh.localGrid(), 2, Cabana::Grid::Node() );
 
         // The actual arrays storing mesh quantities
         // 1. The spatial positions of the interface
         _position = Cabana::Grid::createArray<double, mem_space>(
             "position", node_triple_layout );
-	Cabana::Grid::ArrayOp::assign( *_position, 0.0, Cabana::Grid::Ghost() );
+	    Cabana::Grid::ArrayOp::assign( *_position, 0.0, Cabana::Grid::Ghost() );
 
         // 2. The magnitude of vorticity at the interface 
         _vorticity = Cabana::Grid::createArray<double, mem_space>(
             "vorticity", node_pair_layout );
-	Cabana::Grid::ArrayOp::assign( *_vorticity, 0.0, Cabana::Grid::Ghost() );
+	    Cabana::Grid::ArrayOp::assign( *_vorticity, 0.0, Cabana::Grid::Ghost() );
 
         /* Halo pattern for the position and vorticity. The halo is two cells 
          * deep to be able to do fourth-order central differencing to 
          * compute surface normals accurately. It's a Node (8 point) pattern 
          * as opposed to a Face (4 point) pattern so the vorticity laplacian 
          * can use a 9-point stencil. */
-        int halo_depth = _mesh.localGrid()->haloCellWidth();
+        int halo_depth = _surface_mesh.localGrid()->haloCellWidth();
         _surface_halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<2>(), 
                             halo_depth, *_position, *_vorticity);
 
@@ -141,20 +143,24 @@ class ProblemManager
     void initialize( const InitFunctor& create_functor )
     {
         // DEBUG: Trace State Initialization
-        if ( _mesh.rank() == 0 && DEBUG )
+        if ( _surface_mesh.rank() == 0 && DEBUG )
             std::cout << "Initializing Mesh State\n";
 
         // Get Local Grid and Local Mesh
-        auto local_grid = *( _mesh.localGrid() );
+        auto local_grid = *( _surface_mesh.localGrid() );
         auto local_mesh = Cabana::Grid::createLocalMesh<mem_space>( local_grid );
 
-	// Get State Arrays
+	    // Get State Arrays
         auto z = get( Cabana::Grid::Node(), Field::Position() );
         auto w = get( Cabana::Grid::Node(), Field::Vorticity() );
 
         // Loop Over All Owned Nodes ( i, j )
         auto own_nodes = local_grid.indexSpace( Cabana::Grid::Own(), Cabana::Grid::Node(),
                                                 Cabana::Grid::Local() );
+        
+        int seed = (int) (10000000 * _period);
+        Kokkos::Random_XorShift64_Pool<mem_space> random_pool(seed);
+
         Kokkos::parallel_for(
             "Initialize Cells`",
             Cabana::Grid::createExecutionPolicy( own_nodes, ExecutionSpace() ),
@@ -163,7 +169,7 @@ class ProblemManager
                 double coords[2];
                 local_mesh.coordinates( Cabana::Grid::Node(), index, coords);
 
-                create_functor( Cabana::Grid::Node(), Field::Position(), index, 
+                create_functor( Cabana::Grid::Node(), Field::Position(), random_pool, index, 
                                 coords, z(i, j, 0), z(i, j, 1), z(i, j, 2) );
                 create_functor( Cabana::Grid::Node(), Field::Vorticity(), index, 
                                 coords, w(i, j, 0), w(i, j, 1) );
@@ -174,9 +180,9 @@ class ProblemManager
      * Return mesh
      * @return Returns Mesh object
      **/
-    const mesh_type & mesh() const
+    const surface_mesh_type & mesh() const
     {
-        return _mesh;
+        return _surface_mesh;
     };
 
     /**
@@ -207,8 +213,8 @@ class ProblemManager
     void gather( ) const
     {
         _surface_halo->gather( ExecutionSpace(), *_position, *_vorticity );
-        _bc.applyPosition(_mesh, *_position);
-        _bc.applyField(_mesh, *_vorticity, 2);
+        _bc.applyPosition(_surface_mesh, *_position);
+        _bc.applyField(_surface_mesh, *_vorticity, 2);
     };
 
     /**
@@ -218,8 +224,8 @@ class ProblemManager
     void gather( node_array &position, node_array &vorticity) const
     {
         _surface_halo->gather( ExecutionSpace(), position, vorticity );
-        _bc.applyPosition(_mesh, position);
-        _bc.applyField(_mesh, vorticity, 2);
+        _bc.applyPosition(_surface_mesh, position);
+        _bc.applyField(_surface_mesh, vorticity, 2);
     }
 
 #if 0
@@ -235,8 +241,11 @@ class ProblemManager
 
   private:
     // The mesh on which our data items are stored
-    const mesh_type &_mesh;
+    const surface_mesh_type &_surface_mesh;
     const BoundaryCondition &_bc;
+
+    // Used to seed the random number generator
+    const double _period;
 
     // Basic long-term quantities stored in the mesh and periodically written
     // to storage (specific computiontional methods may store additional state)

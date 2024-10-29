@@ -12,6 +12,7 @@
  * @file
  * @author Patrick Bridges <patrickb@unm.edu>
  * @author Jacob McCullough <jmccullough12@unm.edu>
+ * @author Jason Stewart <jastewart@unm.edu>
  *
  * @section DESCRIPTION
  * General rocket rig fluid interface example using the Beatnik z-model
@@ -23,6 +24,10 @@
 #define DEBUG 0
 #endif
 
+#ifndef MEASURETIME
+#define MEASURETIME 0
+#endif
+
 
 // Include Statements
 #include <BoundaryCondition.hpp>
@@ -31,6 +36,7 @@
 #include <Cabana_Core.hpp>
 #include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
+#include <Kokkos_Random.hpp>
 
 #include <mpi.h>
 
@@ -47,16 +53,19 @@
 
 using namespace Beatnik;
 
-static char* shortargs = (char*)"n:t:d:x:F:o:I:b:g:a:T:m:v:p:i:w:O:M:e:h";
+static char* shortargs = (char*)"n:B:t:d:x:F:o:c:H:I:b:g:a:T:m:v:p:i:w:O:S:M:e:h:";
 
 static option longargs[] = {
     // Basic simulation parameters
     { "nodes", required_argument, NULL, 'n' },
+    { "bounding_box", required_argument, NULL, 'B'},
     { "timesteps", required_argument, NULL, 't' },
     { "delta_t", required_argument, NULL, 'd' },
     { "driver", required_argument, NULL, 'x' },
     { "write_frequency", required_argument, NULL, 'F' },
     { "outdir", required_argument, NULL, 'o' },
+    { "cutoff_distance", required_argument, NULL, 'c' },
+    { "heffte_configuration", required_argument, NULL, 'H'},
 
     // Z-model simulation parameters
     { "initial_condition", required_argument, NULL, 'I' },
@@ -72,6 +81,7 @@ static option longargs[] = {
 
     // Z-model simulation parameters
     { "order", required_argument, NULL, 'O' },
+    { "solver", required_argument, NULL, 'S' },
     { "mu", required_argument, NULL, 'M' },
     { "epsilon", required_argument, NULL, 'e' },
 
@@ -81,6 +91,7 @@ static option longargs[] = {
 
 enum InitialConditionModel {IC_COS = 0, IC_SECH2, IC_GAUSSIAN, IC_RANDOM, IC_FILE};
 enum SolverOrder {ORDER_LOW = 0, ORDER_MEDIUM, ORDER_HIGH};
+
 /**
  * @struct ClArgs
  * @brief Template struct to organize and keep track of parameters controlled by
@@ -89,7 +100,7 @@ enum SolverOrder {ORDER_LOW = 0, ORDER_MEDIUM, ORDER_HIGH};
 struct ClArgs
 {
     /* Problem physical setup */
-    std::array<double, 6> global_bounding_box;    /**< Size of initial spatial domain */
+    // std::array<double, 6> global_bounding_box;    /**< Size of initial spatial domain: MOVED TO PARAMS */
     enum InitialConditionModel initial_condition; /**< Model used to set initial conditions */
     double tilt;    /**< Initial tilt of interface */
     double magnitude;/**< Magnitude of scale of initial interface */
@@ -99,6 +110,7 @@ struct ClArgs
     double gravity; /**< Gravitational accelaration in -Z direction in Gs */
     double atwood;  /**< Atwood pressure differential number */
     int model;      /**< Model used to set initial conditions */
+    double bounding_box; /**< Size of global bounding box. From (-B, -B, -B) to (B, B, B) */
 
     /* Problem simulation parameters */
     std::array<int, 2> num_nodes;          /**< Number of cells */
@@ -113,9 +125,20 @@ struct ClArgs
     int write_freq;     /**< Write frequency */
 
     /* Solution method constants */
-    enum SolverOrder order;  /**< Order of z-model solver to use */
+    enum BRSolverType br_solver; /**< BRSolver to use */
     double mu;      /**< Artificial viscosity constant */
     double eps;     /**< Desingularization constant */
+
+    /* Parameters specific to solver order and BR solver type:
+     *  - Period for particle initialization
+     *  - Global bounding box
+     *  - Periodicity
+     *  - Heffte configuration (For low-order solver)
+     *  - solver order (Order of z-model solver to use)
+     *  - BR solver type
+     *  - Cutoff distance (If using cutoff solver)
+     */
+    Params params;
 };
 
 /**
@@ -134,18 +157,24 @@ void help( const int rank, char* progname )
                   << "\n";
         std::cout << std::left << std::setw( 10 ) << "-n" << std::setw( 40 )
                   << "Number of points in each dimension (default 128)" << std::left << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-B" << std::setw( 40 )
+                  << "Bounding box size. Default (-1, -1, -1), (1, 1, 1)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-w" << std::setw( 40 )
                   << "Weak Scaling Factor (default 1)" << std::left << "\n";
-     //   std::cout << std::left << std::setw( 10 ) << "-t" << std::setw( 40 )
-     //             << "Amount of time to simulate" << std::left
-     //             << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-c" << std::setw( 40 )
+                  << "Cutoff distance (default 0.0)" << std::left << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-H" << std::setw( 40 )
+                  << "Heffte configuration (default 6)" << std::left << "\n";
+       std::cout << std::left << std::setw( 10 ) << "-t" << std::setw( 40 )
+                 << "Amount of timesteps to simulate" << std::left << "\n";
      //   std::cout << std::left << std::setw( 10 ) << "-d" << std::setw( 40 )
      //             << "Timestep increment" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-F" << std::setw( 40 )
                   << "Write Frequency (default 10)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-O" << std::setw( 40 )
                   << "Solver Order (default \"low\")" << std::left << "\n";
-
+        std::cout << std::left << std::setw( 10 ) << "-S" << std::setw( 40 )
+                  << "BRSolver (default \"exact\")" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-I" << std::setw( 40 )
                   << "Initial Condition Model (default \"cos\")" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-m" << std::setw( 40 )
@@ -163,7 +192,7 @@ void help( const int rank, char* progname )
         std::cout << std::left << std::setw( 10 ) << "-M" << std::setw( 40 )
                   << "Artificial Viscosity Constant (default 1.0)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-e" << std::setw( 40 )
-		<< "Desingularization Constant (defailt 0.25)" << std::left << "\n";
+		<< "Desingularization Constant (default 0.25)" << std::left << "\n";
 
         std::cout << std::left << std::setw( 10 ) << "-h" << std::setw( 40 )
                   << "Print Help Message" << std::left << "\n";
@@ -185,18 +214,25 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
 
     /// Set default values
     cl.driver = "serial"; // Default Thread Setting
-    cl.order = SolverOrder::ORDER_LOW;;
     cl.weak_scale = 1;
     cl.write_freq = 10;
 
+    // Set default extra parameters
+    cl.params.cutoff_distance = 0.5;
+    cl.params.heffte_configuration = 6;
+    cl.params.br_solver = BR_EXACT;
+    cl.params.solver_order = SolverOrder::ORDER_LOW;
+    // cl.params.period below
+
     /* Default problem is the cosine rocket rig */
     cl.num_nodes = { 128, 128 };
+    cl.bounding_box = 1.0;
     cl.initial_condition = IC_COS;
     cl.boundary = Beatnik::BoundaryType::PERIODIC;
     cl.tilt = 0.0;
     cl.magnitude = 0.05;
     cl.variation = 0.00;
-    cl.period = 1.0;
+    cl.params.period = 1.0;
     cl.gravity = 25.0;
     cl.atwood = 0.5;
 
@@ -210,12 +246,58 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     cl.t_final = -1.0;
 
     // Now parse any arguments
-    while ( ( ch = getopt_long( argc, argv, shortargs, longargs, NULL ) ) !=
-            -1 )
+    while ( ( ch = getopt_long( argc, argv, shortargs, longargs, NULL ) ) != -1 )
     {
         switch ( ch )
         {
+        case 'S':
+        {
+            std::string solver(optarg);
+            if (solver.compare("exact") == 0 ) {
+                cl.params.br_solver = BRSolverType::BR_EXACT;
+            } else if (solver.compare("cutoff") == 0 ) {
+                cl.params.br_solver = BRSolverType::BR_CUTOFF;
+            } else {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Invalid BR solver argument.\n";
+                    help( rank, argv[0] );
+                }
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
+            }
+            break;
+        }
+        case 'c':
+        {
+            cl.params.cutoff_distance = std::atof( optarg );
+            if (cl.params.cutoff_distance <= 0.0 && rank == 0)
+            {
+                std::cerr << "Invalid cutoff distance: " << cl.params.cutoff_distance << "\n";
+                help( rank, argv[0] );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
+            }
+            break;
+        }
+        case 'H':
+        {
+            cl.params.heffte_configuration = std::atoi( optarg );
+            if ((cl.params.heffte_configuration < 0) || ((cl.params.heffte_configuration > 7) && rank == 0))
+            {
+                std::cerr << "Invalid heffte configuration: " << cl.params.heffte_configuration << "\n"
+                          << "Must be between 0 and 7." << "\n";
+                help( rank, argv[0] );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
+            }
+            break;
+        }
         case 'n':
+        {
             cl.num_nodes[0] = atoi( optarg );
 
             if ( cl.num_nodes[0] < 1 )
@@ -225,11 +307,31 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid number of nodes argument.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             cl.num_nodes[1] = cl.num_nodes[0];
 
             break;
+        }
+        case 'B':
+        {
+            cl.bounding_box = atoi( optarg );
+
+            if ( cl.bounding_box < 0.0 )
+            {
+                if ( rank == 0 )
+                {
+                    std::cerr << "Bounding box argument must be greater than zero.\n";
+                    help( rank, argv[0] );
+                }
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
+            }
+            break;
+        }
         case 'x':
             cl.driver = strdup( optarg );
             if ( ( cl.driver.compare( "serial" ) != 0 ) &&
@@ -243,11 +345,13 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid  parallel driver argument.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'F':
-            cl.write_freq = atoi( optarg) ;
+            cl.write_freq = atoi( optarg ) ;
             if ( cl.write_freq < 0 )
             {
                 if ( rank == 0 )
@@ -255,25 +359,29 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid write frequency argument.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'O':
         {
             std::string order(optarg);
             if (order.compare("low") == 0 ) {
-                cl.order = SolverOrder::ORDER_LOW;
+                cl.params.solver_order = SolverOrder::ORDER_LOW;
             } else if (order.compare("medium") == 0 ) {
-                cl.order =  SolverOrder::ORDER_MEDIUM;
+                cl.params.solver_order = SolverOrder::ORDER_MEDIUM;
             } else if (order.compare("high") == 0 ) {
-                cl.order = SolverOrder::ORDER_HIGH;
+                cl.params.solver_order = SolverOrder::ORDER_HIGH;
             } else {
                 if ( rank == 0 )
                 {
                     std::cerr << "Invalid model order argument.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         }
@@ -290,7 +398,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid boundary condition type.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         }
@@ -301,7 +411,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid weak scaling factor order argument.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'I':
@@ -311,13 +423,19 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 cl.initial_condition = InitialConditionModel::IC_COS;
             } else if (model.compare("sech2") == 0 ) {
                 cl.initial_condition =  InitialConditionModel::IC_SECH2;
+            } else if (model.compare("random") == 0 ) {
+                cl.initial_condition =  InitialConditionModel::IC_RANDOM;
+            } else if (model.compare("gaussian") == 0 ) {
+                cl.initial_condition =  InitialConditionModel::IC_GAUSSIAN;
             } else {
                 if ( rank == 0 )
                 {
                     std::cerr << "Invalid initial condition model argument.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         }
@@ -330,7 +448,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid initial condition magnitude.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'v':
@@ -342,19 +462,23 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid initial condition variation.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'p':
-            cl.period = atof( optarg );
-            if ( cl.period <= 0.0 )
+            cl.params.period = atof( optarg );
+            if ( cl.params.period <= 0.0 )
             {
                 if ( rank == 0 )
                 {
                     std::cerr << "Invalid initial condition period.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'a':
@@ -366,7 +490,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid atwood number.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'g':
@@ -378,7 +504,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid gravity.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'M':
@@ -390,7 +518,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid artificial viscosity.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'e':
@@ -402,7 +532,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid desingularization constant.\n";
                     help( rank, argv[0] );
                 }
-                exit( -1 );
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
             }
             break;
         case 'h':
@@ -418,7 +550,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                   std::cerr << "Invalid number of timesteps.\n";
                   help( rank, argv[0] );
               }
-              exit( -1 );
+              Kokkos::finalize(); 
+              MPI_Finalize(); 
+              exit( -1 );  
           }
           break;
         default:
@@ -427,18 +561,25 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 std::cerr << "Invalid argument.\n";
                 help( rank, argv[0] );
             }
-            exit( -1 );
+            Kokkos::finalize(); 
+            MPI_Finalize(); 
+            exit( -1 );  
             break;
         }
     }
 
     /* Physical setup of problem */
-    cl.global_bounding_box = {-1.0, -1.0, -1.0, 1.0, 1.0, 1.0};
+    cl.params.global_bounding_box = {cl.bounding_box * -1.0,
+                                     cl.bounding_box * -1.0, 
+                                     cl.bounding_box * -1.0,
+                                     cl.bounding_box,
+                                     cl.bounding_box,
+                                     cl.bounding_box};
     cl.gravity = cl.gravity * 9.81;
 
     /* Scale up global bounding box and number of cells by weak scaling factor */
     for (int i = 0; i < 6; i++) {
-        cl.global_bounding_box[i] *= sqrt(cl.weak_scale);
+        cl.params.global_bounding_box[i] *= sqrt(cl.weak_scale);
     }
     for (int i = 0; i < 2; i++) {
         cl.num_nodes[i] *= sqrt(cl.weak_scale);
@@ -449,7 +590,7 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     double tau = 1/sqrt(cl.atwood * cl.gravity);
 
     if (cl.delta_t <= 0.0) {
-        if (cl.order == SolverOrder::ORDER_HIGH) {
+        if (cl.params.solver_order == SolverOrder::ORDER_HIGH) {
             cl.delta_t = tau/50.0;  // Should this depend on dx and dy? XXX
         } else {
             cl.delta_t = tau/25.0;
@@ -483,15 +624,19 @@ struct MeshInitFunc
         , _p( p )
         , _b( boundary )
     {
-	_ncells[0] = nodes[0] - 1;
+	    _ncells[0] = nodes[0] - 1;
         _ncells[1] = nodes[1] - 1;
 
         _dx = (box[3] - box[0]) / _ncells[0];
-        _dy = (box[4] - box[1]) / _ncells[1];
+        _dy = (box[4] - box[1]) / _ncells[1]; 
+
+
     };
 
+    template <class RandNumGenType>
     KOKKOS_INLINE_FUNCTION
     bool operator()( Cabana::Grid::Node, Beatnik::Field::Position,
+                     RandNumGenType random_pool,
                      [[maybe_unused]] const int index[2],
                      const double coord[2],
                      double &z1, double &z2, double &z3) const
@@ -509,6 +654,15 @@ struct MeshInitFunc
         z2 = _dy * lcoord[1];
 
         // We don't currently support tilting the initial interface
+
+        /* Need to initialize these values here to avoid "jump to case label "case IC_FILE:"
+         * crosses initialization of ‘double gaussian’, etc." errors */
+        auto generator = random_pool.get_state();
+        double rand_num = generator.drand(-1.0, 1.0);
+        double mean = 0.0;
+        double std_dev = 1.0;
+        double gaussian = (1 / (std_dev * Kokkos::sqrt(2 * Kokkos::numbers::pi_v<double>))) *
+            Kokkos::exp(-0.5 * Kokkos::pow(((rand_num - mean) / std_dev), 2));
         switch (_i) {
         case IC_COS:
             z3 = _m * cos(z1 * (2 * M_PI / _p)) * cos(z2 * (2 * M_PI / _p));
@@ -517,15 +671,20 @@ struct MeshInitFunc
             z3 = _m * pow(1.0 / cosh(_p * (z1 * z1 + z2 * z2)), 2);
             break;
         case IC_RANDOM:
-            /* XXX Use p to seed the random number generator XXX */
-            /* Also need to use the Kokkos random number generator, not
-             * drand48 */
-            // z3 = _m * (2*drand48() - 1.0);
+            z3 = _m * (2*rand_num - 1.0);
             break;
         case IC_GAUSSIAN:
+            /* The built-in C++ std::normal_distribution<double> doesn't
+             * work here, so coding the gaussian distribution itself.
+             */
+            z3 = _m * gaussian;
+            break;
         case IC_FILE:
             break;
         }
+        
+        random_pool.free_state(generator);
+
         return true;
     };
 
@@ -556,35 +715,41 @@ void rocketrig( ClArgs& cl )
     Cabana::Grid::DimBlockPartitioner<2> partitioner; // Create Cabana::Grid Partitioner
     Beatnik::BoundaryCondition bc;
     for (int i = 0; i < 6; i++)
-        bc.bounding_box[i] = cl.global_bounding_box[i];
+    {
+        bc.bounding_box[i] = cl.params.global_bounding_box[i];
+        
+    }
     bc.boundary_type = {cl.boundary, cl.boundary, cl.boundary, cl.boundary};
 
-    MeshInitFunc initializer( cl.global_bounding_box, cl.initial_condition,
-                              cl.tilt, cl.magnitude, cl.variation, cl.period,
+    MeshInitFunc initializer( cl.params.global_bounding_box, cl.initial_condition,
+                              cl.tilt, cl.magnitude, cl.variation, cl.params.period,
                               cl.num_nodes, cl.boundary );
 
     std::shared_ptr<Beatnik::SolverBase> solver;
-    if (cl.order == SolverOrder::ORDER_LOW) {
+    if (cl.params.solver_order == SolverOrder::ORDER_LOW) {
         solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD,
-            cl.global_bounding_box, cl.num_nodes,
+            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t );
-    } else if (cl.order == SolverOrder::ORDER_MEDIUM) {
+            bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t,
+            cl.params );
+    } else if (cl.params.solver_order == SolverOrder::ORDER_MEDIUM) {
         solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD,
-            cl.global_bounding_box, cl.num_nodes,
+            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t );
-    } else if (cl.order == SolverOrder::ORDER_HIGH) {
+            bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t,
+            cl.params );
+    } else if (cl.params.solver_order == SolverOrder::ORDER_HIGH) {
         solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD,
-            cl.global_bounding_box, cl.num_nodes,
+            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t );
+            bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t,
+            cl.params );
     } else {
         std::cerr << "Invalid Model Order parameter!\n";
-        exit(-1);
+        Kokkos::finalize(); 
+        MPI_Finalize(); 
+        exit( -1 );  
+
     }
 
     // Solve
@@ -593,6 +758,12 @@ void rocketrig( ClArgs& cl )
 
 int main( int argc, char* argv[] )
 {
+
+    #if MEASURETIME
+    std::chrono::time_point<std::chrono::system_clock> start, end;
+    start = std::chrono::system_clock::now();
+    #endif
+
     MPI_Init( &argc, &argv );         // Initialize MPI
     Kokkos::initialize( argc, argv ); // Initialize Kokkos
 
@@ -616,11 +787,33 @@ int main( int argc, char* argv[] )
                   << ": " << std::setw( 8 ) << cl.driver
                   << "\n"; // Threading Setting
         std::cout << std::left << std::setw( 30 ) << "Mesh Dimension"
-                  << ": " << std::setw( 8 ) << cl.num_nodes[0]
-                  << std::setw( 8 ) << cl.num_nodes[1] 
-                  << "\n"; // Number of Cells
+                  << ": " << cl.num_nodes[0] << ", "
+                  << cl.num_nodes[1] << "\n"; // Number of Cells
         std::cout <<  std::left << std::setw( 30 ) << "Solver Order"
-                  << ": " << std::setw( 8 ) << cl.order << "\n";
+                  << ": " << std::setw( 8 ) << cl.params.solver_order << "\n";
+
+        // Solver-order specific arguments
+        if (cl.params.solver_order == SolverOrder::ORDER_LOW)
+        {
+            std::cout << std::left << std::setw( 30 ) << "HeFFTe configuration"
+                  << ": " << std::setw( 8 ) << cl.params.heffte_configuration  << "\n";
+        }
+        else
+        {
+            // High or medium-order solver
+            if (cl.params.br_solver == BRSolverType::BR_EXACT)
+            {
+                std::cout <<  std::left << std::setw( 30 ) << "BR Solver type"
+                    << ": " << std::setw( 8 ) << "exact" << "\n";
+            }
+            else if (cl.params.br_solver == BRSolverType::BR_CUTOFF)
+            {
+                std::cout <<  std::left << std::setw( 30 ) << "BR Solver type"
+                    << ": " << std::setw( 8 ) << "cutoff" << "\n";
+                std::cout << std::left << std::setw( 30 ) << "Cutoff distance"
+                    << ": " << std::setw( 8 ) << cl.params.cutoff_distance  << "\n";
+            }
+        }
         std::cout << std::left << std::setw( 30 ) << "Total Simulation Time"
                   << ": " << std::setw( 8 ) << cl.t_final << "\n";
         std::cout << std::left << std::setw( 30 ) << "Timestep Size"
@@ -636,6 +829,11 @@ int main( int argc, char* argv[] )
                   << ": " << std::setw( 8 ) << cl.mu << "\n";
         std::cout << std::left << std::setw( 30 ) << "Desingularization"
                   << ": " << std::setw( 8 ) << cl.eps  << "\n";
+        std::cout << std::left << std::setw( 30 ) << "Weak-scaling factor"
+                  << ": " << std::setw( 8 ) << cl.weak_scale << "\n";
+        std::cout << std::left << std::setw( 30 ) << "Bounding Box Low/High"
+                  << ": " << cl.params.global_bounding_box[0]
+                  << ", " << cl.params.global_bounding_box[3] << "\n";
         std::cout << "==============================================\n";
     }
 
@@ -644,6 +842,12 @@ int main( int argc, char* argv[] )
 
     Kokkos::finalize(); // Finalize Kokkos
     MPI_Finalize();     // Finalize MPI
+
+    #if MEASURETIME
+    end = std::chrono::system_clock::now();
+    std::chrono::duration<double> elapsed_seconds = end - start;
+    std::cout << "measured_time: " << elapsed_seconds.count() << std::endl;
+    #endif
 
     return 0;
 };

@@ -4,11 +4,11 @@ This directory contains build information and scripts for a variety of systems, 
 
 ## General build requirements
 Beatnik depends on the following packages to build in all configurations:
-  1. Cabana version 0.6.0 or newer
-  1. A heffte version compatible with Cabana (2.3.0 is needed as of Cabana 0.6.0)
+  1. Cabana version 0.7.0 or newer
+  1. A heFFTe version compatible with Cabana (Beatnik has been tested with version 2.4.0)
   1. A GPU-aware MPI implementation
   1. Kokkos 4.0 or newer
-  1. LLNL Silo 4.11 or newer configured with MPI support
+  1. LLNL Silo 4.11.1 or newer configured with MPI support
 
 ## Installing and Building Beatnik with Spack
 

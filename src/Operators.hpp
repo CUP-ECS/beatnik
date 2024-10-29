@@ -106,16 +106,17 @@ namespace Operators
     /* Compute the Birchorff Rott force exerted on an i/j point with given location
      * by a k/l point with given vorticity, with an additional position offset 
      * (to * take care of periodic boundary contitions) */
-    template <class VorticityView, class PositionView>
+    template <class PositionView>
     KOKKOS_INLINE_FUNCTION
-    void BR(double out[3], PositionView z, PositionView z2, VorticityView w2,
+    void BR(double out[3], PositionView z, PositionView z2, PositionView omega_view,
             double epsilon, double dx, double dy, double weight, int i, int j, int k, int l,
-            double offset[3])
+            double offset[3]) 
     {
         double omega[3], zdiff[3], zsize;
         zsize = 0.0;
         for (int d = 0; d < 3; d++) {
-            omega[d] = w2(k, l, 1) * Dx(z2, k, l, d, dx) - w2(k, l, 0) * Dy(z2, k, l, d, dy);
+            // omega[d] = w2(k, l, 1) * Dx(z2, k, l, d, dx) - w2(k, l, 0) * Dy(z2, k, l, d, dy);
+            omega[d] = omega_view(k, l, d);
             zdiff[d] = z(i, j, d) - (z2(k, l, d) + offset[d]);
             zsize += zdiff[d] * zdiff[d];
         }  
@@ -129,8 +130,33 @@ namespace Operators
         }
     }
 
+    template <class PositionSlice, class OmegaSlice, class WeightSlice>
+    KOKKOS_INLINE_FUNCTION
+    void BR(double out[3], int my_id, int neighbor_id,
+            PositionSlice p, OmegaSlice o, WeightSlice w, 
+            double epsilon, double dx, double dy)
+    {
+        double omega[3], zdiff[3], zsize;
+        zsize = 0.0;
+        for (int d = 0; d < 3; d++) {
+            omega[d] = o(neighbor_id, d);
+            zdiff[d] = p(my_id, d) - p(neighbor_id, d);
+            zsize += zdiff[d] * zdiff[d];
+        } 
+          
+        zsize = pow(zsize + epsilon, 1.5); // matlab code doesn't square epsilon
+        
+        for (int d = 0; d < 3; d++) {
+            zdiff[d] /= zsize;
+        }
+        cross(out, omega, zdiff);
+        for (int d = 0; d < 3; d++) {  
+            out[d] *= (dx * dy * w(neighbor_id)) / (-4.0 * Kokkos::numbers::pi_v<double>);
+        }
+    } 
+
     template <long M, long N>
-        Cabana::Grid::IndexSpace<M + N> crossIndexSpace(
+    Cabana::Grid::IndexSpace<M + N> crossIndexSpace(
             const Cabana::Grid::IndexSpace<M>& index_space1,
             const Cabana::Grid::IndexSpace<N>& index_space2)
     {
@@ -148,6 +174,7 @@ namespace Operators
 
         return Cabana::Grid::IndexSpace<M + N>( range_min, range_max );
     }
+    
 }; // namespace operator
 
 }; // namespace beatnik

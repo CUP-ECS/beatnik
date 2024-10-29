@@ -20,12 +20,12 @@
 #define BEATNIK_BOUNDARYCONDITIONS_HPP
 
 #ifndef DEBUG
-#define DEBUG 1
+#define DEBUG 0
 #endif
 
 // Include Statements
 
-#include <Mesh.hpp>
+#include <SurfaceMesh.hpp>
 
 #include <Kokkos_Core.hpp>
 #include "Operators.hpp"
@@ -84,74 +84,159 @@ struct BoundaryCondition
     void applyField(const MeshType &mesh, ArrayType field, int dof) const
     {
         using exec_space = typename ArrayType::execution_space;
-
         auto local_grid = *(mesh.localGrid());
-
+        auto f = field.view();
+        
         /* Loop through the directions to correct boundary index spaces when
          * needed. */
-        for (int i = -1; i < 2; i++) {
-            for (int j = -1; j < 2; j++) {
+        for (int i = -1; i < 2; i++)
+        {
+            for (int j = -1; j < 2; j++)
+            {
                 if (i == 0 && j == 0) continue;
 
-                std::array<int, 2> dir = {i, j};
-		// In general, halo exchange takes care of periodic boundaries
-
-                /* For free boundaries, we linearly extrapolate the field into 
+                /* In general, halo exchange takes care of periodic boundaries.
+                 * For free boundaries, we linearly extrapolate the field into 
                  * the boundary */
-                if (isFreeBoundary(dir)) {
+                std::array<int, 2> dir = {i, j};
+                if (isFreeBoundary(dir))
+                {
                     /* For free boundaries, we have to extrapolate from the mesh
                      * into the boundary to support finite differencing and 
-                     * laplacian calculations near the boundary. */
-		    
-                    // Variables we'll want in the parallel for loop.
-                    auto f = field.view();
-                    Kokkos::Array<int, 2> kdir = {i, j};
-
-                    /* We want the boundaryIndexSpace of ghosts to loop over. 
-                     * However, it can give bounds that cause us to walk off 
-                     * the top end of the view, so adjust appropriately until 
-                     * we figure out why and how to fix this. XXX */
+                     * laplacian calculations near the boundary.
+                     * We want the boundaryIndexSpace of ghosts to loop over. */
                     auto boundary_space 
                         = local_grid.boundaryIndexSpace(Cabana::Grid::Ghost(), 
                               Cabana::Grid::Node(), dir);
-                    std::array<long,2> min, max;
-                    for (int d = 0; d < 2; d++) {
-                        int fext = f.extent(d);
-                        min[d] = boundary_space.min(d);
-                        max[d] = (boundary_space.max(d) > fext) 
-                                     ? fext : boundary_space.max(d);
-                    }
-                    boundary_space = Cabana::Grid::IndexSpace<2>(min, max);
+                    long min0 = boundary_space.min(0), min1 = boundary_space.min(1);
+                    long max0 = boundary_space.max(0), max1 = boundary_space.max(1);
                     Kokkos::parallel_for("Field boundary extrapolation", 
                                          Cabana::Grid::createExecutionPolicy(boundary_space, 
                                          exec_space()),
                                          KOKKOS_LAMBDA(int k, int l) {
-			/* Find the two points in the interior we want to 
-			 * extrapolate from based on the direction and how far 
-                         * we are from the interior.  
-                         * 
-                         * XXX Right now we always go two points aways since
-                         * we have a 2-deep halo. This guarantees to get us out
-                         * of the boundary, but may take us further into the the
-                         * mesh than we want. We should instead figure out distance 
-                         * to go just to the edge of the boundary and linearly 
-                         * extrapolate from that. XXX */
+                        /* Linear extrapolation from the two points nearest to the boundary. 
+                         * XXX - Optimize the following code
+                         * XXX - Make this work for any halo distance, not just 2.
+                         */
                         int p1[2], p2[2];
-                        int dist = 2; 
-                        p1[0] = k - kdir[0]*(dist); 
-                        p1[1] = l - kdir[1]*(dist); 
-                        p2[0] = k - kdir[0]*(dist + 1); 
-                        p2[1] = l - kdir[1]*(dist + 1); 
                         for (int d = 0; d < dof; d++) {
-			    f(k, l, d) = f(p1[0], p1[1], d) 
-                                         + dist*(f(p2[0], p2[1], d) 
-                                                     - f(p1[0], p1[1], d));
+                            double slope;
+                            if (i == -1 && j == 0)
+                            {
+                                // Top center boundary
+                                p1[0] = max0; p1[1] = l;
+                                p2[0] = max0+1; p2[1] = l;
+                                slope = f(p1[0], p1[1], d) - f(p2[0], p2[1], d);
+                                f(k, l, d) = f(p1[0], p1[1], d) + slope * abs(p1[0] - k);
+                            }
+                            else if (i == 1 && j == 0)
+                            {
+                                // Bottom center boundary
+                                p1[0] = min0-1; p1[1] = l;
+                                p2[0] = min0-2; p2[1] = l;
+                                slope = f(p1[0], p1[1], d) - f(p2[0], p2[1], d);
+                                f(k, l, d) = f(p1[0], p1[1], d) + slope * abs(p1[0] - k);
+                            }
+                            else if (i == 0 && j == -1)
+                            {
+                                // Left center boundary
+                                p1[0] = k; p1[1] = max1;
+                                p2[0] = k; p2[1] = max1+1;
+                                slope = f(p1[0], p1[1], d) - f(p2[0], p2[1], d);
+                                f(k, l, d) = f(p1[0], p1[1], d) + slope * abs(p1[1] - l);
+                            }
+                            else if (i == 0 && j == 1)
+                            {
+                                // Right center boundary
+                                p1[0] = k; p1[1] = min1-1;
+                                p2[0] = k; p2[1] = min1-2;
+                                slope = f(p1[0], p1[1], d) - f(p2[0], p2[1], d);
+                                f(k, l, d) = f(p1[0], p1[1], d) + slope * abs(p1[1] - l);
+                            }
+
+                            // XXX - the following corner boundary adjustments are hard-coded for a halo width of 2 cells
+                            else if (i == -1 && j == -1)
+                            {
+                                // Top left boundary
+                                if (k == l)
+                                {
+                                    p1[0] = max0; p1[1] = max1;
+                                    p2[0] = max0+1; p2[1] = max1+1;
+                                    slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (max0-k);
+                                }
+                                else 
+                                {
+                                    p1[0] = k+2; p1[1] = l+2;
+                                    p2[0] = k+3; p2[1] = l+3;
+                                    slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * 2;
+                                }
+                            }
+                            else if (i == -1 && j == 1)
+                            {
+                                // Top right boundary
+                                if ((k == min0 && l == max1-1) ||
+                                    (k == min0+1 && l == max1-2))
+                                {
+                                    p1[0] = max0; p1[1] = min1-1;
+                                    p2[0] = max0+1; p2[1] = min1-2;
+                                    slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (max0-k);
+                                }
+                                else
+                                {
+                                    p1[0] = k+2; p1[1] = l-2;
+                                    p2[0] = k+3; p2[1] = l-3;
+                                    slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * 2;
+                                }
+                            }
+                            else if (i == 1 && j == -1)
+                            {
+                                // Bottom left boundary
+                                if ((k == min0 && l == max1-1) ||
+                                    (k == min0+1 && l == max1-2))
+                                {
+                                    p1[0] = min0-1; p1[1] = max1;
+                                    p2[0] = min0-2; p2[1] = max1+1;
+                                    slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (k-min0+1);
+                                }
+                                else
+                                {
+                                    p1[0] = k-2; p1[1] = l+2;
+                                    p2[0] = k-3; p2[1] = l+3;
+                                    slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * 2;
+                                }
+                            }
+                            else if (i == 1 && j == 1)
+                            {
+                                // Bottom right boundary
+                                if (k == l)
+                                {
+                                    p1[0] = min0-1; p1[1] = min0-1;
+                                    p2[0] = min0-2; p2[1] = min0-2;
+                                    slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * (k-min0+1);
+                                }
+                                else
+                                {
+                                    p1[0] = k-2; p1[1] = l-2;
+                                    p2[0] = k-3; p2[1] = l-3;
+                                    slope = (f(p1[0], p1[1], d) - f(p2[0], p2[1], d))/sqrt(2.0);
+                                    f(k, l, d) = f(p1[0], p1[1], d) + slope * sqrt(2.0) * 2;
+                                }
+                            }
                         }
                     });
                 }
             }
         }
+        Kokkos::fence();
     } 
+    
     /* Because we store a position field in the mesh, the position has to
      * be corrected after haloing if it's a periodic boundary */
     template <class MeshType, class ArrayType> 

@@ -3,6 +3,12 @@ cmake_minimum_required(VERSION 3.18)
 
 project(Beatnik LANGUAGES C CXX VERSION 0.1.0)
 
+# Default to C++17 so we can use if constexpr and [[maybe_unused]]
+# and so GTest/GMock can build
+if (NOT BLT_CXX_STD)
+    set(BLT_CXX_STD "c++17" CACHE STRING "")
+endif()
+
 include(GNUInstallDirs)
 
 # find dependencies
@@ -22,6 +28,37 @@ ELSE()
   SET(Beatnik_GIT_COMMIT_HASH "Not a git repository")
 ENDIF()
 MESSAGE(STATUS "Beatnik Revision = '${Beatnik_GIT_COMMIT_HASH}'")
+
+##---------------------------------------------------------------------------##
+## Bring up the BLT tools
+## We use LLNL BLT to help with building, linking, and testing on various HPC 
+## systems. Before bringing in BLT, we set a variety of flags whch tell it the 
+## featurs we're interested in.
+##---------------------------------------------------------------------------##
+set(ENABLE_TESTS ON)
+if (DEFINED BLT_SOURCE_DIR)
+    # Support having a shared BLT outside of the repository if given a BLT_SOURCE_DIR
+    if (NOT EXISTS ${BLT_SOURCE_DIR}/SetupBLT.cmake)
+        message(FATAL_ERROR "Given BLT_SOURCE_DIR does not contain SetupBLT.cmake")
+    endif()
+else()
+    # Use internal BLT if no BLT_SOURCE_DIR is given
+    set(BLT_SOURCE_DIR "${PROJECT_SOURCE_DIR}/thirdparty/blt" CACHE PATH "")
+    if (NOT EXISTS ${BLT_SOURCE_DIR}/SetupBLT.cmake)
+        message(FATAL_ERROR
+            "The BLT git submodule is not present. "
+            "Either run the following two commands in your git repository: \n"
+            "    git submodule init\n"
+            "    git submodule update\n"
+            "Or add -DBLT_SOURCE_DIR=/path/to/blt to your CMake command." )
+    endif()
+endif()
+
+# Disable google test pthreads in BLT to support to ensure we compile in 
+# some environments, as some compilers (e.g. craycc) and BLT aren't communicating
+# on linking against pthreads.
+set(gtest_disable_pthreads ON CACHE BOOL "")
+include(${BLT_SOURCE_DIR}/SetupBLT.cmake)
 
 ##---------------------------------------------------------------------------##
 ## Get the dependent packages we need: Cabana, Silo, and ClangFormat         ##
@@ -45,8 +82,8 @@ add_subdirectory(src)
 # examples
 add_subdirectory(examples)
 
-# tests - currently disabled
-# add_subdirectory(tests)
+# tests
+add_subdirectory(tests)
 
 # Add a target for formatting the code using Clang
 if(CLANG_FORMAT_FOUND)

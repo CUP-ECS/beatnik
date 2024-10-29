@@ -34,8 +34,13 @@ class TimeIntegrator
     using node_array =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
                       mem_space>;
+    
+    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
+    
+    using Node = Cabana::Grid::Node;
+    using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
 
-//    using halo_type = Cabana::Grid::Halo<MemorySpace>;
+    // using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
   public:
     TimeIntegrator( const ProblemManager<exec_space, mem_space> & pm,
@@ -45,7 +50,6 @@ class TimeIntegrator
     , _bc(bc)
     , _zm(zm)
     {
-       
         // Create a layout of the temporary arrays we'll need for velocity
         // intermediate positions, and change in vorticity
         auto node_triple_layout =
@@ -70,7 +74,7 @@ class TimeIntegrator
         auto w_orig = _pm.get( Cabana::Grid::Node(), Field::Vorticity() );
         auto z_tmp = _ztmp->view();
         auto w_tmp = _wtmp->view();
-//        auto & halo = _pm.halo(); 
+        // auto & halo = _pm.halo(); 
 
         auto local_grid = _pm.mesh().localGrid();
 
@@ -79,7 +83,7 @@ class TimeIntegrator
         auto w_dot = _wdot->view();
 
         // Find foward euler point using initial derivative. The zmodel solver
-	// uses the problem manager position and derivative by default.
+	    // uses the problem manager position and derivative by default.
         _zm.computeDerivatives(z_dot, w_dot);
 
         auto own_node_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());

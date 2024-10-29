@@ -26,11 +26,11 @@ namespace Beatnik
 {
 //---------------------------------------------------------------------------//
 /*!
-  \class Mesh
+  \class SurfaceMesh
   \brief Logically uniform Cartesian mesh.
 */
 template <class ExecutionSpace, class MemorySpace>
-class Mesh
+class SurfaceMesh
 {
   public:
     using memory_space = MemorySpace;
@@ -38,12 +38,13 @@ class Mesh
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
 
     // Construct a mesh.
-    Mesh( const std::array<double, 6>& global_bounding_box,
+    SurfaceMesh( const std::array<double, 6>& global_bounding_box,
           const std::array<int, 2>& num_nodes,
 	  const std::array<bool, 2>& periodic,
           const Cabana::Grid::BlockPartitioner<2>& partitioner,
           const int min_halo_width, MPI_Comm comm )
-		  : _num_nodes( num_nodes )
+		      : _num_nodes( num_nodes )
+          , _periodic( periodic )
     {
         MPI_Comm_rank( comm, &_rank );
 
@@ -114,8 +115,8 @@ class Mesh
         auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
                                                      periodic, partitioner );
         // Build the local grid.
-        int halo_width = fmax(2, min_halo_width);
-        _local_grid = Cabana::Grid::createLocalGrid( global_grid, halo_width );
+        _surface_halo_width = fmax(2, min_halo_width);
+        _local_grid = Cabana::Grid::createLocalGrid( global_grid, _surface_halo_width );
     }
 
     // Get the local grid.
@@ -134,9 +135,22 @@ class Mesh
     }
 	
     // Get the mesh size
-    int get_mesh_size() const
+    int get_surface_mesh_size() const
     {
         return _num_nodes[0];
+    }
+
+    // Get whether the mesh is periodic
+    // XXX - Assumes if the x-boundary is periodic, the mesh
+    // is also periodic along the y-boundary
+    int is_periodic() const
+    {
+        return _periodic[0];
+    }
+
+    int get_halo_width() const
+    {
+        return _surface_halo_width;
     }
 
     // Get the boundary indexes on the periodic boundary. local_grid.boundaryIndexSpace()
@@ -164,9 +178,11 @@ class Mesh
 
   private:
     std::array<double, 3> _low_point, _high_point;
+    std::array<int, 2> _num_nodes;
+    const std::array<bool, 2> _periodic;
     std::shared_ptr<Cabana::Grid::LocalGrid<mesh_type>> _local_grid;
-    int _rank;
-	std::array<int, 2> _num_nodes;
+    int _rank, _surface_halo_width;
+	  
 };
 
 //---------------------------------------------------------------------------//
