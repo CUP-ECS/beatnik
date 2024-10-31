@@ -9,7 +9,6 @@ spack:
     - ['%gcc@8.3.1']
   - silo@4.11 +mpi
   - hdf5 +mpi
-  - blt
   concretizer:
     unify: true
   view: true
