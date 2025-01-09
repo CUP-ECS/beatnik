@@ -486,9 +486,26 @@ class ZModel
         // Get dx and dy arrays
         auto z_dx = _pm.mesh().Dx(z_array, _dx);
         auto z_dy = _pm.mesh().Dy(z_array, _dy);
+        /**
+         * In the unstructured formulation, dx and dy are only needed by vorticity,
+         * and if we keep omega constant for now then dx and dy are not needed.
+         * Can just return an array of zeros of the correct shape of dx and dy
+         * 
+         * Give some facility to refine a single face and some facility to refine all faces
+         * We can figure out WHICH faces to refine later
+         * 
+         * Later: de-refinement
+         * Python repo: 
+         * 
+         * Ask Patrick:
+         * How should we distribute the mesh? Keep the top layers globally to avoid communication
+         * Ian isn't sure how many internal particles there are yet.
+         * Or comminucate the mesh each time
+         */
 
         // Phase 1.a: Calcuate the omega value for each point
         auto out = _pm.mesh().omega(w_array, *z_dx, *z_dy);
+        // Keep omega constant for now, quadratic in terms of the initial vertical position
         Beatnik::ArrayUtils::ArrayOp::copy(*_omega, *out, dtag);
 
         // Phase 1.b: Compute zdot
