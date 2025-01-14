@@ -91,6 +91,7 @@ class ProblemManager
          * as opposed to a Face (4 point) pattern so the vorticity laplacian 
          * can use a 9-point stencil. */
         /* XXX - For now, only apply strucutred halo to the structured arrays */
+        initialize( create_functor );
         if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
         {
             // Initialize State Values ( position and vorticity ) and 
@@ -98,7 +99,6 @@ class ProblemManager
             int halo_depth = _mesh.layoutObj()->haloCellWidth();
             _surface_halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<2>(), 
                                 halo_depth, *_position->array(), *_vorticity->array());
-            initialize( create_functor );
             gather();
         }
         else 

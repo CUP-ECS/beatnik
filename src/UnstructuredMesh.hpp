@@ -46,7 +46,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     {
         MPI_Comm_rank( comm, &_rank );
 
-        _mesh = NuMesh::createMesh<execution_space, memory_space>(_comm);
+        _mesh = NuMesh::createEmptyMesh<execution_space, memory_space>(_comm);
 
         // XXX - Do we need these?
         _low_point = {0.0, 0.0, 0.0};
