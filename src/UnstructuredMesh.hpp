@@ -40,17 +40,67 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     using mesh_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_type;
     using mesh_array_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_array_type;
 
-    UnstructuredMesh( MPI_Comm comm, const std::array<bool, 2>& periodic )
-		: _comm( comm )
-        , _periodic( periodic )
+    UnstructuredMesh( const std::array<double, 6>& global_bounding_box,
+          const std::array<int, 2>& num_nodes,
+	      const std::array<bool, 2>& periodic,
+          const Cabana::Grid::BlockPartitioner<2>& partitioner,
+          const int min_halo_width, MPI_Comm comm )
+		        : _comm( comm )
+                , _num_nodes( num_nodes )
+                , _periodic( periodic )
     {
-        MPI_Comm_rank( comm, &_rank );
+        MPI_Comm_rank( _comm, &_rank );
+
+        // Copy the same code used to create the local grid in the constructor
+        // of StructuredMesh
+        // XXX - Don't copy-paste code
+        for (int i = 0; i < 3; i++) {
+            _low_point[i] = global_bounding_box[i];
+            _high_point[i] = global_bounding_box[i+3];
+        } 
+
+        std::array<double, 2> global_low_corner, global_high_corner;
+        for ( int d = 0; d < 2; ++d )
+        {
+            /* Even number of nodes
+             * periodic -> nnodes = 4, 3 cabana nodes - 3 cells
+	     *             global low == -1, global high = 2 
+             *                   -> nodes = (-1,-0,1).
+             * non-periodic -> nnodes = 4, 4 cabana nodes - 3 cells
+             *              -> global low == -2, global high = 1 
+             *                             -> nodes = (-2,-1,0,1).
+             * Odd number of nodes
+             * periodic -> nnodes = 5, 4 cabana nodes - 4 cells
+	     *             global low == -2, global high = 2 
+             *                   -> nodes = (-2,-1,0,1).
+             * non-periodic -> nnodes = 5, 5 cabana nodes - 4 cells
+             *              -> global low == -2, global high = 2 
+             *                             -> nodes = (-2,-1,0,1,2).
+	         * So we always have (nnodes - 1 cells) */
+
+	        int cabana_nodes = num_nodes[d] - (periodic[d] ? 1 : 0);
+
+            global_low_corner[d] = -cabana_nodes/2;
+            global_high_corner[d] = global_low_corner[d] + num_nodes[d] - 1;
+        }
+
+        // Finally, create the global mesh, global grid, and local grid.
+        auto global_mesh = Cabana::Grid::createUniformGlobalMesh(
+            global_low_corner, global_high_corner, 1.0 );
+
+        auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
+                                                     periodic, partitioner );
+        // Build the local grid.
+        int surface_halo_width = 1; // Halo width doesn't matter here
+        auto local_grid = Cabana::Grid::createLocalGrid( global_grid, surface_halo_width );
+
 
         _mesh = NuMesh::createEmptyMesh<execution_space, memory_space>(_comm);
 
-        // XXX - Do we need these?
-        _low_point = {0.0, 0.0, 0.0};
-        _high_point = {0.0, 0.0, 0.0};
+        // Initialize the mesh with garbage position and vorticity values
+        auto layout = Cabana::Grid::createArrayLayout(local_grid, 1, Cabana::Grid::Node());
+        auto array = Cabana::Grid::createArray<double, memory_space>("for_initialization", layout);
+        _mesh->initializeFromArray(*array);
     }
 
     std::shared_ptr<mesh_type> layoutObj() const override
@@ -160,15 +210,14 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
   private:
     MPI_Comm _comm;
-    std::shared_ptr<mesh_type> _mesh;
-
-    const std::array<bool, 2> _periodic;
     int _rank;
+
+    std::array<int, 2> _num_nodes;
+    const std::array<bool, 2> _periodic;
+    
     std::array<double, 3> _low_point, _high_point;
-    // std::array<int, 2> _num_nodes;
-    // const std::array<bool, 2> _periodic;
     
-    
+    std::shared_ptr<mesh_type> _mesh;
 };
 
 //---------------------------------------------------------------------------//
