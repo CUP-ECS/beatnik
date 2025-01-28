@@ -96,15 +96,16 @@ class ProblemManager
         {
             // Initialize State Values ( position and vorticity ) and 
             // then do a halo to make sure the ghosts and boundaries are correct.
-            initialize( create_functor );
+            initialize_structured_mesh( create_functor );
             int halo_depth = _mesh.layoutObj()->haloCellWidth();
             _surface_halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<2>(), 
                                 halo_depth, *_position->array(), *_vorticity->array());
             gather();
         }
-        else 
+        else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
-            throw std::invalid_argument("ProblemManager constructor: Unfinished unstructured implementation.");
+            initialize_unstructured_mesh( create_functor );
+            // throw std::invalid_argument("ProblemManager constructor: Unfinished unstructured implementation.");
         }
     }
 
@@ -114,10 +115,10 @@ class ProblemManager
      * @param create_functor Initialization function
      **/
     template <class InitFunctor>
-    void initialize( const InitFunctor& create_functor )
+    void initialize_structured_mesh( const InitFunctor& create_functor )
     {
         // Get Local Grid and Local Mesh
-        auto local_grid = *( _mesh.layoutObj() );
+        auto local_grid = *( _mesh.localGrid() );
         auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>( local_grid );
 
 	    // Get State Arrays
@@ -144,6 +145,55 @@ class ProblemManager
                 create_functor( Cabana::Grid::Node(), Field::Vorticity(), index, 
                                 coords, w(i, j, 0), w(i, j, 1) );
             } );
+    };
+
+    /**
+     * Initializes state values in the cells
+     * 
+     * The unstructured mesh is initially built from a Cabana local grid.
+     * To properly initialize the XYZ and vorticity values on vertices
+     * in the unstructured mesh, we must create an array layout 
+     * @param create_functor Initialization function
+     **/
+    template <class InitFunctor>
+    void initialize_unstructured_mesh( const InitFunctor& create_functor )
+    {
+        // Get Local Grid and Local Mesh
+        auto local_grid = _mesh.localGrid();
+        auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>( *local_grid );
+
+	    // Create State Arrays
+        auto z_layout = Cabana::Grid::createArrayLayout(local_grid, 3, Cabana::Grid::Node());
+        auto w_layout = Cabana::Grid::createArrayLayout(local_grid, 2, Cabana::Grid::Node());
+        auto z_array = Cabana::Grid::createArray<double, memory_space>("z_for_initialization", z_layout);
+        auto w_array = Cabana::Grid::createArray<double, memory_space>("w_for_initialization", w_layout);
+        auto z = z_array->view();
+        auto w = w_array->view();
+
+        // Loop Over All Owned Nodes ( i, j )
+        auto own_nodes = local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Node(),
+                                                Cabana::Grid::Local() );
+        
+        int seed = (int) (10000000 * _period);
+        Kokkos::Random_XorShift64_Pool<memory_space> random_pool(seed);
+
+        Kokkos::parallel_for(
+            "Initialize Cells`",
+            Cabana::Grid::createExecutionPolicy( own_nodes, execution_space() ),
+            KOKKOS_LAMBDA( const int i, const int j ) {
+                int index[2] = { i, j };
+                double coords[2];
+                local_mesh.coordinates( Cabana::Grid::Node(), index, coords);
+
+                create_functor( Cabana::Grid::Node(), Field::Position(), random_pool, index, 
+                                coords, z(i, j, 0), z(i, j, 1), z(i, j, 2) );
+                create_functor( Cabana::Grid::Node(), Field::Vorticity(), index, 
+                                coords, w(i, j, 0), w(i, j, 1) );
+            } );
+        
+        // Finally, initialize the vertices in the unstructured mesh with the values in z and w
+        auto mesh = _mesh.layoutObj();
+        mesh->initializeFromArray(*z_array, *w_array);
     };
 
     /**

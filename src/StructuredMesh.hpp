@@ -41,7 +41,7 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
     using execution_space = ExecutionSpace;
     using mesh_type_tag = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_type_tag;
     using entity_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::entity_type;
-    using local_grid_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_type;
+    using cabana_local_grid_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_type;
     using mesh_array_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_array_type;
 
     StructuredMesh( const std::array<double, 6>& global_bounding_box,
@@ -126,7 +126,14 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
     }
 
     // Get the local grid.
-    std::shared_ptr<local_grid_type> layoutObj() const override
+    std::shared_ptr<cabana_local_grid_type> localGrid() const override
+    {
+        return _local_grid;
+    }
+
+    // Get the object used to create array layouts, which in
+    // the structured case is also the local grid.
+    std::shared_ptr<cabana_local_grid_type> layoutObj() const override
     {
         return _local_grid;
     }
@@ -306,7 +313,7 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
     std::array<double, 3> _low_point, _high_point;
     std::array<int, 2> _num_nodes;
     const std::array<bool, 2> _periodic;
-    std::shared_ptr<local_grid_type> _local_grid;
+    std::shared_ptr<cabana_local_grid_type> _local_grid;
     int _rank, _surface_halo_width;
 };
 

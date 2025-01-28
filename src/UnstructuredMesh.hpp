@@ -39,6 +39,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     using entity_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::entity_type;
     using mesh_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_type;
     using mesh_array_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_array_type;
+    using cabana_local_grid_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::cabana_local_grid_type;
 
     UnstructuredMesh( const std::array<double, 6>& global_bounding_box,
           const std::array<int, 2>& num_nodes,
@@ -92,20 +93,25 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
                                                      periodic, partitioner );
         // Build the local grid.
         int surface_halo_width = 1; // Halo width doesn't matter here
-        auto local_grid = Cabana::Grid::createLocalGrid( global_grid, surface_halo_width );
+        _local_grid = Cabana::Grid::createLocalGrid( global_grid, surface_halo_width );
 
 
         _mesh = NuMesh::createEmptyMesh<execution_space, memory_space>(_comm);
 
         // Initialize the mesh with garbage position and vorticity values
-        auto layout = Cabana::Grid::createArrayLayout(local_grid, 1, Cabana::Grid::Node());
-        auto array = Cabana::Grid::createArray<double, memory_space>("for_initialization", layout);
-        _mesh->initializeFromArray(*array);
+        // auto layout = Cabana::Grid::createArrayLayout(local_grid, 1, Cabana::Grid::Node());
+        // auto array = Cabana::Grid::createArray<double, memory_space>("for_initialization", layout);
+        // _mesh->initializeFromArray(*array);
     }
 
     std::shared_ptr<mesh_type> layoutObj() const override
     {
         return _mesh;
+    }
+
+    std::shared_ptr<cabana_local_grid_type> localGrid() const
+    {
+        return _local_grid;
     }
 
     // Get whether the mesh is periodic
@@ -217,6 +223,10 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     
     std::array<double, 3> _low_point, _high_point;
     
+    // The local grid the unstructured mesh is built from
+    std::shared_ptr<cabana_local_grid_type> _local_grid;
+
+    // Unstructured mesh object
     std::shared_ptr<mesh_type> _mesh;
 };
 

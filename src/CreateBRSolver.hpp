@@ -47,7 +47,9 @@ createBRSolver( const ProblemManagerType &pm, const BoundaryCondition &bc,
     else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
     {
         // Unstructured variants of BR Solvers
-        throw std::invalid_argument("createBRSolver: BR Solver not yet implemented for unstructured meshes.");
+        printf("WARNING: BR Solver not yet implemented for unstructured meshes.\n");
+        // throw std::invalid_argument("createBRSolver: BR Solver not yet implemented for unstructured meshes.");
+        return NULL;
     }
 
     std::cerr << "Invalid BR solver type.\n";
