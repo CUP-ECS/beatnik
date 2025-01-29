@@ -24,25 +24,14 @@
 #endif
 
 // Include Statements
-
-#include <SurfaceMesh.hpp>
+#include <Beatnik_Types.hpp>
+#include <StructuredMesh.hpp>
 
 #include <Kokkos_Core.hpp>
 #include "Operators.hpp"
 
 namespace Beatnik
 {
-/**
- * @struct BoundaryType
- * @brief Struct which contains enums of boundary type options for each boundary
- * These are used for setting ghost cell values prior to calculating surface
- * normals
- */
-enum BoundaryType
-{
-    PERIODIC = 0,
-    FREE = 1,
-};
 
 /**
  * @struct BoundaryCondition
@@ -54,26 +43,26 @@ struct BoundaryCondition
 {
     bool isPeriodicBoundary(std::array<int, 2> dir) const
     {
-        if ((dir[0] == -1) && (boundary_type[0] == PERIODIC))
+        if ((dir[0] == -1) && (boundary_type[0] == MeshBoundaryType::PERIODIC))
             return true;
-        if ((dir[0] == 1) && (boundary_type[2] == PERIODIC))
+        if ((dir[0] == 1) && (boundary_type[2] == MeshBoundaryType::PERIODIC))
             return true;
-        if ((dir[1] == -1) && (boundary_type[1] == PERIODIC))
+        if ((dir[1] == -1) && (boundary_type[1] == MeshBoundaryType::PERIODIC))
             return true;
-        if ((dir[1] == 1) && (boundary_type[3] == PERIODIC))
+        if ((dir[1] == 1) && (boundary_type[3] == MeshBoundaryType::PERIODIC))
             return true;
         return false;
     }
 
     bool isFreeBoundary(std::array<int, 2> dir) const
     {
-        if ((dir[0] == -1) && (boundary_type[0] == FREE))
+        if ((dir[0] == -1) && (boundary_type[0] == MeshBoundaryType::FREE))
             return true;
-        if ((dir[0] == 1) && (boundary_type[2] == FREE))
+        if ((dir[0] == 1) && (boundary_type[2] == MeshBoundaryType::FREE))
             return true;
-        if ((dir[1] == -1) && (boundary_type[1] == FREE))
+        if ((dir[1] == -1) && (boundary_type[1] == MeshBoundaryType::FREE))
             return true;
-        if ((dir[1] == 1) && (boundary_type[3] == FREE))
+        if ((dir[1] == 1) && (boundary_type[3] == MeshBoundaryType::FREE))
             return true;
         return false;
     }
@@ -84,7 +73,7 @@ struct BoundaryCondition
     void applyField(const MeshType &mesh, ArrayType field, int dof) const
     {
         using exec_space = typename ArrayType::execution_space;
-        auto local_grid = *(mesh.localGrid());
+        auto local_grid = *(mesh.layoutObj());
         auto f = field.view();
         
         /* Loop through the directions to correct boundary index spaces when
@@ -244,7 +233,7 @@ struct BoundaryCondition
     {
         using exec_space = typename ArrayType::execution_space;
 
-        auto local_grid = *(mesh.localGrid());
+        auto local_grid = *(mesh.layoutObj());
 
         /* Loop through the directions to correct periodic boundaries */
         for (int i = -1; i < 2; i++) {

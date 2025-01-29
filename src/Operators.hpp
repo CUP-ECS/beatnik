@@ -37,11 +37,42 @@
 namespace Beatnik
 {
 
+/**
+ * Operators that work on Cabana::Arrays assuming an array 
+ * derived from a structured, 2D mesh
+ */
+
 /* Simple vector and finite difference operators needed by the ZModel code.
  * Note that we use higher-order difference operators as the highly-variable
  * curvature of surface can make lower-order operators inaccurate */
 namespace Operators
 {
+    //---------------------------------------------------------------------------//
+    //! Square root functor
+    struct SqrtFunctor
+    {
+        //! Constructor.
+        SqrtFunctor( ) {}
+
+        KOKKOS_INLINE_FUNCTION
+        double operator()( double val ) const
+        {
+            return std::sqrt(val);
+        }
+    };
+    //! Inverse functor
+    struct InverseFunctor
+    {
+        //! Constructor.
+        InverseFunctor( ) {}
+
+        KOKKOS_INLINE_FUNCTION
+        double operator()( double val ) const
+        {
+            return 1.0 / val;
+        }
+    };
+
     /* Fourth order central difference calculation for derivatives along the 
      * interface surface */
     template <class ViewType>
@@ -86,7 +117,7 @@ namespace Operators
         return (0.5*f(i+1, j, d) + 0.5*f(i-1, j, d) + 0.5*f(i, j+1, d) + 0.5*f(i, j-1, d)
                 + 0.25*f(i+1, j+1, d) + 0.25*f(i+1, j-1, d) + 0.25*f(i-1, j+1, d) + 0.25*f(i-1, j-1, d)
                 - 3*f(i, j, d))/(dx*dy);
-//        return (f(i + 1, j, d) + f(i -1, j, d) + f(i, j+1, d) + f(i, j-1,d) - 4.0 * f(i, j, d)) / (dx * dy);
+        // return (f(i + 1, j, d) + f(i -1, j, d) + f(i, j+1, d) + f(i, j-1,d) - 4.0 * f(i, j, d)) / (dx * dy);
     }
 
     KOKKOS_INLINE_FUNCTION

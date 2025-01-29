@@ -16,8 +16,9 @@
 
 #include <Cabana_Grid.hpp>
 
+#include <Beatnik_Types.hpp>
 #include <BoundaryCondition.hpp>
-#include <SurfaceMesh.hpp>
+#include <StructuredMesh.hpp>
 #include <SpatialMesh.hpp>
 #include <ProblemManager.hpp>
 #include <SiloWriter.hpp>
@@ -37,14 +38,15 @@ namespace Beatnik
 /* Convenience base class so that examples that use this don't need to know
  * the details of the problem manager/mesh/etc templating.
  */
-template <class ExecutionSpace, class MemorySpace, class Params>
+template <class ProblemManagerType, class Params>
 class BRSolverBase
 {
   public:
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
-    using node_view = Kokkos::View<double***, device_type>;
+    using memory_space = typename ProblemManagerType::memory_space;
+    using value_type = typename ProblemManagerType::beatnik_mesh_type::value_type;
+    using view_t = Kokkos::View<value_type***, memory_space>;
     virtual ~BRSolverBase() = default;
-    virtual void computeInterfaceVelocity(node_view zdot, node_view z, node_view o) const = 0;
+    virtual void computeInterfaceVelocity(view_t zdot, view_t z, view_t o) const = 0;
 };
 
 } // end namespace Beantik

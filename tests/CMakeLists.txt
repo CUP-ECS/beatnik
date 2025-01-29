@@ -9,6 +9,13 @@ if (ENABLE_TESTS)
     # blt_add_test(NAME MeshTests
     #              COMMAND tstMesh)
     
+    blt_add_executable( NAME     tstSolver
+        SOURCES  tstSolver.cpp
+        HEADERS  tstSolver.hpp TestingBase.hpp
+        DEPENDS_ON beatnik gtest
+        OUTPUT_DIR ${TEST_OUTPUT_DIRECTORY})
+    blt_add_test(NAME SolverTests
+    COMMAND tstSolver)
                  
     blt_add_executable( NAME     tstBoundaryCondition
                  SOURCES tstBoundaryCondition.cpp
@@ -35,6 +42,14 @@ if (ENABLE_TESTS)
                         OUTPUT_DIR ${TEST_OUTPUT_DIRECTORY})             
     blt_add_test(NAME ExactBRSolverTests
                  COMMAND tstExactBRSolver)
+
+    blt_add_executable( NAME     tstTimeIntegrator
+                 SOURCES  tstTimeIntegrator.cpp
+                 HEADERS  tstTimeIntegrator.hpp TestingBase.hpp
+                 DEPENDS_ON beatnik gtest
+                 OUTPUT_DIR ${TEST_OUTPUT_DIRECTORY})
+    blt_add_test(NAME TimeIntegratorTests
+          COMMAND tstTimeIntegrator)
     
 
     blt_add_executable( NAME     tstZModel

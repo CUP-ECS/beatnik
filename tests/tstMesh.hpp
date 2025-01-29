@@ -30,11 +30,11 @@ class MeshTest : public TestingBase<T>
     // Convenience type declarations
     using Cell = Cabana::Grid::Node;
 
-    using node_array =
+    using mesh_array_type =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
                       typename T::MemorySpace>;
-    using mesh_type = Beatnik::SurfaceMesh<typename T::ExecutionSpace, typename T::MemorySpace>;
+    using mesh_type = Beatnik::StructuredMesh<typename T::ExecutionSpace, typename T::MemorySpace>;
 
   protected:
     void SetUp() override

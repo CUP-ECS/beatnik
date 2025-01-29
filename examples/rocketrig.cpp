@@ -53,10 +53,11 @@
 
 using namespace Beatnik;
 
-static char* shortargs = (char*)"n:B:t:d:x:F:o:c:H:I:b:g:a:T:m:v:p:i:w:O:S:M:e:h:";
+static char* shortargs = (char*)"Z:n:B:t:d:x:F:o:c:H:I:b:g:a:T:m:v:p:i:w:O:S:M:e:h:";
 
 static option longargs[] = {
     // Basic simulation parameters
+    { "mesh_type", required_argument, NULL, 'Z' },
     { "nodes", required_argument, NULL, 'n' },
     { "bounding_box", required_argument, NULL, 'B'},
     { "timesteps", required_argument, NULL, 't' },
@@ -91,6 +92,7 @@ static option longargs[] = {
 
 enum InitialConditionModel {IC_COS = 0, IC_SECH2, IC_GAUSSIAN, IC_RANDOM, IC_FILE};
 enum SolverOrder {ORDER_LOW = 0, ORDER_MEDIUM, ORDER_HIGH};
+enum MeshType {MESH_STRUCTURED = 0, MESH_UNSTRUCTURED};
 
 /**
  * @struct ClArgs
@@ -100,13 +102,14 @@ enum SolverOrder {ORDER_LOW = 0, ORDER_MEDIUM, ORDER_HIGH};
 struct ClArgs
 {
     /* Problem physical setup */
+    enum MeshType mesh_type;
     // std::array<double, 6> global_bounding_box;    /**< Size of initial spatial domain: MOVED TO PARAMS */
     enum InitialConditionModel initial_condition; /**< Model used to set initial conditions */
     double tilt;    /**< Initial tilt of interface */
     double magnitude;/**< Magnitude of scale of initial interface */
     double variation; /**< Variation in scale of initial interface */
     double period;   /**< Period of initial variation in interface */
-    enum Beatnik::BoundaryType boundary;  /**< Type of boundary conditions */
+    enum MeshBoundaryType boundary;  /**< Type of boundary conditions */
     double gravity; /**< Gravitational accelaration in -Z direction in Gs */
     double atwood;  /**< Atwood pressure differential number */
     int model;      /**< Model used to set initial conditions */
@@ -155,6 +158,8 @@ void help( const int rank, char* progname )
         std::cout << std::left << std::setw( 10 ) << "-x" << std::setw( 40 )
                   << "On-node Parallelism Model (default serial)" << std::left
                   << "\n";
+        std::cout << std::left << std::setw( 10 ) << "-Z" << std::setw( 40 )
+                  << "Mesh type: structured (0) or unstructured (1) (default 0)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-n" << std::setw( 40 )
                   << "Number of points in each dimension (default 128)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-B" << std::setw( 40 )
@@ -225,10 +230,11 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     // cl.params.period below
 
     /* Default problem is the cosine rocket rig */
+    cl.mesh_type = MeshType::MESH_STRUCTURED;
     cl.num_nodes = { 128, 128 };
     cl.bounding_box = 1.0;
     cl.initial_condition = IC_COS;
-    cl.boundary = Beatnik::BoundaryType::PERIODIC;
+    cl.boundary = MeshBoundaryType::PERIODIC;
     cl.tilt = 0.0;
     cl.magnitude = 0.05;
     cl.variation = 0.00;
@@ -263,6 +269,22 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                     std::cerr << "Invalid BR solver argument.\n";
                     help( rank, argv[0] );
                 }
+                Kokkos::finalize(); 
+                MPI_Finalize(); 
+                exit( -1 );  
+            }
+            break;
+        }
+        case 'Z':
+        {
+            int val = std::atoi( optarg );
+            if (val == 0) cl.mesh_type = MeshType::MESH_STRUCTURED;
+            else if (val == 1) cl.mesh_type = MeshType::MESH_UNSTRUCTURED;
+            else if (rank == 0)
+            {
+                std::cerr << "Invalid mesh type: " << cl.mesh_type << "\n"
+                          << "Must be 0 or 1." << "\n";
+                help( rank, argv[0] );
                 Kokkos::finalize(); 
                 MPI_Finalize(); 
                 exit( -1 );  
@@ -389,9 +411,9 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
         {
             std::string order(optarg);
             if (order.compare("periodic") == 0) {
-                cl.boundary = Beatnik::BoundaryType::PERIODIC;
+                cl.boundary = MeshBoundaryType::PERIODIC;
             } else if (order.compare("free") == 0) {
-                cl.boundary = Beatnik::BoundaryType::FREE;
+                cl.boundary = MeshBoundaryType::FREE;
             } else {
                 if ( rank == 0 )
                 {
@@ -616,7 +638,7 @@ struct MeshInitFunc
 
     MeshInitFunc( std::array<double, 6> box, enum InitialConditionModel i,
                   double t, double m, double v, double p, 
-                  const std::array<int, 2> nodes, enum Beatnik::BoundaryType boundary )
+                  const std::array<int, 2> nodes, enum Beatnik::MeshBoundaryType boundary )
         : _i(i)
         , _t( t )
         , _m( m )
@@ -646,7 +668,7 @@ struct MeshInitFunc
          * coordinate in mesh space */
         for (int i = 0; i < 2; i++) {
             lcoord[i] = coord[i];
-            if (_b == BoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
+            if (_b == Beatnik::MeshBoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
                 lcoord[i] += 0.5;
             }
         }
@@ -702,7 +724,7 @@ struct MeshInitFunc
     double _t, _m, _v, _p;
     Kokkos::Array<int, 3> _ncells;
     double _dx, _dy;
-    enum Beatnik::BoundaryType _b;
+    enum Beatnik::MeshBoundaryType _b;
 };
 
 // Create Solver and Run
@@ -726,23 +748,29 @@ void rocketrig( ClArgs& cl )
                               cl.num_nodes, cl.boundary );
 
     std::shared_ptr<Beatnik::SolverBase> solver;
-    if (cl.params.solver_order == SolverOrder::ORDER_LOW) {
+    if ((cl.params.solver_order == SolverOrder::ORDER_LOW) && (cl.mesh_type == MeshType::MESH_STRUCTURED)) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t,
+            bc, Beatnik::Order::Low(), Beatnik::Mesh::Structured(), cl.mu, cl.eps, cl.delta_t,
             cl.params );
-    } else if (cl.params.solver_order == SolverOrder::ORDER_MEDIUM) {
+    } else if (cl.params.solver_order == SolverOrder::ORDER_MEDIUM && (cl.mesh_type == MeshType::MESH_STRUCTURED)) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t,
+            bc, Beatnik::Order::Medium(), Beatnik::Mesh::Structured(),cl.mu, cl.eps, cl.delta_t,
             cl.params );
-    } else if (cl.params.solver_order == SolverOrder::ORDER_HIGH) {
+    } else if (cl.params.solver_order == SolverOrder::ORDER_HIGH && (cl.mesh_type == MeshType::MESH_STRUCTURED)) {
         solver = Beatnik::createSolver(
             cl.driver, MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
-            bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t,
+            bc, Beatnik::Order::High(), Beatnik::Mesh::Structured(),cl.mu, cl.eps, cl.delta_t,
+            cl.params );
+    } else if (cl.params.solver_order == SolverOrder::ORDER_HIGH && (cl.mesh_type == MeshType::MESH_UNSTRUCTURED)) {
+        solver = Beatnik::createSolver(
+            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
+            partitioner, cl.atwood, cl.gravity, initializer,
+            bc, Beatnik::Order::High(), Beatnik::Mesh::Unstructured(),cl.mu, cl.eps, cl.delta_t,
             cl.params );
     } else {
         std::cerr << "Invalid Model Order parameter!\n";
@@ -786,6 +814,9 @@ int main( int argc, char* argv[] )
         std::cout << std::left << std::setw( 30 ) << "Thread Setting"
                   << ": " << std::setw( 8 ) << cl.driver
                   << "\n"; // Threading Setting
+        std::cout << std::left << std::setw( 30 ) << "Mesh type"
+                  << ": " << std::setw( 8 ) << cl.mesh_type
+                  << "\n"; // Mesh type
         std::cout << std::left << std::setw( 30 ) << "Mesh Dimension"
                   << ": " << cl.num_nodes[0] << ", "
                   << cl.num_nodes[1] << "\n"; // Number of Cells

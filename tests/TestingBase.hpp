@@ -47,7 +47,7 @@ struct MeshInitFunc
     // Initialize Variables
     MeshInitFunc( std::array<double, 6> box,
                   double t, double m, double v, double p, 
-                  const std::array<int, 2> nodes, enum Beatnik::BoundaryType boundary )
+                  const std::array<int, 2> nodes, enum Beatnik::MeshBoundaryType boundary )
         : _t( t )
         , _m( m )
         , _v( v)
@@ -74,7 +74,7 @@ struct MeshInitFunc
          * coordinate in mesh space */
         for (int i = 0; i < 2; i++) {
             lcoord[i] = coord[i];
-            if (_b == Beatnik::BoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
+            if (_b == Beatnik::MeshBoundaryType::FREE && (_ncells[i] % 2 == 1) ) {
                 lcoord[i] += 0.5;
             }
         }
@@ -112,7 +112,7 @@ struct MeshInitFunc
     double _t, _m, _v, _p;
     Kokkos::Array<int, 3> _ncells;
     double _dx, _dy;
-    enum Beatnik::BoundaryType _b;
+    enum Beatnik::MeshBoundaryType _b;
 };
 
 /*
@@ -128,13 +128,28 @@ class TestingBase : public ::testing::Test
     using ExecutionSpace = typename T::ExecutionSpace;
     using MemorySpace = typename T::MemorySpace;
 
+    using mesh_array_type =
+        Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>, MemorySpace>;
+    using beatnik_mesh_type = MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>;
+    using entity_type = typename beatnik_mesh_type::entity_type;
+    using pm_type = ProblemManager<beatnik_mesh_type>;
+    using br_solver_type = BRSolverBase<pm_type, Params>;
+    using zmodel_type = ZModel<pm_type, br_solver_type, ModelOrderTag>;
+    using ti_type = TimeIntegrator<pm_type, zmodel_type>;
+    using silo_writer_type = SiloWriter<pm_type>;
+    
+    using View_t = Kokkos::View<double***, Kokkos::HostSpace>;
+
+
+    
+
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
-    using node_array_layout = std::shared_ptr<Cabana::Grid::ArrayLayout<Cabana::Grid::Node, mesh_type>>;
+    using mesh_array_type_layout = std::shared_ptr<Cabana::Grid::ArrayLayout<Cabana::Grid::Node, mesh_type>>;
 
-    using node_array = Cabana::Grid::Array<double, Cabana::Grid::Node, mesh_type, MemorySpace>;
+    using mesh_array_type = Cabana::Grid::Array<double, Cabana::Grid::Node, mesh_type, MemorySpace>;
 
-    using surface_mesh_type = Beatnik::SurfaceMesh<ExecutionSpace,MemorySpace>;
+    using surface_mesh_type = Beatnik::StructuredMesh<ExecutionSpace,MemorySpace>;
     using pm_type = Beatnik::ProblemManager<ExecutionSpace, MemorySpace>;
     using br_cutoff_type = Beatnik::CutoffBRSolver<ExecutionSpace, MemorySpace, Beatnik::Params>;
     using br_exact_type = Beatnik::ExactBRSolver<ExecutionSpace, MemorySpace, Beatnik::Params>;
@@ -152,11 +167,14 @@ class TestingBase : public ::testing::Test
     double m_ = 0.05;       // magnitude
     double v_ = 0.00;       // variation
     double tilt_ = 0.00;    // tilt
+    double tau = 1/sqrt(A_ * g_); // Tau
+    double delta_t_high_order = tau/50.0; // delta_t
+
     int heffte_configuration_ = 6;
     double cutoff_distance = 0.3;
 
     // Mesh propterties
-    const int meshSize_ = 64;
+    const int meshSize_ = 32;
     const double boxWidth_ = 1.0;
     const int haloWidth_ = 2;
     std::array<double, 6> globalBoundingBox_ = {-1, -1, -1, 1, 1, 1};

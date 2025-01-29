@@ -36,7 +36,7 @@
 
 #include <BRSolverBase.hpp>
 #include <HaloComm.hpp>
-#include <SurfaceMesh.hpp>
+#include <StructuredMesh.hpp>
 #include <ProblemManager.hpp>
 #include <Operators.hpp>
 
@@ -50,24 +50,22 @@ namespace Beatnik
  * all-pairs calculation, limited by a cutoff distance
  * XXX - Make all functions but computeInterfaceVelocity private?
  **/
-template <class ExecutionSpace, class MemorySpace, class Params>
-class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
+template <class ProblemManagerType, class Params>
+class CutoffBRSolver : public BRSolverBase<ProblemManagerType, Params>
 {
-  public:
-    using exec_space = ExecutionSpace;
-    using memory_space = MemorySpace;
-    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
-    using spatial_mesh_type = SpatialMesh<ExecutionSpace, MemorySpace>;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
-    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
-    
-    using Node = Cabana::Grid::Node;
-    using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
-    using node_array = typename pm_type::node_array;
-    //using node_view = typename pm_type::node_view;
-    using node_view = Kokkos::View<double***, device_type>;
+    // Cutoff solver only supports structured meshes
+    static_assert(std::is_same<typename ProblemManagerType::mesh_type_tag, Mesh::Structured>::value, 
+                  "CutoffBRSolver can only use type Mesh::Structured");
 
-    using halo_type = Cabana::Grid::Halo<MemorySpace>;
+  public:
+    using execution_space = typename ProblemManagerType::execution_space;
+    using memory_space = typename ProblemManagerType::memory_space;
+    using view_t = typename BRSolverBase<ProblemManagerType, Params>::view_t;
+    using mesh_type = typename ProblemManagerType::mesh_type::mesh_type; // This is a Cabana::Grid::Mesh type
+    using entity_type = typename ProblemManagerType::entity_type;
+    using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, entity_type>;
+    using spatial_mesh_type = SpatialMesh<execution_space, memory_space>;
+
 
     using particle_node = Cabana::MemberTypes<double[3], // xyz position in space                           0
                                               double[3], // Own omega for BR                                1
@@ -81,14 +79,17 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                                               >;
     // XXX Change the final parameter of particle_array_type, vector type, to
     // be aligned with the machine we are using
-    using particle_array_type = Cabana::AoSoA<particle_node, device_type, 4>;
+    using particle_array_type = Cabana::AoSoA<particle_node, memory_space, 4>;
 
     // XXX - Get these from SpatialMesh class?
-    using spatial_mesh_layout = Cabana::Grid::UniformMesh<double, 3>;
-    using local_grid_layout = Cabana::Grid::LocalGrid<spatial_mesh_layout>;
+
+    // using mesh_type = Cabana::Grid::UniformMesh<double, 3>;
+    // using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
+    using spatial_mesh_layout = typename spatial_mesh_type::mesh_type;
+    using local_grid_layout = typename spatial_mesh_type::local_grid_type;
 
 
-    CutoffBRSolver( const pm_type &pm, const BoundaryCondition &bc,
+    CutoffBRSolver( const ProblemManagerType &pm, const BoundaryCondition &bc,
                     const double epsilon, const double dx, const double dy,
                     const Params params)
         : _pm( pm )
@@ -97,15 +98,15 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         , _dx( dx )
         , _dy( dy )
         , _params( params )
-        , _local_L2G( *_pm.mesh().localGrid() )
+        , _local_L2G( *_pm.mesh().layoutObj() )
     {
-	    _comm = _pm.mesh().localGrid()->globalGrid().comm();
+	    _comm = _pm.mesh().layoutObj()->globalGrid().comm();
 
         MPI_Comm_rank( _comm, &_rank );
         MPI_Comm_size( _comm, &_comm_size );
 
         // Create the spatial mesh
-        _spatial_mesh = std::make_shared<SpatialMesh<ExecutionSpace, MemorySpace>>(
+        _spatial_mesh = std::make_shared<SpatialMesh<execution_space, memory_space>>(
             params.global_bounding_box, params.periodic,
 	        params.cutoff_distance, _comm );
     }
@@ -175,11 +176,11 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     /**
      * Creates a populates particle array
      **/
-    void initializeParticles(particle_array_type &particle_array, node_view z, node_view o) const
+    void initializeParticles(particle_array_type &particle_array, view_t z, view_t o) const
     {
         Kokkos::Profiling::pushRegion("initializeParticles");
 
-        auto local_grid = _pm.mesh().localGrid();
+        auto local_grid = _pm.mesh().layoutObj();
         auto local_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
         int istart = local_space.min(0), jstart = local_space.min(1);
@@ -203,11 +204,11 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         auto rank2d_part = Cabana::slice<6>(particle_array);
         auto rank3d_part = Cabana::slice<7>(particle_array);
 
-        int mesh_dimension = _pm.mesh().get_surface_mesh_size();
+        int mesh_dimension = _pm.mesh().mesh_size();
         l2g_type local_L2G = _local_L2G;
 
 	    // We should convert this to a Cabana::simd_parallel_for at some point to get better write behavior
-        Kokkos::parallel_for("populate_particles", Kokkos::MDRangePolicy<exec_space, Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
+        Kokkos::parallel_for("populate_particles", Kokkos::MDRangePolicy<execution_space, Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
         KOKKOS_LAMBDA(int i, int j) {
 
             int particle_id = (i - istart) * (jend - jstart) + (j - jstart);
@@ -259,7 +260,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         int rank = _rank;
         auto rank3d_part = Cabana::slice<7>(particle_array);
         auto id3d_part = Cabana::slice<8>(particle_array);
-        Kokkos::parallel_for("3D origin rank", Kokkos::RangePolicy<exec_space>(0, particle_array.size()), KOKKOS_LAMBDA(int i) {
+        Kokkos::parallel_for("3D origin rank", Kokkos::RangePolicy<execution_space>(0, particle_array.size()), KOKKOS_LAMBDA(int i) {
             rank3d_part(i) = rank;
             id3d_part(i) = i;
         });
@@ -319,7 +320,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         /* See https://kokkos.org/kokkos-core-wiki/API/core/view/deep_copy.html
          * "How to get layout incompatiable views copied"
          */
-        Kokkos::View<int*[4], device_type> boundary_topology_device("boundary_topology_device", _comm_size+1);
+        Kokkos::View<int*[4], memory_space> boundary_topology_device("boundary_topology_device", _comm_size+1);
         auto hv_tmp = Kokkos::create_mirror_view(boundary_topology_device);
         Kokkos::deep_copy(hv_tmp, boundary_topology);
         Kokkos::deep_copy(boundary_topology_device, hv_tmp);
@@ -335,7 +336,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             getPeriodicNeighbors(is_neighbor);
 
 
-            Kokkos::parallel_for("fix_haloed_particle_positions", Kokkos::RangePolicy<exec_space>(local_count, total_size), 
+            Kokkos::parallel_for("fix_haloed_particle_positions", Kokkos::RangePolicy<execution_space>(local_count, total_size), 
                              KOKKOS_LAMBDA(int index) {
 
                 /* If local process is not on a boundary, exit. No particles
@@ -422,7 +423,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         auto omega_part = Cabana::slice<1>(particle_array);
         auto zdot_part = Cabana::slice<2>(particle_array);
         auto weight_part = Cabana::slice<3>(particle_array);
-        Kokkos::parallel_for("compute_BR_with_neighbors", Kokkos::RangePolicy<exec_space>(0, owned_3D_count), 
+        Kokkos::parallel_for("compute_BR_with_neighbors", Kokkos::RangePolicy<execution_space>(0, owned_3D_count), 
                              KOKKOS_LAMBDA(int my_id) {
             int num_neighbors = Cabana::NeighborList<list_type>::numNeighbor(neighbor_list, my_id);
             double brsum[3] = {0.0, 0.0, 0.0};
@@ -461,7 +462,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
         auto zdot_part = Cabana::slice<2>(particle_array);
         auto idx_part = Cabana::slice<4>(particle_array);
-        Kokkos::parallel_for("update_zdot", Kokkos::RangePolicy<exec_space>(0, particle_array.size()), 
+        Kokkos::parallel_for("update_zdot", Kokkos::RangePolicy<execution_space>(0, particle_array.size()), 
             KOKKOS_LAMBDA(int i) {
             int i_index = idx_part(i, 0);
             int j_index = idx_part(i, 1);
@@ -482,7 +483,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
      * This function is called three times per time step to compute the initial, forward, and half-step
      * derivatives for velocity and vorticity.
      */
-    void computeInterfaceVelocity(node_view zdot, node_view z, node_view o) const override
+    void computeInterfaceVelocity(view_t zdot, view_t z, view_t o) const override
     {
         particle_array_type particle_array;
         initializeParticles(particle_array, z, o);
@@ -513,7 +514,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 	Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
         Kokkos::parallel_for("print views",
-            Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
+            Cabana::Grid::createExecutionPolicy(remote_space, execution_space()),
             KOKKOS_LAMBDA(int i, int j) {
             
             // local_gi = global versions of the local indicies, and convention for remote 
@@ -542,7 +543,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     }
 
   private:
-    const pm_type & _pm;
+    const ProblemManagerType & _pm;
     const BoundaryCondition & _bc;
     double _epsilon, _dx, _dy;
     const Params _params;

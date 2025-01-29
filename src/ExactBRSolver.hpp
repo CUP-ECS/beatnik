@@ -37,7 +37,7 @@
 
 #include <memory>
 
-#include <SurfaceMesh.hpp>
+#include <StructuredMesh.hpp>
 #include <ProblemManager.hpp>
 #include <Operators.hpp>
 #include <BRSolverBase.hpp>
@@ -51,36 +51,29 @@ namespace Beatnik
  * @brief Directly solves the Birkhoff-Rott integral using brute-force 
  * all-pairs calculation
  **/
-template <class ExecutionSpace, class MemorySpace, class Params>
-class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
+template <class ProblemManagerType, class Params>
+class ExactBRSolver : public BRSolverBase<ProblemManagerType, Params>
 {
+    // Exact BR solver only supports structured meshes
+    static_assert(std::is_same<typename ProblemManagerType::mesh_type_tag, Mesh::Structured>::value, 
+                  "ExactBRSolver can only use type Mesh::Structured");
+
   public:
-    using exec_space = ExecutionSpace;
-    using memory_space = MemorySpace;
-    using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
-    using spatial_mesh_type = SpatialMesh<ExecutionSpace, MemorySpace>;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
-    using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
-    
-    using Node = Cabana::Grid::Node;
-    using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
-    using node_array = typename pm_type::node_array;
-    //using node_view = typename pm_type::node_view;
-    using node_view = Kokkos::View<double***, device_type>;
+    using execution_space = typename ProblemManagerType::execution_space;
+    using view_t = typename BRSolverBase<ProblemManagerType, Params>::view_t;
+    using mesh_type = typename ProblemManagerType::mesh_type::mesh_type; // This is a Cabana::Grid::Mesh type
+    using entity_type = typename ProblemManagerType::entity_type;
+    using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, entity_type>;
 
-    using halo_type = Cabana::Grid::Halo<MemorySpace>;
-
-    ExactBRSolver( const pm_type &pm, const BoundaryCondition &bc,
-                   const double epsilon, const double dx, const double dy,
-                   const Params params)
+    ExactBRSolver( const ProblemManagerType &pm, const BoundaryCondition &bc,
+                   const double epsilon, const double dx, const double dy)
         : _pm( pm )
         , _bc( bc )
         , _epsilon( epsilon )
         , _dx( dx )
         , _dy( dy )
-        , _params( params )
-        , _local_L2G( *_pm.mesh().localGrid() )
-        , _comm( _pm.mesh().localGrid()->globalGrid().comm() )
+        , _local_L2G( *_pm.mesh().layoutObj() )
+        , _comm( _pm.mesh().layoutObj()->globalGrid().comm() )
     {
         MPI_Comm_size(_comm, &_num_procs);
         MPI_Comm_rank(_comm, &_rank);
@@ -93,9 +86,9 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         else return 9.0/8.0;
     }
 
-    void computeInterfaceVelocityPiece(node_view zdot, node_view z, 
-                                       node_view zremote, 
-                                       node_view oremote,
+    void computeInterfaceVelocityPiece(view_t zdot, view_t z, 
+                                       view_t zremote, 
+                                       view_t oremote,
                                        l2g_type remote_L2G) const
     {
         /* Project the Birkhoff-Rott calculation between all pairs of points on the 
@@ -106,7 +99,7 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         // Get the local index spaces of pieces we're working with. For the local surface piece
         // this is just the nodes we own. For the remote surface piece, we extract it from the
         // L2G converter they sent us.
-        auto local_grid = _pm.mesh().localGrid();
+        auto local_grid = _pm.mesh().layoutObj();
         auto local_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
         std::array<long, 2> rmin, rmax;
         for (int d = 0; d < 2; d++) {
@@ -143,14 +136,14 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         double dx = _dx, dy = _dy;
 
         // Mesh dimensions for Simpson weight calc
-        int mesh_size = _pm.mesh().get_surface_mesh_size();
+        int mesh_size = _pm.mesh().mesh_size();
     
         /* If the mesh is periodic, the index range is from
          * (halo width) to (halo width + mesh size)
          * If the mesh is non-periodic, the index range is from
          * (halo width) to (halo width + mesh size - 1)
          */
-        int halo_width = _pm.mesh().get_halo_width();
+        int halo_width = _pm.mesh().halo_width();
         std::array<long, 2> lmin;
         std::array<long, 2> lmax;
         for ( int d = 0; d < 2; ++d ) {
@@ -163,8 +156,8 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         int l_num_cols = lmax[1] - lmin[1];
         int r_num_cols = rmax[1] - rmin[1];
         
-        typedef typename Kokkos::TeamPolicy<exec_space>::member_type member_type;
-        Kokkos::TeamPolicy<exec_space> mesh_policy(local_size, Kokkos::AUTO);
+        typedef typename Kokkos::TeamPolicy<execution_space>::member_type member_type;
+        Kokkos::TeamPolicy<execution_space> mesh_policy(local_size, Kokkos::AUTO);
         Kokkos::parallel_for("Exact BR Force Team Loop", mesh_policy, 
             KOKKOS_LAMBDA(member_type team) 
         {
@@ -226,13 +219,13 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
      * This function is called three times per time step to compute the initial, forward, and half-step
      * derivatives for velocity and vorticity.
      */
-    void computeInterfaceVelocity(node_view zdot, node_view z, node_view o) const override
+    void computeInterfaceVelocity(view_t zdot, view_t z, view_t o) const override
     {
-        auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
+        auto local_node_space = _pm.mesh().layoutObj()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
         /* Zero out all of the i/j points */
         Kokkos::parallel_for("Exact BR Zero Loop",
-            Cabana::Grid::createExecutionPolicy(local_node_space, ExecutionSpace()),
+            Cabana::Grid::createExecutionPolicy(local_node_space, execution_space()),
             KOKKOS_LAMBDA(int i, int j) {
             for (int n = 0; n < 3; n++)
                zdot(i, j, n) = 0.0;
@@ -248,12 +241,12 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
         // Create views for receiving data. Alternate which views are being sent and received into
         // *remote2 sends first, so it needs to be deep copied. *remote1 can just be allocated
-        node_view zremote1(Kokkos::ViewAllocateWithoutInitializing ("zremote1"), z.extent(0), z.extent(1), z.extent(2));
-        node_view zremote2(Kokkos::ViewAllocateWithoutInitializing ("zremote2"), z.extent(0), z.extent(1), z.extent(2));
-        node_view oremote1(Kokkos::ViewAllocateWithoutInitializing ("oremote1"), o.extent(0), o.extent(1), o.extent(2));
-        node_view oremote2(Kokkos::ViewAllocateWithoutInitializing ("oremote2"), o.extent(0), o.extent(1), o.extent(2));
-        l2g_type L2G_remote1 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cabana::Grid::Node());
-        l2g_type L2G_remote2 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cabana::Grid::Node());
+        view_t zremote1(Kokkos::ViewAllocateWithoutInitializing ("zremote1"), z.extent(0), z.extent(1), z.extent(2));
+        view_t zremote2(Kokkos::ViewAllocateWithoutInitializing ("zremote2"), z.extent(0), z.extent(1), z.extent(2));
+        view_t oremote1(Kokkos::ViewAllocateWithoutInitializing ("oremote1"), o.extent(0), o.extent(1), o.extent(2));
+        view_t oremote2(Kokkos::ViewAllocateWithoutInitializing ("oremote2"), o.extent(0), o.extent(1), o.extent(2));
+        l2g_type L2G_remote1 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().layoutObj(), Cabana::Grid::Node());
+        l2g_type L2G_remote2 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().layoutObj(), Cabana::Grid::Node());
         
         int zextents1[3];
         int zextents2[3];
@@ -263,14 +256,14 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         // Now create references to these buffers. We go ahead and assign them here to get 
         // same type declarations. The loop reassigns these references as needed each time
         // around the loop.
-        node_view *zsend_view = NULL; 
-        node_view *osend_view = NULL;
+        view_t *zsend_view = NULL; 
+        view_t *osend_view = NULL;
         int * zsend_extents = NULL;
         int * osend_extents = NULL;
         l2g_type * L2G_send = NULL;
 
-        node_view *zrecv_view = NULL; 
-        node_view *orecv_view = NULL;
+        view_t *zrecv_view = NULL; 
+        view_t *orecv_view = NULL;
         int * zrecv_extents = NULL;
         int * orecv_extents = NULL;
         l2g_type * L2G_recv = NULL;
@@ -362,7 +355,7 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
 
         Kokkos::parallel_for("print views",
-            Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
+            Cabana::Grid::createExecutionPolicy(remote_space, execution_space()),
             KOKKOS_LAMBDA(int i, int j) {
             
             int local_li[2] = {i, j};
@@ -391,10 +384,9 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
   private:
     
-    const pm_type & _pm;
+    const ProblemManagerType & _pm;
     const BoundaryCondition & _bc;
     double _epsilon, _dx, _dy;
-    const Params _params;
     
     l2g_type _local_L2G;
     MPI_Comm _comm;

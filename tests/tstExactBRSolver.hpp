@@ -53,17 +53,17 @@ class ExactBRSolverTest : public TestingBase<T>
     using MemorySpace = typename T::MemorySpace;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
 
-    using surface_mesh_type = Beatnik::SurfaceMesh<ExecutionSpace,MemorySpace>;
+    using surface_mesh_type = Beatnik::StructuredMesh<ExecutionSpace,MemorySpace>;
     using pm_type = Beatnik::ProblemManager<ExecutionSpace, MemorySpace>;
     using br_exact_type = Beatnik::ExactBRSolver<ExecutionSpace, MemorySpace, Beatnik::Params>;
     using zm_type_h = Beatnik::ZModel<ExecutionSpace, MemorySpace, Beatnik::Order::High, Beatnik::Params>;
 
     using l2g_type = Cabana::Grid::IndexConversion::L2G<Cabana::Grid::UniformMesh<double, 2>, Cabana::Grid::Node>;
 
-    using node_array =
+    using mesh_array_type =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
                       MemorySpace>;
-    using node_view = typename node_array::view_type;
+    using node_view = typename mesh_array_type::view_type;
 
   protected:
     MPI_Comm comm_, comm_single_; 
@@ -74,8 +74,8 @@ class ExactBRSolverTest : public TestingBase<T>
     std::shared_ptr<surface_mesh_type> single_mesh_;
     std::shared_ptr<pm_type> single_pm_;
     std::shared_ptr<zm_type_h> single_zm_;
-    std::shared_ptr<node_array> zdot_correct_;
-    std::shared_ptr<node_array> zdot_test_;
+    std::shared_ptr<mesh_array_type> zdot_correct_;
+    std::shared_ptr<mesh_array_type> zdot_test_;
 
 
     void SetUp() override
@@ -212,7 +212,7 @@ class ExactBRSolverTest : public TestingBase<T>
         double dx = this->dx_, dy = this->dy_;
 
         // Mesh dimensions for Simpson weight calc
-        int num_nodes = pm_->mesh().get_surface_mesh_size();
+        int num_nodes = pm_->mesh().mesh_size();
 
         /* Now loop over the cross product of all the node on the interface */
         auto pair_space = Beatnik::Operators::crossIndexSpace(local_space, remote_space);

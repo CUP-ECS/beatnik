@@ -22,13 +22,13 @@ class ZModelTest : public TestingBase<T>
     using MemorySpace = typename T::MemorySpace;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
 
-    using node_array =
+    using mesh_array_type =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
                       MemorySpace>;
-    using node_view = typename node_array::view_type;
+    using node_view = typename mesh_array_type::view_type;
 
   protected:
-    std::shared_ptr<node_array> omega_correct_;
+    std::shared_ptr<mesh_array_type> omega_correct_;
 
     void SetUp() override
     {

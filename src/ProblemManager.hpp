@@ -33,38 +33,12 @@
 
 #include <memory>
 
-#include <SurfaceMesh.hpp>
+#include <StructuredMesh.hpp>
 #include <BoundaryCondition.hpp>
+#include <Beatnik_ArrayUtils.hpp>
 
 namespace Beatnik
 {
-
-/**
- * @namespace Field
- * @brief Field namespace to track state array entities
- **/
-namespace Field
-{
-
-/**
- * @struct Position
- * @brief Tag structure for the position of the surface mesh point in 
- * 3-space
- **/
-struct Position
-{
-};
-
-/**
- * @struct Vorticity
- * @brief Tag structure for the magnitude of vorticity at each surface mesh 
- * point 
- **/
-struct Vorticity
-{
-};
-
-}; // end namespace Field
 
 /**
  * The ProblemManager Class
@@ -72,31 +46,25 @@ struct Vorticity
  * @brief ProblemManager class to store the mesh and global state values, and
  * to perform gathers and scatters
  **/
-template <class ExecutionSpace, class MemorySpace>
+template <class BeatnikMeshType>
 class ProblemManager
 {
   public:
-    using exec_space = ExecutionSpace;
-    using mem_space = MemorySpace;
-    using device_type = Kokkos::Device<exec_space, mem_space>;
-
-    using Node = Cabana::Grid::Node;
-
-    using node_array =
-        Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
-                      mem_space>;
-    using node_view = 
-        typename node_array::view_type;
-
-    using halo_type = Cabana::Grid::Halo<MemorySpace>;
-    using surface_mesh_type = SurfaceMesh<exec_space, mem_space>;
+    using memory_space = typename BeatnikMeshType::memory_space;
+    using execution_space = typename BeatnikMeshType::execution_space;
+    using beatnik_mesh_type = BeatnikMeshType;
+    using entity_type = typename BeatnikMeshType::entity_type; // Cabana::Grid::Node or NuMesh::Face
+    using mesh_type = typename BeatnikMeshType::mesh_type;
+    using mesh_type_tag = typename BeatnikMeshType::mesh_type_tag;
+    using mesh_array_type = typename BeatnikMeshType::mesh_array_type;
+    using halo_type = Cabana::Grid::Halo<memory_space>;
 
     template <class InitFunc>
-    ProblemManager( const surface_mesh_type & surface_mesh,
+    ProblemManager( const BeatnikMeshType & mesh,
                     const BoundaryCondition & bc, 
                     const double period,
                     const InitFunc& create_functor )
-        : _surface_mesh( surface_mesh )
+        : _mesh( mesh )
         , _bc( bc )
         , _period( period )
         // , other initializers
@@ -104,66 +72,69 @@ class ProblemManager
         // The layouts of our various arrays for values on the staggered mesh
         // and other associated data structures. Does there need to be version with
         // halos associated with them?
-        auto node_triple_layout =
-            Cabana::Grid::createArrayLayout( _surface_mesh.localGrid(), 3, Cabana::Grid::Node() );
-        auto node_pair_layout =
-            Cabana::Grid::createArrayLayout( _surface_mesh.localGrid(), 2, Cabana::Grid::Node() );
+        auto node_triple_layout = ArrayUtils::createArrayLayout(_mesh.layoutObj(), 3, entity_type());
+        auto node_pair_layout = ArrayUtils::createArrayLayout(_mesh.layoutObj(), 2, entity_type());
 
         // The actual arrays storing mesh quantities
         // 1. The spatial positions of the interface
-        _position = Cabana::Grid::createArray<double, mem_space>(
-            "position", node_triple_layout );
-	    Cabana::Grid::ArrayOp::assign( *_position, 0.0, Cabana::Grid::Ghost() );
+        _position = ArrayUtils::createArray<double, memory_space>("position", node_triple_layout);
+	    // ArrayUtils::ArrayOp::assign( *_position, 0.0 );
+
 
         // 2. The magnitude of vorticity at the interface 
-        _vorticity = Cabana::Grid::createArray<double, mem_space>(
-            "vorticity", node_pair_layout );
-	    Cabana::Grid::ArrayOp::assign( *_vorticity, 0.0, Cabana::Grid::Ghost() );
+        _vorticity = ArrayUtils::createArray<double, memory_space>("vorticity", node_pair_layout);
+	    // ArrayUtils::ArrayOp::assign( *_vorticity, 0.0 );
 
         /* Halo pattern for the position and vorticity. The halo is two cells 
          * deep to be able to do fourth-order central differencing to 
          * compute surface normals accurately. It's a Node (8 point) pattern 
          * as opposed to a Face (4 point) pattern so the vorticity laplacian 
          * can use a 9-point stencil. */
-        int halo_depth = _surface_mesh.localGrid()->haloCellWidth();
-        _surface_halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<2>(), 
-                            halo_depth, *_position, *_vorticity);
-
-        // Initialize State Values ( position and vorticity ) and 
-        // then do a halo to make sure the ghosts and boundaries are correct.
-        initialize( create_functor );
-        gather();
+        /* XXX - For now, only apply strucutred halo to the structured arrays */
+       
+        if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
+        {
+            // Initialize State Values ( position and vorticity ) and 
+            // then do a halo to make sure the ghosts and boundaries are correct.
+            initialize_structured_mesh( create_functor );
+            int halo_depth = _mesh.layoutObj()->haloCellWidth();
+            _surface_halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<2>(), 
+                                halo_depth, *_position->array(), *_vorticity->array());
+            gather();
+        }
+        else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
+        {
+            initialize_unstructured_mesh( create_functor );
+            // throw std::invalid_argument("ProblemManager constructor: Unfinished unstructured implementation.");
+        }
     }
 
     /**
      * Initializes state values in the cells
+     * Specific for structured grids
      * @param create_functor Initialization function
      **/
     template <class InitFunctor>
-    void initialize( const InitFunctor& create_functor )
+    void initialize_structured_mesh( const InitFunctor& create_functor )
     {
-        // DEBUG: Trace State Initialization
-        if ( _surface_mesh.rank() == 0 && DEBUG )
-            std::cout << "Initializing Mesh State\n";
-
         // Get Local Grid and Local Mesh
-        auto local_grid = *( _surface_mesh.localGrid() );
-        auto local_mesh = Cabana::Grid::createLocalMesh<mem_space>( local_grid );
+        auto local_grid = *( _mesh.localGrid() );
+        auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>( local_grid );
 
 	    // Get State Arrays
-        auto z = get( Cabana::Grid::Node(), Field::Position() );
-        auto w = get( Cabana::Grid::Node(), Field::Vorticity() );
+        auto z = get( Field::Position() )->array()->view();
+        auto w = get( Field::Vorticity() )->array()->view();
 
         // Loop Over All Owned Nodes ( i, j )
         auto own_nodes = local_grid.indexSpace( Cabana::Grid::Own(), Cabana::Grid::Node(),
                                                 Cabana::Grid::Local() );
         
         int seed = (int) (10000000 * _period);
-        Kokkos::Random_XorShift64_Pool<mem_space> random_pool(seed);
+        Kokkos::Random_XorShift64_Pool<memory_space> random_pool(seed);
 
         Kokkos::parallel_for(
             "Initialize Cells`",
-            Cabana::Grid::createExecutionPolicy( own_nodes, ExecutionSpace() ),
+            Cabana::Grid::createExecutionPolicy( own_nodes, execution_space() ),
             KOKKOS_LAMBDA( const int i, const int j ) {
                 int index[2] = { i, j };
                 double coords[2];
@@ -177,71 +148,126 @@ class ProblemManager
     };
 
     /**
+     * Initializes state values in the cells
+     * 
+     * The unstructured mesh is initially built from a Cabana local grid.
+     * To properly initialize the XYZ and vorticity values on vertices
+     * in the unstructured mesh, we must create an array layout 
+     * @param create_functor Initialization function
+     **/
+    template <class InitFunctor>
+    void initialize_unstructured_mesh( const InitFunctor& create_functor )
+    {
+        // Get Local Grid and Local Mesh
+        auto local_grid = _mesh.localGrid();
+        auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>( *local_grid );
+
+	    // Create State Arrays
+        auto z_layout = Cabana::Grid::createArrayLayout(local_grid, 3, Cabana::Grid::Node());
+        auto w_layout = Cabana::Grid::createArrayLayout(local_grid, 2, Cabana::Grid::Node());
+        auto z_array = Cabana::Grid::createArray<double, memory_space>("z_for_initialization", z_layout);
+        auto w_array = Cabana::Grid::createArray<double, memory_space>("w_for_initialization", w_layout);
+        auto z = z_array->view();
+        auto w = w_array->view();
+
+        // Loop Over All Owned Nodes ( i, j )
+        auto own_nodes = local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Node(),
+                                                Cabana::Grid::Local() );
+        
+        int seed = (int) (10000000 * _period);
+        Kokkos::Random_XorShift64_Pool<memory_space> random_pool(seed);
+
+        Kokkos::parallel_for(
+            "Initialize Cells`",
+            Cabana::Grid::createExecutionPolicy( own_nodes, execution_space() ),
+            KOKKOS_LAMBDA( const int i, const int j ) {
+                int index[2] = { i, j };
+                double coords[2];
+                local_mesh.coordinates( Cabana::Grid::Node(), index, coords);
+
+                create_functor( Cabana::Grid::Node(), Field::Position(), random_pool, index, 
+                                coords, z(i, j, 0), z(i, j, 1), z(i, j, 2) );
+                create_functor( Cabana::Grid::Node(), Field::Vorticity(), index, 
+                                coords, w(i, j, 0), w(i, j, 1) );
+            } );
+        
+        // Finally, initialize the vertices in the unstructured mesh with the values in z and w
+        auto mesh = _mesh.layoutObj();
+        mesh->initializeFromArray(*z_array, *w_array);
+    };
+
+    /**
      * Return mesh
      * @return Returns Mesh object
      **/
-    const surface_mesh_type & mesh() const
+    const beatnik_mesh_type & mesh() const
     {
-        return _surface_mesh;
+        return _mesh;
     };
 
     /**
      * Return Position Field
      * @param Location::Node
      * @param Field::Position
-     * @return Returns view of current position at nodes
+     * @return Returns Returns Cabana::Array of current position at nodes
      **/
-    typename node_array::view_type get( Cabana::Grid::Node, Field::Position ) const
+    std::shared_ptr<mesh_array_type> get( Field::Position ) const
     {
-        return _position->view();
+        return _position;
     };
 
     /**
      * Return Vorticity Field
      * @param Location::Node
      * @param Field::Vorticity
-     * @return Returns view of current vorticity at nodes
+     * @return Returns Cabana::Array of current vorticity at nodes
      **/
-    typename node_array::view_type get( Cabana::Grid::Node, Field::Vorticity ) const
+    std::shared_ptr<mesh_array_type> get( Field::Vorticity ) const
     {
-        return _vorticity->view();
+        return _vorticity;
     };
 
     /**
      * Gather State Data from Neighbors
+     * XXX - only apply to Cabana Arrays
      **/
     void gather( ) const
     {
-        _surface_halo->gather( ExecutionSpace(), *_position, *_vorticity );
-        _bc.applyPosition(_surface_mesh, *_position);
-        _bc.applyField(_surface_mesh, *_vorticity, 2);
-    };
+        if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
+        {
+            _surface_halo->gather( execution_space(), *_position->array(), *_vorticity->array() );
+            _bc.applyPosition(_mesh, *_position->array());
+            _bc.applyField(_mesh, *_vorticity->array(), 2);
+        }
+        else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
+        {
+            // XXX - TODO
+            throw std::invalid_argument("ProblemManager::gather: Not yet implemented for unstructured meshes.");
+        }
+    }
 
     /**
      * Gather state data from neighbors for temporary position and vorticity 
      * arrays managed by other modules 
      */
-    void gather( node_array &position, node_array &vorticity) const
+    void gather( mesh_array_type &position, mesh_array_type &vorticity) const
     {
-        _surface_halo->gather( ExecutionSpace(), position, vorticity );
-        _bc.applyPosition(_surface_mesh, position);
-        _bc.applyField(_surface_mesh, vorticity, 2);
+        if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
+        {
+            _surface_halo->gather( execution_space(), *position.array(), *vorticity.array() );
+            _bc.applyPosition(_mesh, *position.array());
+            _bc.applyField(_mesh, *vorticity.array(), 2);
+        }
+        else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
+        {
+            // XXX - TODO
+            throw std::invalid_argument("ProblemManager::gather: Not yet implemented for unstructured meshes.");
+        }
     }
-
-#if 0
-    /**
-     * Provide halo pattern used for position and vorticity for classes that
-     * need to manage temporary global versions of that state themselves 
-     **/
-    halo_type & halo( ) const
-    {
-        return *_surface_halo;
-    }
-#endif
 
   private:
     // The mesh on which our data items are stored
-    const surface_mesh_type &_surface_mesh;
+    const beatnik_mesh_type &_mesh;
     const BoundaryCondition &_bc;
 
     // Used to seed the random number generator
@@ -249,11 +275,12 @@ class ProblemManager
 
     // Basic long-term quantities stored in the mesh and periodically written
     // to storage (specific computiontional methods may store additional state)
-    std::shared_ptr<node_array> _position, _vorticity;
+    std::shared_ptr<mesh_array_type> _position, _vorticity;
 
     // Halo communication pattern for problem-manager stored data
     std::shared_ptr<halo_type> _surface_halo;
-}; // template class ProblemManager
+
+};
 
 } // namespace Beatnik
 
