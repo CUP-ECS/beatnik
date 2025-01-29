@@ -46,6 +46,7 @@ class SiloWriter
   public:
     using memory_space = typename ProblemManagerType::memory_space;
     using execution_space = typename ProblemManagerType::execution_space;
+    using mesh_type = typename ProblemManagerType::mesh_type;
     using value_type = typename ProblemManagerType::beatnik_mesh_type::value_type;
     using mesh_type_tag = typename ProblemManagerType::mesh_type_tag;
     /**
@@ -186,31 +187,38 @@ class SiloWriter
         {
             printf("SiloWriter: Writing unstructured meshes not supported.\n");
             // Initialize Variables
-            // int dims[3];
-            // double *coords[3], *vars[2];
-            // const char* coordnames[3] = { "X", "Y", "Z" };
-            // DBoptlist* optlist;
-            // int rank = _pm.mesh().rank();
+            int dims[3];
+            double *coords[3], *vars[2];
+            const char* coordnames[3] = { "X", "Y", "Z" };
+            DBoptlist* optlist;
+            int rank = _pm.mesh().rank();
 
-            // // Retrieve the Local Grid and Local Mesh
-            // const auto & mesh = _pm.mesh().layoutObj();
+            // Retrieve the Local Grid and Local Mesh
+            const auto & mesh = _pm.mesh().layoutObj();
 
-            // // Set DB Options: Time Step, Time Stamp and Delta Time
-            // optlist = DBMakeOptlist( 10 );
-            // DBAddOption( optlist, DBOPT_CYCLE, &time_step );
-            // DBAddOption( optlist, DBOPT_TIME, &time );
-            // DBAddOption( optlist, DBOPT_DTIME, &dt );
-            // int dbcoord = DB_CARTESIAN;
-            // DBAddOption( optlist, DBOPT_COORDSYS, &dbcoord );
-            // int dborder = DB_ROWMAJOR;
-            // DBAddOption( optlist, DBOPT_MAJORORDER, &dborder );
-            // int dbtopo = 2;
-            // DBAddOption( optlist, DBOPT_TOPO_DIM, &dbtopo );
+            // Set DB Options: Time Step, Time Stamp and Delta Time
+            optlist = DBMakeOptlist( 10 );
+            DBAddOption( optlist, DBOPT_CYCLE, &time_step );
+            DBAddOption( optlist, DBOPT_TIME, &time );
+            DBAddOption( optlist, DBOPT_DTIME, &dt );
+            int dbcoord = DB_CARTESIAN;
+            DBAddOption( optlist, DBOPT_COORDSYS, &dbcoord );
+            int dborder = DB_ROWMAJOR;
+            DBAddOption( optlist, DBOPT_MAJORORDER, &dborder );
+            int dbtopo = 2;
+            DBAddOption( optlist, DBOPT_TOPO_DIM, &dbtopo );
 
-            // // Declare the coordinates of the portion of the mesh we're writing
-            // auto vertices = mesh->vertices();
-            // int num_verts = mesh->count(NuMesh::Own(), NuMesh::Vertex());
-            // int num_faces = mesh->count(NuMesh::Own(), NuMesh::Face());
+            // Declare the coordinates of the portion of the mesh we're writing
+            auto vertices = mesh->vertices();
+            int num_verts = mesh->count(NuMesh::Own(), NuMesh::Vertex());
+            int num_faces = mesh->count(NuMesh::Own(), NuMesh::Face());
+            
+            // Copy vertices to host memory
+            using vertex_data = typename mesh_type::vertex_data;
+            using v_array_type = Cabana::AoSoA<vertex_data, Kokkos::HostSpace, 4>;
+            v_array_type vertices_h("vertices", vertices.size());
+            Cabana::deep_copy(vertices_h, vertices);
+
 
             // for ( unsigned int i = 0; i < 2; i++ )
             // {
@@ -227,14 +235,11 @@ class SiloWriter
             // // Allocate coordinate arrays in each dimension
             // for ( unsigned int i = 0; i < 3; i++ )
             // {
-            //     coords[i] = (double*)malloc( sizeof( double ) * dims[0] * dims[1]);
+            //     coords[i] = (double*)malloc( sizeof( double ) * num_verts);
             // }
 
             // // Fill out coords[] arrays with coordinate values in each dimension
-            // auto z = _pm.get( Field::Position() )->array()->view();
-            // auto zHost = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), z );
-            // auto xmin = node_domain.min( 0 );
-            // auto ymin = node_domain.min( 1 );
+            // auto v_xyz = Cabana::slice<V_XYZ>(vertices);
             // for ( int i = node_domain.min( 0 ); i < node_domain.max( 0 ); i++ )
             // {
             //     for ( int j = node_domain.min( 1 ); j < node_domain.max( 1 ); j++ )
@@ -250,9 +255,13 @@ class SiloWriter
             //     }
             // }
 
-            // DBPutUcdmesh( dbfile, meshname, 3,
-            //     (DBCAS_t)coordnames, coords,
+            // DBPutUcdmesh( dbfile, meshname,
+            //     3, // Number of dimensions: x, y, z
+            //     (DBCAS_t)coordnames, // Documentation says this param is ignored
+            //     coords, // coords[0] = x coords, coords[1] = y, coords[2] = z
             //     num_verts, num_faces, )
+
+            // coords = xyz values at each vertex
 
             // DBPutQuadmesh( dbfile, meshname, (DBCAS_t)coordnames, coords, dims,
             //             3, DB_DOUBLE, DB_NONCOLLINEAR, optlist );
@@ -281,42 +290,42 @@ class SiloWriter
 
             // Mesh vorticity values - copy owned portion from the primary
             // execution space to the host execution space
-            auto w = _pm.get( Field::Vorticity() )->array()->view();
+            // auto w = _pm.get( Field::Vorticity() )->array()->view();
 
-            // array that we copy data into and then get a mirror view of.
-            Kokkos::View<value_type***, Kokkos::LayoutLeft, memory_space>
-                w1Owned( "w1o", node_domain.extent( 0 ), node_domain.extent( 1 ),
-                        1 );
-            Kokkos::View<value_type***, Kokkos::LayoutLeft, memory_space>
-                w2Owned( "w2o", node_domain.extent( 0 ), node_domain.extent( 1 ),
-                        1 );
+            // // array that we copy data into and then get a mirror view of.
+            // Kokkos::View<value_type***, Kokkos::LayoutLeft, memory_space>
+            //     w1Owned( "w1o", node_domain.extent( 0 ), node_domain.extent( 1 ),
+            //             1 );
+            // Kokkos::View<value_type***, Kokkos::LayoutLeft, memory_space>
+            //     w2Owned( "w2o", node_domain.extent( 0 ), node_domain.extent( 1 ),
+            //             1 );
 
-            Kokkos::parallel_for(
-                "SiloWriter::wowned copy",
-                createExecutionPolicy( node_domain, execution_space() ),
-                KOKKOS_LAMBDA( const int i, const int j ) {
-                    w1Owned( i - xmin, j - ymin, 0 ) = w( i, j, 0 );
-                    w2Owned( i - xmin, j - ymin, 0 ) = w( i, j, 1 );
-                } );
-            auto w1Host =
-                Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), w1Owned );
-            auto w2Host =
-                Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), w2Owned );
-            vars[0] = w1Host.data();
-            vars[1] = w2Host.data();
+            // Kokkos::parallel_for(
+            //     "SiloWriter::wowned copy",
+            //     createExecutionPolicy( node_domain, execution_space() ),
+            //     KOKKOS_LAMBDA( const int i, const int j ) {
+            //         w1Owned( i - xmin, j - ymin, 0 ) = w( i, j, 0 );
+            //         w2Owned( i - xmin, j - ymin, 0 ) = w( i, j, 1 );
+            //     } );
+            // auto w1Host =
+            //     Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), w1Owned );
+            // auto w2Host =
+            //     Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), w2Owned );
+            // vars[0] = w1Host.data();
+            // vars[1] = w2Host.data();
 
-            const char *varnames[2] = {"w1", "w2"};
-            DBPutQuadvar( dbfile, "vorticity", meshname, 2, (DBCAS_t)varnames,
-                        vars, dims, 3, NULL, 0, DB_DOUBLE, DB_NODECENT,
-                        optlist );
+            // const char *varnames[2] = {"w1", "w2"};
+            // DBPutQuadvar( dbfile, "vorticity", meshname, 2, (DBCAS_t)varnames,
+            //             vars, dims, 3, NULL, 0, DB_DOUBLE, DB_NODECENT,
+            //             optlist );
 
-            for ( unsigned int i = 0; i < 3; i++ )
-            {
-                free( coords[i] );
-            }
+            // for ( unsigned int i = 0; i < 3; i++ )
+            // {
+            //     free( coords[i] );
+            // }
 
-            // Free Option List
-            DBFreeOptlist( optlist );
+            // // Free Option List
+            // DBFreeOptlist( optlist );
         }
     };
 
