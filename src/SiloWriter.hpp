@@ -189,7 +189,7 @@ class SiloWriter
             // Initialize Variables
             int dims[3];
             double *coords[3], *vars[2];
-            double *nodelist;
+            int *nodelist;
             const char* coordnames[3] = { "X", "Y", "Z" };
             DBoptlist* optlist;
             int rank = _pm.mesh().rank();
@@ -211,6 +211,7 @@ class SiloWriter
 
             // Declare the coordinates of the portion of the mesh we're writing
             auto vertices = mesh->vertices();
+            auto faces = mesh->faces();
             int num_verts = mesh->count(NuMesh::Own(), NuMesh::Vertex());
             int num_faces = mesh->count(NuMesh::Own(), NuMesh::Face());
             
@@ -218,8 +219,11 @@ class SiloWriter
             using vertex_data = typename mesh_type::vertex_data;
             using face_data = typename mesh_type::face_data;
             using v_array_type = Cabana::AoSoA<vertex_data, Kokkos::HostSpace, 4>;
+            using f_array_type = Cabana::AoSoA<face_data, Kokkos::HostSpace, 4>;
             v_array_type vertices_h("vertices", vertices.size());
+            f_array_type faces_h("faces", faces.size());
             Cabana::deep_copy(vertices_h, vertices);
+            Cabana::deep_copy(faces_h, faces);
 
             // Allocate coordinate arrays in each dimension
             for ( unsigned int i = 0; i < 3; i++ )
@@ -229,23 +233,34 @@ class SiloWriter
 
             // Fill out coords[] arrays with coordinate values in each dimension
             auto v_xyz = Cabana::slice<V_XYZ>(vertices_h);
-            for (int i = 0; i < num_verts; i++ )
+            for (int dim = 0; dim < 3; dim++)
             {
-                for (int dim = 0; dim < 2; dim++)
+                for (int i = 0; i < num_verts; i++ )
                 {
                     coords[dim][i] = v_xyz(i, dim);
+                    printf("R%d: coords[%d][%d] = %0.16lf\n", rank, dim, i, v_xyz(i, dim));
                 }
             }
-
+        
             // Allocate nodelist array
             int lnodelist = num_faces * 3;
             nodelist = (int*)malloc(sizeof(int) * lnodelist); // Each face has three vertices
 
             // Fill nodelist array with the vertex GIDs on each face
+            auto f_vids = Cabana::slice<F_VIDS>(faces);
+            int index = 0;
+            for (int i = 0; i < num_faces; i++)
+            {
+                for (int j = 0; j < 3; j++)
+                {
+                    nodelist[index++] = f_vids(i, j);
+                    // printf("R%d: nodelist[%d] = %d\n", rank, index-1, f_vids(i, j));
+                }
+            }
 
-
-            int shapesize[1] = {3} // Each triangle has 3 vertices
-            int shapecnt[1] = {num_faces} // All faces have this triangular shape
+            int shapetype[1] = {DB_ZONETYPE_TRIANGLE}; // Shapes are of type triangle
+            int shapesize[1] = {3}; // Each triangle has 3 vertices
+            int shapecnt[1] = {num_faces}; // All faces have this triangular shape
             DBPutZonelist2( dbfile,
                 "Mesh_Zonelist", // Name of zone list
                 num_faces, // Number of zones, i.e. faces
@@ -255,9 +270,11 @@ class SiloWriter
                 0, // Origin of indices. Should be 0 or 1
                 0, // Number of ghost zones at beginning of nodelist
                 0, // Number of ghost zones at end of nodelist
-                shapesize, //Array of length nshapes containing the number of nodes used by each zone shape.
+                shapetype, // Array of length nshapes containing the type of each zone shape.
+                shapesize, // Array of length nshapes containing the number of nodes used by each zone shape.
                 shapecnt, // Array of length nshapes containing the number of zones having each shape.
-                1) // Number of zone shapes. We only have one: triangular
+                1, // Number of zone shapes. We only have one: triangular
+                optlist);
 
             DBPutUcdmesh( dbfile, meshname,
                 3, // Number of dimensions: x, y, z
