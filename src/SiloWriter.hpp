@@ -189,6 +189,7 @@ class SiloWriter
             // Initialize Variables
             int dims[3];
             double *coords[3], *vars[2];
+            double *nodelist;
             const char* coordnames[3] = { "X", "Y", "Z" };
             DBoptlist* optlist;
             int rank = _pm.mesh().rank();
@@ -213,53 +214,76 @@ class SiloWriter
             int num_verts = mesh->count(NuMesh::Own(), NuMesh::Vertex());
             int num_faces = mesh->count(NuMesh::Own(), NuMesh::Face());
             
-            // Copy vertices to host memory
+            // Copy vertices and faces to host memory
             using vertex_data = typename mesh_type::vertex_data;
+            using face_data = typename mesh_type::face_data;
             using v_array_type = Cabana::AoSoA<vertex_data, Kokkos::HostSpace, 4>;
             v_array_type vertices_h("vertices", vertices.size());
             Cabana::deep_copy(vertices_h, vertices);
 
+            // Allocate coordinate arrays in each dimension
+            for ( unsigned int i = 0; i < 3; i++ )
+            {
+                coords[i] = (double*)malloc( sizeof( double ) * num_verts);
+            }
 
-            // for ( unsigned int i = 0; i < 2; i++ )
-            // {
-            //     dims[i] = node_domain.extent( i ); 
-            // }
-            // dims[2] = 1;
+            // Fill out coords[] arrays with coordinate values in each dimension
+            auto v_xyz = Cabana::slice<V_XYZ>(vertices_h);
+            for (int i = 0; i < num_verts; i++ )
+            {
+                for (int dim = 0; dim < 2; dim++)
+                {
+                    coords[dim][i] = v_xyz(i, dim);
+                }
+            }
 
-            // if (DEBUG) {
-            //     std::cout << "Rank " << rank << ": "
-            //             << "Writing " << dims[0] << " by " << dims[1] 
-            //             << " mesh element.\n";
-            // }
+            // Allocate nodelist array
+            int lnodelist = num_faces * 3;
+            nodelist = (int*)malloc(sizeof(int) * lnodelist); // Each face has three vertices
 
-            // // Allocate coordinate arrays in each dimension
-            // for ( unsigned int i = 0; i < 3; i++ )
-            // {
-            //     coords[i] = (double*)malloc( sizeof( double ) * num_verts);
-            // }
+            // Fill nodelist array with the vertex GIDs on each face
 
-            // // Fill out coords[] arrays with coordinate values in each dimension
-            // auto v_xyz = Cabana::slice<V_XYZ>(vertices);
-            // for ( int i = node_domain.min( 0 ); i < node_domain.max( 0 ); i++ )
-            // {
-            //     for ( int j = node_domain.min( 1 ); j < node_domain.max( 1 ); j++ )
-            //     {
-            //         int iown = i - xmin;
-            //         int jown = j - ymin;
-            //         /* XXX Figure out why we have to write this column major when the optlist
-            //         * explicitly says we'll be passing them row major XXX. */
-            //         for ( unsigned int d = 0; d < 3; d++ )
-            //         {
-            //             coords[d][jown * node_domain.extent(0) + iown ] = zHost(i, j, d);
-            //         }
-            //     }
-            // }
 
-            // DBPutUcdmesh( dbfile, meshname,
-            //     3, // Number of dimensions: x, y, z
-            //     (DBCAS_t)coordnames, // Documentation says this param is ignored
-            //     coords, // coords[0] = x coords, coords[1] = y, coords[2] = z
-            //     num_verts, num_faces, )
+            int shapesize[1] = {3} // Each triangle has 3 vertices
+            int shapecnt[1] = {num_faces} // All faces have this triangular shape
+            DBPutZonelist2( dbfile,
+                "Mesh_Zonelist", // Name of zone list
+                num_faces, // Number of zones, i.e. faces
+                3, // Number of spatial dimensions in this mesh
+                nodelist, // Array of length lnodelist containing node indices describing mesh zones.
+                lnodelist, // Length of array in previous argument
+                0, // Origin of indices. Should be 0 or 1
+                0, // Number of ghost zones at beginning of nodelist
+                0, // Number of ghost zones at end of nodelist
+                shapesize, //Array of length nshapes containing the number of nodes used by each zone shape.
+                shapecnt, // Array of length nshapes containing the number of zones having each shape.
+                1) // Number of zone shapes. We only have one: triangular
+
+            DBPutUcdmesh( dbfile, meshname,
+                3, // Number of dimensions: x, y, z
+                (DBCAS_t)coordnames, // Documentation says this param is ignored
+                coords, // coords[0] = x coords, coords[1] = y, coords[2] = z
+                num_verts, // Number of vertices in coords
+                num_faces, // Number of faces in the mesh
+                "Mesh_Zonelist", // Name of zonelist structure
+                NULL, // Name of facelist structure
+                DB_DOUBLE, // Datatype of the coordinates
+                optlist);
+            
+            // Put vorticity values into the mesh
+            /*
+            int DBPutZonelist2 (DBfile *dbfile, char const *name, int nzones,
+                int ndims, int const nodelist[], int lnodelist, int origin,
+                int lo_offset, int hi_offset, int const shapetype[],
+                int const shapesize[], int const shapecnt[], int nshapes,
+                DBoptlist const *optlist)
+
+            int DBPutUcdvar (DBfile *dbfile, char const *name,
+                char const *meshname, int nvars,
+                char const * const varnames[], void const * const vars[],
+                int nels, void const * const mixvars[], int mixlen,
+                int datatype, int centering, DBoptlist const *optlist)
+            */
 
             // coords = xyz values at each vertex
 
@@ -319,13 +343,14 @@ class SiloWriter
             //             vars, dims, 3, NULL, 0, DB_DOUBLE, DB_NODECENT,
             //             optlist );
 
-            // for ( unsigned int i = 0; i < 3; i++ )
-            // {
-            //     free( coords[i] );
-            // }
+            for ( unsigned int i = 0; i < 3; i++ )
+            {
+                free( coords[i] );
+            }
+            free(nodelist);
 
             // // Free Option List
-            // DBFreeOptlist( optlist );
+            DBFreeOptlist( optlist );
         }
     };
 
