@@ -234,7 +234,7 @@ class Solver : public SolverBase
         else if constexpr (std::is_same_v<MeshTypeTag, Mesh::Unstructured>)
         {
             printf("WARNING: Solver::step: Unstructured mesh not yet implemented.\n");
-            ti->step(_dt, entity_type(), NuMesh::Own());
+            // ti->step(_dt, entity_type(), NuMesh::Own());
             // throw std::invalid_argument("Solver::step: Unstructured mesh not yet implemented.");
         }
         else
