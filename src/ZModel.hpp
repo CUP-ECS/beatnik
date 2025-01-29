@@ -179,7 +179,8 @@ class ZModel
         }
         else 
         {
-            throw std::invalid_argument("ZModel constructor: Unfinished implementation for unstructured meshes.");
+            printf("WARNING: ZModel constructor: Unfinished implementation for unstructured meshes.\n");
+            // throw std::invalid_argument("ZModel constructor: Unfinished implementation for unstructured meshes.");
         }
     }
 

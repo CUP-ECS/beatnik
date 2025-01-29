@@ -229,12 +229,13 @@ class Solver : public SolverBase
     {
         if constexpr (std::is_same_v<MeshTypeTag, Mesh::Structured>)
         {
-             _ti->step(_dt, entity_type(), Cabana::Grid::Own());
+            _ti->step(_dt, entity_type(), Cabana::Grid::Own());
         }
         else if constexpr (std::is_same_v<MeshTypeTag, Mesh::Unstructured>)
         {
-            // XXX - TODO
-            throw std::invalid_argument("Solver::step: Unstructured mesh not yet implemented.");
+            printf("WARNING: Solver::step: Unstructured mesh not yet implemented.\n");
+            ti->step(_dt, entity_type(), NuMesh::Own());
+            // throw std::invalid_argument("Solver::step: Unstructured mesh not yet implemented.");
         }
         else
         {

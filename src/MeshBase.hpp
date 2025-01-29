@@ -58,7 +58,7 @@ class MeshBase
         Cabana::Grid::Node,
         std::conditional_t<
             std::is_same_v<MeshTypeTag, Mesh::Unstructured>,
-            NuMesh::Face,
+            NuMesh::Vertex,
             void
         >
     >;

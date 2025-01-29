@@ -60,8 +60,8 @@ class TimeIntegrator
     }
     
     /**
-     * EntityTag = Cabana::Grid::Node or NuMesh variant
-     * DecompositionTag = Cabana::Grid::Own or NuMesh variant
+     * EntityTag = Cabana::Grid::Node or NuMesh::Vertex
+     * DecompositionTag = Cabana::Grid::Own or NuMesh::Own
      */
     template <class EntityTag, class DecompositionTag>
     void step( const double delta_t, EntityTag etag, DecompositionTag dtag ) 
