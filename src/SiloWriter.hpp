@@ -212,8 +212,8 @@ class SiloWriter
             // Declare the coordinates of the portion of the mesh we're writing
             auto vertices = mesh->vertices();
             auto faces = mesh->faces();
-            int num_verts = mesh->count(NuMesh::Own(), NuMesh::Vertex());
-            int num_faces = mesh->count(NuMesh::Own(), NuMesh::Face());
+            //int num_verts = mesh->count(NuMesh::Own(), NuMesh::Vertex());
+            //int num_faces = mesh->count(NuMesh::Own(), NuMesh::Face());
             
             // Copy vertices and faces to host memory
             using vertex_data = typename mesh_type::vertex_data;
@@ -226,41 +226,59 @@ class SiloWriter
             Cabana::deep_copy(faces_h, faces);
 
             // Allocate coordinate arrays in each dimension
+            // for ( unsigned int i = 0; i < 3; i++ )
+            // {
+            //     coords[i] = (double*)malloc( sizeof( double ) * num_verts);
+            // }
+
+            // // Fill out coords[] arrays with coordinate values in each dimension
+            // auto v_xyz = Cabana::slice<V_XYZ>(vertices_h);
+            // for (int dim = 0; dim < 3; dim++)
+            // {
+            //     for (int i = 0; i < num_verts; i++ )
+            //     {
+            //         coords[dim][i] = v_xyz(i, dim);
+            //         printf("R%d: coords[%d][%d] = %0.16lf\n", rank, dim, i, v_xyz(i, dim));
+            //     }
+            // }
+        
+            // // Allocate nodelist array
+            // int lnodelist = num_faces * 3;
+            // nodelist = (int*)malloc(sizeof(int) * lnodelist); // Each face has three vertices
+
+            // // Fill nodelist array with the vertex GIDs on each face
+            // auto f_vids = Cabana::slice<F_VIDS>(faces);
+            // int index = 0;
+            // for (int i = 0; i < num_faces; i++)
+            // {
+            //     for (int j = 0; j < 3; j++)
+            //     {
+            //         nodelist[index++] = f_vids(i, j);
+            //         // printf("R%d: nodelist[%d] = %d\n", rank, index-1, f_vids(i, j));
+            //     }
+            // }
+
+            // TEST DATA
+            int num_verts = 3;
+            int num_faces = 1;
             for ( unsigned int i = 0; i < 3; i++ )
             {
                 coords[i] = (double*)malloc( sizeof( double ) * num_verts);
             }
-
             // Fill out coords[] arrays with coordinate values in each dimension
-            auto v_xyz = Cabana::slice<V_XYZ>(vertices_h);
-            for (int dim = 0; dim < 3; dim++)
-            {
-                for (int i = 0; i < num_verts; i++ )
-                {
-                    coords[dim][i] = v_xyz(i, dim);
-                    printf("R%d: coords[%d][%d] = %0.16lf\n", rank, dim, i, v_xyz(i, dim));
-                }
-            }
-        
-            // Allocate nodelist array
+            coords[0][0] = 0.0; coords[0][1] = 0.0; coords[0][2] = 0.0;
+            coords[1][0] = 0.0; coords[1][1] = 0.5; coords[1][2] = 0.1;
+            coords[0][0] = 0.5; coords[0][1] = 0.0; coords[0][2] = 0.2;
+            // // Allocate nodelist array
             int lnodelist = num_faces * 3;
             nodelist = (int*)malloc(sizeof(int) * lnodelist); // Each face has three vertices
+            // // Fill nodelist array with the vertex GIDs on each face
+            nodelist[0] = 0; nodelist[1] = 1; nodelist[2] = 2;
 
-            // Fill nodelist array with the vertex GIDs on each face
-            auto f_vids = Cabana::slice<F_VIDS>(faces);
-            int index = 0;
-            for (int i = 0; i < num_faces; i++)
-            {
-                for (int j = 0; j < 3; j++)
-                {
-                    nodelist[index++] = f_vids(i, j);
-                    // printf("R%d: nodelist[%d] = %d\n", rank, index-1, f_vids(i, j));
-                }
-            }
 
             int shapetype[1] = {DB_ZONETYPE_TRIANGLE}; // Shapes are of type triangle
             int shapesize[1] = {3}; // Each triangle has 3 vertices
-            int shapecnt[1] = {num_faces}; // All faces have this triangular shape
+            int shapecnt[1] = {1}; // All faces have this triangular shape
             DBPutZonelist2( dbfile,
                 "Mesh_Zonelist", // Name of zone list
                 num_faces, // Number of zones, i.e. faces
