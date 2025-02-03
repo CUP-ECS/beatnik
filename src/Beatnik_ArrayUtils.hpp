@@ -33,7 +33,7 @@ namespace Beatnik
 namespace ArrayUtils
 {
 
-template <class MeshType, class EntityType>
+template <class MeshType, class EntityType, class ValueType>
 class ArrayLayout
 {
   public:
@@ -55,6 +55,13 @@ class ArrayLayout
             void // Fallback type or an error type if neither condition is satisfied
         >
     >;
+
+    // 
+    /**
+     * The ValueType is either a primitive type (int, double, float) for Cabana Grid meshes
+     * or a Cabana::MemberTypes<...> type for unstructured meshes
+     */
+    using value_type = ValueType;
   
     ArrayLayout(const std::shared_ptr<mesh_type>& mesh, const int dofs_per_entity, entity_type tag)
     {
@@ -99,7 +106,7 @@ createArrayLayout(const std::shared_ptr<MeshType>& mesh, const int dofs_per_enti
 //---------------------------------------------------------------------------//
 // Array class
 //---------------------------------------------------------------------------//
-template <class ContainerLayoutType, class Scalar, class MemorySpace>
+template <class ContainerLayoutType, class MemorySpace>
 class Array
 {
     static_assert(ContainerLayoutType::isArrayLayout(), "ContainerLayoutType must be a valid array layout.");
@@ -108,7 +115,7 @@ class Array
     using entity_type = typename ContainerLayoutType::entity_type;
     using mesh_type   = typename ContainerLayoutType::mesh_type;
     using layout_type = typename ContainerLayoutType::array_layout_type;
-    using value_type = Scalar;
+    using value_type = typename ContainerLayoutType::value_type;
     using memory_space = MemorySpace;
     using execution_space = typename memory_space::execution_space;
     using container_layout_type = ContainerLayoutType;
@@ -135,7 +142,7 @@ class Array
         }
         else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value)
         {
-            _array = NuMesh::Array::createArray<value_type, memory_space>(label, layout);
+            _array = NuMesh::Array::createArray<memory_space>(label, layout);
         }
         else
         {	
@@ -157,11 +164,11 @@ class Array
     std::string _label;
 };
 
-template <class Scalar, class MemorySpace, class ContainerLayoutType>
-std::shared_ptr<Array<ContainerLayoutType, Scalar, MemorySpace>>
+template <class ContainerLayoutType, class MemorySpace>
+std::shared_ptr<Array<ContainerLayoutType, MemorySpace>>
 createArray(const std::string& label, const std::shared_ptr<ContainerLayoutType>& layout)
 {
-    return std::make_shared<Array<ContainerLayoutType, Scalar, MemorySpace>>(label, layout);
+    return std::make_shared<Array<ContainerLayoutType, MemorySpace>>(label, layout);
 }
 
 //---------------------------------------------------------------------------//
