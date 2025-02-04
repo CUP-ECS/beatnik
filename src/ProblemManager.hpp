@@ -151,19 +151,29 @@ class ProblemManager
     /**
      * Initializes state values in the cells
      * 
-     * The unstructured mesh is initially built from a Cabana local grid.
-     * To properly initialize the XYZ and vorticity values on vertices
-     * in the unstructured mesh, we must create an array layout 
      * @param create_functor Initialization function
      **/
     template <class InitFunctor>
     void initialize_unstructured_mesh( const InitFunctor& create_functor )
     {
         // Get Local Grid and Local Mesh
+        auto mesh = _mesh.layoutObj();
         auto local_grid = _mesh.localGrid();
         auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>( *local_grid );
 
-	    // Create State Arrays
+        // Get State Arrays. These are AoSoA slices in the unstructured version
+        auto zaosoa = get( Field::Position() )->array()->aosoa();
+        auto waosoa = get( Field::Vorticity() )->array()->aosoa();
+        auto zslice = Cabana::slice<0>(zaosoa);
+        auto wslice = Cabana::slice<0>(waosoa);
+
+        /**
+         * The initialization functions work in a 2D domain. To properly set the values
+         * in the unstructured mesh data structures, which are vectors, we must initialize
+         * dummy 2D arrays and then copy the values into the vectors, mapping
+         * dummy(i, j, x) to mesh(i, x) by copying how the mesh is initialized from a
+         * 2D array.
+         */
         auto z_layout = Cabana::Grid::createArrayLayout(local_grid, 3, Cabana::Grid::Node());
         auto w_layout = Cabana::Grid::createArrayLayout(local_grid, 2, Cabana::Grid::Node());
         auto z_array = Cabana::Grid::createArray<double, memory_space>("z_for_initialization", z_layout);
@@ -191,10 +201,22 @@ class ProblemManager
                 create_functor( Cabana::Grid::Node(), Field::Vorticity(), index, 
                                 coords, w(i, j, 0), w(i, j, 1) );
             } );
+
+        // Copy the values in the 2D arrays into the correct indices in the slices
+        int istart = own_nodes.min(0), jstart = own_nodes.min(1);
+        int iend = own_nodes.max(0), jend = own_nodes.max(1);
+        Kokkos::parallel_for("populate_vertex_data", Kokkos::MDRangePolicy<execution_space, Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
+            KOKKOS_LAMBDA(int i, int j) {
+
+            // Same vertex LID calculation as in NuMesh
+            int v_lid = (i - istart) * (jend - jstart) + (j - jstart);
+
+            for (int dim = 0; dim < 3; dim++)
+                zslice(v_lid, dim) = z(i, j, dim);
+            for (int dim = 0; dim < 2; dim++)
+                wslice(v_lid, dim) = w(i, j, dim);
+        });
         
-        // Finally, initialize the vertices in the unstructured mesh with the values in z and w
-        auto mesh = _mesh.layoutObj();
-        mesh->initializeFromArray(*z_array);
     };
 
     /**

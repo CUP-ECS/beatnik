@@ -185,107 +185,110 @@ class SiloWriter
         }
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
-            printf("SiloWriter: Writing unstructured meshes not supported.\n");
-            // // Initialize Variables
-            // int dims[3];
-            // double *coords[3], *vars[2];
-            // int *nodelist;
-            // const char* coordnames[3] = { "X", "Y", "Z" };
-            // DBoptlist* optlist;
-            // int rank = _pm.mesh().rank();
+            // Initialize Variables
+            int dims[3];
+            double *coords[3], *vars[2];
+            int *nodelist;
+            const char* coordnames[3] = { "X", "Y", "Z" };
+            DBoptlist* optlist;
+            int rank = _pm.mesh().rank();
 
-            // // Retrieve the Local Grid and Local Mesh
-            // const auto & mesh = _pm.mesh().layoutObj();
+            // Retrieve the Local Grid and Local Mesh
+            const auto & mesh = _pm.mesh().layoutObj();
 
-            // // Set DB Options: Time Step, Time Stamp and Delta Time
-            // optlist = DBMakeOptlist( 10 );
-            // DBAddOption( optlist, DBOPT_CYCLE, &time_step );
-            // DBAddOption( optlist, DBOPT_TIME, &time );
-            // DBAddOption( optlist, DBOPT_DTIME, &dt );
-            // int dbcoord = DB_CARTESIAN;
-            // DBAddOption( optlist, DBOPT_COORDSYS, &dbcoord );
-            // int dborder = DB_ROWMAJOR;
-            // DBAddOption( optlist, DBOPT_MAJORORDER, &dborder );
-            // int dbtopo = 2;
-            // DBAddOption( optlist, DBOPT_TOPO_DIM, &dbtopo );
+            // Set DB Options: Time Step, Time Stamp and Delta Time
+            optlist = DBMakeOptlist( 10 );
+            DBAddOption( optlist, DBOPT_CYCLE, &time_step );
+            DBAddOption( optlist, DBOPT_TIME, &time );
+            DBAddOption( optlist, DBOPT_DTIME, &dt );
+            int dbcoord = DB_CARTESIAN;
+            DBAddOption( optlist, DBOPT_COORDSYS, &dbcoord );
+            int dborder = DB_ROWMAJOR;
+            DBAddOption( optlist, DBOPT_MAJORORDER, &dborder );
+            int dbtopo = 2;
+            DBAddOption( optlist, DBOPT_TOPO_DIM, &dbtopo );
 
-            // // Declare the coordinates of the portion of the mesh we're writing
-            // auto vertices = mesh->vertices();
-            // auto faces = mesh->faces();
-            // int num_verts = mesh->count(NuMesh::Own(), NuMesh::Vertex());
-            // int num_faces = mesh->count(NuMesh::Own(), NuMesh::Face());
-            
-            // // Copy vertices and faces to host memory
-            // using vertex_data = typename mesh_type::vertex_data;
-            // using face_data = typename mesh_type::face_data;
-            // using v_array_type = Cabana::AoSoA<vertex_data, Kokkos::HostSpace, 4>;
-            // using f_array_type = Cabana::AoSoA<face_data, Kokkos::HostSpace, 4>;
-            // v_array_type vertices_h("vertices", vertices.size());
-            // f_array_type faces_h("faces", faces.size());
-            // Cabana::deep_copy(vertices_h, vertices);
-            // Cabana::deep_copy(faces_h, faces);
+            // Declare the coordinates of the portion of the mesh we're writing
+            auto vertices = mesh->vertices();
+            auto faces = mesh->faces();
+            int num_verts = mesh->count(NuMesh::Own(), NuMesh::Vertex());
+            int num_faces = mesh->count(NuMesh::Own(), NuMesh::Face());
 
-            // // Allocate coordinate arrays in each dimension
-            // for ( unsigned int i = 0; i < 3; i++ )
-            // {
-            //     coords[i] = (double*)malloc( sizeof( double ) * num_verts);
-            // }
+            // Get positions AoSoA and copy to host memory
+            using z_aosoa_type = Cabana::AoSoA<value_type, Kokkos::HostSpace, 4>;
+            auto zaosoa = _pm.get( Field::Position() )->array()->aosoa();
+            assert(zaosoa.size() == vertices.size()); // Ensure aosoa is up-to-date
+            z_aosoa_type zhaosoa("positions_host", zaosoa.size());
+            Cabana::deep_copy(zhaosoa, zaosoa);
+            auto z_slice = Cabana::slice<0>(zhaosoa);
 
-            // // Fill out coords[] arrays with coordinate values in each dimension
-            // auto v_xyz = Cabana::slice<V_XYZ>(vertices_h);
-            // for (int dim = 0; dim < 3; dim++)
-            // {
-            //     for (int i = 0; i < num_verts; i++ )
-            //     {
-            //         coords[dim][i] = v_xyz(i, dim);
-            //         printf("R%d: coords[%d][%d] = %0.16lf\n", rank, dim, i, v_xyz(i, dim));
-            //     }
-            // }
+            // Get face data and copy to host memory
+            using face_aosoa_type = Cabana::AoSoA<typename ProblemManagerType::
+                                                beatnik_mesh_type::
+                                                    mesh_type::face_data, Kokkos::HostSpace, 4>;
+            face_aosoa_type faces_h("faces_h", faces.size());
+            Cabana::deep_copy(faces_h, faces);
+
+            // Allocate coordinate arrays in each dimension
+            for ( unsigned int i = 0; i < 3; i++ )
+            {
+                coords[i] = (double*)malloc( sizeof( double ) * num_verts);
+            }
+
+            // Fill out coords[] arrays with coordinate values in each dimension
+            for (int dim = 0; dim < 3; dim++)
+            {
+                for (int i = 0; i < num_verts; i++ )
+                {
+                    coords[dim][i] = z_slice(i, dim);
+                    // printf("R%d: coords[%d][%d] = %0.16lf\n", rank, dim, i, v_xyz(i, dim));
+                }
+            }
         
-            // // Allocate nodelist array
-            // int lnodelist = num_faces * 3;
-            // nodelist = (int*)malloc(sizeof(int) * lnodelist); // Each face has three vertices
+            // Allocate nodelist array
+            int lnodelist = num_faces * 3;
+            nodelist = (int*)malloc(sizeof(int) * lnodelist); // Each face has three vertices
 
-            // // Fill nodelist array with the vertex GIDs on each face
-            // auto f_vids = Cabana::slice<F_VIDS>(faces);
-            // int index = 0;
-            // for (int i = 0; i < num_faces; i++)
-            // {
-            //     for (int j = 0; j < 3; j++)
-            //     {
-            //         nodelist[index++] = f_vids(i, j);
-            //         // printf("R%d: nodelist[%d] = %d\n", rank, index-1, f_vids(i, j));
-            //     }
-            // }
+            // Fill nodelist array with the vertex GIDs on each face
+            auto f_vids = Cabana::slice<F_VIDS>(faces_h);
+            int index = 0;
+            for (int i = 0; i < num_faces; i++)
+            {
+                for (int j = 0; j < 3; j++)
+                {
+                    nodelist[index++] = f_vids(i, j);
+                    // printf("R%d: nodelist[%d] = %d\n", rank, index-1, f_vids(i, j));
+                }
+            }
 
-            // int shapetype[1] = {DB_ZONETYPE_TRIANGLE}; // Shapes are of type triangle
-            // int shapesize[1] = {3}; // Each triangle has 3 vertices
-            // int shapecnt[1] = {num_faces}; // All faces have this triangular shape
-            // DBPutZonelist2( dbfile,
-            //     "Mesh_Zonelist", // Name of zone list
-            //     num_faces, // Number of zones, i.e. faces
-            //     3, // Number of spatial dimensions in this mesh
-            //     nodelist, // Array of length lnodelist containing node indices describing mesh zones.
-            //     lnodelist, // Length of array in previous argument
-            //     0, // Origin of indices. Should be 0 or 1
-            //     0, // Number of ghost zones at beginning of nodelist
-            //     0, // Number of ghost zones at end of nodelist
-            //     shapetype, // Array of length nshapes containing the type of each zone shape.
-            //     shapesize, // Array of length nshapes containing the number of nodes used by each zone shape.
-            //     shapecnt, // Array of length nshapes containing the number of zones having each shape.
-            //     1, // Number of zone shapes. We only have one: triangular
-            //     optlist);
+            int shapetype[1] = {DB_ZONETYPE_TRIANGLE}; // Shapes are of type triangle
+            int shapesize[1] = {3}; // Each triangle has 3 vertices
+            int shapecnt[1] = {num_faces}; // All faces have this triangular shape
+            DBPutZonelist2( dbfile,
+                "Mesh_Zonelist", // Name of zone list
+                num_faces, // Number of zones, i.e. faces
+                3, // Number of spatial dimensions in this mesh
+                nodelist, // Array of length lnodelist containing node indices describing mesh zones.
+                lnodelist, // Length of array in previous argument
+                0, // Origin of indices. Should be 0 or 1
+                0, // Number of ghost zones at beginning of nodelist
+                0, // Number of ghost zones at end of nodelist
+                shapetype, // Array of length nshapes containing the type of each zone shape.
+                shapesize, // Array of length nshapes containing the number of nodes used by each zone shape.
+                shapecnt, // Array of length nshapes containing the number of zones having each shape.
+                1, // Number of zone shapes. We only have one: triangular
+                optlist);
 
-            // DBPutUcdmesh( dbfile, meshname,
-            //     3, // Number of dimensions: x, y, z
-            //     (DBCAS_t)coordnames, // Documentation says this param is ignored
-            //     coords, // coords[0] = x coords, coords[1] = y, coords[2] = z
-            //     num_verts, // Number of vertices in coords
-            //     num_faces, // Number of faces in the mesh
-            //     "Mesh_Zonelist", // Name of zonelist structure
-            //     NULL, // Name of facelist structure
-            //     DB_DOUBLE, // Datatype of the coordinates
-            //     optlist);
+            DBPutUcdmesh( dbfile, meshname,
+                3, // Number of dimensions: x, y, z
+                (DBCAS_t)coordnames, // Documentation says this param is ignored
+                coords, // coords[0] = x coords, coords[1] = y, coords[2] = z
+                num_verts, // Number of vertices in coords
+                num_faces, // Number of faces in the mesh
+                "Mesh_Zonelist", // Name of zonelist structure
+                NULL, // Name of facelist structure
+                DB_DOUBLE, // Datatype of the coordinates
+                optlist);
             
             // Put vorticity values into the mesh
             /*
@@ -360,14 +363,14 @@ class SiloWriter
             //             vars, dims, 3, NULL, 0, DB_DOUBLE, DB_NODECENT,
             //             optlist );
 
-            // for ( unsigned int i = 0; i < 3; i++ )
-            // {
-            //     free( coords[i] );
-            // }
-            // free(nodelist);
+            for ( unsigned int i = 0; i < 3; i++ )
+            {
+                free( coords[i] );
+            }
+            free(nodelist);
 
-            // // // Free Option List
-            // DBFreeOptlist( optlist );
+            // // Free Option List
+            DBFreeOptlist( optlist );
         }
     };
 
