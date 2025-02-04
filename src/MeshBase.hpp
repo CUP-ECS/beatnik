@@ -44,10 +44,19 @@ class MeshBase
     /* Simple identifier for structured or unstructured mesh */
     using mesh_type_tag = MeshTypeTag;
 
-    /* Both structured and unstructured meshes hold doubles */
-    using value_type = double;
-
-    using cabana_local_grid_type = Cabana::Grid::LocalGrid<Cabana::Grid::UniformMesh<value_type, 2>>;
+    /* Both structured and unstructured meshes hold doubles,
+     * but for unstructured meshes this needs to be a 
+     * Cabana::MemberTypes<...> tuple for an AoSoA.
+     */
+    using value_type = std::conditional_t<
+        std::is_same_v<MeshTypeTag, Mesh::Structured>,
+        double,
+        std::conditional_t<
+            std::is_same_v<MeshTypeTag, Mesh::Unstructured>,
+            Cabana::MemberTypes<double[3]>,
+            void
+        >
+    >;
 
     /*
      * Structured mesh is calculations are done from Cabana::Grid::Node entities
@@ -82,7 +91,6 @@ class MeshBase
      * Return the object needed to create an array layout
      */
     virtual std::shared_ptr<mesh_type> layoutObj(void) const = 0;
-    virtual std::shared_ptr<cabana_local_grid_type> localGrid(void) const = 0;
     virtual std::shared_ptr<mesh_array_type> Dx(const mesh_array_type& in, const double dx) const = 0;
     virtual std::shared_ptr<mesh_array_type> Dy(const mesh_array_type& in, const double dy) const = 0;
     virtual std::shared_ptr<mesh_array_type> omega(const mesh_array_type& w, const mesh_array_type& z_dx, const mesh_array_type& z_dy) const = 0;
