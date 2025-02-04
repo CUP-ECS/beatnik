@@ -44,6 +44,11 @@ class ArrayLayout
      */
     using mesh_type = MeshType;
     using entity_type = EntityType;
+    /**
+     * The ValueType is either a primitive type (int, double, float) for Cabana Grid meshes
+     * or a Cabana::MemberTypes<...> type for unstructured meshes
+     */
+    using value_type = ValueType;
 
     // Determine ContainerLayoutType using std::conditional_t
     using array_layout_type = std::conditional_t<
@@ -51,17 +56,10 @@ class ArrayLayout
         Cabana::Grid::ArrayLayout<entity_type, cabana_mesh_type<mesh_type>>, // Case A: Cabana UniformMesh
         std::conditional_t<
             NuMesh::is_numesh_mesh<MeshType>::value,
-            NuMesh::Array::ArrayLayout<entity_type, mesh_type>, // Case B: NuMesh Mesh
+            NuMesh::Array::ArrayLayout<entity_type, mesh_type, value_type>, // Case B: NuMesh Mesh
             void // Fallback type or an error type if neither condition is satisfied
         >
     >;
-
-    // 
-    /**
-     * The ValueType is either a primitive type (int, double, float) for Cabana Grid meshes
-     * or a Cabana::MemberTypes<...> type for unstructured meshes
-     */
-    using value_type = ValueType;
   
     ArrayLayout(const std::shared_ptr<mesh_type>& mesh, const int dofs_per_entity, entity_type tag)
     {
@@ -71,7 +69,7 @@ class ArrayLayout
         }
         else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value)
         {
-            _layout = NuMesh::Array::createArrayLayout(mesh, dofs_per_entity, tag); 
+            _layout = NuMesh::Array::createArrayLayout<ValueType>(mesh, dofs_per_entity, tag); 
         }
         else
         {
@@ -96,11 +94,11 @@ class ArrayLayout
 //---------------------------------------------------------------------------//
 // Array layout creation.
 //---------------------------------------------------------------------------//
-template <class MeshType, class EntityType>
-std::shared_ptr<ArrayLayout<MeshType, EntityType>>
+template <class MeshType, class EntityType, class ValueType>
+std::shared_ptr<ArrayLayout<MeshType, EntityType, ValueType>>
 createArrayLayout(const std::shared_ptr<MeshType>& mesh, const int dofs_per_entity, EntityType tag)
 {
-    return std::make_shared<ArrayLayout<MeshType, EntityType>>(mesh, dofs_per_entity, tag);
+    return std::make_shared<ArrayLayout<MeshType, EntityType, ValueType>>(mesh, dofs_per_entity, tag);
 }
 
 //---------------------------------------------------------------------------//
@@ -126,7 +124,7 @@ class Array
         Cabana::Grid::Array<value_type, entity_type, cabana_mesh_type<mesh_type>, memory_space>, // Case A: Cabana Mesh
         std::conditional_t<
             NuMesh::is_numesh_mesh<mesh_type>::value,
-            NuMesh::Array::Array<value_type, entity_type, mesh_type, memory_space>, // Case B: NuMesh Mesh
+            NuMesh::Array::Array<memory_space, layout_type>, // Case B: NuMesh Mesh
             void // Fallback or error type if neither condition is satisfied
         >
     >;
@@ -452,12 +450,12 @@ apply( Array_t& array, Function& function, DecompositionTag tag )
 
 } // end namespace CabanaOp
 
-template <class ContainerLayoutType, class Scalar, class MemorySpace>
-std::shared_ptr<Array<ContainerLayoutType, Scalar, MemorySpace>>
-clone( const Array<ContainerLayoutType, Scalar, MemorySpace>& array )
+template <class ContainerLayoutType, class MemorySpace>
+std::shared_ptr<Array<ContainerLayoutType, MemorySpace>>
+clone( const Array<ContainerLayoutType, MemorySpace>& array )
 {
-    using memory_space = typename Array<ContainerLayoutType, Scalar, MemorySpace>::memory_space;
-    using value_type = typename Array<ContainerLayoutType, Scalar, MemorySpace>::value_type;
+    using memory_space = typename Array<ContainerLayoutType, MemorySpace>::memory_space;
+    using value_type = typename Array<ContainerLayoutType, MemorySpace>::value_type;
     return createArray<value_type, memory_space>( array.label(), array.clayout() );
 }
 
