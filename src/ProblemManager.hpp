@@ -57,6 +57,7 @@ class ProblemManager
     using mesh_type = typename BeatnikMeshType::mesh_type;
     using mesh_type_tag = typename BeatnikMeshType::mesh_type_tag;
     using mesh_array_type = typename BeatnikMeshType::mesh_array_type;
+    using value_type = typename mesh_array_type::value_type;
     using halo_type = Cabana::Grid::Halo<memory_space>;
 
     template <class InitFunc>
@@ -72,17 +73,17 @@ class ProblemManager
         // The layouts of our various arrays for values on the staggered mesh
         // and other associated data structures. Does there need to be version with
         // halos associated with them?
-        auto node_triple_layout = ArrayUtils::createArrayLayout(_mesh.layoutObj(), 3, entity_type());
-        auto node_pair_layout = ArrayUtils::createArrayLayout(_mesh.layoutObj(), 2, entity_type());
+        auto node_triple_layout = ArrayUtils::createArrayLayout<value_type>(_mesh.layoutObj(), 3, entity_type());
+        auto node_pair_layout = ArrayUtils::createArrayLayout<value_type>(_mesh.layoutObj(), 2, entity_type());
 
         // The actual arrays storing mesh quantities
         // 1. The spatial positions of the interface
-        _position = ArrayUtils::createArray<double, memory_space>("position", node_triple_layout);
+        _position = ArrayUtils::createArray<memory_space>("position", node_triple_layout);
 	    // ArrayUtils::ArrayOp::assign( *_position, 0.0 );
 
 
         // 2. The magnitude of vorticity at the interface 
-        _vorticity = ArrayUtils::createArray<double, memory_space>("vorticity", node_pair_layout);
+        _vorticity = ArrayUtils::createArray<memory_space>("vorticity", node_pair_layout);
 	    // ArrayUtils::ArrayOp::assign( *_vorticity, 0.0 );
 
         /* Halo pattern for the position and vorticity. The halo is two cells 
@@ -118,7 +119,7 @@ class ProblemManager
     void initialize_structured_mesh( const InitFunctor& create_functor )
     {
         // Get Local Grid and Local Mesh
-        auto local_grid = *( _mesh.localGrid() );
+        auto local_grid = *( _mesh.layoutObj() );
         auto local_mesh = Cabana::Grid::createLocalMesh<memory_space>( local_grid );
 
 	    // Get State Arrays
@@ -193,7 +194,7 @@ class ProblemManager
         
         // Finally, initialize the vertices in the unstructured mesh with the values in z and w
         auto mesh = _mesh.layoutObj();
-        mesh->initializeFromArray(*z_array, *w_array);
+        mesh->initializeFromArray(*z_array);
     };
 
     /**

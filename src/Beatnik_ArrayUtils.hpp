@@ -94,7 +94,7 @@ class ArrayLayout
 //---------------------------------------------------------------------------//
 // Array layout creation.
 //---------------------------------------------------------------------------//
-template <class MeshType, class EntityType, class ValueType>
+template <class ValueType, class MeshType, class EntityType>
 std::shared_ptr<ArrayLayout<MeshType, EntityType, ValueType>>
 createArrayLayout(const std::shared_ptr<MeshType>& mesh, const int dofs_per_entity, EntityType tag)
 {
@@ -110,14 +110,14 @@ class Array
     static_assert(ContainerLayoutType::isArrayLayout(), "ContainerLayoutType must be a valid array layout.");
   
   public:
+    using container_layout_type = ContainerLayoutType;
     using entity_type = typename ContainerLayoutType::entity_type;
     using mesh_type   = typename ContainerLayoutType::mesh_type;
     using layout_type = typename ContainerLayoutType::array_layout_type;
     using value_type = typename ContainerLayoutType::value_type;
     using memory_space = MemorySpace;
     using execution_space = typename memory_space::execution_space;
-    using container_layout_type = ContainerLayoutType;
-
+    
     // Determine array_type using std::conditional_t
     using array_type = std::conditional_t<
         is_cabana_mesh<mesh_type>::value,
@@ -162,7 +162,7 @@ class Array
     std::string _label;
 };
 
-template <class ContainerLayoutType, class MemorySpace>
+template <class MemorySpace, class ContainerLayoutType>
 std::shared_ptr<Array<ContainerLayoutType, MemorySpace>>
 createArray(const std::string& label, const std::shared_ptr<ContainerLayoutType>& layout)
 {
@@ -455,8 +455,7 @@ std::shared_ptr<Array<ContainerLayoutType, MemorySpace>>
 clone( const Array<ContainerLayoutType, MemorySpace>& array )
 {
     using memory_space = typename Array<ContainerLayoutType, MemorySpace>::memory_space;
-    using value_type = typename Array<ContainerLayoutType, MemorySpace>::value_type;
-    return createArray<value_type, memory_space>( array.label(), array.clayout() );
+    return createArray<memory_space>( array.label(), array.clayout() );
 }
 
 template <class Array_t, class DecompositionTag>
@@ -480,6 +479,7 @@ void copy( Array_t& a, const Array_t& b, DecompositionTag tag )
 template <class Array_t, class DecompositionTag>
 std::shared_ptr<Array_t> copyDim( Array_t& a, int dimA, DecompositionTag tag )
 {
+    using container_layout_type = typename Array_t::container_layout_type;
     using entity_type = typename Array_t::entity_type;
     using value_type = typename  Array_t::value_type;
     using memory_space = typename Array_t::memory_space;
@@ -488,8 +488,8 @@ std::shared_ptr<Array_t> copyDim( Array_t& a, int dimA, DecompositionTag tag )
     if constexpr (is_cabana_mesh<mesh_type>::value)
     {
         auto cabana_out = CabanaOp::copyDim(*a.array(), dimA, tag);
-        auto layout = ArrayUtils::createArrayLayout(a.clayout()->layout()->localGrid(), 1, entity_type());
-        auto out = ArrayUtils::createArray<value_type, memory_space>("copyDim", layout);
+        auto layout = ArrayUtils::createArrayLayout<value_type>(a.clayout()->layout()->localGrid(), 1, entity_type());
+        auto out = ArrayUtils::createArray<memory_space>("copyDim", layout);
         Cabana::Grid::ArrayOp::copy(*out->array(), *cabana_out, tag);
         return out;
 
@@ -497,8 +497,8 @@ std::shared_ptr<Array_t> copyDim( Array_t& a, int dimA, DecompositionTag tag )
     else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
     {
         auto numesh_out = NuMesh::Array::ArrayOp::copyDim(*a.array(), dimA, tag);
-        auto layout = ArrayUtils::createArrayLayout(a.clayout()->layout()->mesh(), 1, entity_type());
-        auto out = ArrayUtils::createArray<value_type, memory_space>("copyDim", layout);
+        auto layout = ArrayUtils::createArrayLayout<value_type>(a.clayout()->layout()->mesh(), 1, entity_type());
+        auto out = ArrayUtils::createArray<memory_space>("copyDim", layout);
         NuMesh::Array::ArrayOp::copy(*out->array(), *numesh_out, tag);
         return out;
     }
@@ -629,6 +629,7 @@ void apply( Array_t& a, Function& function, DecompositionTag tag )
 template <class Array_t, class DecompositionTag>
 std::shared_ptr<Array_t> element_dot( const Array_t& a, const Array_t& b, DecompositionTag tag )
 {
+    using container_layout_type = typename Array_t::container_layout_type;
     using entity_type = typename Array_t::entity_type;
     using value_type = typename  Array_t::value_type;
     using memory_space = typename Array_t::memory_space;
@@ -637,16 +638,16 @@ std::shared_ptr<Array_t> element_dot( const Array_t& a, const Array_t& b, Decomp
     if constexpr (is_cabana_mesh<mesh_type>::value)
     {
         auto cabana_out = CabanaOp::element_dot(*a.array(), *b.array(), tag);
-        auto layout = ArrayUtils::createArrayLayout(a.clayout()->layout()->localGrid(), 1, entity_type());
-        auto out = ArrayUtils::createArray<value_type, memory_space>("dot", layout);
+        auto layout = ArrayUtils::createArrayLayout<value_type>(a.clayout()->layout()->localGrid(), 1, entity_type());
+        auto out = ArrayUtils::createArray<memory_space>("dot", layout);
         Cabana::Grid::ArrayOp::copy(*out->array(), *cabana_out, tag);
         return out;
     }
     else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
     {
         auto numesh_out = NuMesh::Array::ArrayOp::element_dot(*a.array(), *b.array(), tag);
-        auto layout = ArrayUtils::createArrayLayout(a.clayout()->layout()->mesh(), 1, entity_type());
-        auto out = ArrayUtils::createArray<value_type, memory_space>("dot", layout);
+        auto layout = ArrayUtils::createArrayLayout<value_type>(a.clayout()->layout()->mesh(), 1, entity_type());
+        auto out = ArrayUtils::createArray<memory_space>("dot", layout);
         NuMesh::Array::ArrayOp::copy(*out->array(), *numesh_out, tag);
         return out;
     }

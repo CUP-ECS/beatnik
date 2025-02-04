@@ -31,6 +31,7 @@ class TimeIntegrator
     using memory_space = typename ProblemManagerType::memory_space;
     using entity_type = typename ProblemManagerType::entity_type;
     using mesh_array_type = typename ProblemManagerType::mesh_array_type;
+    using value_type = typename mesh_array_type::value_type;
 
   public:
     TimeIntegrator( const ProblemManagerType & pm,
@@ -43,18 +44,14 @@ class TimeIntegrator
         // Create a layout of the temporary arrays we'll need for velocity
         // intermediate positions, and change in vorticity
         auto node_triple_layout =
-            ArrayUtils::createArrayLayout( pm.mesh().layoutObj(), 3, entity_type() );
+            ArrayUtils::createArrayLayout<value_type>( pm.mesh().layoutObj(), 3, entity_type() );
         auto node_pair_layout =
-            ArrayUtils::createArrayLayout( pm.mesh().layoutObj(), 2, entity_type() );
+            ArrayUtils::createArrayLayout<value_type>( pm.mesh().layoutObj(), 2, entity_type() );
 
-        _zdot = ArrayUtils::createArray<double, memory_space>("velocity", 
-                                                       node_triple_layout);
-        _wdot = ArrayUtils::createArray<double, memory_space>("vorticity derivative",
-                                                       node_pair_layout);
-        _ztmp = ArrayUtils::createArray<double, memory_space>("position temporary", 
-                                                       node_triple_layout);
-        _wtmp = ArrayUtils::createArray<double, memory_space>("vorticity temporary", 
-                                                       node_pair_layout);
+        _zdot = ArrayUtils::createArray<memory_space>("velocity", node_triple_layout);
+        _wdot = ArrayUtils::createArray<memory_space>("vorticity derivative", node_pair_layout);
+        _ztmp = ArrayUtils::createArray<memory_space>("position temporary", node_triple_layout);
+        _wtmp = ArrayUtils::createArray<memory_space>("vorticity temporary", node_pair_layout);
         ArrayUtils::ArrayOp::assign(*_zdot, 0.0);
         ArrayUtils::ArrayOp::assign(*_wdot, 0.0);
     }

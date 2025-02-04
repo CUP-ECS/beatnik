@@ -58,6 +58,10 @@ class MeshBase
         >
     >;
 
+    // Set the Cabana Local Grid type as the value type or the base type of the tuple
+    using base_type = typename ExtractBaseTypes<value_type>::type;
+    using cabana_local_grid_type = Cabana::Grid::LocalGrid<Cabana::Grid::UniformMesh<base_type, 2>>;
+
     /*
      * Structured mesh is calculations are done from Cabana::Grid::Node entities
      * Unstructured mesh calcuations are done from NuMesh::Face entities
@@ -91,6 +95,7 @@ class MeshBase
      * Return the object needed to create an array layout
      */
     virtual std::shared_ptr<mesh_type> layoutObj(void) const = 0;
+    virtual std::shared_ptr<cabana_local_grid_type> localGrid(void) const = 0;
     virtual std::shared_ptr<mesh_array_type> Dx(const mesh_array_type& in, const double dx) const = 0;
     virtual std::shared_ptr<mesh_array_type> Dy(const mesh_array_type& in, const double dy) const = 0;
     virtual std::shared_ptr<mesh_array_type> omega(const mesh_array_type& w, const mesh_array_type& z_dx, const mesh_array_type& z_dy) const = 0;
