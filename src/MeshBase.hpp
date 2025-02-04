@@ -73,8 +73,8 @@ class MeshBase
         >
     >;
 
-    using container_layout_type = ArrayUtils::ArrayLayout<mesh_type, entity_type>;
-    using mesh_array_type = ArrayUtils::Array<container_layout_type, value_type, memory_space>;
+    using container_layout_type = ArrayUtils::ArrayLayout<mesh_type, entity_type, value_type>;
+    using mesh_array_type = ArrayUtils::Array<container_layout_type, memory_space>;
     
     virtual ~MeshBase() = default;
 
