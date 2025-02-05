@@ -252,6 +252,12 @@ class Solver : public SolverBase
         Kokkos::Profiling::pushRegion( "Solve" );
 
         if (write_freq > 0) {
+            // Gather unstructured mesh so we have all vertex data on owned faces
+            if constexpr (std::is_same_v<MeshTypeTag, Mesh::Unstructured>)
+            {
+                auto halo = NuMesh::createHalo(_mesh->layoutObj(), 0, 1);
+                halo.gather();
+            }
             _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
         }
 
