@@ -14,6 +14,9 @@ include(GNUInstallDirs)
 # find dependencies
 set(CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
+# Enable debugging for all builds
+set(CMAKE_BUILD_TYPE Debug CACHE STRING "Choose the type of build." FORCE)
+
 ##---------------------------------------------------------------------------##
 ## Print the revision number to stdout
 ##---------------------------------------------------------------------------##
