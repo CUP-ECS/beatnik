@@ -43,6 +43,7 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
     using entity_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::entity_type;
     using cabana_local_grid_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_type;
     using mesh_array_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_array_type;
+    using value_type = typename mesh_array_type::value_type;
 
     StructuredMesh( const std::array<double, 6>& global_bounding_box,
           const std::array<int, 2>& num_nodes,
@@ -125,15 +126,13 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, _surface_halo_width );
     }
 
-    // Get the local grid.
-    std::shared_ptr<cabana_local_grid_type> localGrid() const override
-    {
-        return _local_grid;
-    }
-
     // Get the object used to create array layouts, which in
     // the structured case is also the local grid.
     std::shared_ptr<cabana_local_grid_type> layoutObj() const override
+    {
+        return _local_grid;
+    }
+    std::shared_ptr<cabana_local_grid_type> localGrid() const override
     {
         return _local_grid;
     }
@@ -227,8 +226,8 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
         auto zdy_view = z_dy.array()->view();
         auto w_view = w.array()->view();
         auto layout = z_dx.clayout()->layout();
-        auto node_triple_layout = ArrayUtils::createArrayLayout( layout->localGrid(), 3, Node() );
-        std::shared_ptr<mesh_array_type> out = ArrayUtils::createArray<double, memory_space>("omega", 
+        auto node_triple_layout = ArrayUtils::createArrayLayout<value_type>( layout->localGrid(), 3, Node() );
+        std::shared_ptr<mesh_array_type> out = ArrayUtils::createArray<memory_space>("omega", 
                                                        node_triple_layout);
         auto out_view = out->array()->view();
         auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Node(), Cabana::Grid::Local());

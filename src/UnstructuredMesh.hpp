@@ -98,10 +98,12 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
         _mesh = NuMesh::createEmptyMesh<execution_space, memory_space>(_comm);
 
-        // Initialize the mesh with garbage position and vorticity values
-        // auto layout = Cabana::Grid::createArrayLayout(local_grid, 1, Cabana::Grid::Node());
-        // auto array = Cabana::Grid::createArray<double, memory_space>("for_initialization", layout);
-        // _mesh->initializeFromArray(*array);
+        // Create dummy array from local grid from which to initialize the mesh
+        auto dlayout = Cabana::Grid::createArrayLayout(_local_grid, 3, Cabana::Grid::Node());
+        auto darray = Cabana::Grid::createArray<double, memory_space>("dummy_for_init", dlayout);
+
+        // Initialize the unstructured mesh from the connectivity of the local grid.
+        _mesh->initializeFromArray(*darray);
     }
 
     std::shared_ptr<mesh_type> layoutObj() const override

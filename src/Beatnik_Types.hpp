@@ -98,6 +98,28 @@ using is_cabana_mesh = Cabana::Grid::isMeshType<cabana_mesh_type<T>>;
 template<typename T>
 struct dependent_false : std::false_type {};
 
+// General template (for non-Cabana::MemberTypes)
+template <typename T, typename Enable = void>
+struct ExtractBaseTypes
+{
+    using type = T;  // Default case: Use T itself
+};
+
+// Specialization for Cabana::MemberTypes<T[N]>
+template <typename T, std::size_t N>
+struct ExtractBaseTypes<Cabana::MemberTypes<T[N]>>
+{
+    using type = T;  // Extract just 'double' from 'double[3]'
+};
+
+// Specialization for general Cabana::MemberTypes (non-array types)
+template <typename... Ts>
+struct ExtractBaseTypes<Cabana::MemberTypes<Ts...>>
+{
+    using type = std::tuple<Ts...>;  // This is for non-array types
+};
+
+
 } // end namespace Beatnik
 
 #endif // BEATNIK_TYPES_HPP

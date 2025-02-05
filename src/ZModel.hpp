@@ -68,6 +68,7 @@ class ZModel
     using mesh_type_tag = typename ProblemManagerType::mesh_type_tag;
     using mesh_type = typename ProblemManagerType::mesh_type::mesh_type; // This is a Cabana::Grid::Mesh type
     using mesh_array_type = typename ProblemManagerType::mesh_array_type;
+    using value_type = typename mesh_array_type::value_type;
     using entity_type = typename ProblemManagerType::entity_type;
     using halo_type = Cabana::Grid::Halo<memory_space>;
 
@@ -89,28 +90,26 @@ class ZModel
         // Need the node triple layout for storing vector normals and the 
         // node double layout for storing x and y surface derivative
         auto node_double_layout =
-            ArrayUtils::createArrayLayout( _pm.mesh().layoutObj(), 2, entity_type() );
+            ArrayUtils::createArrayLayout<value_type>( _pm.mesh().layoutObj(), 2, entity_type() );
         auto node_triple_layout =
-            ArrayUtils::createArrayLayout( _pm.mesh().layoutObj(), 3, entity_type() );
+            ArrayUtils::createArrayLayout<value_type>( _pm.mesh().layoutObj(), 3, entity_type() );
         auto node_scalar_layout =
-            ArrayUtils::createArrayLayout( _pm.mesh().layoutObj(), 1, entity_type() );
+            ArrayUtils::createArrayLayout<value_type>( _pm.mesh().layoutObj(), 1, entity_type() );
 
         
         // Initize omega view
-        _omega = ArrayUtils::createArray<double, memory_space>(
-            "omega", node_triple_layout);
+        _omega = ArrayUtils::createArray<memory_space>("omega", node_triple_layout);
 
         // Temporary used for central differencing of vorticities along the 
         // surface in calculating the vorticity derivative
-        _V = ArrayUtils::createArray<double, memory_space>(
-            "V", node_scalar_layout);
+        _V = ArrayUtils::createArray<memory_space>("V", node_scalar_layout);
 
         /* Storage for the reisz transform of the vorticity. In the low and 
          * medium order models, it is used to calculate the vorticity 
          * derivative. In the low order model, it is also projected onto the 
          * surface normal to compute the interface velocity.  
          * XXX Make this conditional on the model we run. */
-        _reisz = ArrayUtils::createArray<double, memory_space>("reisz", node_double_layout);
+        _reisz = ArrayUtils::createArray<memory_space>("reisz", node_double_layout);
         ArrayUtils::ArrayOp::assign( *_reisz, 0.0 );
 
         /* We need a halo for _V so that we can do fourth-order central differencing on
@@ -130,8 +129,8 @@ class ZModel
             * the working space it will need. 
             * XXX figure out how to make this conditional on model order. */
             Cabana::Grid::Experimental::FastFourierTransformParams fft_params;
-            _C1 = ArrayUtils::createArray<double, memory_space>("C1", node_double_layout);
-            _C2 = ArrayUtils::createArray<double, memory_space>("C2", node_double_layout);
+            _C1 = ArrayUtils::createArray<memory_space>("C1", node_double_layout);
+            _C2 = ArrayUtils::createArray<memory_space>("C2", node_double_layout);
 
             switch (_heffte_configuration) {
                 case 0:

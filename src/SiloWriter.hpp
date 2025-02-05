@@ -185,7 +185,6 @@ class SiloWriter
         }
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
-            printf("SiloWriter: Writing unstructured meshes not supported.\n");
             // Initialize Variables
             // int dims[3];
             double *coords[3]; // *vars[2];
@@ -214,15 +213,20 @@ class SiloWriter
             auto faces = mesh->faces();
             int num_verts = mesh->count(NuMesh::Own(), NuMesh::Vertex());
             int num_faces = mesh->count(NuMesh::Own(), NuMesh::Face());
-            
-            // Copy vertices and faces to host memory
-            using vertex_data = typename mesh_type::vertex_data;
-            using face_data = typename mesh_type::face_data;
-            using v_array_type = Cabana::AoSoA<vertex_data, Kokkos::HostSpace, 4>;
-            using f_array_type = Cabana::AoSoA<face_data, Kokkos::HostSpace, 4>;
-            v_array_type vertices_h("vertices", vertices.size());
-            f_array_type faces_h("faces", faces.size());
-            Cabana::deep_copy(vertices_h, vertices);
+
+            // Get positions AoSoA and copy to host memory
+            using z_aosoa_type = Cabana::AoSoA<value_type, Kokkos::HostSpace, 4>;
+            auto zaosoa = _pm.get( Field::Position() )->array()->aosoa();
+            assert(zaosoa.size() == vertices.size()); // Ensure aosoa is up-to-date
+            z_aosoa_type zhaosoa("positions_host", zaosoa.size());
+            Cabana::deep_copy(zhaosoa, zaosoa);
+            auto z_slice = Cabana::slice<0>(zhaosoa);
+
+            // Get face data and copy to host memory
+            using face_aosoa_type = Cabana::AoSoA<typename ProblemManagerType::
+                                                beatnik_mesh_type::
+                                                    mesh_type::face_data, Kokkos::HostSpace, 4>;
+            face_aosoa_type faces_h("faces_h", faces.size());
             Cabana::deep_copy(faces_h, faces);
 
             // Allocate coordinate arrays in each dimension
@@ -232,12 +236,12 @@ class SiloWriter
             }
 
             // Fill out coords[] arrays with coordinate values in each dimension
-            auto v_xyz = Cabana::slice<V_XYZ>(vertices_h);
             for (int dim = 0; dim < 3; dim++)
             {
                 for (int i = 0; i < num_verts; i++ )
                 {
-                    coords[dim][i] = v_xyz(i, dim);
+                    coords[dim][i] = z_slice(i, dim);
+                    // printf("R%d: coords[%d][%d] = %0.16lf\n", rank, dim, i, v_xyz(i, dim));
                 }
             }
         

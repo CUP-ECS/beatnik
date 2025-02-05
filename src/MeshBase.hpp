@@ -44,10 +44,23 @@ class MeshBase
     /* Simple identifier for structured or unstructured mesh */
     using mesh_type_tag = MeshTypeTag;
 
-    /* Both structured and unstructured meshes hold doubles */
-    using value_type = double;
+    /* Both structured and unstructured meshes hold doubles,
+     * but for unstructured meshes this needs to be a 
+     * Cabana::MemberTypes<...> tuple for an AoSoA.
+     */
+    using value_type = std::conditional_t<
+        std::is_same_v<MeshTypeTag, Mesh::Structured>,
+        double,
+        std::conditional_t<
+            std::is_same_v<MeshTypeTag, Mesh::Unstructured>,
+            Cabana::MemberTypes<double[3]>,
+            void
+        >
+    >;
 
-    using cabana_local_grid_type = Cabana::Grid::LocalGrid<Cabana::Grid::UniformMesh<value_type, 2>>;
+    // Set the Cabana Local Grid type as the value type or the base type of the tuple
+    using base_type = typename ExtractBaseTypes<value_type>::type;
+    using cabana_local_grid_type = Cabana::Grid::LocalGrid<Cabana::Grid::UniformMesh<base_type, 2>>;
 
     /*
      * Structured mesh is calculations are done from Cabana::Grid::Node entities
@@ -73,8 +86,8 @@ class MeshBase
         >
     >;
 
-    using container_layout_type = ArrayUtils::ArrayLayout<mesh_type, entity_type>;
-    using mesh_array_type = ArrayUtils::Array<container_layout_type, value_type, memory_space>;
+    using container_layout_type = ArrayUtils::ArrayLayout<mesh_type, entity_type, value_type>;
+    using mesh_array_type = ArrayUtils::Array<container_layout_type, memory_space>;
     
     virtual ~MeshBase() = default;
 
