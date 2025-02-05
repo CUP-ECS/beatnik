@@ -222,54 +222,47 @@ class SiloWriter
             Cabana::deep_copy(zhaosoa, zaosoa);
             auto z_slice = Cabana::slice<0>(zhaosoa);
 
-            // Get face data and copy to host memory
+            // Get face and vertex data and copy to host memory
             using face_aosoa_type = Cabana::AoSoA<typename ProblemManagerType::
                                                 beatnik_mesh_type::
                                                     mesh_type::face_data, Kokkos::HostSpace, 4>;
             face_aosoa_type faces_h("faces_h", faces.size());
             Cabana::deep_copy(faces_h, faces);
-
-            // Allocate coordinate arrays in each dimension
+            using vertex_aosoa_type = Cabana::AoSoA<typename ProblemManagerType::
+                                                beatnik_mesh_type::
+                                                    mesh_type::vertex_data, Kokkos::HostSpace, 4>;
+            vertex_aosoa_type vertices_h("vertices_h", vertices.size());
+            Cabana::deep_copy(vertices_h, vertices);
+        
+            // Allocate coords array, which is the same size as the facelist array
             for ( unsigned int i = 0; i < 3; i++ )
             {
-                coords[i] = (double*)malloc( sizeof( double ) * num_verts);
+                coords[i] = (double*)malloc( sizeof( double ) * num_faces * 3);
             }
 
-            // Fill out coords[] arrays with coordinate values in each dimension
-            for (int dim = 0; dim < 3; dim++)
-            {
-                for (int i = 0; i < num_verts; i++ )
-                {
-                    coords[dim][i] = z_slice(i, dim);
-                    // printf("R%d: coords[%d][%d] = %0.16lf\n", rank, dim, i, v_xyz(i, dim));
-                }
-            }
-        
-            // // Allocate nodelist array
-            // int lnodelist = num_faces * 3;
-            // nodelist = (int*)malloc(sizeof(int) * lnodelist); // Each face has three vertices
-
-            // // Fill nodelist array with the vertex GIDs on each face
-            // auto f_vids = Cabana::slice<F_VIDS>(faces);
-            // int index = 0;
-            // for (int i = 0; i < num_faces; i++)
-            // {
-            //     for (int j = 0; j < 3; j++)
-            //     {
-            //         nodelist[index++] = f_vids(i, j);
-            //         // printf("R%d: nodelist[%d] = %d\n", rank, index-1, f_vids(i, j));
-            //     }
-            // }
 
             // Connectivity: Collect element connectivity
             int* nodelist = (int*)malloc(num_faces * 3 * sizeof(int)); // Triangles (3 nodes each)
             int lnodelist = num_faces * 3;
 
-            auto f_vids = Cabana::slice<F_VIDS>(faces);
-            for (int i = 0; i < num_faces; i++) {
-                nodelist[i * 3 + 0] = f_vids(i, 0);
-                nodelist[i * 3 + 1] = f_vids(i, 1);
-                nodelist[i * 3 + 2] = f_vids(i, 2);
+            // Fill nodelist array with the vertex LIDs on each face
+            auto v_gids = Cabana::slice<V_GID>(vertices_h);
+            auto f_vids = Cabana::slice<F_VIDS>(faces_h);
+            int index = 0;
+            for (int i = 0; i < num_faces; i++)
+            {
+                for (int j = 0; j < 3; j++)
+                {
+                    int vlid = NuMesh::Utils::get_lid(v_gids, f_vids(i, j), 0, vertices_h.size());
+                    assert(vlid != -1);
+                    nodelist[index++] = vlid;
+
+                    // Fill the coords array for this vertex
+                    // Since faces share vertices we will be writing the same data multiple times
+                    for (int k = 0; k < 3; k++)
+                        coords[k][vlid] = z_slice(vlid, k);
+                    // printf("R%d: nodelist[%d] = %d\n", rank, index-1, f_vids(i, j));
+                }
             }
 
             // Define zone shape for triangles
@@ -577,6 +570,16 @@ class SiloWriter
         char masterfilename[256], filename[256], nsname[256];
   
         int rank = _pm.mesh().rank();
+
+        // Gather unstructured mesh so we have all vertex data on owned faces
+        if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
+        {
+            auto mesh = _pm.mesh().layoutObj();
+            auto halo = NuMesh::createHalo(mesh, 0, 1);
+            auto positions = _pm.get( Field::Position() )->array();
+            NuMesh::gather(halo, positions);
+        }
+
         /* Make sure the output directory exists */
         if (rank == 0) {
             // Make sure directories for output exist
