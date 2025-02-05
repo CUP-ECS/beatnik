@@ -101,13 +101,23 @@ class ProblemManager
             int halo_depth = _mesh.layoutObj()->haloCellWidth();
             _surface_halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<2>(), 
                                 halo_depth, *_position->array(), *_vorticity->array());
-            gather();
         }
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
             initialize_unstructured_mesh( create_functor );
+            auto zaosoa = get( Field::Position() )->array()->aosoa();
+            auto waosoa = get( Field::Vorticity() )->array()->aosoa();
+            auto zslice = Cabana::slice<0>(zaosoa);
+            auto wslice = Cabana::slice<0>(waosoa);
+            printf("R%d: num coords: %d, mesh verts: %d\n", _mesh.layoutObj()->rank(), zslice.extent(0), _mesh.layoutObj()->vertices().size());
+            // for (size_t i = 0; i < zslice.extent(0); i++)
+            // {
+            //     printf("i%d coords: %0.12lf, %0.12lf, %0.12lf\n", i, zslice(i, 0), zslice(i, 1), zslice(i, 2));
+            // }
             // throw std::invalid_argument("ProblemManager constructor: Unfinished unstructured implementation.");
         }
+
+        gather();
     }
 
     /**
@@ -265,7 +275,7 @@ class ProblemManager
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
             // XXX - TODO
-            throw std::invalid_argument("ProblemManager::gather: Not yet implemented for unstructured meshes.");
+            printf("WARNING: ProblemManager::gather: Not yet implemented for unstructured meshes.");
         }
     }
 
