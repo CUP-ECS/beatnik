@@ -102,6 +102,7 @@ class MeshBase
     virtual std::shared_ptr<mesh_array_type> laplace(const mesh_array_type& in, const double dx, const double dy) const = 0;
     virtual int is_periodic(void) const = 0;
     virtual int rank(void) const = 0;
+    virtual int comm_size(void) const = 0;
 
     /**
      * Temporary function to get the periodic index space of a structured mesh,

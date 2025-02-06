@@ -54,6 +54,7 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
                 , _periodic( periodic )
     {
         MPI_Comm_rank( comm, &_rank );
+        MPI_Comm_size( comm, &_comm_size );
 
         for (int i = 0; i < 3; i++) {
             _low_point[i] = global_bounding_box[i];
@@ -261,6 +262,7 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
     }
 
     int rank() const override { return _rank; }
+    int comm_size() const override { return _comm_size; }
 
     template <class l2g_type, class View>
     void printView(l2g_type local_L2G, View z, int option, int DEBUG_X, int DEBUG_Y) const
@@ -313,7 +315,7 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
     std::array<int, 2> _num_nodes;
     const std::array<bool, 2> _periodic;
     std::shared_ptr<cabana_local_grid_type> _local_grid;
-    int _rank, _surface_halo_width;
+    int _rank, _comm_size, _surface_halo_width;
 };
 
 //---------------------------------------------------------------------------//

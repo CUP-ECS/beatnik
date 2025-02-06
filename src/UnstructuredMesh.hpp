@@ -51,6 +51,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
                 , _periodic( periodic )
     {
         MPI_Comm_rank( _comm, &_rank );
+        MPI_Comm_size( _comm, &_comm_size );
 
         // Copy the same code used to create the local grid in the constructor
         // of StructuredMesh
@@ -215,10 +216,11 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     int halo_width() const override { return -1; }
 
     int rank() const override { return _rank; }
+    int comm_size() const override { return _comm_size; }
 
   private:
     MPI_Comm _comm;
-    int _rank;
+    int _rank, _comm_size;
 
     std::array<int, 2> _num_nodes;
     const std::array<bool, 2> _periodic;
