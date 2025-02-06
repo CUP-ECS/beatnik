@@ -192,7 +192,7 @@ class SiloWriter
             // int dims[3];
             double *coords[3]; // *vars[2];
             // int *nodelist;
-            const char* coordnames[3] = { "X", "Y", "Z" };
+            // const char* coordnames[3] = { "X", "Y", "Z" };
             DBoptlist* optlist;
             int rank = _pm.mesh().rank();
 

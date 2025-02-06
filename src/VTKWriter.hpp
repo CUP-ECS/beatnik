@@ -36,8 +36,7 @@
 #include <vtkTriangle.h>
 #include <vtkUnstructuredGrid.h>
 #include <vtkXMLUnstructuredGridWriter.h>
-
-#include "VTKWriter.h"
+#include <vtkXMLPUnstructuredGridWriter.h>
 
 namespace Beatnik
 {
@@ -61,21 +60,21 @@ class VTKWriter
      *
      * @param pm Problem manager object
      */
-    VTKWriter( ProblemManagerType& pm, const std::string base, ESFTGuard guard )
+    VTKWriter( ProblemManagerType& pm, const std::string base )
         : _pm( pm )
         , _base_filename( base )
     {};
 
-    void setFilename( const idx_t step )
-    {
-        std::ostringstream ss;
-        ss << d_basename << "_" << step << ".vtu";
-        d_filename = ss.str();
-    }
+    // void setFilename( const idx_t step )
+    // {
+    //     std::ostringstream ss;
+    //     ss << d_basename << "_" << step << ".vtu";
+    //     d_filename = ss.str();
+    // }
 
-    createDataFile( const int step )
+    void createDataFile( const int step )
     {
-        setFilename( step );
+        // setFilename( step );
 
         // Retrieve the Local Grid and Local Mesh
         const auto & mesh = _pm.mesh().layoutObj();
@@ -114,10 +113,10 @@ class VTKWriter
         auto v_gids = Cabana::slice<V_GID>(vertices_h);
         auto f_vids = Cabana::slice<F_VIDS>(faces_h);
         auto f_gid = Cabana::slice<F_GID>(faces_h);
-        auto f_cids = Cabana::slice<F_CIDS>(faces_h);
+        auto f_cids = Cabana::slice<F_CID>(faces_h);
 
         // create all points and triangles
-        for ( int n = 0; n < num_verts; ++n ) {
+        for ( size_t n = 0; n < vertices.size(); ++n ) {
             points->InsertNextPoint( z_slice( n, 0 ), z_slice( n, 1 ), z_slice( n, 2 ) );
         }
         for ( int n = 0; n < num_faces; ++n ) {
@@ -125,10 +124,19 @@ class VTKWriter
                 // Only consider child faces
                 continue;
             }
+            int fvid0 = f_vids(n, 0);
+            int vlid0 = NuMesh::Utils::get_lid(v_gids, fvid0, 0, vertices_h.size());
+            assert(vlid0 != -1);
+            int fvid1 = f_vids(n, 0);
+            int vlid1 = NuMesh::Utils::get_lid(v_gids, fvid1, 0, vertices_h.size());
+            assert(vlid1 != -1);
+            int fvid2 = f_vids(n, 0);
+            int vlid2 = NuMesh::Utils::get_lid(v_gids, fvid2, 0, vertices_h.size());
+            assert(vlid2 != -1);
             vtkNew<vtkTriangle> tri;
-            tri->GetPointIds()->SetId( 0, f_vids( n, 0 ) );
-            tri->GetPointIds()->SetId( 1, f_vids( n, 1 ) );
-            tri->GetPointIds()->SetId( 2, f_vids( n, 2 ) );
+            tri->GetPointIds()->SetId( 0, vlid0 );
+            tri->GetPointIds()->SetId( 1, vlid1 );
+            tri->GetPointIds()->SetId( 2, vlid2 );
             cells->InsertNextCell( tri );
         }
 
@@ -138,130 +146,134 @@ class VTKWriter
         _d_vtk_mesh->SetCells( VTK_TRIANGLE, cells );
     }
 
-    template<typename Policy>
-    void VTKWriter<Policy>::writeData( const std::string name, Kokkos::View<scalar_t *> field )
+    // void VTKWriter<Policy>::writeData( const std::string name, Kokkos::View<scalar_t *> field )
+    // {
+    //     using idx_t     = typename Policy::idx_t;
+    //     using FaceEntry = typename FaceArray<idx_t>::Entry;
+
+    //     const auto num_verts = field.extent( 0 );
+
+    //     auto h_field = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), field );
+
+    //     vtkNew<vtkDoubleArray> vtk_data;
+    //     vtk_data->SetName( name.c_str() );
+    //     vtk_data->SetNumberOfComponents( 1 );
+    //     vtk_data->SetNumberOfTuples( num_verts );
+    //     for ( idx_t n = 0; n < num_verts; ++n ) {
+    //         vtk_data->SetTuple1( n, h_field( n ) );
+    //     }
+    //     _d_vtk_mesh->GetPointData()->AddArray( vtk_data );
+    // }
+
+    // writeData( const std::string name, Kokkos::View<scalar_t **> field )
+    // {
+    //     const auto num_verts = field.extent( 0 );
+    //     const auto num_vars  = field.extent( 1 );
+
+    //     if ( num_vars > 3 ) {
+    //         std::cout << "VTKWriter<Policy>::writeData Too many components in passed field. Ignoring."
+    //                 << std::endl;
+    //         return;
+    //     }
+
+    //     auto h_field = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), field );
+
+    //     vtkNew<vtkDoubleArray> vtk_data;
+    //     vtk_data->SetName( name.c_str() );
+    //     vtk_data->SetNumberOfComponents( num_vars );
+    //     vtk_data->SetNumberOfTuples( num_verts );
+    //     for ( idx_t n = 0; n < num_verts; ++n ) {
+    //         if ( num_vars == 1 ) {
+    //             vtk_data->SetTuple1( n, h_field( n, 0 ) );
+    //         } else if ( num_vars == 2 ) {
+    //             vtk_data->SetTuple2( n, h_field( n, 0 ), h_field( n, 1 ) );
+    //         } else {
+    //             vtk_data->SetTuple3( n, h_field( n, 0 ), h_field( n, 1 ), h_field( n, 2 ) );
+    //         }
+    //     }
+    //     _d_vtk_mesh->GetPointData()->AddArray( vtk_data );
+    // }
+
+    // finalizeDataFile()
+    // {
+    //     vtkNew<vtkXMLUnstructuredGridWriter> writer;
+    //     writer->SetFileName( d_filename.c_str() );
+    //     writer->SetInputData( d_vtk_mesh );
+    //     writer->Write();
+    // }
+
+    void vtkWrite(int time_step)
     {
-        using idx_t     = typename Policy::idx_t;
-        using FaceEntry = typename FaceArray<idx_t>::Entry;
-
-        const auto num_verts = field.extent( 0 );
-
-        auto h_field = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), field );
-
-        vtkNew<vtkDoubleArray> vtk_data;
-        vtk_data->SetName( name.c_str() );
-        vtk_data->SetNumberOfComponents( 1 );
-        vtk_data->SetNumberOfTuples( num_verts );
-        for ( idx_t n = 0; n < num_verts; ++n ) {
-            vtk_data->SetTuple1( n, h_field( n ) );
-        }
-        _d_vtk_mesh->GetPointData()->AddArray( vtk_data );
-    }
-
-    writeData( const std::string name, Kokkos::View<scalar_t **> field )
-    {
-        using idx_t     = typename Policy::idx_t;
-        using FaceEntry = typename FaceArray<idx_t>::Entry;
-
-        const auto num_verts = field.extent( 0 );
-        const auto num_vars  = field.extent( 1 );
-
-        if ( num_vars > 3 ) {
-            std::cout << "VTKWriter<Policy>::writeData Too many components in passed field. Ignoring."
-                    << std::endl;
-            return;
-        }
-
-        auto h_field = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), field );
-
-        vtkNew<vtkDoubleArray> vtk_data;
-        vtk_data->SetName( name.c_str() );
-        vtk_data->SetNumberOfComponents( num_vars );
-        vtk_data->SetNumberOfTuples( num_verts );
-        for ( idx_t n = 0; n < num_verts; ++n ) {
-            if ( num_vars == 1 ) {
-                vtk_data->SetTuple1( n, h_field( n, 0 ) );
-            } else if ( num_vars == 2 ) {
-                vtk_data->SetTuple2( n, h_field( n, 0 ), h_field( n, 1 ) );
-            } else {
-                vtk_data->SetTuple3( n, h_field( n, 0 ), h_field( n, 1 ), h_field( n, 2 ) );
-            }
-        }
-        _d_vtk_mesh->GetPointData()->AddArray( vtk_data );
-    }
-
-    finalizeDataFile()
-    {
-        vtkNew<vtkXMLUnstructuredGridWriter> writer;
-        writer->SetFileName( d_filename.c_str() );
-        writer->SetInputData( d_vtk_mesh );
-        writer->Write();
-    }
-
-    void vtkWrite(char* name, int time_step, double time, double dt)
-    {
-        int rank = _pm.mesh().rank();
+        const int rank = _pm.mesh().rank();
+        const int comm_size = _pm.mesh().comm_size();
 
         /* Make sure the output directory exists */
         if (rank == 0) {
-            // Make sure directories for output exist
-            if (mkdir("data", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) {
-                if( errno != EEXIST ) {
-                    // something else
-                    std::cerr << "cannot create data directory. error:" 
-                              << strerror(errno) << std::endl;
-                    throw std::runtime_error( strerror(errno) );
-                }
+            if (mkdir("data", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1 && errno != EEXIST) {
+                std::cerr << "Cannot create data directory. Error: " << strerror(errno) << std::endl;
+                throw std::runtime_error(strerror(errno));
             }
-            if (mkdir("data/raw", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1) {
-                if( errno != EEXIST ) {
-                    // something else
-                    std::cerr << "cannot create raw data directory. Error:" 
-                              << strerror(errno) << std::endl;
-                    throw std::runtime_error( strerror(errno) );
-                }
+            if (mkdir("data/raw", S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH) == -1 && errno != EEXIST) {
+                std::cerr << "Cannot create raw data directory. Error: " << strerror(errno) << std::endl;
+                throw std::runtime_error(strerror(errno));
             }
         }
 
-        // Set Filename to Reflect TimeStep and Rank
-        std::string filename = "data/raw/BeatnikOutput-";
-        filename += std::to_string(rank);
-        filename += "-";
-        filename += std::to_string(time_step);
-        filename += ".vtu"
+        // Ensure all processes sync before writing
+        MPI_Barrier(MPI_COMM_WORLD);
 
-        // Append process number
-        filename += std::to_string(gParallelMngr.getProcID());
+        // Set filename for each rank
+        std::string filename = "data/raw/BeatnikOutput-" + std::to_string(rank) + "-" +
+                            std::to_string(time_step) + ".vtu";
 
-        filename += ".vtu";
+        createDataFile(time_step);
 
-        // ... Your VTK Code here ...
-
-        
-        // Write file
+        // Each rank writes its own VTU file
         auto writer = vtkSmartPointer<vtkXMLUnstructuredGridWriter>::New();
         writer->SetFileName(filename.c_str());
-
-        writer->SetInputData(unstructuredGrid);
-
+        writer->SetInputData(_d_vtk_mesh);
         writer->Write();
 
-        if( gParallelMngr.isMaster() )
-        {
-            std::string masterfilename = "data/Beatnik-";
-            masterfilename += std::to_string(time_step);
-            masterfilename += ".pvtu";
-        
-            auto pwriterObj = vtkSmartPointer<vtkXMLPUnstructuredGridWriter>::New();
+        // Synchronize again to ensure all ranks have written their files
+        MPI_Barrier(MPI_COMM_WORLD);
 
-            pwriterObj->EncodeAppendedDataOff();
-            pwriterObj->SetFileName(masterfilename.c_str());
-            pwriterObj->SetNumberOfPieces( gParallelMngr.getNumProcs() );
-            pwriterObj->SetInputData(unstructuredGrid);
-            pwriterObj->Update();
+        // Rank 0 generates the PVTU file
+        if (rank == 0)
+        {
+            std::string masterfilename = "data/Beatnik-" + std::to_string(time_step) + ".pvtu";
+
+            std::ofstream pvtuFile(masterfilename);
+            if (!pvtuFile.is_open()) {
+                std::cerr << "Error opening PVTU file for writing: " << masterfilename << std::endl;
+                throw std::runtime_error("Could not open PVTU file.");
+            }
+
+            // Write the PVTU XML header
+            pvtuFile << "<?xml version=\"1.0\"?>\n";
+            pvtuFile << "<VTKFile type=\"PUnstructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">\n";
+            pvtuFile << "  <PUnstructuredGrid GhostLevel=\"0\">\n";
+            pvtuFile << "    <PPoints>\n";
+            pvtuFile << "      <PDataArray type=\"Float32\" Name=\"Points\" NumberOfComponents=\"3\" format=\"ascii\"/>\n";
+            pvtuFile << "    </PPoints>\n";
+            pvtuFile << "    <PCells>\n";
+            pvtuFile << "      <PDataArray type=\"Int32\" Name=\"connectivity\" format=\"ascii\"/>\n";
+            pvtuFile << "      <PDataArray type=\"Int32\" Name=\"offsets\" format=\"ascii\"/>\n";
+            pvtuFile << "      <PDataArray type=\"UInt8\" Name=\"types\" format=\"ascii\"/>\n";
+            pvtuFile << "    </PCells>\n";
+
+            // Add piece entries for each rank
+            for (int i = 0; i < comm_size; i++)
+            {
+                pvtuFile << "    <Piece Source=\"raw/BeatnikOutput-" << i << "-" << time_step << ".vtu\"/>\n";
+            }
+
+            pvtuFile << "  </PUnstructuredGrid>\n";
+            pvtuFile << "</VTKFile>\n";
+
+            pvtuFile.close();
         }
     }
-};
+
         
   private:
     const ProblemManagerType &_pm;
@@ -271,9 +283,9 @@ class VTKWriter
 };
 
 template <class ProblemManagerType>
-std::shared_ptr<VTKWriter> createVTKWriter( ProblemManagerType& pm, const std::string base )
+std::shared_ptr<VTKWriter<ProblemManagerType>> createVTKWriter( ProblemManagerType& pm, const std::string base)
 {
-    return std::make_shared<VTKWriter>( pm, base, ESFTGuard() );
+    return std::make_shared<VTKWriter<ProblemManagerType>>( pm, base );
 }
 
 }; // namespace Beatnik

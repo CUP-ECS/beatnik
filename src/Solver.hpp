@@ -22,6 +22,7 @@
 #include <ProblemManager.hpp>
 #include <SiloWriter.hpp>
 #include <TimeIntegrator.hpp>
+#include <VTKWriter.hpp>
 #include <CreateBRSolver.hpp>
 
 #include <ZModel.hpp>
@@ -252,7 +253,14 @@ class Solver : public SolverBase
         Kokkos::Profiling::pushRegion( "Solve" );
 
         if (write_freq > 0) {
-            _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
+            // _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
+            using mesh_type_tag = typename pm_type::mesh_type_tag;
+            if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
+            {
+                auto vtk_writer = createVTKWriter(*_pm, "beatnik");
+                vtk_writer->vtkWrite(t);
+            }
+
         }
 
         num_step = t_final / _dt;
@@ -268,7 +276,7 @@ class Solver : public SolverBase
             // 4. Output mesh state periodically
             if ( write_freq && (0 == t % write_freq ))
             {
-                _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
+                // _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
             }
 
             // Write views for future testing, if enabled
