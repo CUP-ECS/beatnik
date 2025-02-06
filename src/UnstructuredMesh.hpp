@@ -92,7 +92,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
                                                      periodic, partitioner );
         // Build the local grid.
-        int surface_halo_width = 1; // Halo width doesn't matter here
+        int surface_halo_width = 2; // Halo width doesn't matter here
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, surface_halo_width );
 
 

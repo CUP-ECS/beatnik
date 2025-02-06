@@ -105,15 +105,10 @@ class ProblemManager
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
             initialize_unstructured_mesh( create_functor );
-            auto zaosoa = get( Field::Position() )->array()->aosoa();
-            auto waosoa = get( Field::Vorticity() )->array()->aosoa();
-            auto zslice = Cabana::slice<0>(zaosoa);
-            auto wslice = Cabana::slice<0>(waosoa);
-            printf("R%d: num coords: %d, mesh verts: %d\n", _mesh.layoutObj()->rank(), zslice.extent(0), _mesh.layoutObj()->vertices().size());
-            // for (size_t i = 0; i < zslice.extent(0); i++)
-            // {
-            //     printf("i%d coords: %0.12lf, %0.12lf, %0.12lf\n", i, zslice(i, 0), zslice(i, 1), zslice(i, 2));
-            // }
+            // auto zaosoa = get( Field::Position() )->array()->aosoa();
+            // auto waosoa = get( Field::Vorticity() )->array()->aosoa();
+            // auto zslice = Cabana::slice<0>(zaosoa);
+            // auto wslice = Cabana::slice<0>(waosoa);
             // throw std::invalid_argument("ProblemManager constructor: Unfinished unstructured implementation.");
         }
 
@@ -262,7 +257,6 @@ class ProblemManager
 
     /**
      * Gather State Data from Neighbors
-     * XXX - only apply to Cabana Arrays
      **/
     void gather( ) const
     {
@@ -275,7 +269,10 @@ class ProblemManager
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
             // XXX - TODO
-            printf("WARNING: ProblemManager::gather: Not yet implemented for unstructured meshes.");
+            // We must remake the halo each time to ensure it stays up-to-date with the mesh
+            auto numesh_halo = NuMesh::createHalo(_mesh.layoutObj(), 0, 1, NuMesh::Vertex());
+            _position->array()->update();
+            NuMesh::gather(numesh_halo, _position->array());
         }
     }
 
@@ -294,7 +291,7 @@ class ProblemManager
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
             // XXX - TODO
-            throw std::invalid_argument("ProblemManager::gather: Not yet implemented for unstructured meshes.");
+            throw std::invalid_argument("ProblemManager::gather: Not yet implemented for unstructured meshes.\n");
         }
     }
 
