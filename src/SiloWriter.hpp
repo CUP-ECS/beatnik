@@ -185,6 +185,9 @@ class SiloWriter
         }
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
+            // Use VTK???
+            // https://stackoverflow.com/questions/35149190/write-vtk-in-parallel-c-with-mpi
+            // https://visit-sphinx-github-user-manual.readthedocs.io/en/develop/data_into_visit/SiloFormat.html
             // Initialize Variables
             // int dims[3];
             double *coords[3]; // *vars[2];
