@@ -64,7 +64,7 @@ set(gtest_disable_pthreads ON CACHE BOOL "")
 include(${BLT_SOURCE_DIR}/SetupBLT.cmake)
 
 ##---------------------------------------------------------------------------##
-## Get the dependent packages we need: Cabana, Silo, and ClangFormat         ##
+## Get the dependent packages we need: Cabana, Silo, VTK, and ClangFormat    ##
 ##---------------------------------------------------------------------------##
 find_package(Cabana REQUIRED COMPONENTS Cabana::Grid Cabana::Core)
 if( NOT Cabana_ENABLE_MPI )
@@ -74,6 +74,11 @@ if( NOT Cabana_ENABLE_GRID )
   message( FATAL_ERROR "Cabana must be compiled with Grid support" )
 endif()
 find_package(SILO REQUIRED)
+
+find_package(VTK REQUIRED) 
+
+# Add VTK include directories
+include_directories(${VTK_INCLUDE_DIRS})
 
 # Get Clang Format to use for making sure the resulting code is
 # properly formatted
