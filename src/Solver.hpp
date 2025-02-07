@@ -257,7 +257,7 @@ class Solver : public SolverBase
             using mesh_type_tag = typename pm_type::mesh_type_tag;
             if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
             {
-                auto vtk_writer = createVTKWriter(*_pm, "beatnik");
+                auto vtk_writer = createVTKWriter(*_pm );
                 vtk_writer->vtkWrite(t);
             }
 

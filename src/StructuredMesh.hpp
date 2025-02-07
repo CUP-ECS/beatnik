@@ -42,8 +42,8 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
     using mesh_type_tag = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_type_tag;
     using entity_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::entity_type;
     using cabana_local_grid_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_type;
-    using mesh_array_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_array_type;
-    using value_type = typename mesh_array_type::value_type;
+    using triple_array_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::triple_array_type;
+    using pair_array_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::pair_array_type;
 
     StructuredMesh( const std::array<double, 6>& global_bounding_box,
           const std::array<int, 2>& num_nodes,
@@ -171,7 +171,7 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
      * Compute fourth-order central difference calculation for derivatives along the 
      * interface surface
      */
-    std::shared_ptr<mesh_array_type> Dx(const mesh_array_type& in, const double dx) const override
+    std::shared_ptr<triple_array_type> Dx(const triple_array_type& in, const double dx) const override
     {
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
         auto out_view = out->array()->view();
@@ -185,7 +185,7 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
         });
         return out;
     }
-    std::shared_ptr<mesh_array_type> Dy(const mesh_array_type& in, const double dy) const override
+    std::shared_ptr<triple_array_type> Dy(const triple_array_type& in, const double dy) const override
     {
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
         auto out_view = out->array()->view();
@@ -201,7 +201,7 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
     }
 
     /* 9-point laplace stencil operator for computing artificial viscosity */
-    std::shared_ptr<mesh_array_type> laplace(const mesh_array_type& in, const double dx, const double dy) const override
+    std::shared_ptr<triple_array_type> laplace(const triple_array_type& in, const double dx, const double dy) const override
     {
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
         auto out_view = out->array()->view();
@@ -221,14 +221,14 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
 
     // XXX - Assert that the mesh and mesh_array_types are the right type 
     // at the beginning of these functions
-    std::shared_ptr<mesh_array_type> omega(const mesh_array_type& w, const mesh_array_type& z_dx, const mesh_array_type& z_dy) const override
+    std::shared_ptr<triple_array_type> omega(const pair_array_type& w, const triple_array_type& z_dx, const triple_array_type& z_dy) const override
     {
         using Node = Cabana::Grid::Node;
         auto zdx_view = z_dx.array()->view();
         auto zdy_view = z_dy.array()->view();
         auto w_view = w.array()->view();
         auto layout = z_dx.clayout()->layout();
-        auto node_triple_layout = ArrayUtils::createArrayLayout<value_type>( layout->localGrid(), 3, Node() );
+        auto node_triple_layout = ArrayUtils::createArrayLayout<triple_array_type>( layout->localGrid(), 3, Node() );
         std::shared_ptr<mesh_array_type> out = ArrayUtils::createArray<memory_space>("omega", 
                                                        node_triple_layout);
         auto out_view = out->array()->view();

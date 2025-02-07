@@ -60,9 +60,8 @@ class VTKWriter
      *
      * @param pm Problem manager object
      */
-    VTKWriter( ProblemManagerType& pm, const std::string base )
+    VTKWriter( ProblemManagerType& pm )
         : _pm( pm )
-        , _base_filename( base )
     {};
 
     // void setFilename( const idx_t step )
@@ -165,34 +164,29 @@ class VTKWriter
     //     _d_vtk_mesh->GetPointData()->AddArray( vtk_data );
     // }
 
-    // writeData( const std::string name, Kokkos::View<scalar_t **> field )
-    // {
-    //     const auto num_verts = field.extent( 0 );
-    //     const auto num_vars  = field.extent( 1 );
+    void writeVorticity()
+    {
+        auto mesh = _pm.mesh()->layoutObj();
+        auto w_aosoa = _pm.get( Field::Vorticity() )->array()->aosoa();
+        
 
-    //     if ( num_vars > 3 ) {
-    //         std::cout << "VTKWriter<Policy>::writeData Too many components in passed field. Ignoring."
-    //                 << std::endl;
-    //         return;
-    //     }
+        auto h_field = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), field );
 
-    //     auto h_field = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), field );
-
-    //     vtkNew<vtkDoubleArray> vtk_data;
-    //     vtk_data->SetName( name.c_str() );
-    //     vtk_data->SetNumberOfComponents( num_vars );
-    //     vtk_data->SetNumberOfTuples( num_verts );
-    //     for ( idx_t n = 0; n < num_verts; ++n ) {
-    //         if ( num_vars == 1 ) {
-    //             vtk_data->SetTuple1( n, h_field( n, 0 ) );
-    //         } else if ( num_vars == 2 ) {
-    //             vtk_data->SetTuple2( n, h_field( n, 0 ), h_field( n, 1 ) );
-    //         } else {
-    //             vtk_data->SetTuple3( n, h_field( n, 0 ), h_field( n, 1 ), h_field( n, 2 ) );
-    //         }
-    //     }
-    //     _d_vtk_mesh->GetPointData()->AddArray( vtk_data );
-    // }
+        vtkNew<vtkDoubleArray> vtk_data;
+        vtk_data->SetName( name.c_str() );
+        vtk_data->SetNumberOfComponents( num_vars );
+        vtk_data->SetNumberOfTuples( num_verts );
+        for ( idx_t n = 0; n < num_verts; ++n ) {
+            if ( num_vars == 1 ) {
+                vtk_data->SetTuple1( n, h_field( n, 0 ) );
+            } else if ( num_vars == 2 ) {
+                vtk_data->SetTuple2( n, h_field( n, 0 ), h_field( n, 1 ) );
+            } else {
+                vtk_data->SetTuple3( n, h_field( n, 0 ), h_field( n, 1 ), h_field( n, 2 ) );
+            }
+        }
+        _d_vtk_mesh->GetPointData()->AddArray( vtk_data );
+    }
 
     // finalizeDataFile()
     // {
@@ -249,6 +243,7 @@ class VTKWriter
             }
 
             // Write the PVTU XML header
+            // This is hard-coded until we can figure out how to correctly write the pvtu file
             pvtuFile << "<?xml version=\"1.0\"?>\n";
             pvtuFile << "<VTKFile type=\"PUnstructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">\n";
             pvtuFile << "  <PUnstructuredGrid GhostLevel=\"0\">\n";
@@ -277,7 +272,6 @@ class VTKWriter
         
   private:
     const ProblemManagerType &_pm;
-    const std::string _base_filename;
 
     vtkSmartPointer<vtkUnstructuredGrid> _d_vtk_mesh;
 };

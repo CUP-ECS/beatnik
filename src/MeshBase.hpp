@@ -44,22 +44,34 @@ class MeshBase
     /* Simple identifier for structured or unstructured mesh */
     using mesh_type_tag = MeshTypeTag;
 
+    using base_type = double;
+
     /* Both structured and unstructured meshes hold doubles,
      * but for unstructured meshes this needs to be a 
      * Cabana::MemberTypes<...> tuple for an AoSoA.
      */
-    using value_type = std::conditional_t<
+    using base_triple_type = std::conditional_t<
         std::is_same_v<MeshTypeTag, Mesh::Structured>,
-        double,
+        base_type,
         std::conditional_t<
             std::is_same_v<MeshTypeTag, Mesh::Unstructured>,
-            Cabana::MemberTypes<double[3]>,
+            Cabana::MemberTypes<base_type[3]>,
+            void
+        >
+    >;
+
+    using base_pair_type = std::conditional_t<
+        std::is_same_v<MeshTypeTag, Mesh::Structured>,
+        base_type,
+        std::conditional_t<
+            std::is_same_v<MeshTypeTag, Mesh::Unstructured>,
+            Cabana::MemberTypes<base_type[2]>,
             void
         >
     >;
 
     // Set the Cabana Local Grid type as the value type or the base type of the tuple
-    using base_type = typename ExtractBaseTypes<value_type>::type;
+    // using base_type = typename ExtractBaseTypes<value_type>::type;
     using cabana_local_grid_type = Cabana::Grid::LocalGrid<Cabana::Grid::UniformMesh<base_type, 2>>;
 
     /*
@@ -78,7 +90,7 @@ class MeshBase
 
     using mesh_type = std::conditional_t<
         std::is_same_v<MeshTypeTag, Mesh::Structured>,
-        Cabana::Grid::LocalGrid<Cabana::Grid::UniformMesh<value_type, 2>>,
+        Cabana::Grid::LocalGrid<Cabana::Grid::UniformMesh<base_type, 2>>,
         std::conditional_t<
             std::is_same_v<MeshTypeTag, Mesh::Unstructured>,
             NuMesh::Mesh<execution_space, memory_space>,
@@ -86,8 +98,10 @@ class MeshBase
         >
     >;
 
-    using container_layout_type = ArrayUtils::ArrayLayout<mesh_type, entity_type, value_type>;
-    using mesh_array_type = ArrayUtils::Array<container_layout_type, memory_space>;
+    using triple_layout_type = ArrayUtils::ArrayLayout<mesh_type, entity_type, base_triple_type>;
+    using pair_layout_type = ArrayUtils::ArrayLayout<mesh_type, entity_type, base_pair_type>;
+    using triple_array_type = ArrayUtils::Array<triple_layout_type, memory_space>;
+    using pair_array_type = ArrayUtils::Array<pair_layout_type, memory_space>;
     
     virtual ~MeshBase() = default;
 
@@ -96,10 +110,10 @@ class MeshBase
      */
     virtual std::shared_ptr<mesh_type> layoutObj(void) const = 0;
     virtual std::shared_ptr<cabana_local_grid_type> localGrid(void) const = 0;
-    virtual std::shared_ptr<mesh_array_type> Dx(const mesh_array_type& in, const double dx) const = 0;
-    virtual std::shared_ptr<mesh_array_type> Dy(const mesh_array_type& in, const double dy) const = 0;
-    virtual std::shared_ptr<mesh_array_type> omega(const mesh_array_type& w, const mesh_array_type& z_dx, const mesh_array_type& z_dy) const = 0;
-    virtual std::shared_ptr<mesh_array_type> laplace(const mesh_array_type& in, const double dx, const double dy) const = 0;
+    virtual std::shared_ptr<triple_array_type> Dx(const triple_array_type& in, const double dx) const = 0;
+    virtual std::shared_ptr<triple_array_type> Dy(const triple_array_type& in, const double dy) const = 0;
+    virtual std::shared_ptr<triple_array_type> omega(const pair_array_type& w, const triple_array_type& z_dx, const triple_array_type& z_dy) const = 0;
+    virtual std::shared_ptr<triple_array_type> laplace(const triple_array_type& in, const double dx, const double dy) const = 0;
     virtual int is_periodic(void) const = 0;
     virtual MPI_Comm comm(void) const = 0;
     virtual int rank(void) const = 0;
