@@ -45,7 +45,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
           const std::array<int, 2>& num_nodes,
 	      const std::array<bool, 2>& periodic,
           const Cabana::Grid::BlockPartitioner<2>& partitioner,
-          const int min_halo_width, MPI_Comm comm )
+          MPI_Comm comm )
 		        : _comm( comm )
                 , _num_nodes( num_nodes )
                 , _periodic( periodic )
@@ -215,6 +215,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     int mesh_size() const override { return -1; }
     int halo_width() const override { return -1; }
 
+    MPI_Comm comm() const override { return _comm; }
     int rank() const override { return _rank; }
     int comm_size() const override { return _comm_size; }
 

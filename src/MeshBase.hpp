@@ -101,6 +101,7 @@ class MeshBase
     virtual std::shared_ptr<mesh_array_type> omega(const mesh_array_type& w, const mesh_array_type& z_dx, const mesh_array_type& z_dy) const = 0;
     virtual std::shared_ptr<mesh_array_type> laplace(const mesh_array_type& in, const double dx, const double dy) const = 0;
     virtual int is_periodic(void) const = 0;
+    virtual MPI_Comm comm(void) const = 0;
     virtual int rank(void) const = 0;
     virtual int comm_size(void) const = 0;
 

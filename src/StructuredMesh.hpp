@@ -52,6 +52,7 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
           const int min_halo_width, MPI_Comm comm )
 		        : _num_nodes( num_nodes )
                 , _periodic( periodic )
+                , _comm( comm )
     {
         MPI_Comm_rank( comm, &_rank );
         MPI_Comm_size( comm, &_comm_size );
@@ -261,6 +262,7 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
         return Cabana::Grid::IndexSpace<2>( zero_size, zero_size );
     }
 
+    MPI_Comm comm() const override { return _comm; }
     int rank() const override { return _rank; }
     int comm_size() const override { return _comm_size; }
 
@@ -311,6 +313,7 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
     }
 
   private:
+    MPI_Comm _comm;
     std::array<double, 3> _low_point, _high_point;
     std::array<int, 2> _num_nodes;
     const std::array<bool, 2> _periodic;

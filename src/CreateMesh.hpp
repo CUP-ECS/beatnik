@@ -42,7 +42,7 @@ createMesh( const std::array<double, 6>& global_bounding_box,
     {
         using beatnik_mesh_type = UnstructuredMesh<ExecutionSpace, MemorySpace, MeshTypeTag>;
         return std::make_unique<beatnik_mesh_type>(global_bounding_box, num_nodes, periodic,
-            partitioner, min_halo_width, comm);
+            partitioner, comm);
     }
     std::cerr << "createMesh:: Invalid mesh type.\n";
     Kokkos::finalize();
