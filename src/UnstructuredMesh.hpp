@@ -24,6 +24,20 @@
 
 namespace Beatnik
 {
+
+KOKKOS_INLINE_FUNCTION
+double kern( const double d ) const
+{
+    return Kokkos::exp( -shape_factor * d * d ) + hybrid_weight * d * d * d;
+}
+
+KOKKOS_INLINE_FUNCTION
+double kernPrime( const double d ) const
+{
+    return -double( 2.0 ) * shape_factor * d * Kokkos::exp( -shape_factor * d * d ) +
+        double( 3.0 ) * hybrid_weight * d * d;
+}
+
 //---------------------------------------------------------------------------//
 /*!
   \class StructuredMesh
@@ -38,6 +52,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     using mesh_type_tag = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_type_tag;
     using entity_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::entity_type;
     using mesh_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_type;
+    using base_triple_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::base_triple_type;
     using triple_array_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::triple_array_type;
     using pair_array_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::pair_array_type;
     using cabana_local_grid_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::cabana_local_grid_type;
@@ -106,6 +121,101 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
         // Initialize the unstructured mesh from the connectivity of the local grid.
         _mesh->initializeFromArray(*darray);
+    }
+    
+    /**
+     * Calculates surface gradients at vertices of an unstructured mesh using
+     * radial basis functions (RBFs) and a moving least squares (MLS) approach. 
+     */
+    void compute_gradient(const triple_array_type& positions_array)
+    {
+        // Ensure positions array is up-to-date
+        assert(positions_array->array.size() == _mesh->vertices.size());
+
+        // Initialize gradients AoSoA, which has "num verts" Cabana::MemberTypes<double[3]> tuples
+        auto vertex_triple_layout =
+            ArrayUtils::createArrayLayout<base_triple_type>(_mesh, 3, NuMesh::Vertex());
+        _gradients = ArrayUtils::createArray<memory_space>("_gradients", vertex_triple_layout);
+        auto gradients = Cabana::slice<0>(_gradients);
+
+        // Retrieve vertex-to-face connectivity
+        auto v2f = NuMesh::Maps::V2F(_mesh);
+        auto offsets = v2f.offsets();
+        auto indices = v2f.indices();
+        int owned_vertices = _mesh->count(NuMesh::Own(), NuMesh::Vertex());
+
+        auto positions = Cabana::slice<0>(positions_array->array()->aosoa());
+
+        Kokkos::parallel_for("compute_gradient", Kokkos::RangePolicy<execution_space>(0, owned_vertices),
+            KOKKOS_LAMBDA(int vlid) {
+                int offset = offsets(vlid);
+                int next_offset = (vlid + 1 < (int)offsets.extent(0)) ? offsets(vlid + 1) : (int)indices.extent(0);
+                int sten_size = next_offset - offset;
+
+                // Position of current vertex
+                double pos_x = positions(vlid, 0);
+                double pos_y = positions(vlid, 1);
+                double pos_z = positions(vlid, 2);
+
+                // Kernel matrix and gradient samples
+                double K[sten_size + 1][sten_size + 1] = {0.0};
+                double grad_sample[sten_size + 1][3] = {0.0};
+
+                for (int i = 0; i < sten_size; ++i) {
+                    int vi = indices(offset + i);
+                    double vix = positions(vi, 0);
+                    double viy = positions(vi, 1);
+                    double viz = positions(vi, 2);
+                    
+                    for (int j = 0; j <= i; ++j) {
+                        int vj = indices(offset + j);
+                        double dx = vix - positions(vj, 0);
+                        double dy = viy - positions(vj, 1);
+                        double dz = viz - positions(vj, 2);
+                        double d = sqrt(dx * dx + dy * dy + dz * dz);
+
+                        K[i][j] = kern(d);
+                        K[j][i] = K[i][j];
+                    }
+                    K[i][sten_size] = 1.0;
+                    K[sten_size][i] = 1.0;
+                    
+                    vix = pos_x - vix;
+                    viy = pos_y - viy;
+                    viz = pos_z - viz;
+                    double ed = sqrt(vix * vix + viy * viy + viz * viz);
+                    double kp = (i == 0) ? 0.0 : kernPrime(ed) / ed;
+
+                    grad_sample[i][0] = vix * kp;
+                    grad_sample[i][1] = viy * kp;
+                    grad_sample[i][2] = viz * kp;
+                }
+                
+                K[sten_size][sten_size] = 0.0;
+                
+                // LU factorization
+                KokkosBatched::SerialLU<KokkosBatched::Algo::LU::Unblocked>::invoke(K);
+
+                // Solve for gradients
+                KokkosBatched::SerialTrsm<KokkosBatched::Side::Left,
+                                        KokkosBatched::Uplo::Lower,
+                                        KokkosBatched::Trans::NoTranspose,
+                                        KokkosBatched::Diag::Unit,
+                                        KokkosBatched::Algo::Trsm::Unblocked>::invoke(1.0, K, grad_sample);
+                KokkosBatched::SerialTrsm<KokkosBatched::Side::Left,
+                                        KokkosBatched::Uplo::Upper,
+                                        KokkosBatched::Trans::NoTranspose,
+                                        KokkosBatched::Diag::NonUnit,
+                                        KokkosBatched::Algo::Trsm::Unblocked>::invoke(1.0, K, grad_sample);
+
+                // Project onto surface tangent
+                for (int i = 0; i < sten_size; ++i) {
+                    double xDg = pos_x * grad_sample[i][0] + pos_y * grad_sample[i][1] + pos_z * grad_sample[i][2];
+                    gradients(vlid, 0) += grad_sample[i][0] - xDg * pos_x;
+                    gradients(vlid, 1) += grad_sample[i][1] - xDg * pos_y;
+                    gradients(vlid, 2) += grad_sample[i][2] - xDg * pos_z;
+                }
+            });
     }
 
     std::shared_ptr<mesh_type> layoutObj() const override
@@ -234,6 +344,10 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
     // Unstructured mesh object
     std::shared_ptr<mesh_type> _mesh;
+
+    // Graident array for each owned vertex
+    std::shared_ptr<triple_array_type> _gradients;
+
 };
 
 //---------------------------------------------------------------------------//
