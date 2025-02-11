@@ -38,19 +38,21 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     using mesh_type_tag = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_type_tag;
     using entity_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::entity_type;
     using mesh_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_type;
-    using mesh_array_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::mesh_array_type;
+    using triple_array_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::triple_array_type;
+    using pair_array_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::pair_array_type;
     using cabana_local_grid_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::cabana_local_grid_type;
 
     UnstructuredMesh( const std::array<double, 6>& global_bounding_box,
           const std::array<int, 2>& num_nodes,
 	      const std::array<bool, 2>& periodic,
           const Cabana::Grid::BlockPartitioner<2>& partitioner,
-          const int min_halo_width, MPI_Comm comm )
+          MPI_Comm comm )
 		        : _comm( comm )
                 , _num_nodes( num_nodes )
                 , _periodic( periodic )
     {
         MPI_Comm_rank( _comm, &_rank );
+        MPI_Comm_size( _comm, &_comm_size );
 
         // Copy the same code used to create the local grid in the constructor
         // of StructuredMesh
@@ -92,7 +94,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         auto global_grid = Cabana::Grid::createGlobalGrid( comm, global_mesh,
                                                      periodic, partitioner );
         // Build the local grid.
-        int surface_halo_width = 1; // Halo width doesn't matter here
+        int surface_halo_width = 2; // Halo width doesn't matter here
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, surface_halo_width );
 
 
@@ -128,7 +130,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
      * Compute fourth-order central difference calculation for derivatives along the 
      * interface surface
      */
-    std::shared_ptr<mesh_array_type> Dx(const mesh_array_type& in, const double dx) const override
+    std::shared_ptr<triple_array_type> Dx(const triple_array_type& in, const double dx) const override
     {
         auto out = ArrayUtils::ArrayOp::clone(in);
         // auto out_view = out->array()->view();
@@ -142,7 +144,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         // });
         return out;
     }
-    std::shared_ptr<mesh_array_type> Dy(const mesh_array_type& in, const double dy) const override
+    std::shared_ptr<triple_array_type> Dy(const triple_array_type& in, const double dy) const override
     {
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
         // auto out_view = out->array()->view();
@@ -158,7 +160,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     }
 
     /* 9-point laplace stencil operator for computing artificial viscosity */
-    std::shared_ptr<mesh_array_type> laplace(const mesh_array_type& in, const double dx, const double dy) const override
+    std::shared_ptr<triple_array_type> laplace(const triple_array_type& in, const double dx, const double dy) const override
     {
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
         // auto out_view = out->array()->view();
@@ -176,7 +178,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
     // XXX - Assert that the mesh and mesh_array_types are the right type 
     // at the beginning of these functions
-    std::shared_ptr<mesh_array_type> omega(const mesh_array_type& w, const mesh_array_type& z_dx, const mesh_array_type& z_dy) const override
+    std::shared_ptr<triple_array_type> omega(const pair_array_type& w, const triple_array_type& z_dx, const triple_array_type& z_dy) const override
     {
         // using Node = Cabana::Grid::Node;
         // auto zdx_view = z_dx.array()->view();
@@ -214,11 +216,13 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     int mesh_size() const override { return -1; }
     int halo_width() const override { return -1; }
 
+    MPI_Comm comm() const override { return _comm; }
     int rank() const override { return _rank; }
+    int comm_size() const override { return _comm_size; }
 
   private:
     MPI_Comm _comm;
-    int _rank;
+    int _rank, _comm_size;
 
     std::array<int, 2> _num_nodes;
     const std::array<bool, 2> _periodic;

@@ -49,6 +49,9 @@ class ArrayLayout
      * or a Cabana::MemberTypes<...> type for unstructured meshes
      */
     using value_type = ValueType;
+    static_assert(IsValidValueType<value_type>::value, 
+        "Error: value_type must be either a primitive type or a valid Cabana::MemberTypes.");
+    
 
     // Determine ContainerLayoutType using std::conditional_t
     using array_layout_type = std::conditional_t<

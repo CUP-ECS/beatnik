@@ -22,6 +22,7 @@
 #include <ProblemManager.hpp>
 #include <SiloWriter.hpp>
 #include <TimeIntegrator.hpp>
+#include <VTKWriter.hpp>
 #include <CreateBRSolver.hpp>
 
 #include <ZModel.hpp>
@@ -246,19 +247,23 @@ class Solver : public SolverBase
 
     void solve( const double t_final, const int write_freq ) override
     {
+        using mesh_type_tag = typename pm_type::mesh_type_tag;
+
         int t = 0;
         int num_step;
-
+        
         Kokkos::Profiling::pushRegion( "Solve" );
 
         if (write_freq > 0) {
-            // Gather unstructured mesh so we have all vertex data on owned faces
-            if constexpr (std::is_same_v<MeshTypeTag, Mesh::Unstructured>)
+            
+            if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
+                _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
+            else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
             {
-                auto halo = NuMesh::createHalo(_mesh->layoutObj(), 0, 1);
-                halo.gather();
+                auto vtk_writer = createVTKWriter(*_pm );
+                vtk_writer->vtkWrite(t);
             }
-            _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
+
         }
 
         num_step = t_final / _dt;
@@ -274,7 +279,13 @@ class Solver : public SolverBase
             // 4. Output mesh state periodically
             if ( write_freq && (0 == t % write_freq ))
             {
-                _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
+                if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
+                    _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
+                else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
+                {
+                    auto vtk_writer = createVTKWriter(*_pm );
+                    vtk_writer->vtkWrite(t);
+                }
             }
 
             // Write views for future testing, if enabled

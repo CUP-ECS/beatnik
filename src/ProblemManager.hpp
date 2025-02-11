@@ -56,8 +56,10 @@ class ProblemManager
     using entity_type = typename BeatnikMeshType::entity_type; // Cabana::Grid::Node or NuMesh::Face
     using mesh_type = typename BeatnikMeshType::mesh_type;
     using mesh_type_tag = typename BeatnikMeshType::mesh_type_tag;
-    using mesh_array_type = typename BeatnikMeshType::mesh_array_type;
-    using value_type = typename mesh_array_type::value_type;
+    using base_triple_type = typename BeatnikMeshType::base_triple_type;
+    using base_pair_type = typename BeatnikMeshType::base_pair_type;
+    using triple_array_type = typename BeatnikMeshType::triple_array_type;
+    using pair_array_type = typename BeatnikMeshType::pair_array_type;
     using halo_type = Cabana::Grid::Halo<memory_space>;
 
     template <class InitFunc>
@@ -73,8 +75,8 @@ class ProblemManager
         // The layouts of our various arrays for values on the staggered mesh
         // and other associated data structures. Does there need to be version with
         // halos associated with them?
-        auto node_triple_layout = ArrayUtils::createArrayLayout<value_type>(_mesh.layoutObj(), 3, entity_type());
-        auto node_pair_layout = ArrayUtils::createArrayLayout<value_type>(_mesh.layoutObj(), 2, entity_type());
+        auto node_triple_layout = ArrayUtils::createArrayLayout<base_triple_type>(_mesh.layoutObj(), 3, entity_type());
+        auto node_pair_layout = ArrayUtils::createArrayLayout<base_pair_type>(_mesh.layoutObj(), 2, entity_type());
 
         // The actual arrays storing mesh quantities
         // 1. The spatial positions of the interface
@@ -101,13 +103,18 @@ class ProblemManager
             int halo_depth = _mesh.layoutObj()->haloCellWidth();
             _surface_halo = Cabana::Grid::createHalo( Cabana::Grid::NodeHaloPattern<2>(), 
                                 halo_depth, *_position->array(), *_vorticity->array());
-            gather();
         }
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
             initialize_unstructured_mesh( create_functor );
+            // auto zaosoa = get( Field::Position() )->array()->aosoa();
+            // auto waosoa = get( Field::Vorticity() )->array()->aosoa();
+            // auto zslice = Cabana::slice<0>(zaosoa);
+            // auto wslice = Cabana::slice<0>(waosoa);
             // throw std::invalid_argument("ProblemManager constructor: Unfinished unstructured implementation.");
         }
+
+        gather();
     }
 
     /**
@@ -234,7 +241,7 @@ class ProblemManager
      * @param Field::Position
      * @return Returns Returns Cabana::Array of current position at nodes
      **/
-    std::shared_ptr<mesh_array_type> get( Field::Position ) const
+    std::shared_ptr<triple_array_type> get( Field::Position ) const
     {
         return _position;
     };
@@ -245,14 +252,13 @@ class ProblemManager
      * @param Field::Vorticity
      * @return Returns Cabana::Array of current vorticity at nodes
      **/
-    std::shared_ptr<mesh_array_type> get( Field::Vorticity ) const
+    std::shared_ptr<pair_array_type> get( Field::Vorticity ) const
     {
         return _vorticity;
     };
 
     /**
      * Gather State Data from Neighbors
-     * XXX - only apply to Cabana Arrays
      **/
     void gather( ) const
     {
@@ -264,8 +270,12 @@ class ProblemManager
         }
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
-            // XXX - TODO
-            throw std::invalid_argument("ProblemManager::gather: Not yet implemented for unstructured meshes.");
+            // We must remake the halo each time to ensure it stays up-to-date with the mesh
+            auto numesh_halo = NuMesh::createHalo(_mesh.layoutObj(), 0, 1, NuMesh::Vertex());
+            _position->array()->update();
+            NuMesh::gather(numesh_halo, _position->array());
+            _vorticity->array()->update();
+            NuMesh::gather(numesh_halo, _vorticity->array());
         }
     }
 
@@ -273,7 +283,7 @@ class ProblemManager
      * Gather state data from neighbors for temporary position and vorticity 
      * arrays managed by other modules 
      */
-    void gather( mesh_array_type &position, mesh_array_type &vorticity) const
+    void gather( triple_array_type &position, pair_array_type &vorticity) const
     {
         if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
         {
@@ -283,8 +293,12 @@ class ProblemManager
         }
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
-            // XXX - TODO
-            throw std::invalid_argument("ProblemManager::gather: Not yet implemented for unstructured meshes.");
+            // We must remake the halo each time to ensure it stays up-to-date with the mesh
+            auto numesh_halo = NuMesh::createHalo(_mesh.layoutObj(), 0, 1, NuMesh::Vertex());
+            _position->array()->update();
+            NuMesh::gather(numesh_halo, _position->array());
+            _vorticity->array()->update();
+            NuMesh::gather(numesh_halo, _vorticity->array());
         }
     }
 
@@ -298,7 +312,8 @@ class ProblemManager
 
     // Basic long-term quantities stored in the mesh and periodically written
     // to storage (specific computiontional methods may store additional state)
-    std::shared_ptr<mesh_array_type> _position, _vorticity;
+    std::shared_ptr<pair_array_type> _vorticity;
+    std::shared_ptr<triple_array_type> _position;
 
     // Halo communication pattern for problem-manager stored data
     std::shared_ptr<halo_type> _surface_halo;
