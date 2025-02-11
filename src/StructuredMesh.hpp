@@ -228,18 +228,18 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
         auto zdy_view = z_dy.array()->view();
         auto w_view = w.array()->view();
         auto layout = z_dx.clayout()->layout();
-        auto node_triple_layout = ArrayUtils::createArrayLayout<triple_array_type>( layout->localGrid(), 3, Node() );
-        std::shared_ptr<mesh_array_type> out = ArrayUtils::createArray<memory_space>("omega", 
-                                                       node_triple_layout);
-        auto out_view = out->array()->view();
+
+        // The omega view has the same size as z_dx, so just clone z_dx
+        auto omega = ArrayUtils::ArrayOp::cloneCopy(z_dx, Cabana::Grid::Own());
+        auto omega_view = omega->array()->view();
         auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Node(), Cabana::Grid::Local());
         int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
         auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
         Kokkos::parallel_for("Calculate Omega", policy, KOKKOS_LAMBDA(const int i, const int j) {
             for (int k = 0; k < dim2; k++)
-                out_view(i, j, k) = w_view(i, j, 1) * zdx_view(i, j, k) - w_view(i, j, 0) * zdy_view(i, j, k);
+                omega_view(i, j, k) = w_view(i, j, 1) * zdx_view(i, j, k) - w_view(i, j, 0) * zdy_view(i, j, k);
         });
-        return out;
+        return omega;
     }
 
     // Get the boundary indexes on the periodic boundary. local_grid.boundaryIndexSpace()

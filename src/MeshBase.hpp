@@ -70,8 +70,17 @@ class MeshBase
         >
     >;
 
+    using base_scalar_type = std::conditional_t<
+        std::is_same_v<MeshTypeTag, Mesh::Structured>,
+        base_type,
+        std::conditional_t<
+            std::is_same_v<MeshTypeTag, Mesh::Unstructured>,
+            Cabana::MemberTypes<base_type>,
+            void
+        >
+    >;
+
     // Set the Cabana Local Grid type as the value type or the base type of the tuple
-    // using base_type = typename ExtractBaseTypes<value_type>::type;
     using cabana_local_grid_type = Cabana::Grid::LocalGrid<Cabana::Grid::UniformMesh<base_type, 2>>;
 
     /*
@@ -100,8 +109,10 @@ class MeshBase
 
     using triple_layout_type = ArrayUtils::ArrayLayout<mesh_type, entity_type, base_triple_type>;
     using pair_layout_type = ArrayUtils::ArrayLayout<mesh_type, entity_type, base_pair_type>;
+    using scalar_layout_type = ArrayUtils::ArrayLayout<mesh_type, entity_type, base_scalar_type>;
     using triple_array_type = ArrayUtils::Array<triple_layout_type, memory_space>;
     using pair_array_type = ArrayUtils::Array<pair_layout_type, memory_space>;
+    using scalar_array_type = ArrayUtils::Array<scalar_layout_type, memory_space>;
     
     virtual ~MeshBase() = default;
 

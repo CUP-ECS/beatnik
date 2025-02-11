@@ -30,9 +30,10 @@ class TimeIntegrator
 {
     using memory_space = typename ProblemManagerType::memory_space;
     using entity_type = typename ProblemManagerType::entity_type;
-    using mesh_array_type = typename ProblemManagerType::mesh_array_type;
-    using base_triple_type = typename mesh_array_type::base_triple_type;
-    using pair_array_type = typename mesh_array_type::base_pair_type;
+    using base_triple_type = typename ProblemManagerType::base_triple_type;
+    using base_pair_type = typename ProblemManagerType::base_pair_type;
+    using triple_array_type = typename ProblemManagerType::triple_array_type;
+    using pair_array_type = typename ProblemManagerType::pair_array_type;
 
   public:
     TimeIntegrator( const ProblemManagerType & pm,
@@ -152,7 +153,8 @@ class TimeIntegrator
     const ProblemManagerType& _pm;
     const BoundaryCondition&_bc;
     const ZModelType& _zm;
-    std::shared_ptr<mesh_array_type> _zdot, _wdot, _wtmp, _ztmp;
+    std::shared_ptr<triple_array_type> _zdot, _ztmp;
+    std::shared_ptr<pair_array_type> _wdot, _wtmp;
 };
 
 } // end namespace Beatnik

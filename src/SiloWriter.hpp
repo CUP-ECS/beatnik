@@ -47,7 +47,6 @@ class SiloWriter
     using memory_space = typename ProblemManagerType::memory_space;
     using execution_space = typename ProblemManagerType::execution_space;
     using mesh_type = typename ProblemManagerType::mesh_type;
-    using value_type = typename ProblemManagerType::beatnik_mesh_type::value_type;
     using mesh_type_tag = typename ProblemManagerType::mesh_type_tag;
     /**
      * Constructor
@@ -73,6 +72,8 @@ class SiloWriter
     {
         if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
         {
+            using value_type = typename ProblemManagerType::beatnik_mesh_type::base_type;
+
             // Initialize Variables
             int dims[3];
             double *coords[3], *vars[2];
@@ -190,110 +191,110 @@ class SiloWriter
             // https://visit-sphinx-github-user-manual.readthedocs.io/en/develop/data_into_visit/SiloFormat.html
             // Initialize Variables
             // int dims[3];
-            double *coords[3]; // *vars[2];
-            // int *nodelist;
-            // const char* coordnames[3] = { "X", "Y", "Z" };
-            DBoptlist* optlist;
-            int rank = _pm.mesh().rank();
+            // double *coords[3]; // *vars[2];
+            // // int *nodelist;
+            // // const char* coordnames[3] = { "X", "Y", "Z" };
+            // DBoptlist* optlist;
+            // int rank = _pm.mesh().rank();
 
-            // Retrieve the Local Grid and Local Mesh
-            const auto & mesh = _pm.mesh().layoutObj();
+            // // Retrieve the Local Grid and Local Mesh
+            // const auto & mesh = _pm.mesh().layoutObj();
 
-            // Set DB Options: Time Step, Time Stamp and Delta Time
-            optlist = DBMakeOptlist( 10 );
-            DBAddOption( optlist, DBOPT_CYCLE, &time_step );
-            DBAddOption( optlist, DBOPT_TIME, &time );
-            DBAddOption( optlist, DBOPT_DTIME, &dt );
-            int dbcoord = DB_CARTESIAN;
-            DBAddOption( optlist, DBOPT_COORDSYS, &dbcoord );
-            int dborder = DB_ROWMAJOR;
-            DBAddOption( optlist, DBOPT_MAJORORDER, &dborder );
-            int dbtopo = 2;
-            DBAddOption( optlist, DBOPT_TOPO_DIM, &dbtopo );
+            // // Set DB Options: Time Step, Time Stamp and Delta Time
+            // optlist = DBMakeOptlist( 10 );
+            // DBAddOption( optlist, DBOPT_CYCLE, &time_step );
+            // DBAddOption( optlist, DBOPT_TIME, &time );
+            // DBAddOption( optlist, DBOPT_DTIME, &dt );
+            // int dbcoord = DB_CARTESIAN;
+            // DBAddOption( optlist, DBOPT_COORDSYS, &dbcoord );
+            // int dborder = DB_ROWMAJOR;
+            // DBAddOption( optlist, DBOPT_MAJORORDER, &dborder );
+            // int dbtopo = 2;
+            // DBAddOption( optlist, DBOPT_TOPO_DIM, &dbtopo );
 
-            // Declare the coordinates of the portion of the mesh we're writing
-            auto vertices = mesh->vertices();
-            auto faces = mesh->faces();
-            int num_verts = mesh->count(NuMesh::Own(), NuMesh::Vertex());
-            int num_faces = mesh->count(NuMesh::Own(), NuMesh::Face());
+            // // Declare the coordinates of the portion of the mesh we're writing
+            // auto vertices = mesh->vertices();
+            // auto faces = mesh->faces();
+            // int num_verts = mesh->count(NuMesh::Own(), NuMesh::Vertex());
+            // int num_faces = mesh->count(NuMesh::Own(), NuMesh::Face());
 
-            // Get positions AoSoA and copy to host memory
-            using z_aosoa_type = Cabana::AoSoA<value_type, Kokkos::HostSpace, 4>;
-            auto zaosoa = _pm.get( Field::Position() )->array()->aosoa();
-            assert(zaosoa.size() == vertices.size()); // Ensure aosoa is up-to-date
-            z_aosoa_type zhaosoa("positions_host", zaosoa.size());
-            Cabana::deep_copy(zhaosoa, zaosoa);
-            auto z_slice = Cabana::slice<0>(zhaosoa);
+            // // Get positions AoSoA and copy to host memory
+            // using z_aosoa_type = Cabana::AoSoA<value_type, Kokkos::HostSpace, 4>;
+            // auto zaosoa = _pm.get( Field::Position() )->array()->aosoa();
+            // assert(zaosoa.size() == vertices.size()); // Ensure aosoa is up-to-date
+            // z_aosoa_type zhaosoa("positions_host", zaosoa.size());
+            // Cabana::deep_copy(zhaosoa, zaosoa);
+            // auto z_slice = Cabana::slice<0>(zhaosoa);
 
-            // Get face and vertex data and copy to host memory
-            using face_aosoa_type = Cabana::AoSoA<typename ProblemManagerType::
-                                                beatnik_mesh_type::
-                                                    mesh_type::face_data, Kokkos::HostSpace, 4>;
-            face_aosoa_type faces_h("faces_h", faces.size());
-            Cabana::deep_copy(faces_h, faces);
-            using vertex_aosoa_type = Cabana::AoSoA<typename ProblemManagerType::
-                                                beatnik_mesh_type::
-                                                    mesh_type::vertex_data, Kokkos::HostSpace, 4>;
-            vertex_aosoa_type vertices_h("vertices_h", vertices.size());
-            Cabana::deep_copy(vertices_h, vertices);
+            // // Get face and vertex data and copy to host memory
+            // using face_aosoa_type = Cabana::AoSoA<typename ProblemManagerType::
+            //                                     beatnik_mesh_type::
+            //                                         mesh_type::face_data, Kokkos::HostSpace, 4>;
+            // face_aosoa_type faces_h("faces_h", faces.size());
+            // Cabana::deep_copy(faces_h, faces);
+            // using vertex_aosoa_type = Cabana::AoSoA<typename ProblemManagerType::
+            //                                     beatnik_mesh_type::
+            //                                         mesh_type::vertex_data, Kokkos::HostSpace, 4>;
+            // vertex_aosoa_type vertices_h("vertices_h", vertices.size());
+            // Cabana::deep_copy(vertices_h, vertices);
         
-            // Allocate coords array, which is the same size as the facelist array
-            for ( unsigned int i = 0; i < 3; i++ )
-            {
-                coords[i] = (double*)malloc( sizeof( double ) * num_faces * 3);
-            }
+            // // Allocate coords array, which is the same size as the facelist array
+            // for ( unsigned int i = 0; i < 3; i++ )
+            // {
+            //     coords[i] = (double*)malloc( sizeof( double ) * num_faces * 3);
+            // }
 
 
-            // Connectivity: Collect element connectivity
-            int* nodelist = (int*)malloc(num_faces * 3 * sizeof(int)); // Triangles (3 nodes each)
-            int lnodelist = num_faces * 3;
+            // // Connectivity: Collect element connectivity
+            // int* nodelist = (int*)malloc(num_faces * 3 * sizeof(int)); // Triangles (3 nodes each)
+            // int lnodelist = num_faces * 3;
 
-            // Fill nodelist array with the vertex LIDs on each face
-            auto v_gids = Cabana::slice<V_GID>(vertices_h);
-            auto f_vids = Cabana::slice<F_VIDS>(faces_h);
-            auto f_gid = Cabana::slice<F_GID>(faces_h);
-            int index = 0;
-            for (int i = 0; i < num_faces; i++)
-            {
-                for (int j = 0; j < 3; j++)
-                {
-                    int fvid = f_vids(i, j);
-                    int vlid = NuMesh::Utils::get_lid(v_gids, fvid, 0, vertices_h.size());
-                    assert(vlid != -1);
-                    nodelist[index++] = vlid;
+            // // Fill nodelist array with the vertex LIDs on each face
+            // auto v_gids = Cabana::slice<V_GID>(vertices_h);
+            // auto f_vids = Cabana::slice<F_VIDS>(faces_h);
+            // auto f_gid = Cabana::slice<F_GID>(faces_h);
+            // int index = 0;
+            // for (int i = 0; i < num_faces; i++)
+            // {
+            //     for (int j = 0; j < 3; j++)
+            //     {
+            //         int fvid = f_vids(i, j);
+            //         int vlid = NuMesh::Utils::get_lid(v_gids, fvid, 0, vertices_h.size());
+            //         assert(vlid != -1);
+            //         nodelist[index++] = vlid;
 
-                    // Fill the coords array for this vertex
-                    // Since faces share vertices we will be writing the same data multiple times
-                    for (int k = 0; k < 3; k++)
-                        coords[k][vlid] = z_slice(vlid, k);
-                    // printf("R%d: nodelist[%d] = %d\n", rank, index-1, f_vids(i, j));
-                }
-            }
+            //         // Fill the coords array for this vertex
+            //         // Since faces share vertices we will be writing the same data multiple times
+            //         for (int k = 0; k < 3; k++)
+            //             coords[k][vlid] = z_slice(vlid, k);
+            //         // printf("R%d: nodelist[%d] = %d\n", rank, index-1, f_vids(i, j));
+            //     }
+            // }
 
-            // Define zone shape for triangles
-            int shapetype[1] = {DB_ZONETYPE_TRIANGLE};  // Triangular elements
-            int shapesize[1] = {3};  // Each triangle has 3 nodes
-            int shapecnt[1] = {num_faces};  // Number of triangular elements
+            // // Define zone shape for triangles
+            // int shapetype[1] = {DB_ZONETYPE_TRIANGLE};  // Triangular elements
+            // int shapesize[1] = {3};  // Each triangle has 3 nodes
+            // int shapecnt[1] = {num_faces};  // Number of triangular elements
 
-            // Write zonelist
-            DBPutZonelist2(dbfile, "zonelist", num_faces, 2, nodelist, lnodelist,
-                        0, 0, 0, shapetype, shapesize, shapecnt, 1, NULL);
+            // // Write zonelist
+            // DBPutZonelist2(dbfile, "zonelist", num_faces, 2, nodelist, lnodelist,
+            //             0, 0, 0, shapetype, shapesize, shapecnt, 1, NULL);
 
-            // Write unstructured mesh
-            DBPutUcdmesh(dbfile, "Mesh", 2, NULL, coords, num_verts, num_faces,
-                        "zonelist", NULL, DB_DOUBLE, NULL);
+            // // Write unstructured mesh
+            // DBPutUcdmesh(dbfile, "Mesh", 2, NULL, coords, num_verts, num_faces,
+            //             "zonelist", NULL, DB_DOUBLE, NULL);
 
-            // Free allocated memory
-            for (int i = 0; i < 3; i++) {
-                free(coords[i]);
-            }
-            free(nodelist);
+            // // Free allocated memory
+            // for (int i = 0; i < 3; i++) {
+            //     free(coords[i]);
+            // }
+            // free(nodelist);
 
-            // Free Option List
-            DBFreeOptlist( optlist );
+            // // Free Option List
+            // DBFreeOptlist( optlist );
 
 
-            return;
+            // return;
 
             // TEST DATA
             // int num_verts = 3;

@@ -67,8 +67,12 @@ class ZModel
     using memory_space = typename ProblemManagerType::memory_space;
     using mesh_type_tag = typename ProblemManagerType::mesh_type_tag;
     using mesh_type = typename ProblemManagerType::mesh_type::mesh_type; // This is a Cabana::Grid::Mesh type
+    using base_triple_type = typename ProblemManagerType::base_triple_type;
+    using base_pair_type = typename ProblemManagerType::base_pair_type;
+    using base_scalar_type = typename ProblemManagerType::beatnik_mesh_type::base_scalar_type;
     using triple_array_type = typename ProblemManagerType::triple_array_type;
     using pair_array_type = typename ProblemManagerType::pair_array_type;
+    using scalar_array_type = typename ProblemManagerType::beatnik_mesh_type::scalar_array_type;
     using entity_type = typename ProblemManagerType::entity_type;
     using halo_type = Cabana::Grid::Halo<memory_space>;
 
@@ -90,11 +94,11 @@ class ZModel
         // Need the node triple layout for storing vector normals and the 
         // node double layout for storing x and y surface derivative
         auto node_double_layout =
-            ArrayUtils::createArrayLayout<value_type>( _pm.mesh().layoutObj(), 2, entity_type() );
+            ArrayUtils::createArrayLayout<base_pair_type>( _pm.mesh().layoutObj(), 2, entity_type() );
         auto node_triple_layout =
-            ArrayUtils::createArrayLayout<value_type>( _pm.mesh().layoutObj(), 3, entity_type() );
+            ArrayUtils::createArrayLayout<base_triple_type>( _pm.mesh().layoutObj(), 3, entity_type() );
         auto node_scalar_layout =
-            ArrayUtils::createArrayLayout<value_type>( _pm.mesh().layoutObj(), 1, entity_type() );
+            ArrayUtils::createArrayLayout<base_scalar_type>( _pm.mesh().layoutObj(), 1, entity_type() );
 
         
         // Initize omega view
@@ -702,12 +706,12 @@ class ZModel
     double _dx, _dy;
     double _A, _g, _mu;
     const int _heffte_configuration;
-    std::shared_ptr<triple_array_type> _V;
+    std::shared_ptr<scalar_array_type> _V;
     std::shared_ptr<halo_type> _v_halo;
     std::shared_ptr<triple_array_type> _omega;
 
     /* XXX Make this conditional on not being the high-order model */ 
-    std::shared_ptr<triple_array_type> _reisz;
+    std::shared_ptr<pair_array_type> _reisz;
     std::shared_ptr<triple_array_type> _C1, _C2; 
     std::shared_ptr<Cabana::Grid::Experimental::HeffteFastFourierTransform<Cabana::Grid::Node, mesh_type, double, memory_space, execution_space, Cabana::Grid::Experimental::Impl::FFTBackendDefault>> _fft;
 }; // class ZModel
