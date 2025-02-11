@@ -52,8 +52,17 @@ class VTKWriter
   public:
     using memory_space = typename ProblemManagerType::memory_space;
     using execution_space = typename ProblemManagerType::execution_space;
-    using value_type = typename ProblemManagerType::beatnik_mesh_type::value_type;
+    using base_triple_type = typename ProblemManagerType::beatnik_mesh_type::base_triple_type;
+    using base_pair_type = typename ProblemManagerType::beatnik_mesh_type::base_pair_type;
     using mesh_type_tag = typename ProblemManagerType::mesh_type_tag;
+
+    using face_aosoa_type = Cabana::AoSoA<typename ProblemManagerType::
+                                        beatnik_mesh_type::
+                                            mesh_type::face_data, Kokkos::HostSpace, 4>;
+    using vertex_aosoa_type = Cabana::AoSoA<typename ProblemManagerType::
+                                        beatnik_mesh_type::
+                                            mesh_type::vertex_data, Kokkos::HostSpace, 4>;
+
     /**
      * Constructor
      * Create new VTKWriter
@@ -62,7 +71,18 @@ class VTKWriter
      */
     VTKWriter( ProblemManagerType& pm )
         : _pm( pm )
-    {};
+    {
+        // Get face and vertex data from mesh and copy to host memory
+        const auto & mesh = _pm.mesh().layoutObj();
+        auto vertices = mesh->vertices();
+        auto faces = mesh->faces();
+
+        _faces_h = face_aosoa_type("faces_h", faces.size());
+        Cabana::deep_copy(_faces_h, faces);
+        
+        _vertices_h = vertex_aosoa_type("vertices_h", vertices.size());
+        Cabana::deep_copy(_vertices_h, vertices);
+    };
 
     // void setFilename( const idx_t step )
     // {
@@ -74,6 +94,9 @@ class VTKWriter
     void createDataFile( const int step )
     {
         // setFilename( step );
+
+        // Reset number of vertices
+        // _num_vertices = 0;
 
         // Retrieve the Local Grid and Local Mesh
         const auto & mesh = _pm.mesh().layoutObj();
@@ -90,29 +113,18 @@ class VTKWriter
         int num_faces = mesh->count(NuMesh::Own(), NuMesh::Face());
 
         // Get positions AoSoA and copy to host memory
-        using z_aosoa_type = Cabana::AoSoA<value_type, Kokkos::HostSpace, 4>;
+        using z_aosoa_type = Cabana::AoSoA<base_triple_type, Kokkos::HostSpace, 4>;
         auto zaosoa = _pm.get( Field::Position() )->array()->aosoa();
         assert(zaosoa.size() == vertices.size()); // Ensure aosoa is up-to-date
         z_aosoa_type zhaosoa("positions_host", zaosoa.size());
         Cabana::deep_copy(zhaosoa, zaosoa);
         auto z_slice = Cabana::slice<0>(zhaosoa);
 
-        // Get face and vertex data and copy to host memory
-        using face_aosoa_type = Cabana::AoSoA<typename ProblemManagerType::
-                                            beatnik_mesh_type::
-                                                mesh_type::face_data, Kokkos::HostSpace, 4>;
-        face_aosoa_type faces_h("faces_h", faces.size());
-        Cabana::deep_copy(faces_h, faces);
-        using vertex_aosoa_type = Cabana::AoSoA<typename ProblemManagerType::
-                                            beatnik_mesh_type::
-                                                mesh_type::vertex_data, Kokkos::HostSpace, 4>;
-        vertex_aosoa_type vertices_h("vertices_h", vertices.size());
-        Cabana::deep_copy(vertices_h, vertices);
-
-        auto v_gids = Cabana::slice<V_GID>(vertices_h);
-        auto f_vids = Cabana::slice<F_VIDS>(faces_h);
-        auto f_gid = Cabana::slice<F_GID>(faces_h);
-        auto f_cids = Cabana::slice<F_CID>(faces_h);
+        // Mesh slices
+        auto v_gids = Cabana::slice<V_GID>(_vertices_h);
+        auto f_vids = Cabana::slice<F_VIDS>(_faces_h);
+        auto f_gid = Cabana::slice<F_GID>(_faces_h);
+        auto f_cids = Cabana::slice<F_CID>(_faces_h);
 
         // create all points and triangles
         for ( size_t n = 0; n < vertices.size(); ++n ) {
@@ -124,13 +136,13 @@ class VTKWriter
                 continue;
             }
             int fvid0 = f_vids(n, 0);
-            int vlid0 = NuMesh::Utils::get_lid(v_gids, fvid0, 0, vertices_h.size());
+            int vlid0 = NuMesh::Utils::get_lid(v_gids, fvid0, 0, _vertices_h.size());
             assert(vlid0 != -1);
-            int fvid1 = f_vids(n, 0);
-            int vlid1 = NuMesh::Utils::get_lid(v_gids, fvid1, 0, vertices_h.size());
+            int fvid1 = f_vids(n, 1);
+            int vlid1 = NuMesh::Utils::get_lid(v_gids, fvid1, 0, _vertices_h.size());
             assert(vlid1 != -1);
-            int fvid2 = f_vids(n, 0);
-            int vlid2 = NuMesh::Utils::get_lid(v_gids, fvid2, 0, vertices_h.size());
+            int fvid2 = f_vids(n, 2);
+            int vlid2 = NuMesh::Utils::get_lid(v_gids, fvid2, 0, _vertices_h.size());
             assert(vlid2 != -1);
             vtkNew<vtkTriangle> tri;
             tri->GetPointIds()->SetId( 0, vlid0 );
@@ -166,24 +178,50 @@ class VTKWriter
 
     void writeVorticity()
     {
-        auto mesh = _pm.mesh()->layoutObj();
-        auto w_aosoa = _pm.get( Field::Vorticity() )->array()->aosoa();
+        const auto& mesh = _pm.mesh().layoutObj();
+        // int num_verts = mesh->count(NuMesh::Own(), NuMesh::Vertex());
+        int num_faces = mesh->count(NuMesh::Own(), NuMesh::Face());
         
+        // Copy vorticity to host memory
+        using w_aosoa_type = Cabana::AoSoA<base_pair_type, Kokkos::HostSpace, 4>;
+        auto waosoa = _pm.get( Field::Vorticity() )->array()->aosoa();
+        assert(waosoa.size() == mesh->vertices().size()); // Ensure aosoa is up-to-date
+        w_aosoa_type whaosoa("vorticity_host", waosoa.size());
+        Cabana::deep_copy(whaosoa, waosoa);
+        auto w_slice = Cabana::slice<0>(whaosoa);
 
-        auto h_field = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), field );
+        // Mesh slices
+        auto v_gids = Cabana::slice<V_GID>(_vertices_h);
+        auto f_vids = Cabana::slice<F_VIDS>(_faces_h);
+        auto f_gid = Cabana::slice<F_GID>(_faces_h);
+        auto f_cids = Cabana::slice<F_CID>(_faces_h);
+
+        std::string name = "vorticity";
 
         vtkNew<vtkDoubleArray> vtk_data;
+        const int num_vars = 2;
         vtk_data->SetName( name.c_str() );
         vtk_data->SetNumberOfComponents( num_vars );
-        vtk_data->SetNumberOfTuples( num_verts );
-        for ( idx_t n = 0; n < num_verts; ++n ) {
-            if ( num_vars == 1 ) {
-                vtk_data->SetTuple1( n, h_field( n, 0 ) );
-            } else if ( num_vars == 2 ) {
-                vtk_data->SetTuple2( n, h_field( n, 0 ), h_field( n, 1 ) );
-            } else {
-                vtk_data->SetTuple3( n, h_field( n, 0 ), h_field( n, 1 ), h_field( n, 2 ) );
+        vtk_data->SetNumberOfTuples( mesh->vertices().size() );
+
+        // Write vorticity data for all points on all owned faces
+        for ( int n = 0; n < num_faces; ++n ) {
+            if ( f_cids( n, 0 ) != -1 ) {
+                // Only consider child faces
+                continue;
             }
+            int fvid0 = f_vids(n, 0);
+            int vlid0 = NuMesh::Utils::get_lid(v_gids, fvid0, 0, _vertices_h.size());
+            assert(vlid0 != -1);
+            int fvid1 = f_vids(n, 1);
+            int vlid1 = NuMesh::Utils::get_lid(v_gids, fvid1, 0, _vertices_h.size());
+            assert(vlid1 != -1);
+            int fvid2 = f_vids(n, 2);
+            int vlid2 = NuMesh::Utils::get_lid(v_gids, fvid2, 0, _vertices_h.size());
+            assert(vlid2 != -1);
+            vtk_data->SetTuple2( vlid0, w_slice( vlid0, 0 ), w_slice( vlid0, 1 ) );
+            vtk_data->SetTuple2( vlid1, w_slice( vlid1, 0 ), w_slice( vlid1, 1 ) );
+            vtk_data->SetTuple2( vlid2, w_slice( vlid2, 0 ), w_slice( vlid2, 1 ) );
         }
         _d_vtk_mesh->GetPointData()->AddArray( vtk_data );
     }
@@ -221,6 +259,7 @@ class VTKWriter
                             std::to_string(time_step) + ".vtu";
 
         createDataFile(time_step);
+        writeVorticity();
 
         // Each rank writes its own VTU file
         auto writer = vtkSmartPointer<vtkXMLUnstructuredGridWriter>::New();
@@ -272,14 +311,24 @@ class VTKWriter
         
   private:
     const ProblemManagerType &_pm;
-
     vtkSmartPointer<vtkUnstructuredGrid> _d_vtk_mesh;
+
+    face_aosoa_type _faces_h;
+    vertex_aosoa_type _vertices_h;
+
+    /**
+     * The number of vertices that reside on all faces we own.
+     * Some of these vertices are ghosted.
+     * Populated during the call to createDataFile
+     * and used to set the number of tuples for vorticity data in writeVorticity.
+     */
+    // int _num_vertices;
 };
 
 template <class ProblemManagerType>
-std::shared_ptr<VTKWriter<ProblemManagerType>> createVTKWriter( ProblemManagerType& pm, const std::string base)
+std::shared_ptr<VTKWriter<ProblemManagerType>> createVTKWriter( ProblemManagerType& pm )
 {
-    return std::make_shared<VTKWriter<ProblemManagerType>>( pm, base );
+    return std::make_shared<VTKWriter<ProblemManagerType>>( pm );
 }
 
 }; // namespace Beatnik
