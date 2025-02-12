@@ -18,6 +18,8 @@
 
 #include <MeshBase.hpp>
 
+#include <KokkosBatched_LU_Decl.hpp>
+#include <KokkosBatched_Trsm_Decl.hpp>
 #include <NuMesh_Core.hpp>
 
 #include <mpi.h>
@@ -26,13 +28,13 @@ namespace Beatnik
 {
 
 KOKKOS_INLINE_FUNCTION
-double kern( const double d ) const
+double kern( const double d, const double shape_factor, const double hybrid_weight )
 {
     return Kokkos::exp( -shape_factor * d * d ) + hybrid_weight * d * d * d;
 }
 
 KOKKOS_INLINE_FUNCTION
-double kernPrime( const double d ) const
+double kernPrime( const double d, const double shape_factor, const double hybrid_weight )
 {
     return -double( 2.0 ) * shape_factor * d * Kokkos::exp( -shape_factor * d * d ) +
         double( 3.0 ) * hybrid_weight * d * d;
@@ -127,7 +129,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
      * Calculates surface gradients at vertices of an unstructured mesh using
      * radial basis functions (RBFs) and a moving least squares (MLS) approach. 
      */
-    void compute_gradient(const triple_array_type& positions_array)
+    void compute_gradient(const triple_array_type& positions_array, const double shape_factor, const double hybrid_weight)
     {
         // Ensure positions array is up-to-date
         assert(positions_array->array.size() == _mesh->vertices.size());
@@ -174,7 +176,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
                         double dz = viz - positions(vj, 2);
                         double d = sqrt(dx * dx + dy * dy + dz * dz);
 
-                        K[i][j] = kern(d);
+                        K[i][j] = kern(d, shape_factor, hybrid_weight);
                         K[j][i] = K[i][j];
                     }
                     K[i][sten_size] = 1.0;
@@ -184,7 +186,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
                     viy = pos_y - viy;
                     viz = pos_z - viz;
                     double ed = sqrt(vix * vix + viy * viy + viz * viz);
-                    double kp = (i == 0) ? 0.0 : kernPrime(ed) / ed;
+                    double kp = (i == 0) ? 0.0 : kernPrime(ed, shape_factor, hybrid_weight) / ed;
 
                     grad_sample[i][0] = vix * kp;
                     grad_sample[i][1] = viy * kp;
