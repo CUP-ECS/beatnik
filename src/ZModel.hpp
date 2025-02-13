@@ -477,6 +477,8 @@ class ZModel
                                    triple_array_type& zdot_array, triple_array_type& wdot_array,
                                    EntityTag etag, DecompositionTag dtag ) const
     {
+        // Including notes for unstructured approach
+
         // External calls to this object work on Cabana::Grid arrays, but internal
         // methods mostly work on the views, with the entry points responsible
         // for handling the halos.
@@ -488,6 +490,10 @@ class ZModel
         // mostly-local parallel calculations in phase 2
 
         // Get dx and dy arrays
+        /**
+         * Ignore for unstructured case. Instead, return gradients, a (num_vertices, 3)
+         * aosoa where for each vertex we have a dx, dy, and dz value.
+         */
         auto z_dx = _pm.mesh().Dx(z_array, _dx);
         auto z_dy = _pm.mesh().Dy(z_array, _dy);
         /**
@@ -508,11 +514,18 @@ class ZModel
          */
 
         // Phase 1.a: Calcuate the omega value for each point
+        /**
+         * Unstructured: calculate omega using w_array and gradients. Returns an array
+         * of the same dimensions of the structured version: (num_vertices, 3) 
+         */
         auto out = _pm.mesh().omega(w_array, *z_dx, *z_dy);
         // Keep omega constant for now, quadratic in terms of the initial vertical position
         Beatnik::ArrayUtils::ArrayOp::copy(*_omega, *out, dtag);
 
         // Phase 1.b: Compute zdot
+        /** 
+         * Unstructured: This is the BR tree walk. Ignore for now. Until then, what should the values in zdot be?
+        */
         prepareVelocities(ModelOrderTag(), zdot_array, z_array, w_array, *_omega, etag);
 
         /*
@@ -521,6 +534,15 @@ class ZModel
             double h12 = Operators::dot(dx_z, dy_z);
             double h22 = Operators::dot(dy_z, dy_z);
             double deth = h11*h22 - h12*h12;
+         */
+        /**
+         * Structured: z_dx and z_dy are (num_vertices, 3) arrays. h11/h12h/22 are (num_vertices, 1) arrays
+         * 
+         * Unstructured:
+         *  h11: square the first (dx) dimension of gradients, i.e. h11(v) = gradients(v, 0) * gradients(v, 0)?
+         *      Is this the same thing as the structured case, because here gradients(v, 0) is a single number,
+         *          rather than a 3-vector in the structured case
+         *  h12/h22: same approach as for h11
          */
         auto h11 = ArrayUtils::ArrayOp::element_dot(*z_dx, *z_dx, dtag);
         auto h12 = ArrayUtils::ArrayOp::element_dot(*z_dx, *z_dy, dtag);
@@ -549,6 +571,11 @@ class ZModel
         auto surface_normal = 
             ArrayUtils::ArrayOp::element_multiply(
                 *inv_sqrt_deth, // 1/sqrt(deth)
+                /**
+                 * Structured: z_dx and z_dy are 3-vectors so we can cross them.
+                 * Unstructured: how do we cross the z_dx and z_dy equivalents, i.e. gradients(v, 0) x gradients(v, 1)?
+                 *      These a single numbers, not 3-vectors. Do we cross gradients with itself, instead?
+                 */
                 *ArrayUtils::ArrayOp::element_cross(*z_dx, *z_dy, dtag), // Dx \cross Dy
                 dtag
             );
@@ -559,6 +586,9 @@ class ZModel
         // Clone another 1D array to create zndot, which is also 1D.
         auto zndot = ArrayUtils::ArrayOp::clone(*h11); 
         ArrayUtils::ArrayOp::assign(*zndot, 0.0, dtag); // XXX - Should not be needed
+        /**
+         * Unstructured: finalizeVelocity should work the same. High-order only.
+         */
         finalizeVelocity(ModelOrderTag(), *zndot, zdot_array, *_reisz, *surface_normal, *inv_deth, dtag);
 
         /*
@@ -633,6 +663,11 @@ class ZModel
                 wdot_view(i, j, 0) = A * dx_v + mu * lap_w0;
                 wdot_view(i, j, 1) = A * dy_v + mu * lap_w1;
             });
+         */
+        /**
+         * Strucutred: Here, we compute graidents for V, which is a scalar array. 
+         * 
+         * Unstructured: Do we need to support gradient calculations on 1-vectors? How do you do this?
          */
         auto dx_v = _pm.mesh().Dx(*_V, _dx);
         auto dy_v = _pm.mesh().Dy(*_V, _dy);
