@@ -201,7 +201,7 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
     }
 
     /* 9-point laplace stencil operator for computing artificial viscosity */
-    std::shared_ptr<triple_array_type> laplace(const triple_array_type& in, const double dx, const double dy) const override
+    std::shared_ptr<pair_array_type> laplace(const pair_array_type& in, const double dx, const double dy) const override
     {
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
         auto out_view = out->array()->view();

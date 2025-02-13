@@ -124,7 +124,7 @@ class MeshBase
     virtual std::shared_ptr<triple_array_type> Dx(const triple_array_type& in, const double dx) const = 0;
     virtual std::shared_ptr<triple_array_type> Dy(const triple_array_type& in, const double dy) const = 0;
     virtual std::shared_ptr<triple_array_type> omega(const pair_array_type& w, const triple_array_type& z_dx, const triple_array_type& z_dy) const = 0;
-    virtual std::shared_ptr<triple_array_type> laplace(const triple_array_type& in, const double dx, const double dy) const = 0;
+    virtual std::shared_ptr<pair_array_type> laplace(const pair_array_type& in, const double dx, const double dy) const = 0;
     virtual int is_periodic(void) const = 0;
     virtual MPI_Comm comm(void) const = 0;
     virtual int rank(void) const = 0;

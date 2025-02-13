@@ -59,6 +59,8 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     using pair_array_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::pair_array_type;
     using cabana_local_grid_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::cabana_local_grid_type;
 
+    using v2v_type = NuMesh::Maps::V2V<mesh_type>;
+
     UnstructuredMesh( const std::array<double, 6>& global_bounding_box,
           const std::array<int, 2>& num_nodes,
 	      const std::array<bool, 2>& periodic,
@@ -123,101 +125,136 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
         // Initialize the unstructured mesh from the connectivity of the local grid.
         _mesh->initializeFromArray(*darray);
+
+        _gradient_version = -1;
+
+        // Initialize vertex connectivity at level 0
+        _v2v = std::make_shared<v2v_type>(_mesh, 0);
+        
+        auto node_triple_layout =
+            ArrayUtils::createArrayLayout<base_triple_type>( _mesh, 3, entity_type() );
+        auto pos_test = ArrayUtils::createArray<memory_space>("pos_test", node_triple_layout);
+        compute_gradient(*pos_test, 0, 1.0, 1.0);
     }
     
     /**
      * Calculates surface gradients at vertices of an unstructured mesh using
-     * radial basis functions (RBFs) and a moving least squares (MLS) approach. 
+     * radial basis functions (RBFs) and a moving least squares (MLS) approach.
+     * 
+     * Using vertex connectivity at "level" of the mesh
      */
-    void compute_gradient(const triple_array_type& positions_array, const double shape_factor, const double hybrid_weight)
+    void compute_gradient(const triple_array_type& positions_array, 
+            const int level, const double shape_factor, const double hybrid_weight)
     {
         // Ensure positions array is up-to-date
-        assert(positions_array->array.size() == _mesh->vertices.size());
+        assert(positions_array.array()->aosoa().size() == _mesh->vertices().size());
 
         // Initialize gradients AoSoA, which has "num verts" Cabana::MemberTypes<double[3]> tuples
         auto vertex_triple_layout =
             ArrayUtils::createArrayLayout<base_triple_type>(_mesh, 3, NuMesh::Vertex());
         _gradients = ArrayUtils::createArray<memory_space>("_gradients", vertex_triple_layout);
-        auto gradients = Cabana::slice<0>(_gradients);
+        auto gradients = Cabana::slice<0>(_gradients->array()->aosoa());
 
-        // Retrieve vertex-to-face connectivity
-        auto v2f = NuMesh::Maps::V2F(_mesh);
-        auto offsets = v2f.offsets();
-        auto indices = v2f.indices();
+        // Retrieve vertex-to-vertex connectivity, update if needed
+        if ((_mesh->version() != _v2v->version()) || (_v2v->level() != level))
+        {
+            _v2v = std::make_shared<v2v_type>(_mesh, level);
+        }
+
+        auto offsets = _v2v->offsets();
+        auto indices = _v2v->indices();
         int owned_vertices = _mesh->count(NuMesh::Own(), NuMesh::Vertex());
 
-        auto positions = Cabana::slice<0>(positions_array->array()->aosoa());
+        auto positions = Cabana::slice<0>(positions_array.array()->aosoa());
+
+        // At worst, each vert is connected 6*3*(max tree level) verts
+        int max_stecil_size = 6 * 3 * _mesh->max_level();
+
+        // Allocate workspace for K and grad_sample
+        Kokkos::View<double***, memory_space> K("Kernel Matrix", owned_vertices, max_stecil_size + 1, max_stecil_size + 1);
+        Kokkos::View<double***, memory_space> grad_sample("Gradient Samples", owned_vertices, max_stecil_size + 1, 3);
 
         Kokkos::parallel_for("compute_gradient", Kokkos::RangePolicy<execution_space>(0, owned_vertices),
             KOKKOS_LAMBDA(int vlid) {
-                int offset = offsets(vlid);
-                int next_offset = (vlid + 1 < (int)offsets.extent(0)) ? offsets(vlid + 1) : (int)indices.extent(0);
-                int sten_size = next_offset - offset;
 
-                // Position of current vertex
-                double pos_x = positions(vlid, 0);
-                double pos_y = positions(vlid, 1);
-                double pos_z = positions(vlid, 2);
+            int offset = offsets(vlid);
+            int next_offset = (vlid + 1 < (int)offsets.extent(0)) ? offsets(vlid + 1) : (int)indices.extent(0);
+            int sten_size = next_offset - offset;
 
-                // Kernel matrix and gradient samples
-                double K[sten_size + 1][sten_size + 1] = {0.0};
-                double grad_sample[sten_size + 1][3] = {0.0};
+            // Position of current vertex
+            double pos_x = positions(vlid, 0);
+            double pos_y = positions(vlid, 1);
+            double pos_z = positions(vlid, 2);
 
-                for (int i = 0; i < sten_size; ++i) {
-                    int vi = indices(offset + i);
-                    double vix = positions(vi, 0);
-                    double viy = positions(vi, 1);
-                    double viz = positions(vi, 2);
-                    
-                    for (int j = 0; j <= i; ++j) {
-                        int vj = indices(offset + j);
-                        double dx = vix - positions(vj, 0);
-                        double dy = viy - positions(vj, 1);
-                        double dz = viz - positions(vj, 2);
-                        double d = sqrt(dx * dx + dy * dy + dz * dz);
-
-                        K[i][j] = kern(d, shape_factor, hybrid_weight);
-                        K[j][i] = K[i][j];
-                    }
-                    K[i][sten_size] = 1.0;
-                    K[sten_size][i] = 1.0;
-                    
-                    vix = pos_x - vix;
-                    viy = pos_y - viy;
-                    viz = pos_z - viz;
-                    double ed = sqrt(vix * vix + viy * viy + viz * viz);
-                    double kp = (i == 0) ? 0.0 : kernPrime(ed, shape_factor, hybrid_weight) / ed;
-
-                    grad_sample[i][0] = vix * kp;
-                    grad_sample[i][1] = viy * kp;
-                    grad_sample[i][2] = viz * kp;
+            // Initialize Kernel matrix and grad_sample
+            for (int i = 0; i <= sten_size; ++i) {
+                for (int j = 0; j <= sten_size; ++j) {
+                    K(vlid, i, j) = 0.0;
                 }
-                
-                K[sten_size][sten_size] = 0.0;
-                
-                // LU factorization
-                KokkosBatched::SerialLU<KokkosBatched::Algo::LU::Unblocked>::invoke(K);
+                grad_sample(vlid, i, 0) = 0.0;
+                grad_sample(vlid, i, 1) = 0.0;
+                grad_sample(vlid, i, 2) = 0.0;
+            }
 
-                // Solve for gradients
-                KokkosBatched::SerialTrsm<KokkosBatched::Side::Left,
-                                        KokkosBatched::Uplo::Lower,
-                                        KokkosBatched::Trans::NoTranspose,
-                                        KokkosBatched::Diag::Unit,
-                                        KokkosBatched::Algo::Trsm::Unblocked>::invoke(1.0, K, grad_sample);
-                KokkosBatched::SerialTrsm<KokkosBatched::Side::Left,
-                                        KokkosBatched::Uplo::Upper,
-                                        KokkosBatched::Trans::NoTranspose,
-                                        KokkosBatched::Diag::NonUnit,
-                                        KokkosBatched::Algo::Trsm::Unblocked>::invoke(1.0, K, grad_sample);
+            for (int i = 0; i < sten_size; ++i) {
+                int vi = indices(offset + i);
+                double vix = positions(vi, 0);
+                double viy = positions(vi, 1);
+                double viz = positions(vi, 2);
 
-                // Project onto surface tangent
-                for (int i = 0; i < sten_size; ++i) {
-                    double xDg = pos_x * grad_sample[i][0] + pos_y * grad_sample[i][1] + pos_z * grad_sample[i][2];
-                    gradients(vlid, 0) += grad_sample[i][0] - xDg * pos_x;
-                    gradients(vlid, 1) += grad_sample[i][1] - xDg * pos_y;
-                    gradients(vlid, 2) += grad_sample[i][2] - xDg * pos_z;
+                for (int j = 0; j <= i; ++j) {
+                    int vj = indices(offset + j);
+                    double dx = vix - positions(vj, 0);
+                    double dy = viy - positions(vj, 1);
+                    double dz = viz - positions(vj, 2);
+                    double d = sqrt(dx * dx + dy * dy + dz * dz);
+
+                    K(vlid, i, j) = kern(d, shape_factor, hybrid_weight);
+                    K(vlid, j, i) = K(vlid, i, j);
                 }
-            });
+                K(vlid, i, sten_size) = 1.0;
+                K(vlid, sten_size, i) = 1.0;
+
+                vix = pos_x - vix;
+                viy = pos_y - viy;
+                viz = pos_z - viz;
+                double ed = sqrt(vix * vix + viy * viy + viz * viz);
+                double kp = (i == 0) ? 0.0 : kernPrime(ed, shape_factor, hybrid_weight) / ed;
+
+                grad_sample(vlid, i, 0) = vix * kp;
+                grad_sample(vlid, i, 1) = viy * kp;
+                grad_sample(vlid, i, 2) = viz * kp;
+            }
+
+            K(vlid, sten_size, sten_size) = 0.0;
+
+            // LU factorization
+            KokkosBatched::SerialLU<KokkosBatched::Algo::LU::Unblocked>::invoke(Kokkos::subview(K, vlid, Kokkos::ALL, Kokkos::ALL));
+
+            // Solve for gradients
+            KokkosBatched::SerialTrsm<KokkosBatched::Side::Left,
+                                    KokkosBatched::Uplo::Lower,
+                                    KokkosBatched::Trans::NoTranspose,
+                                    KokkosBatched::Diag::Unit,
+                                    KokkosBatched::Algo::Trsm::Unblocked>::invoke(
+                1.0, Kokkos::subview(K, vlid, Kokkos::ALL, Kokkos::ALL), Kokkos::subview(grad_sample, vlid, Kokkos::ALL, Kokkos::ALL));
+
+            KokkosBatched::SerialTrsm<KokkosBatched::Side::Left,
+                                    KokkosBatched::Uplo::Upper,
+                                    KokkosBatched::Trans::NoTranspose,
+                                    KokkosBatched::Diag::NonUnit,
+                                    KokkosBatched::Algo::Trsm::Unblocked>::invoke(
+                1.0, Kokkos::subview(K, vlid, Kokkos::ALL, Kokkos::ALL), Kokkos::subview(grad_sample, vlid, Kokkos::ALL, Kokkos::ALL));
+
+            // Project onto surface tangent
+            for (int i = 0; i < sten_size; ++i) {
+                double xDg = pos_x * grad_sample(vlid, i, 0) + pos_y * grad_sample(vlid, i, 1) + pos_z * grad_sample(vlid, i, 2);
+                gradients(vlid, 0) += grad_sample(vlid, i, 0) - xDg * pos_x;
+                gradients(vlid, 1) += grad_sample(vlid, i, 1) - xDg * pos_y;
+                gradients(vlid, 2) += grad_sample(vlid, i, 2) - xDg * pos_z;
+            }
+        });
+        _gradient_version = _v2v->version();
     }
 
     std::shared_ptr<mesh_type> layoutObj() const override
@@ -271,27 +308,60 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         return out;
     }
 
-    /* 9-point laplace stencil operator for computing artificial viscosity */
-    std::shared_ptr<triple_array_type> laplace(const triple_array_type& in, const double dx, const double dy) const override
+    std::shared_ptr<pair_array_type> laplace(const pair_array_type& in, [[maybe_unused]]const double dx, [[maybe_unused]]const double dy) const override
     {
+        assert((_v2v->version() == _mesh->version()) && (_v2v->version() == _gradient_version));
+    
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
-        // auto out_view = out->array()->view();
-        // auto in_view = in.array()->view();
-        // auto layout = in.clayout()->layout();
-        // auto index_space = layout->localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
-        // int dim2 = layout->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Local() ).extent( 2 );
-        // auto policy = Cabana::Grid::createExecutionPolicy(index_space, ExecutionSpace());
-        // Kokkos::parallel_for("Calculate Dx", policy, KOKKOS_LAMBDA(const int i, const int j) {
-        //     // double laplace(ViewType f, int i, int j, int d, double dx, double dy) 
-        //     for (int k = 0; k < dim2; k++) out_view(i, j, k) = Operators::laplace(in_view, i, j, k, dx, dy);
-        // });
+        auto out_aosoa = out->array()->aosoa();
+        auto laplace = Cabana::slice<0>(out_aosoa);
+        auto in_aosoa = in.array()->aosoa();
+        auto vorts = Cabana::slice<0>(in_aosoa);
+        auto gradients = Cabana::slice<0>(_gradients->array()->aosoa());
+    
+        // Retrieve neighbor connectivity
+        auto offsets = _v2v->offsets();
+        auto indices = _v2v->indices();
+    
+        int num_vertices = gradients.size();
+        auto policy = Kokkos::RangePolicy<ExecutionSpace>(0, num_vertices);
+    
+        Kokkos::parallel_for("Calculate Laplace", policy, KOKKOS_LAMBDA(const int vertex_id) {
+            double laplace_x = 0.0;
+            double laplace_y = 0.0;
+            int num_neighbors = 0;
+    
+            int offset = offsets(vertex_id);
+            int next_offset = (vertex_id + 1 < (int)offsets.extent(0)) ? offsets(vertex_id + 1) : (int)indices.extent(0);
+    
+            for (int i = offset; i < next_offset; ++i) {
+                int neighbor_id = indices(i);
+    
+                // Compute Laplacian for both x and y components
+                double diff_x = vorts(neighbor_id, 0) - vorts(vertex_id, 0);
+                double diff_y = vorts(neighbor_id, 1) - vorts(vertex_id, 1);
+    
+                laplace_x += diff_x;
+                laplace_y += diff_y;
+                num_neighbors++;
+            }
+    
+            // Normalize by number of neighbors (if at least one exists)
+            if (num_neighbors > 0) {
+                laplace_x /= num_neighbors;
+                laplace_y /= num_neighbors;
+            }
+    
+            // Store results in Laplace AoSoA slice
+            laplace(vertex_id, 0) = laplace_x;
+            laplace(vertex_id, 1) = laplace_y;
+        });
+    
         return out;
     }
-
+    
     // XXX - Assert that the mesh and mesh_array_types are the right type 
     // at the beginning of these functions
-    std::shared_ptr<triple_array_type> omega(const pair_array_type& w, const triple_array_type& z_dx, const triple_array_type& z_dy) const override
-    {
         // using Node = Cabana::Grid::Node;
         // auto zdx_view = z_dx.array()->view();
         // auto zdy_view = z_dy.array()->view();
@@ -308,8 +378,37 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         //     for (int k = 0; k < dim2; k++)
         //         out_view(i, j, k) = w_view(i, j, 1) * zdx_view(i, j, k) - w_view(i, j, 0) * zdy_view(i, j, k);
         // });
-        return NULL;
+
+    std::shared_ptr<triple_array_type> omega(const pair_array_type& w,
+        [[maybe_unused]]const triple_array_type& z_dx, [[maybe_unused]]const triple_array_type& z_dy) const override
+    {
+        auto w_aosoa = w.array()->aosoa();
+        auto vorts = Cabana::slice<0>(w_aosoa);
+        auto gradients = Cabana::slice<0>(_gradients->array()->aosoa());
+
+        // Clone the gradients AoSoA structure for the output
+        auto omega_array = ArrayUtils::ArrayOp::clone(*_gradients);
+        auto omega_aosoa = omega_array->array()->aosoa();
+        auto omega = Cabana::slice<0>(omega_aosoa);
+
+        int num_vertices = _gradients->array()->aosoa().size();
+
+        Kokkos::parallel_for("Calculate Omega (Unstructured)", Kokkos::RangePolicy<execution_space>(0, num_vertices),
+        KOKKOS_LAMBDA(const int vertex_id) {
+
+            omega(vertex_id, 0) = vorts(vertex_id, 1) * gradients(vertex_id, 2) -
+                                   vorts(vertex_id, 2) * gradients(vertex_id, 1);
+        
+            omega(vertex_id, 1) = vorts(vertex_id, 2) * gradients(vertex_id, 0) -
+                                    vorts(vertex_id, 0) * gradients(vertex_id, 2);
+            
+            omega(vertex_id, 2) = vorts(vertex_id, 0) * gradients(vertex_id, 1) -
+                                    vorts(vertex_id, 1) * gradients(vertex_id, 0);
+        });
+
+        return omega_array;
     }
+
 
     /**
      * These functions are only needed for structured meshes, but it must be overridden here
@@ -347,8 +446,12 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     // Unstructured mesh object
     std::shared_ptr<mesh_type> _mesh;
 
-    // Graident array for each owned vertex
+    // Graident array for each owned vertex and the version of the mesh it is from
     std::shared_ptr<triple_array_type> _gradients;
+    int _gradient_version;
+
+    // Vertex-to-vertex mapping. Stored so we don't have to re-create it if the mesh does not update
+    std::shared_ptr<v2v_type> _v2v;
 
 };
 
