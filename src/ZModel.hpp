@@ -615,8 +615,10 @@ class ZModel
         }
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
-            // XXX - Unstructured gather operation
-            throw std::invalid_argument("ZModel::computeHaloedDerivatives: Not yet implemented for unstructured meshes.");
+            // We must remake the halo each time to ensure it stays up-to-date with the mesh
+            auto numesh_halo = NuMesh::createHalo(_pm.mesh().layoutObj(), 0, 1, NuMesh::Vertex());
+            _V->array()->update();
+            NuMesh::gather(numesh_halo, _V->array());
         }
 
         /**
