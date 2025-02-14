@@ -168,7 +168,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         auto positions = Cabana::slice<0>(positions_array.array()->aosoa());
 
         // At worst, each vert is connected 6*3*(max tree level) verts
-        int max_stecil_size = 6 * 3 * _mesh->max_level();
+        int max_stecil_size = 6 * 3 * (_mesh->max_level()+1);
 
         // Allocate workspace for K and grad_sample
         Kokkos::View<double***, memory_space> K("Kernel Matrix", owned_vertices, max_stecil_size + 1, max_stecil_size + 1);
