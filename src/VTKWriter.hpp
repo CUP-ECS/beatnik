@@ -144,11 +144,8 @@ class VTKWriter
             int fvid2 = f_vids(n, 2);
             int vlid2 = NuMesh::Utils::get_lid(v_gids, fvid2, 0, _vertices_h.size());
             assert(vlid2 != -1);
-            vtkNew<vtkTriangle> tri;
-            tri->GetPointIds()->SetId( 0, vlid0 );
-            tri->GetPointIds()->SetId( 1, vlid1 );
-            tri->GetPointIds()->SetId( 2, vlid2 );
-            cells->InsertNextCell( tri );
+            vtkIdType tri_ids[3] = {vlid0, vlid1, vlid2};
+            cells->InsertNextCell(3, tri_ids);
         }
 
         // create unstructured mesh
