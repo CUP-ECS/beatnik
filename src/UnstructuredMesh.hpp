@@ -143,7 +143,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
      * 
      * Using vertex connectivity at "level" of the mesh
      */
-    void compute_gradient(const triple_array_type& positions_array, 
+    void compute_gradient(const triple_array_type& positions_array, // THese are the positions on the fixed reference mesh
             const int level, const double shape_factor, const double hybrid_weight)
     {
         // Ensure positions array is up-to-date
@@ -248,13 +248,16 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
             // Project onto surface tangent
             for (int i = 0; i < sten_size; ++i) {
-                double xDg = pos_x * grad_sample(vlid, i, 0) + pos_y * grad_sample(vlid, i, 1) + pos_z * grad_sample(vlid, i, 2);
+                double xDg = pos_x * grad_sample(vlid, i, 0)
+                           + pos_y * grad_sample(vlid, i, 1)
+                           + pos_z * grad_sample(vlid, i, 2);
                 gradients(vlid, 0) += grad_sample(vlid, i, 0) - xDg * pos_x;
                 gradients(vlid, 1) += grad_sample(vlid, i, 1) - xDg * pos_y;
                 gradients(vlid, 2) += grad_sample(vlid, i, 2) - xDg * pos_z;
             }
         });
         _gradient_version = _v2v->version();
+        // Graident only needs to be calculated for the reference mesh. Only needs to be updated when defined.
     }
 
     std::shared_ptr<mesh_type> layoutObj() const override
