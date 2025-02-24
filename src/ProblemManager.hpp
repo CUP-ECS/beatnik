@@ -159,7 +159,7 @@ class ProblemManager
             initialize_unstructured_mesh_sphere(positions_in);
         }
 
-        // gather();
+        gather();
     }
 
     /**
@@ -286,17 +286,15 @@ class ProblemManager
         auto wslice = Cabana::slice<0>(waosoa);
         auto positions_in_slice = Cabana::slice<0>(positions_in);
 
-         // Fill positions array with positions_in
-         printf("zaosoa: %d, pos_in: %d\n", zaosoa.size(), positions_in.size());
-         assert(zaosoa.size() == positions_in.size());
-         assert(waosoa.size() == positions_in.size());
-         Kokkos::parallel_for(
-             "Initialize Cells", Kokkos::RangePolicy<execution_space>(0, positions_in.size()),
-             KOKKOS_LAMBDA( const int i ) {
-                for (int j = 0; j < 3; j++) 
-                    zslice(i, j) = positions_in_slice(i, j);
-                for (int j = 0; j < 3; j++) 
-                    wslice(i, j) = 0.0;
+        // Fill positions array with positions_in
+        assert(zaosoa.size() == positions_in.size());
+        assert(waosoa.size() == positions_in.size());
+        Kokkos::parallel_for("Initialize Cells", Kokkos::RangePolicy<execution_space>(0, positions_in.size()),
+            KOKKOS_LAMBDA( const int i ) {
+            for (int j = 0; j < 3; j++) 
+                zslice(i, j) = positions_in_slice(i, j);
+            for (int j = 0; j < 2; j++) 
+                wslice(i, j) = 0.0;
         });
         
     };

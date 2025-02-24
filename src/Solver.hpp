@@ -551,11 +551,11 @@ class UnstructuredSolver : public SolverBase
         // }
 
         // Create the ZModel solver
-        _zm = std::make_unique<zmodel_type>(
-            *_pm, bc, _br.get(), dx, dy, _atwood, _g, _mu, _params.heffte_configuration);
+        // _zm = std::make_unique<zmodel_type>(
+        //     *_pm, bc, _br.get(), dx, dy, _atwood, _g, _mu, _params.heffte_configuration);
 
         // Make a time integrator to move the zmodel forward
-        _ti = std::make_unique<ti_type>( *_pm, bc, *_zm );
+        // _ti = std::make_unique<ti_type>( *_pm, bc, *_zm );
     }
 
     void setup() override
@@ -567,11 +567,7 @@ class UnstructuredSolver : public SolverBase
 
     void step() override
     {
-        if constexpr (std::is_same_v<MeshTypeTag, Mesh::Structured>)
-        {
-            _ti->step(_dt, entity_type(), Cabana::Grid::Own());
-        }
-        else if constexpr (std::is_same_v<MeshTypeTag, Mesh::Unstructured>)
+        if constexpr (std::is_same_v<MeshTypeTag, Mesh::Unstructured>)
         {
             printf("WARNING: Solver::step: Unstructured mesh not yet implemented.\n");
             // ti->step(_dt, entity_type(), NuMesh::Own());
@@ -595,11 +591,11 @@ class UnstructuredSolver : public SolverBase
 
         if (write_freq > 0) {
             
-            // if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
-            // {
-            //     auto vtk_writer = createVTKWriter(*_pm );
-            //     vtk_writer->vtkWrite(t);
-            // }
+            if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
+            {
+                auto vtk_writer = createVTKWriter(*_pm );
+                vtk_writer->vtkWrite(t);
+            }
 
         }
 
