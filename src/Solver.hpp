@@ -118,13 +118,12 @@ class SolverBase
  *    by reference to the classes that use them, which store the references
  *    as const references.
  */
-
 template <class ExecutionSpace, class MemorySpace, class ModelOrderTag, class MeshTypeTag>
-class Solver : public SolverBase
+class StructuredSolver : public SolverBase
 {
   public:
-    using mesh_array_type =
-        Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>, MemorySpace>;
+    // using mesh_array_type =
+    //     Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>, MemorySpace>;
     using beatnik_mesh_type = MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>;
     using entity_type = typename beatnik_mesh_type::entity_type;
     using pm_type = ProblemManager<beatnik_mesh_type>;
@@ -137,7 +136,7 @@ class Solver : public SolverBase
 
 
     template <class InitFunc>
-    Solver( MPI_Comm comm,
+    StructuredSolver( MPI_Comm comm,
             const std::array<int, 2>& num_nodes,
             const Cabana::Grid::BlockPartitioner<2>& partitioner,
             const double atwood, const double g, const InitFunc& create_functor,
@@ -368,7 +367,7 @@ class Solver : public SolverBase
 };
 
 //---------------------------------------------------------------------------//
-// Creation method.
+// Creation method which passes structured mesh paramters.
 template <class InitFunc, class ModelOrderTag, class MeshTypeTag, class Params>
 std::shared_ptr<SolverBase>
 createSolver( const std::string& device, MPI_Comm comm,
@@ -388,7 +387,7 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #if defined( KOKKOS_ENABLE_SERIAL )
         return std::make_shared<
-            Beatnik::Solver<Kokkos::Serial, Kokkos::HostSpace, ModelOrderTag, MeshTypeTag>>(
+            Beatnik::StructuredSolver<Kokkos::Serial, Kokkos::HostSpace, ModelOrderTag, MeshTypeTag>>(
             comm, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t, params);
 #else
@@ -399,7 +398,7 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #if defined( KOKKOS_ENABLE_THREADS )
         return std::make_shared<
-            Beatnik::Solver<Kokkos::Threads, Kokkos::HostSpace, ModelOrderTag, MeshTypeTag>>(
+            Beatnik::StructuredSolver<Kokkos::Threads, Kokkos::HostSpace, ModelOrderTag, MeshTypeTag>>(
             comm, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t, params);
 #else
@@ -410,7 +409,7 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #if defined( KOKKOS_ENABLE_OPENMP )
         return std::make_shared<
-            Beatnik::Solver<Kokkos::OpenMP, Kokkos::HostSpace, ModelOrderTag, MeshTypeTag>>(
+            Beatnik::StructuredSolver<Kokkos::OpenMP, Kokkos::HostSpace, ModelOrderTag, MeshTypeTag>>(
             comm, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t, params);
 #else
@@ -421,7 +420,7 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #if defined(KOKKOS_ENABLE_CUDA)
         return std::make_shared<
-            Beatnik::Solver<Kokkos::Cuda, Kokkos::CudaSpace, ModelOrderTag, MeshTypeTag>>(
+            Beatnik::StructuredSolver<Kokkos::Cuda, Kokkos::CudaSpace, ModelOrderTag, MeshTypeTag>>(
             comm, global_num_cell, partitioner, atwood, g, 
             create_functor, bc, mu, epsilon, delta_t, params);
 #else
@@ -431,10 +430,347 @@ createSolver( const std::string& device, MPI_Comm comm,
     else if ( 0 == device.compare( "hip" ) )
     {
 #ifdef KOKKOS_ENABLE_HIP
-        return std::make_shared<Beatnik::Solver<Kokkos::HIP, 
+        return std::make_shared<Beatnik::StructuredSolver<Kokkos::HIP, 
             Kokkos::Experimental::HIPSpace, ModelOrderTag, MeshTypeTag>>(
                 comm, global_num_cell, partitioner, atwood, g, 
                 create_functor, bc, mu, epsilon, delta_t, params);
+#else
+        throw std::runtime_error( "HIP Backend Not Enabled" );
+#endif
+    }
+    else
+    {
+        throw std::runtime_error( "invalid backend" );
+        return nullptr;
+    }
+}
+
+template <class ExecutionSpace, class MemorySpace, class ModelOrderTag, class MeshTypeTag>
+class UnstructuredSolver : public SolverBase
+{
+  public:
+    // using mesh_array_type =
+    //     Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>, MemorySpace>;
+    using beatnik_mesh_type = MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>;
+    using entity_type = typename beatnik_mesh_type::entity_type;
+    using pm_type = ProblemManager<beatnik_mesh_type>;
+    using br_solver_type = BRSolverBase<pm_type, Params>;
+    using zmodel_type = ZModel<pm_type, br_solver_type, ModelOrderTag>;
+    using ti_type = TimeIntegrator<pm_type, zmodel_type>;
+    using vtk_writer_type = VTKWriter<pm_type>;
+    
+    using View_t = Kokkos::View<double***, Kokkos::HostSpace>;
+
+
+    template <class PositionsAoSoA, class VerticesAoSoA, class FacesAoSoA>
+    UnstructuredSolver( MPI_Comm comm,
+            const PositionsAoSoA& positions,
+            const VerticesAoSoA& vertices,
+            const FacesAoSoA& faces,
+            const BoundaryCondition& bc,
+            const double atwood, const double g,
+            const double mu, 
+            const double epsilon, const double delta_t,
+            const Params params)
+        : _halo_min( 2 )
+        , _bc( bc )
+        , _atwood( atwood )
+        , _g( g )
+        , _mu( mu )
+        , _eps( epsilon )
+        , _dt( delta_t )
+        , _time( 0.0 )
+        , _params( params )
+    {
+        // Copy positions, vertices, and faces to the correct memory space
+        // Host-side AoSoAs for storing VTU data
+        using vertices_d = Cabana::MemberTypes<int,       // Vertex global ID                                 
+                                                int,       // Owning rank
+                                                >;
+        using face_d = Cabana::MemberTypes<int[3],       // Vertex LIDs forming the triangle                                
+                                            bool,         // Flag indicating if the cell contains a ghost point
+                                            >;
+        using triple_d = Cabana::MemberTypes<double[3]>; // Vertex positions
+        using vert_aosoa = Cabana::AoSoA<vertices_d, MemorySpace, 4>;
+        using face_aosoa = Cabana::AoSoA<face_d, MemorySpace, 4>;
+        using triple_aosoa = Cabana::AoSoA<triple_d, MemorySpace, 4>;
+        vert_aosoa vertices_device("vertices_device", vertices.size());
+        face_aosoa faces_device("faces_device", faces.size());
+        triple_aosoa positions_device("positions_device", positions.size());
+        Cabana::deep_copy(vertices_device, vertices);
+        Cabana::deep_copy(faces_device, faces);
+        Cabana::deep_copy(positions_device, positions);
+
+        // Create a mesh one which to do the solve and a problem manager to
+        // handle state
+        _mesh = createMesh<ExecutionSpace, MemorySpace, MeshTypeTag>(vertices, faces, comm );
+
+        // XXX - Check that our timestep is small enough to handle the mesh size,
+        // atwood number and acceleration, and solution method. 
+        // Compute dx and dy in the initial problem state
+        // XXX - What should this be when the mesh doesn't span the bounding box, e.g. rising bubbles?
+
+        // If we're non-periodic, there's one fewer cells than nodes (we don't 
+        // have the cell which wraps around
+        // 
+
+        // Adjust down mu and epsilon by sqrt(dx * dy)
+        // XXX - how does this work for the unstructured case?
+        // double dx = (_params.global_bounding_box[4] - _params.global_bounding_box[0]) 
+        //     / (num_cells[0]);
+        // double dy = (_params.global_bounding_box[5] - _params.global_bounding_box[1]) 
+        //     / (num_cells[1]);
+        double dx = 1.0;
+        double dy = 1.0;
+        _mu = _mu * sqrt(dx * dy);
+        _eps = _eps * sqrt(dx * dy);
+
+        #if 0
+        std::cout << "===== Solver Parameters =====\n"
+                  << "dx = " << dx << ", " << "dy = " << dy << "\n"
+                  << "dt = " << delta_t << "\n"
+                  << "g = " << _g << "\n"
+                  << "atwood = " << _atwood << "\n"
+                  << "mu = " << _mu << "\n"
+                  << "eps = " << _eps << "\n"
+                  << "=============================\n";
+        #endif
+
+        // Create a problem manager to manage mesh state
+        _pm = std::make_unique<pm_type>(
+            *_mesh, bc, positions );
+
+        _br = NULL;
+        // if (_params.solver_order == 1 || _params.solver_order  == 2)
+        // {
+        //     _br = Beatnik::createBRSolver<pm_type, Params>(*_pm, _bc, _eps, dx, dy, _params);
+        // }
+        // else
+        // {
+        //     _br = NULL;
+        // }
+
+        // Create the ZModel solver
+        _zm = std::make_unique<zmodel_type>(
+            *_pm, bc, _br.get(), dx, dy, _atwood, _g, _mu, _params.heffte_configuration);
+
+        // Make a time integrator to move the zmodel forward
+        _ti = std::make_unique<ti_type>( *_pm, bc, *_zm );
+    }
+
+    void setup() override
+    {
+        // XXX - Should assert that _time == 0 here.
+
+	    // XXX - Apply boundary conditions
+    }
+
+    void step() override
+    {
+        if constexpr (std::is_same_v<MeshTypeTag, Mesh::Structured>)
+        {
+            _ti->step(_dt, entity_type(), Cabana::Grid::Own());
+        }
+        else if constexpr (std::is_same_v<MeshTypeTag, Mesh::Unstructured>)
+        {
+            printf("WARNING: Solver::step: Unstructured mesh not yet implemented.\n");
+            // ti->step(_dt, entity_type(), NuMesh::Own());
+            // throw std::invalid_argument("Solver::step: Unstructured mesh not yet implemented.");
+        }
+        else
+        {
+            throw std::invalid_argument("Solver::step: Invalid mesh_type argument.");
+        }
+        _time += _dt;
+    }
+
+    void solve( const double t_final, const int write_freq ) override
+    {
+        using mesh_type_tag = typename pm_type::mesh_type_tag;
+
+        int t = 0;
+        int num_step;
+        
+        Kokkos::Profiling::pushRegion( "Solve" );
+
+        if (write_freq > 0) {
+            
+            // if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
+            // {
+            //     auto vtk_writer = createVTKWriter(*_pm );
+            //     vtk_writer->vtkWrite(t);
+            // }
+
+        }
+
+        num_step = t_final / _dt;
+
+        // Start advancing time.
+        do
+        {
+            if ( 0 == _mesh->rank() )
+                printf( "Step %d / %d at time = %f\n", t, num_step, _time );
+
+            step();
+            t++;
+            // 4. Output mesh state periodically
+            // if ( write_freq && (0 == t % write_freq ))
+            // {
+            //     if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
+            //     {
+            //         auto vtk_writer = createVTKWriter(*_pm );
+            //         vtk_writer->vtkWrite(t);
+            //     }
+            // }
+
+            // Write views for future testing, if enabled
+            #if WRITE_VIEWS
+            int write_at_time = 5;
+            int rank, comm_size;
+            MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+            MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
+
+            if (t == write_at_time)
+            {
+                auto z = _pm->get(Cabana::Grid::Node(), Field::Position())->view();
+                auto w = _pm->get(Cabana::Grid::Node(), Field::Vorticity())->view();
+                int mesh_size = _pm->mesh().mesh_size();
+                int periodic = _params.periodic[0];
+                // void writeView(int rank, int comm_size, int mesh_size, const View v)
+                BeatnikTest::Utils::writeView(rank, comm_size, mesh_size, periodic, z);
+                BeatnikTest::Utils::writeView(rank, comm_size, mesh_size, periodic, w);
+            }
+            #endif
+
+        } while ( ( _time < t_final ) );
+        Kokkos::Profiling::popRegion();
+    }
+
+    // XXX - Template these functions on EntityType. Currently
+    // causes a linking error when trying to do so.
+    // For testing purposes
+    View_t get_positions(Cabana::Grid::Node) override
+    {
+        //_pm->gather();
+        if constexpr (std::is_same_v<MeshTypeTag, Mesh::Structured>)
+        {
+            auto view = _pm->get(Field::Position())->array()->view();
+            int dim0 = view.extent(0);
+            int dim1 = view.extent(1);
+            auto temp = Kokkos::create_mirror_view(view);
+            View_t ret = View_t("ret_p", dim0, dim1, 3);
+            Kokkos::deep_copy(temp, view);
+            Kokkos::deep_copy(ret, temp); 
+            return ret;
+        }
+        else { throw std::invalid_argument("Solver::get_positions: Unstructured mesh not yet supported.\n");} 
+    }
+    View_t get_vorticities(Cabana::Grid::Node) override
+    {
+        //_pm->gather();
+        if constexpr (std::is_same_v<MeshTypeTag, Mesh::Structured>)
+        {
+            auto view = _pm->get(Field::Vorticity())->array()->view();
+            int dim0 = view.extent(0);
+            int dim1 = view.extent(1);
+            auto temp = Kokkos::create_mirror_view(view);
+            View_t ret = View_t("ret_w", dim0, dim1, 2);
+            Kokkos::deep_copy(temp, view);
+            Kokkos::deep_copy(ret, temp); 
+            return ret;
+        }
+        else { throw std::invalid_argument("Solver::get_positions: Unstructured mesh not yet supported.\n");} 
+    }   
+
+  private:
+    /* Solver state variables */
+    int _halo_min;
+    double _atwood;
+    double _g;
+    double _mu, _eps;
+    double _dt;
+    double _time;
+    
+    Params _params;
+    BoundaryCondition _bc;
+    
+    std::unique_ptr<beatnik_mesh_type> _mesh;
+    std::unique_ptr<pm_type> _pm;
+    std::unique_ptr<br_solver_type> _br;
+    std::unique_ptr<zmodel_type> _zm;
+    std::unique_ptr<ti_type> _ti;
+};
+
+//---------------------------------------------------------------------------//
+// Creation method which passes unstructured mesh paramters.
+template <class ModelOrderTag, class MeshTypeTag, class Params,
+          class PositionsAoSoA, class VerticesAoSoA, class FacesAoSoA>
+std::shared_ptr<SolverBase>
+createSolver( const std::string& device, MPI_Comm comm,
+              const PositionsAoSoA& positions,
+              const VerticesAoSoA& vertices,
+              const FacesAoSoA& faces,
+              const BoundaryCondition& bc,
+              const double atwood, const double g, 
+              const ModelOrderTag,
+              const MeshTypeTag,
+              const double mu,
+              const double epsilon, 
+              const double delta_t,
+              const Params params )
+{
+    if ( 0 == device.compare( "serial" ) )
+
+    {
+#if defined( KOKKOS_ENABLE_SERIAL )
+        return std::make_shared<
+            Beatnik::UnstructuredSolver<Kokkos::Serial, Kokkos::HostSpace, ModelOrderTag, MeshTypeTag>>(
+            comm, positions, vertices, faces, bc, atwood, g, 
+            mu, epsilon, delta_t, params);
+#else
+        throw std::runtime_error( "Serial Backend Not Enabled" );
+#endif
+    }
+    else if ( 0 == device.compare( "threads" ) )
+    {
+#if defined( KOKKOS_ENABLE_THREADS )
+        return std::make_shared<
+            Beatnik::UnstructuredSolver<Kokkos::Threads, Kokkos::HostSpace, ModelOrderTag, MeshTypeTag>>(
+            comm, positions, vertices, faces, bc, atwood, g, 
+            mu, epsilon, delta_t, params);
+#else
+        throw std::runtime_error( "Threads Backend Not Enabled" );
+#endif
+    }
+    else if ( 0 == device.compare( "openmp" ) )
+    {
+#if defined( KOKKOS_ENABLE_OPENMP )
+        return std::make_shared<
+            Beatnik::UnstructuredSolver<Kokkos::OpenMP, Kokkos::HostSpace, ModelOrderTag, MeshTypeTag>>(
+            comm, positions, vertices, faces, bc, atwood, g, 
+            mu, epsilon, delta_t, params);
+#else
+        throw std::runtime_error( "OpenMP Backend Not Enabled" );
+#endif
+    }
+    else if ( 0 == device.compare( "cuda" ) )
+    {
+#if defined(KOKKOS_ENABLE_CUDA)
+        return std::make_shared<
+            Beatnik::UnstructuredSolver<Kokkos::Cuda, Kokkos::CudaSpace, ModelOrderTag, MeshTypeTag>>(
+            comm, positions, vertices, faces, bc, atwood, g, 
+            mu, epsilon, delta_t, params);
+#else
+        throw std::runtime_error( "CUDA Backend Not Enabled" );
+#endif
+    }
+    else if ( 0 == device.compare( "hip" ) )
+    {
+#ifdef KOKKOS_ENABLE_HIP
+        return std::make_shared<Beatnik::UnstructuredSolver<Kokkos::HIP, 
+            Kokkos::Experimental::HIPSpace, ModelOrderTag, MeshTypeTag>>(
+                comm, positions, vertices, faces, bc, atwood, g, 
+                mu, epsilon, delta_t, params);
 #else
         throw std::runtime_error( "HIP Backend Not Enabled" );
 #endif

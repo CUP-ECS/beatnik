@@ -24,6 +24,8 @@ namespace Beatnik
 /* Separate header for createMesh to avoid circular 
  * dependencies between MeshBase and the mesh classes.
  */
+
+// Creates an unstructured mesh from a structured grid 
 template <class ExecutionSpace, class MemorySpace, class MeshTypeTag>
 std::unique_ptr<MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>>
 createMesh( const std::array<double, 6>& global_bounding_box,
@@ -49,6 +51,32 @@ createMesh( const std::array<double, 6>& global_bounding_box,
     MPI_Finalize();
     exit(-1);
 }
+
+// Creates an unstructured mesh from known connectivity
+template <class ExecutionSpace, class MemorySpace, class MeshTypeTag,
+          class VerticesAoSoA, class FacesAoSoA>
+std::unique_ptr<MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>>
+createMesh( VerticesAoSoA vertices, FacesAoSoA faces, MPI_Comm comm )
+{
+    if constexpr (std::is_same_v<MeshTypeTag, Mesh::Structured>)
+    {
+        throw std::runtime_error(
+            "createMesh: This constructor currently only supports unstructured meshes");
+        // using beatnik_mesh_type = StructuredMesh<ExecutionSpace, MemorySpace, MeshTypeTag>;
+        // return std::make_unique<beatnik_mesh_type>(global_bounding_box, num_nodes, periodic,
+        //     partitioner, min_halo_width, comm);
+    }
+    else if constexpr (std::is_same_v<MeshTypeTag, Mesh::Unstructured>)
+    {
+        using beatnik_mesh_type = UnstructuredMesh<ExecutionSpace, MemorySpace, MeshTypeTag>;
+        return std::make_unique<beatnik_mesh_type>(vertices, faces, comm);
+    }
+    std::cerr << "createMesh:: Invalid mesh type.\n";
+    Kokkos::finalize();
+    MPI_Finalize();
+    exit(-1);
+}
+
 
 } // end namespace Beatnik
 

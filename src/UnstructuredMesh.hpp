@@ -61,6 +61,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
     using v2v_type = NuMesh::Maps::V2V<mesh_type>;
 
+    // Constructor for deriving the mesh from a structured grid
     UnstructuredMesh( const std::array<double, 6>& global_bounding_box,
           const std::array<int, 2>& num_nodes,
 	      const std::array<bool, 2>& periodic,
@@ -131,10 +132,46 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         // Initialize vertex connectivity at level 0
         _v2v = std::make_shared<v2v_type>(_mesh, 0);
         
-        auto node_triple_layout =
-            ArrayUtils::createArrayLayout<base_triple_type>( _mesh, 3, entity_type() );
-        auto pos_test = ArrayUtils::createArray<memory_space>("pos_test", node_triple_layout);
-        compute_gradient(*pos_test, 0, 1.0, 1.0);
+        // auto node_triple_layout =
+        //     ArrayUtils::createArrayLayout<base_triple_type>( _mesh, 3, entity_type() );
+        // auto pos_test = ArrayUtils::createArray<memory_space>("pos_test", node_triple_layout);
+        // compute_gradient(*pos_test, 0, 1.0, 1.0);
+    }
+
+    /**
+     * Constructor for creating a mesh from passed-in connectivity
+     * Assumes VerticesAoSoA and FacesAoSoA have the following Cabana::MemberTypes:
+     * 
+     * using vertices_d = Cabana::MemberTypes<int,       // Vertex global ID                                 
+                                              int,       // Owning rank
+                                              >;
+     * using face_d = Cabana::MemberTypes<int[3],       // Vertex LIDs forming the triangle                                
+                                          bool,         // Flag indicating if the cell contains a ghost point
+                                          >;
+     */
+    template <class VerticesAoSoA, class FacesAoSoA>
+    UnstructuredMesh( const VerticesAoSoA& vertices,
+                      const FacesAoSoA& faces,
+                      MPI_Comm comm )
+              : _comm( comm )
+              , _num_nodes( {(int)vertices.size(), 0} )
+              , _periodic( {true, true} ) // Unused
+    {
+      MPI_Comm_rank( _comm, &_rank );
+      MPI_Comm_size( _comm, &_comm_size );
+
+      _mesh = NuMesh::createEmptyMesh<execution_space, memory_space>(_comm);
+      _mesh->initializeFromConnectivity(vertices, faces);
+
+      _gradient_version = -1;
+
+      // Initialize vertex connectivity at level 0
+      _v2v = std::make_shared<v2v_type>(_mesh, 0);
+      
+    //   auto node_triple_layout =
+    //       ArrayUtils::createArrayLayout<base_triple_type>( _mesh, 3, entity_type() );
+    //   auto pos_test = ArrayUtils::createArray<memory_space>("pos_test", node_triple_layout);
+    //   compute_gradient(*pos_test, 0, 1.0, 1.0);
     }
     
     /**
@@ -438,7 +475,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     MPI_Comm _comm;
     int _rank, _comm_size;
 
-    std::array<int, 2> _num_nodes;
+    const std::array<int, 2> _num_nodes;
     const std::array<bool, 2> _periodic;
     
     std::array<double, 3> _low_point, _high_point;

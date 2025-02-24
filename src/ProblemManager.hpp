@@ -63,14 +63,13 @@ class ProblemManager
     using halo_type = Cabana::Grid::Halo<memory_space>;
 
     template <class InitFunc>
-    ProblemManager( const BeatnikMeshType & mesh,
-                    const BoundaryCondition & bc, 
+    ProblemManager( const BeatnikMeshType& mesh,
+                    const BoundaryCondition& bc, 
                     const double period,
                     const InitFunc& create_functor )
         : _mesh( mesh )
         , _bc( bc )
         , _period( period )
-        // , other initializers
     {
         // The layouts of our various arrays for values on the staggered mesh
         // and other associated data structures. Does there need to be version with
@@ -106,7 +105,7 @@ class ProblemManager
         }
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
-            initialize_unstructured_mesh( create_functor );
+            initialize_unstructured_mesh_grid( create_functor );
             // auto zaosoa = get( Field::Position() )->array()->aosoa();
             // auto waosoa = get( Field::Vorticity() )->array()->aosoa();
             // auto zslice = Cabana::slice<0>(zaosoa);
@@ -115,6 +114,52 @@ class ProblemManager
         }
 
         gather();
+    }
+
+    /**
+     * Constructor if point coordinates on the mesh are already known and can be passed-in
+     */
+    template <class PositionsAoSoA>
+    ProblemManager( const BeatnikMeshType& mesh, const BoundaryCondition& bc,
+                    const PositionsAoSoA& positions_in)
+        : _mesh( mesh )
+        , _bc( bc )   // Unused
+        , _period( -1 ) // Unused
+    {
+        // The layouts of our various arrays for values on the staggered mesh
+        // and other associated data structures. Does there need to be version with
+        // halos associated with them?
+        auto node_triple_layout = ArrayUtils::createArrayLayout<base_triple_type>(_mesh.layoutObj(), 3, entity_type());
+        auto node_pair_layout = ArrayUtils::createArrayLayout<base_pair_type>(_mesh.layoutObj(), 2, entity_type());
+
+        // The actual arrays storing mesh quantities
+        // 1. The spatial positions of the interface
+        _position = ArrayUtils::createArray<memory_space>("position", node_triple_layout);
+	    // ArrayUtils::ArrayOp::assign( *_position, 0.0 );
+
+
+        // 2. The magnitude of vorticity at the interface 
+        _vorticity = ArrayUtils::createArray<memory_space>("vorticity", node_pair_layout);
+	    // ArrayUtils::ArrayOp::assign( *_vorticity, 0.0 );
+
+        /* Halo pattern for the position and vorticity. The halo is two cells 
+         * deep to be able to do fourth-order central differencing to 
+         * compute surface normals accurately. It's a Node (8 point) pattern 
+         * as opposed to a Face (4 point) pattern so the vorticity laplacian 
+         * can use a 9-point stencil. */
+        /* XXX - For now, only apply strucutred halo to the structured arrays */
+       
+        if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
+        {
+            throw std::runtime_error(
+                "ProblemManager: This constructor does not yet support structured meshes");
+        }
+        else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
+        {
+            initialize_unstructured_mesh_sphere(positions_in);
+        }
+
+        // gather();
     }
 
     /**
@@ -141,7 +186,7 @@ class ProblemManager
         Kokkos::Random_XorShift64_Pool<memory_space> random_pool(seed);
 
         Kokkos::parallel_for(
-            "Initialize Cells`",
+            "Initialize Cells",
             Cabana::Grid::createExecutionPolicy( own_nodes, execution_space() ),
             KOKKOS_LAMBDA( const int i, const int j ) {
                 int index[2] = { i, j };
@@ -161,7 +206,7 @@ class ProblemManager
      * @param create_functor Initialization function
      **/
     template <class InitFunctor>
-    void initialize_unstructured_mesh( const InitFunctor& create_functor )
+    void initialize_unstructured_mesh_grid( const InitFunctor& create_functor )
     {
         // Get Local Grid and Local Mesh
         auto mesh = _mesh.layoutObj();
@@ -222,6 +267,36 @@ class ProblemManager
                 zslice(v_lid, dim) = z(i, j, dim);
             for (int dim = 0; dim < 2; dim++)
                 wslice(v_lid, dim) = w(i, j, dim);
+        });
+        
+    };
+
+    /**
+     * Initializes state values in the cells, from a given input
+     * 
+     * @param create_functor Initialization function
+     **/
+    template <class PositionsAoSoA>
+    void initialize_unstructured_mesh_sphere( const PositionsAoSoA& positions_in )
+    {
+        // Get State Arrays. These are AoSoA slices in the unstructured version
+        auto zaosoa = get( Field::Position() )->array()->aosoa();
+        auto waosoa = get( Field::Vorticity() )->array()->aosoa();
+        auto zslice = Cabana::slice<0>(zaosoa);
+        auto wslice = Cabana::slice<0>(waosoa);
+        auto positions_in_slice = Cabana::slice<0>(positions_in);
+
+         // Fill positions array with positions_in
+         printf("zaosoa: %d, pos_in: %d\n", zaosoa.size(), positions_in.size());
+         assert(zaosoa.size() == positions_in.size());
+         assert(waosoa.size() == positions_in.size());
+         Kokkos::parallel_for(
+             "Initialize Cells", Kokkos::RangePolicy<execution_space>(0, positions_in.size()),
+             KOKKOS_LAMBDA( const int i ) {
+                for (int j = 0; j < 3; j++) 
+                    zslice(i, j) = positions_in_slice(i, j);
+                for (int j = 0; j < 3; j++) 
+                    wslice(i, j) = 0.0;
         });
         
     };
