@@ -125,6 +125,13 @@ class MeshBase
     virtual std::shared_ptr<triple_array_type> Dy(const triple_array_type& in, const double dy) const = 0;
     virtual std::shared_ptr<triple_array_type> omega(const pair_array_type& w, const triple_array_type& z_dx, const triple_array_type& z_dy) const = 0;
     virtual std::shared_ptr<pair_array_type> laplace(const pair_array_type& in, const double dx, const double dy) const = 0;
+    
+    // Used to refine the mesh
+    virtual void refine(Kokkos::View<int*, memory_space> fin) = 0;
+
+    // Used by the unstructured mesh to set positions of new vertices created after refinement
+    virtual void fill_positions(std::shared_ptr<triple_array_type> positions_in, int project_to_sphere) const = 0;
+
     virtual int is_periodic(void) const = 0;
     virtual MPI_Comm comm(void) const = 0;
     virtual int rank(void) const = 0;

@@ -175,36 +175,47 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     }
 
     /**
+     * Refine the faces specified in 'fin'
+     * 
+     * @param fin: Kokkos view of face global IDs to refine
+     */
+    void refine(Kokkos::View<int*, memory_space> fin) override
+    {
+        _mesh->refine(fin);
+    }
+
+    /**
      * Sets the position of new vertices that have been created after refinement
      * 
      * @param positions: a Beatnik::Array object containing the positions of vertices
      * @param project_to_sphere: if greater than 0, project the positions of the
      *  new vertices onto a sphere of this radius.
      */
-    template <class PositionsArray>
-    void fill_positions(PositionsArray& positions_in, int project_to_sphere)
+    void fill_positions(std::shared_ptr<triple_array_type> positions_in, int project_to_sphere) const override
     {
-        static_assert(PositionsAoSOA::isBeatnikArray(), "fill_positions: positions must be a valid Beantik array layout.");
+        static_assert(triple_array_type::isBeatnikArray(), "fill_positions: positions must be a valid Beantik array layout.");
         using member_type = Cabana::MemberTypes<double[3]>;
-        using tuple_type = typename PositionsArray::array_type::tuple_type
+        using tuple_type = typename triple_array_type::array_type::tuple_type;
         static_assert(std::is_same_v<member_type, tuple_type>, "fill_positions: AoSoA does not have correct member type");
         
-        auto positions_array = positions_in.array();
+        auto positions_array = positions_in->array();
         positions_array->update();
         auto positions_aosoa = positions_array->aosoa();
         auto positions = Cabana::slice<0>(positions_aosoa);
 
         auto owned_vertices = _mesh->count(NuMesh::Own(), NuMesh::Vertex());
         auto owned_edges = _mesh->count(NuMesh::Own(), NuMesh::Edge());
-        auto max_level = _mesh->max_level();
 
         auto e_vids = Cabana::slice<E_VIDS>(_mesh->edges());
+        auto e_cids = Cabana::slice<E_CIDS>(_mesh->edges());
         auto v_gid = Cabana::slice<V_GID>(_mesh->vertices());
 
         Kokkos::parallel_for("fill positions", Kokkos::RangePolicy<execution_space>(0, owned_edges),
         KOKKOS_LAMBDA(int elid) {
 
-            // We want the middle vertex of all edges at level one less than max tree depth
+            // Only consider edges with no children
+            if (e_cids(elid, 0) != -1) return;
+
             int vgid0, vgid1, vgid2, vlid0, vlid1, vlid2;
             vgid0 = e_vids(elid, 0);
             vgid1 = e_vids(elid, 1);

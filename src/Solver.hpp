@@ -607,17 +607,41 @@ class UnstructuredSolver : public SolverBase
             if ( 0 == _mesh->rank() )
                 printf( "Step %d / %d at time = %f\n", t, num_step, _time );
 
+            // Refine the mesh for testing purposes
+            int num_local_faces = _mesh->layoutObj()->count(NuMesh::Own(), NuMesh::Face());
+            auto vef_gid_start = _mesh->layoutObj()->vef_gid_start();
+            int face_gid_start = vef_gid_start(_mesh->rank(), 2);
+            Kokkos::View<int*, MemorySpace> fin("fin", num_local_faces);
+            Kokkos::parallel_for("mark_faces_to_refine", Kokkos::RangePolicy<ExecutionSpace>(0, num_local_faces),
+                KOKKOS_LAMBDA(int i) {
+    
+                    fin(i) = face_gid_start + i;
+    
+                });
+            _mesh->refine(fin);
+            auto positions = _pm->get( Field::Position() );
+            printf("Before: R%d: pos: %d, verts: %d\n",
+                _mesh->rank(), positions->array()->aosoa().size(),
+                _mesh->layoutObj()->vertices().size());
+            positions->array()->update();
+            printf("After: R%d: pos: %d, verts: %d\n",
+                _mesh->rank(), positions->array()->aosoa().size(),
+                _mesh->layoutObj()->vertices().size());
+
+            _mesh->fill_positions(positions, 1);
+            
+
             step();
             t++;
             // 4. Output mesh state periodically
-            // if ( write_freq && (0 == t % write_freq ))
-            // {
-            //     if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
-            //     {
-            //         auto vtk_writer = createVTKWriter(*_pm );
-            //         vtk_writer->vtkWrite(t);
-            //     }
-            // }
+            if ( write_freq && (0 == t % write_freq ))
+            {
+                if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
+                {
+                    auto vtk_writer = createVTKWriter(*_pm );
+                    vtk_writer->vtkWrite(t);
+                }
+            }
 
             // Write views for future testing, if enabled
             #if WRITE_VIEWS
