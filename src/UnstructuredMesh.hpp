@@ -173,6 +173,62 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     //   auto pos_test = ArrayUtils::createArray<memory_space>("pos_test", node_triple_layout);
     //   compute_gradient(*pos_test, 0, 1.0, 1.0);
     }
+
+    /**
+     * Sets the position of new vertices that have been created after refinement
+     * 
+     * @param positions: a Beatnik::Array object containing the positions of vertices
+     * @param project_to_sphere: if greater than 0, project the positions of the
+     *  new vertices onto a sphere of this radius.
+     */
+    template <class PositionsArray>
+    void fill_positions(PositionsArray& positions_in, int project_to_sphere)
+    {
+        static_assert(PositionsAoSOA::isBeatnikArray(), "fill_positions: positions must be a valid Beantik array layout.");
+        using member_type = Cabana::MemberTypes<double[3]>;
+        using tuple_type = typename PositionsArray::array_type::tuple_type
+        static_assert(std::is_same_v<member_type, tuple_type>, "fill_positions: AoSoA does not have correct member type");
+        
+        auto positions_array = positions_in.array();
+        positions_array->update();
+        auto positions_aosoa = positions_array->aosoa();
+        auto positions = Cabana::slice<0>(positions_aosoa);
+
+        auto owned_vertices = _mesh->count(NuMesh::Own(), NuMesh::Vertex());
+        auto owned_edges = _mesh->count(NuMesh::Own(), NuMesh::Edge());
+        auto max_level = _mesh->max_level();
+
+        auto e_vids = Cabana::slice<E_VIDS>(_mesh->edges());
+        auto v_gid = Cabana::slice<V_GID>(_mesh->vertices());
+
+        Kokkos::parallel_for("fill positions", Kokkos::RangePolicy<execution_space>(0, owned_edges),
+        KOKKOS_LAMBDA(int elid) {
+
+            // We want the middle vertex of all edges at level one less than max tree depth
+            int vgid0, vgid1, vgid2, vlid0, vlid1, vlid2;
+            vgid0 = e_vids(elid, 0);
+            vgid1 = e_vids(elid, 1);
+            vgid2 = e_vids(elid, 2);
+            vlid0 = NuMesh::Utils::get_lid(v_gid, vgid0, 0, owned_vertices);
+            vlid1 = NuMesh::Utils::get_lid(v_gid, vgid1, 0, owned_vertices);
+            vlid2 = NuMesh::Utils::get_lid(v_gid, vgid2, 0, owned_vertices);
+
+            double x_m = 0.5 * (positions(vlid0, 0) + positions(vlid1, 0));
+            double y_m = 0.5 * (positions(vlid0, 1) + positions(vlid1, 1));
+            double z_m = 0.5 * (positions(vlid0, 2) + positions(vlid1, 2));
+    
+            // Compute norm (distance from the origin)
+            double norm = sqrt(x_m * x_m + y_m * y_m + z_m * z_m);
+    
+            // Project the point onto the sphere of radius 'project_to_sphere'
+            if (project_to_sphere > 0)
+            {
+                positions(vlid2, 0) = (x_m / norm) * project_to_sphere;
+                positions(vlid2, 1) = (y_m / norm) * project_to_sphere;
+                positions(vlid2, 2) = (z_m / norm) * project_to_sphere;
+            }
+        });
+    }
     
     /**
      * Calculates surface gradients at vertices of an unstructured mesh using
