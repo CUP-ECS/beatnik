@@ -85,7 +85,7 @@ class ArrayLayout
         return _layout;
     }
 	
-	static constexpr bool isArrayLayout()
+	static constexpr bool isBeatnikArrayLayout()
 	{
 		return true;
 	}
@@ -110,7 +110,7 @@ createArrayLayout(const std::shared_ptr<MeshType>& mesh, const int dofs_per_enti
 template <class ContainerLayoutType, class MemorySpace>
 class Array
 {
-    static_assert(ContainerLayoutType::isArrayLayout(), "ContainerLayoutType must be a valid array layout.");
+    static_assert(ContainerLayoutType::isBeatnikArrayLayout(), "ContainerLayoutType must be a valid array layout.");
   
   public:
     using container_layout_type = ContainerLayoutType;
@@ -155,6 +155,11 @@ class Array
     std::shared_ptr<array_type> array() const {return _array;}
     std::shared_ptr<container_layout_type> clayout() const {return _layout;} // Return the container layout
     std::string label() const {return _label;}
+
+    static constexpr bool isBeatnikArray()
+	{
+		return true;
+	}
 
   private:
     // Array pointers
