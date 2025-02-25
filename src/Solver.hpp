@@ -569,7 +569,7 @@ class UnstructuredSolver : public SolverBase
     {
         if constexpr (std::is_same_v<MeshTypeTag, Mesh::Unstructured>)
         {
-            printf("WARNING: Solver::step: Unstructured mesh not yet implemented.\n");
+            // printf("WARNING: Solver::step: Unstructured mesh not yet implemented.\n");
             // ti->step(_dt, entity_type(), NuMesh::Own());
             // throw std::invalid_argument("Solver::step: Unstructured mesh not yet implemented.");
         }
@@ -608,30 +608,39 @@ class UnstructuredSolver : public SolverBase
                 printf( "Step %d / %d at time = %f\n", t, num_step, _time );
 
             // Refine the mesh for testing purposes
-            int num_local_faces = _mesh->layoutObj()->count(NuMesh::Own(), NuMesh::Face());
-            auto vef_gid_start = _mesh->layoutObj()->vef_gid_start();
-            int face_gid_start = vef_gid_start(_mesh->rank(), 2);
-            Kokkos::View<int*, MemorySpace> fin("fin", num_local_faces);
-            Kokkos::parallel_for("mark_faces_to_refine", Kokkos::RangePolicy<ExecutionSpace>(0, num_local_faces),
-                KOKKOS_LAMBDA(int i) {
+            // int num_local_faces = _mesh->layoutObj()->count(NuMesh::Own(), NuMesh::Face());
+            // auto vef_gid_start = _mesh->layoutObj()->vef_gid_start();
+            // int face_gid_start = vef_gid_start(_mesh->rank(), 2);
+            // Kokkos::View<int*, MemorySpace> fin("fin", num_local_faces);
+            // Kokkos::parallel_for("mark_faces_to_refine", Kokkos::RangePolicy<ExecutionSpace>(0, num_local_faces),
+            //     KOKKOS_LAMBDA(int i) {
     
-                    fin(i) = face_gid_start + i;
+            //         fin(i) = face_gid_start + i;
     
-                });
-            _mesh->refine(fin);
+            //     });
+            Kokkos::View<int[1], MemorySpace> fin("fin");
+            Kokkos::parallel_for("mark_faces_to_refine", Kokkos::RangePolicy<ExecutionSpace>(0, fin.extent(0)),
+            KOKKOS_LAMBDA(int i) {
+
+                fin(i) = t+15;
+                //printf("refining face %d\n", t+15);
+
+            });
             auto positions = _pm->get( Field::Position() );
-            printf("Before: R%d: pos: %d, verts: %d\n",
-                _mesh->rank(), positions->array()->aosoa().size(),
-                _mesh->layoutObj()->vertices().size());
+            // printf("Before refine: R%d: pos: %d, verts: %d\n",
+            //     _mesh->rank(), positions->array()->aosoa()->size(),
+            //     _mesh->layoutObj()->vertices().size());
+            _mesh->refine(fin);
+            positions->array()->update();
+            // printf("After refine and update: R%d: pos: %d, verts: %d\n",
+            //     _mesh->rank(), positions->array()->aosoa()->size(),
+            //     _mesh->layoutObj()->vertices().size());
             
             _mesh->fill_positions(positions, 1);
+            // printf("After pm->gather: R%d: pos: %d, verts: %d\n",
+            //     _mesh->rank(), positions->array()->aosoa()->size(),
+            //     _mesh->layoutObj()->vertices().size());
             _pm->gather();
-
-            printf("After: R%d: pos: %d, verts: %d\n",
-                _mesh->rank(), positions->array()->aosoa().size(),
-                _mesh->layoutObj()->vertices().size());
-            
-
             step();
             t++;
             // 4. Output mesh state periodically
@@ -643,6 +652,7 @@ class UnstructuredSolver : public SolverBase
                     vtk_writer->vtkWrite(t);
                 }
             }
+            // Look at face 15, 20/21
 
             // Write views for future testing, if enabled
             #if WRITE_VIEWS

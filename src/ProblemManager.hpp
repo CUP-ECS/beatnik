@@ -282,13 +282,13 @@ class ProblemManager
         // Get State Arrays. These are AoSoA slices in the unstructured version
         auto zaosoa = get( Field::Position() )->array()->aosoa();
         auto waosoa = get( Field::Vorticity() )->array()->aosoa();
-        auto zslice = Cabana::slice<0>(zaosoa);
-        auto wslice = Cabana::slice<0>(waosoa);
+        auto zslice = Cabana::slice<0>(*zaosoa);
+        auto wslice = Cabana::slice<0>(*waosoa);
         auto positions_in_slice = Cabana::slice<0>(positions_in);
 
         // Fill positions array with positions_in
-        assert(zaosoa.size() == positions_in.size());
-        assert(waosoa.size() == positions_in.size());
+        assert(zaosoa->size() == positions_in.size());
+        assert(waosoa->size() == positions_in.size());
         Kokkos::parallel_for("Initialize Cells", Kokkos::RangePolicy<execution_space>(0, positions_in.size()),
             KOKKOS_LAMBDA( const int i ) {
             for (int j = 0; j < 3; j++) 

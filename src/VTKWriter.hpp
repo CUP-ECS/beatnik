@@ -91,7 +91,7 @@ class VTKWriter
     //     d_filename = ss.str();
     // }
 
-    void createDataFile( const int step )
+    void createDataFile()
     {
         // setFilename( step );
 
@@ -115,9 +115,9 @@ class VTKWriter
         // Get positions AoSoA and copy to host memory
         using z_aosoa_type = Cabana::AoSoA<base_triple_type, Kokkos::HostSpace, 4>;
         auto zaosoa = _pm.get( Field::Position() )->array()->aosoa();
-        assert(zaosoa.size() == vertices.size()); // Ensure aosoa is up-to-date
-        z_aosoa_type zhaosoa("positions_host", zaosoa.size());
-        Cabana::deep_copy(zhaosoa, zaosoa);
+        assert(zaosoa->size() == vertices.size()); // Ensure aosoa is up-to-date
+        z_aosoa_type zhaosoa("positions_host", zaosoa->size());
+        Cabana::deep_copy(zhaosoa, *zaosoa);
         auto z_slice = Cabana::slice<0>(zhaosoa);
 
         // Mesh slices
@@ -146,6 +146,14 @@ class VTKWriter
             assert(vlid2 != -1);
             vtkIdType tri_ids[3] = {vlid0, vlid1, vlid2};
             cells->InsertNextCell(3, tri_ids);
+            if (f_gid(n) == 45 || f_gid(n) == 46 || f_gid(n) == 47 || f_gid(n) == 48 || f_gid(n) == 15)
+            {
+                printf("R%d: f%d: v(%d, %d, %d), pos0(%0.3lf, %0.3lf, %0.3lf), pos1(%0.3lf, %0.3lf, %0.3lf), pos2(%0.3lf, %0.3lf, %0.3lf)\n",
+                    _pm.mesh().rank(), f_gid(n), fvid0, fvid1, fvid2,
+                    z_slice(vlid0, 0), z_slice(vlid0, 1), z_slice(vlid0, 2),
+                    z_slice(vlid1, 0), z_slice(vlid1, 1), z_slice(vlid1, 2),
+                    z_slice(vlid2, 0), z_slice(vlid2, 1), z_slice(vlid2, 2));
+            }
         }
 
         // create unstructured mesh
@@ -182,9 +190,9 @@ class VTKWriter
         // Copy vorticity to host memory
         using w_aosoa_type = Cabana::AoSoA<base_pair_type, Kokkos::HostSpace, 4>;
         auto waosoa = _pm.get( Field::Vorticity() )->array()->aosoa();
-        assert(waosoa.size() == mesh->vertices().size()); // Ensure aosoa is up-to-date
-        w_aosoa_type whaosoa("vorticity_host", waosoa.size());
-        Cabana::deep_copy(whaosoa, waosoa);
+        assert(waosoa->size() == mesh->vertices().size()); // Ensure aosoa is up-to-date
+        w_aosoa_type whaosoa("vorticity_host", waosoa->size());
+        Cabana::deep_copy(whaosoa, *waosoa);
         auto w_slice = Cabana::slice<0>(whaosoa);
 
         // Mesh slices
@@ -255,7 +263,7 @@ class VTKWriter
         std::string filename = "data/raw/BeatnikOutput-" + std::to_string(rank) + "-" +
                             std::to_string(time_step) + ".vtu";
 
-        createDataFile(time_step);
+        createDataFile();
         writeVorticity();
 
         // Each rank writes its own VTU file

@@ -199,23 +199,46 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         static_assert(std::is_same_v<member_type, tuple_type>, "fill_positions: AoSoA does not have correct member type");
         
         auto positions_array = positions_in->array();
-        positions_array->update();
+
+        // Make sure the positions array is up-to-date with the mesh
+        if (_mesh->version() != positions_array->layout()->mesh()->version())
+            throw std::runtime_error("UnstructuredMesh::fill_positions: input array must be updated");
+
         auto positions_aosoa = positions_array->aosoa();
-        auto positions = Cabana::slice<0>(positions_aosoa);
+        auto positions = Cabana::slice<0>(*positions_aosoa);
 
         auto owned_vertices = _mesh->count(NuMesh::Own(), NuMesh::Vertex());
         auto owned_edges = _mesh->count(NuMesh::Own(), NuMesh::Edge());
 
         auto e_vids = Cabana::slice<E_VIDS>(_mesh->edges());
+        auto e_gid = Cabana::slice<E_GID>(_mesh->edges());
         auto e_cids = Cabana::slice<E_CIDS>(_mesh->edges());
         auto v_gid = Cabana::slice<V_GID>(_mesh->vertices());
 
+        const int rank = _rank;
         Kokkos::parallel_for("fill positions", Kokkos::RangePolicy<execution_space>(0, owned_edges),
         KOKKOS_LAMBDA(int elid) {
 
-            // Only consider edges with no children
-            if (e_cids(elid, 0) != -1) return;
+            /**
+             * Only consider edges whose children have no children.
+             * The new vertex that must have its position set is the
+             * middle vertex of the parent edge that has children edges that
+             * do not have their middle vertex set.
+             * 
+             * If the children edges have their middle vertex set, these children
+             * are not a leaf edge and we assume their middle vertex is already set.
+             */
+            int ecgid0 = e_cids(elid, 0);
+            if (ecgid0 == -1) return; // Edge has no children
 
+            int eclid0 = NuMesh::Utils::get_lid(e_gid, ecgid0, 0, owned_edges);
+            if (eclid0 == -1) return;
+            if (e_cids(eclid0, 0) != -1) return; // Child edge has children
+            if (e_vids(elid, 2) == -1) return;  // Edge does not have a middle vertex set
+
+            // printf("R%d: from egid %d: e_cid(%d, 0) = %d, e_vids(%d, 2) = %d\n", rank,
+            //     e_gid(elid), elid, e_cids(elid, 0), elid, e_vids(elid, 2));
+            
             int vgid0, vgid1, vgid2, vlid0, vlid1, vlid2;
             vgid0 = e_vids(elid, 0);
             vgid1 = e_vids(elid, 1);
@@ -238,6 +261,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
                 positions(vlid2, 1) = (y_m / norm) * project_to_sphere;
                 positions(vlid2, 2) = (z_m / norm) * project_to_sphere;
             }
+            // printf("R%d: set position for vgid %d\n", rank, v_gid(vlid2));
         });
     }
     
@@ -251,7 +275,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
             const int level, const double shape_factor, const double hybrid_weight)
     {
         // Ensure positions array is up-to-date
-        assert(positions_array.array()->aosoa().size() == _mesh->vertices().size());
+        assert(positions_array.array()->aosoa()->size() == _mesh->vertices()->size());
 
         // Initialize gradients AoSoA, which has "num verts" Cabana::MemberTypes<double[3]> tuples
         auto vertex_triple_layout =
@@ -421,10 +445,10 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
         auto out_aosoa = out->array()->aosoa();
-        auto laplace = Cabana::slice<0>(out_aosoa);
+        auto laplace = Cabana::slice<0>(*out_aosoa);
         auto in_aosoa = in.array()->aosoa();
-        auto vorts = Cabana::slice<0>(in_aosoa);
-        auto gradients = Cabana::slice<0>(_gradients->array()->aosoa());
+        auto vorts = Cabana::slice<0>(*in_aosoa);
+        auto gradients = Cabana::slice<0>(*_gradients->array()->aosoa());
     
         // Retrieve neighbor connectivity
         auto offsets = _v2v->offsets();
@@ -490,15 +514,15 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         [[maybe_unused]]const triple_array_type& z_dx, [[maybe_unused]]const triple_array_type& z_dy) const override
     {
         auto w_aosoa = w.array()->aosoa();
-        auto vorts = Cabana::slice<0>(w_aosoa);
-        auto gradients = Cabana::slice<0>(_gradients->array()->aosoa());
+        auto vorts = Cabana::slice<0>(*w_aosoa);
+        auto gradients = Cabana::slice<0>(*_gradients->array()->aosoa());
 
         // Clone the gradients AoSoA structure for the output
         auto omega_array = ArrayUtils::ArrayOp::clone(*_gradients);
         auto omega_aosoa = omega_array->array()->aosoa();
-        auto omega = Cabana::slice<0>(omega_aosoa);
+        auto omega = Cabana::slice<0>(*omega_aosoa);
 
-        int num_vertices = _gradients->array()->aosoa().size();
+        int num_vertices = _gradients->array()->aosoa()->size();
 
         Kokkos::parallel_for("Calculate Omega (Unstructured)", Kokkos::RangePolicy<execution_space>(0, num_vertices),
         KOKKOS_LAMBDA(const int vertex_id) {
