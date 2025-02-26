@@ -210,6 +210,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         auto owned_vertices = _mesh->count(NuMesh::Own(), NuMesh::Vertex());
         auto owned_edges = _mesh->count(NuMesh::Own(), NuMesh::Edge());
         auto total_edges = _mesh->edges().size();
+        auto total_vertices = _mesh->vertices().size();
 
         auto e_vids = Cabana::slice<E_VIDS>(_mesh->edges());
         auto e_gid = Cabana::slice<E_GID>(_mesh->edges());
@@ -229,6 +230,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
         */
         const int rank = _rank;
+        if (rank == 0) _mesh->printVertices(0, 0);
         Kokkos::parallel_for("fill positions", Kokkos::RangePolicy<execution_space>(0, total_edges),
         KOKKOS_LAMBDA(int elid) {
 
@@ -253,15 +255,15 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
             vgid0 = e_vids(elid, 0);
             vgid1 = e_vids(elid, 1);
             vgid2 = e_vids(elid, 2);
-            vlid0 = NuMesh::Utils::get_lid(v_gid, vgid0, 0, owned_vertices);
-            // assert(vlid0 != -1);
-            if (vlid0 == -1) printf("R%d: from egid %d: vgid %d not owned\n", rank, e_gid(elid), vgid0);
-            vlid1 = NuMesh::Utils::get_lid(v_gid, vgid1, 0, owned_vertices);
-            // assert(vlid1 != -1);
-            if (vlid1 == -1) printf("R%d: from egid %d: vgid %d not owned\n", rank, e_gid(elid), vgid1);
-            vlid2 = NuMesh::Utils::get_lid(v_gid, vgid2, 0, owned_vertices);
-            // assert(vlid2 != -1);
-            if (vlid2 == -1) printf("R%d: from egid %d: vgid %d not owned\n", rank, e_gid(elid), vgid2);
+            vlid0 = NuMesh::Utils::get_lid(v_gid, vgid0, 0, total_vertices);
+            assert(vlid0 != -1);
+            // if (vlid0 == -1) printf("R%d: from egid %d: vgid %d not owned\n", rank, e_gid(elid), vgid0);
+            vlid1 = NuMesh::Utils::get_lid(v_gid, vgid1, 0, total_vertices);
+            assert(vlid1 != -1);
+            // if (vlid1 == -1) printf("R%d: from egid %d: vgid %d not owned\n", rank, e_gid(elid), vgid1);
+            vlid2 = NuMesh::Utils::get_lid(v_gid, vgid2, 0, total_vertices);
+            assert(vlid2 != -1);
+            // if (vlid2 == -1) printf("R%d: from egid %d: vgid %d not owned\n", rank, e_gid(elid), vgid2);
 
             printf("R%d: from egid %d, updating vgid %d\n", rank, e_gid(elid), v_gid(vlid2));
 
