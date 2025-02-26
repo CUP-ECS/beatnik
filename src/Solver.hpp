@@ -608,24 +608,24 @@ class UnstructuredSolver : public SolverBase
                 printf( "Step %d / %d at time = %f\n", t, num_step, _time );
 
             // Refine the mesh for testing purposes
-            // int num_local_faces = _mesh->layoutObj()->count(NuMesh::Own(), NuMesh::Face());
-            // auto vef_gid_start = _mesh->layoutObj()->vef_gid_start();
-            // int face_gid_start = vef_gid_start(_mesh->rank(), 2);
-            // Kokkos::View<int*, MemorySpace> fin("fin", num_local_faces);
-            // Kokkos::parallel_for("mark_faces_to_refine", Kokkos::RangePolicy<ExecutionSpace>(0, num_local_faces),
-            //     KOKKOS_LAMBDA(int i) {
+            int num_local_faces = _mesh->layoutObj()->count(NuMesh::Own(), NuMesh::Face());
+            auto vef_gid_start = _mesh->layoutObj()->vef_gid_start();
+            int face_gid_start = vef_gid_start(_mesh->rank(), 2);
+            Kokkos::View<int*, MemorySpace> fin("fin", num_local_faces);
+            Kokkos::parallel_for("mark_faces_to_refine", Kokkos::RangePolicy<ExecutionSpace>(0, num_local_faces),
+                KOKKOS_LAMBDA(int i) {
     
-            //         fin(i) = face_gid_start + i;
+                    fin(i) = face_gid_start + i;
     
-            //     });
-            Kokkos::View<int[1], MemorySpace> fin("fin");
-            Kokkos::parallel_for("mark_faces_to_refine", Kokkos::RangePolicy<ExecutionSpace>(0, fin.extent(0)),
-            KOKKOS_LAMBDA(int i) {
+                });
+            // Kokkos::View<int[1], MemorySpace> fin("fin");
+            // Kokkos::parallel_for("mark_faces_to_refine", Kokkos::RangePolicy<ExecutionSpace>(0, fin.extent(0)),
+            // KOKKOS_LAMBDA(int i) {
 
-                fin(i) = t+15;
-                //printf("refining face %d\n", t+15);
+            //     fin(i) = t+15;
+            //     //printf("refining face %d\n", t+15);
 
-            });
+            // });
             auto positions = _pm->get( Field::Position() );
             // printf("Before refine: R%d: pos: %d, verts: %d\n",
             //     _mesh->rank(), positions->array()->aosoa()->size(),
