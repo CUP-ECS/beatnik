@@ -131,6 +131,14 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
         // Initialize vertex connectivity at level 0
         _v2v = std::make_shared<v2v_type>(_mesh, 0);
+
+        _is_vert_pos_set_ref = Kokkos::View<bool*, memory_space>("_is_vert_pos_set_ref", _mesh->count(NuMesh::Own(), NuMesh::Vertex()));
+        _is_vert_pos_set = Kokkos::View<bool*, memory_space>("_is_vert_pos_set", _mesh->count(NuMesh::Own(), NuMesh::Vertex()));
+
+        // Initially all vertex positions are set
+        Kokkos::deep_copy(_is_vert_pos_set_ref, true);
+        Kokkos::deep_copy(_is_vert_pos_set, true);
+
         
         // auto node_triple_layout =
         //     ArrayUtils::createArrayLayout<base_triple_type>( _mesh, 3, entity_type() );
@@ -157,21 +165,29 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
               , _num_nodes( {(int)vertices.size(), 0} )
               , _periodic( {true, true} ) // Unused
     {
-      MPI_Comm_rank( _comm, &_rank );
-      MPI_Comm_size( _comm, &_comm_size );
+        MPI_Comm_rank( _comm, &_rank );
+        MPI_Comm_size( _comm, &_comm_size );
 
-      _mesh = NuMesh::createEmptyMesh<execution_space, memory_space>(_comm);
-      _mesh->initializeFromConnectivity(vertices, faces);
+        _mesh = NuMesh::createEmptyMesh<execution_space, memory_space>(_comm);
+        _mesh->initializeFromConnectivity(vertices, faces);
 
-      _gradient_version = -1;
+        _gradient_version = -1;
 
-      // Initialize vertex connectivity at level 0
-      _v2v = std::make_shared<v2v_type>(_mesh, 0);
-      
-    //   auto node_triple_layout =
-    //       ArrayUtils::createArrayLayout<base_triple_type>( _mesh, 3, entity_type() );
-    //   auto pos_test = ArrayUtils::createArray<memory_space>("pos_test", node_triple_layout);
-    //   compute_gradient(*pos_test, 0, 1.0, 1.0);
+        // Initialize vertex connectivity at level 0
+        _v2v = std::make_shared<v2v_type>(_mesh, 0);
+
+        _is_vert_pos_set_ref = Kokkos::View<bool*, memory_space>("_is_vert_pos_set_ref", _mesh->count(NuMesh::Own(), NuMesh::Vertex()));
+        _is_vert_pos_set = Kokkos::View<bool*, memory_space>("_is_vert_pos_set", _mesh->count(NuMesh::Own(), NuMesh::Vertex()));
+
+        // Initially all vertex positions are set
+        Kokkos::deep_copy(_is_vert_pos_set_ref, true);
+        Kokkos::deep_copy(_is_vert_pos_set, true);
+
+
+        //   auto node_triple_layout =
+        //       ArrayUtils::createArrayLayout<base_triple_type>( _mesh, 3, entity_type() );
+        //   auto pos_test = ArrayUtils::createArray<memory_space>("pos_test", node_triple_layout);
+        //   compute_gradient(*pos_test, 0, 1.0, 1.0);
     }
 
     /**
@@ -216,6 +232,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         auto e_gid = Cabana::slice<E_GID>(_mesh->edges());
         auto e_cids = Cabana::slice<E_CIDS>(_mesh->edges());
         auto v_gid = Cabana::slice<V_GID>(_mesh->vertices());
+        auto v_owner = Cabana::slice<V_OWNER>(_mesh->vertices());
         /*
         R1: f45: v(48, 66, 47), pos0(-0.335, -0.838, -0.430), pos1(-0.118, -0.714, -0.690), pos2(-0.029, -0.962, -0.270)
         R1: f46: v(34, 39, 41), pos0(0.193, -0.799, 0.570), pos1(0.417, -0.855, 0.310), pos2(0.102, -0.983, 0.150)
@@ -230,7 +247,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
         */
         const int rank = _rank;
-        if (rank == 0) _mesh->printVertices(0, 0);
+        // if (rank == 0) _mesh->printVertices(0, 0);
         Kokkos::parallel_for("fill positions", Kokkos::RangePolicy<execution_space>(0, total_edges),
         KOKKOS_LAMBDA(int elid) {
 
@@ -246,7 +263,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
             int ecgid0 = e_cids(elid, 0);
             if (ecgid0 == -1) return; // Edge has no children
 
-            int eclid0 = NuMesh::Utils::get_lid(e_gid, ecgid0, 0, owned_edges);
+            int eclid0 = NuMesh::Utils::get_lid(e_gid, ecgid0, owned_edges, total_edges);
             if (eclid0 == -1) return;
             if (e_cids(eclid0, 0) != -1) return; // Child edge has children
             if (e_vids(elid, 2) == -1) return;  // Edge does not have a middle vertex set
@@ -255,17 +272,14 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
             vgid0 = e_vids(elid, 0);
             vgid1 = e_vids(elid, 1);
             vgid2 = e_vids(elid, 2);
-            vlid0 = NuMesh::Utils::get_lid(v_gid, vgid0, 0, total_vertices);
+            vlid0 = NuMesh::Utils::get_lid(v_gid, vgid0, owned_vertices, total_vertices);
             assert(vlid0 != -1);
-            // if (vlid0 == -1) printf("R%d: from egid %d: vgid %d not owned\n", rank, e_gid(elid), vgid0);
-            vlid1 = NuMesh::Utils::get_lid(v_gid, vgid1, 0, total_vertices);
+            vlid1 = NuMesh::Utils::get_lid(v_gid, vgid1, owned_vertices, total_vertices);
             assert(vlid1 != -1);
-            // if (vlid1 == -1) printf("R%d: from egid %d: vgid %d not owned\n", rank, e_gid(elid), vgid1);
-            vlid2 = NuMesh::Utils::get_lid(v_gid, vgid2, 0, total_vertices);
+            vlid2 = NuMesh::Utils::get_lid(v_gid, vgid2, owned_vertices, total_vertices);
             assert(vlid2 != -1);
-            // if (vlid2 == -1) printf("R%d: from egid %d: vgid %d not owned\n", rank, e_gid(elid), vgid2);
 
-            printf("R%d: from egid %d, updating vgid %d\n", rank, e_gid(elid), v_gid(vlid2));
+            if (v_owner(vlid2) != rank) return; // Only update vertices we own. Perform a gather to retrieve ghosts
 
             double x_m = 0.5 * (positions(vlid0, 0) + positions(vlid1, 0));
             double y_m = 0.5 * (positions(vlid0, 1) + positions(vlid1, 1));
@@ -604,6 +618,10 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     // Vertex-to-vertex mapping. Stored so we don't have to re-create it if the mesh does not update
     std::shared_ptr<v2v_type> _v2v;
 
+    // Store which vertices have their positions set, to speed up
+    // setting new positions after refinement
+    Kokkos::View<bool*, memory_space> _is_vert_pos_set_ref; // Reference positions
+    Kokkos::View<bool*, memory_space> _is_vert_pos_set;     // Actual positions
 };
 
 //---------------------------------------------------------------------------//
