@@ -209,14 +209,27 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
         auto owned_vertices = _mesh->count(NuMesh::Own(), NuMesh::Vertex());
         auto owned_edges = _mesh->count(NuMesh::Own(), NuMesh::Edge());
+        auto total_edges = _mesh->edges().size();
 
         auto e_vids = Cabana::slice<E_VIDS>(_mesh->edges());
         auto e_gid = Cabana::slice<E_GID>(_mesh->edges());
         auto e_cids = Cabana::slice<E_CIDS>(_mesh->edges());
         auto v_gid = Cabana::slice<V_GID>(_mesh->vertices());
+        /*
+        R1: f45: v(48, 66, 47), pos0(-0.335, -0.838, -0.430), pos1(-0.118, -0.714, -0.690), pos2(-0.029, -0.962, -0.270)
+        R1: f46: v(34, 39, 41), pos0(0.193, -0.799, 0.570), pos1(0.417, -0.855, 0.310), pos2(0.102, -0.983, 0.150)
+        R1: f47: v(36, 34, 30), pos0(0.635, -0.613, 0.470), pos1(0.193, -0.799, 0.570), pos2(0.379, -0.569, 0.730)
+        R1: f48: v(36, 34, 39), pos0(0.635, -0.613, 0.470), pos1(0.193, -0.799, 0.570), pos2(0.417, -0.855, 0.310)
+        R0: f15: v(20, 73, 66), pos0(-0.259, -0.459, -0.850), pos1(0.016, -0.312, -0.950), pos2(-0.118, -0.714, -0.690)
+        Step 0 / 1 at time = 0.000000
+        R0: f45: v(24, 77, 25), pos0(-0.259, -0.459, -0.850), pos1(-0.053, -0.530, -0.847), pos2(-0.259, -0.459, -0.850)
+        R0: f46: v(24, 77, 75), pos0(-0.259, -0.459, -0.850), pos1(-0.053, -0.530, -0.847), pos2(0.016, -0.312, -0.950)
+        R0: f47: v(77, 25, 68), pos0(-0.053, -0.530, -0.847), pos1(-0.259, -0.459, -0.850), pos2(-0.118, -0.714, -0.690)
+        R0: f48: v(24, 25, 20), pos0(-0.259, -0.459, -0.850), pos1(-0.259, -0.459, -0.850), pos2(-0.259, -0.459, -0.850)
 
+        */
         const int rank = _rank;
-        Kokkos::parallel_for("fill positions", Kokkos::RangePolicy<execution_space>(0, owned_edges),
+        Kokkos::parallel_for("fill positions", Kokkos::RangePolicy<execution_space>(0, total_edges),
         KOKKOS_LAMBDA(int elid) {
 
             /**
@@ -235,17 +248,22 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
             if (eclid0 == -1) return;
             if (e_cids(eclid0, 0) != -1) return; // Child edge has children
             if (e_vids(elid, 2) == -1) return;  // Edge does not have a middle vertex set
-
-            // printf("R%d: from egid %d: e_cid(%d, 0) = %d, e_vids(%d, 2) = %d\n", rank,
-            //     e_gid(elid), elid, e_cids(elid, 0), elid, e_vids(elid, 2));
             
             int vgid0, vgid1, vgid2, vlid0, vlid1, vlid2;
             vgid0 = e_vids(elid, 0);
             vgid1 = e_vids(elid, 1);
             vgid2 = e_vids(elid, 2);
             vlid0 = NuMesh::Utils::get_lid(v_gid, vgid0, 0, owned_vertices);
+            // assert(vlid0 != -1);
+            if (vlid0 == -1) printf("R%d: from egid %d: vgid %d not owned\n", rank, e_gid(elid), vgid0);
             vlid1 = NuMesh::Utils::get_lid(v_gid, vgid1, 0, owned_vertices);
+            // assert(vlid1 != -1);
+            if (vlid1 == -1) printf("R%d: from egid %d: vgid %d not owned\n", rank, e_gid(elid), vgid1);
             vlid2 = NuMesh::Utils::get_lid(v_gid, vgid2, 0, owned_vertices);
+            // assert(vlid2 != -1);
+            if (vlid2 == -1) printf("R%d: from egid %d: vgid %d not owned\n", rank, e_gid(elid), vgid2);
+
+            printf("R%d: from egid %d, updating vgid %d\n", rank, e_gid(elid), v_gid(vlid2));
 
             double x_m = 0.5 * (positions(vlid0, 0) + positions(vlid1, 0));
             double y_m = 0.5 * (positions(vlid0, 1) + positions(vlid1, 1));

@@ -146,14 +146,14 @@ class VTKWriter
             assert(vlid2 != -1);
             vtkIdType tri_ids[3] = {vlid0, vlid1, vlid2};
             cells->InsertNextCell(3, tri_ids);
-            if (f_gid(n) == 45 || f_gid(n) == 46 || f_gid(n) == 47 || f_gid(n) == 48 || f_gid(n) == 15)
-            {
-                printf("R%d: f%d: v(%d, %d, %d), pos0(%0.3lf, %0.3lf, %0.3lf), pos1(%0.3lf, %0.3lf, %0.3lf), pos2(%0.3lf, %0.3lf, %0.3lf)\n",
-                    _pm.mesh().rank(), f_gid(n), fvid0, fvid1, fvid2,
-                    z_slice(vlid0, 0), z_slice(vlid0, 1), z_slice(vlid0, 2),
-                    z_slice(vlid1, 0), z_slice(vlid1, 1), z_slice(vlid1, 2),
-                    z_slice(vlid2, 0), z_slice(vlid2, 1), z_slice(vlid2, 2));
-            }
+            // if (f_gid(n) == 45 || f_gid(n) == 46 || f_gid(n) == 47 || f_gid(n) == 48 || f_gid(n) == 15)
+            // {
+            //     printf("R%d: f%d: v(%d, %d, %d), pos0(%0.3lf, %0.3lf, %0.3lf), pos1(%0.3lf, %0.3lf, %0.3lf), pos2(%0.3lf, %0.3lf, %0.3lf)\n",
+            //         _pm.mesh().rank(), f_gid(n), fvid0, fvid1, fvid2,
+            //         z_slice(vlid0, 0), z_slice(vlid0, 1), z_slice(vlid0, 2),
+            //         z_slice(vlid1, 0), z_slice(vlid1, 1), z_slice(vlid1, 2),
+            //         z_slice(vlid2, 0), z_slice(vlid2, 1), z_slice(vlid2, 2));
+            // }
         }
 
         // create unstructured mesh
