@@ -367,7 +367,8 @@ class ProblemManager
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
             // We must remake the halo each time to ensure it stays up-to-date with the mesh
-            auto numesh_halo = NuMesh::createHalo(_mesh.layoutObj(), 0, 1, NuMesh::Vertex());
+            int halo_level = _mesh.layoutObj()->max_level();
+            auto numesh_halo = NuMesh::createHalo(_mesh.layoutObj(), halo_level, 1, NuMesh::Vertex());
             _position->array()->update();
             NuMesh::gather(numesh_halo, _position->array());
             _vorticity->array()->update();
