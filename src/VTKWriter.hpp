@@ -27,6 +27,7 @@
 #include <Cabana_Grid.hpp>
 
 #include <vtkCellArray.h>
+#include <vtkCellData.h>
 #include <vtkDataSetMapper.h>
 #include <vtkDoubleArray.h>
 #include <vtkIntArray.h>
@@ -93,29 +94,22 @@ class VTKWriter
 
     void createDataFile()
     {
-        // setFilename( step );
-
-        // Reset number of vertices
-        // _num_vertices = 0;
-
         // Retrieve the Local Grid and Local Mesh
         const auto & mesh = _pm.mesh().layoutObj();
 
-        // for simplicity create new points/triangles every time
-        // assuming that they change frequently enough
         vtkNew<vtkPoints> points;
         vtkNew<vtkCellArray> cells;
+        vtkNew<vtkIntArray> ownerRanks;  // Array to store rank of each cell
+        ownerRanks->SetName("OwnerRank");
+        ownerRanks->SetNumberOfComponents(1);
 
-        // Declare the coordinates of the portion of the mesh we're writing
         auto vertices = mesh->vertices();
         auto faces = mesh->faces();
-        int num_verts = mesh->count(NuMesh::Own(), NuMesh::Vertex());
         int num_faces = mesh->count(NuMesh::Own(), NuMesh::Face());
 
         // Get positions AoSoA and copy to host memory
         using z_aosoa_type = Cabana::AoSoA<base_triple_type, Kokkos::HostSpace, 4>;
-        auto zaosoa = _pm.get( Field::Position() )->array()->aosoa();
-        assert(zaosoa->size() == vertices.size()); // Ensure aosoa is up-to-date
+        auto zaosoa = _pm.get(Field::Position())->array()->aosoa();
         z_aosoa_type zhaosoa("positions_host", zaosoa->size());
         Cabana::deep_copy(zhaosoa, *zaosoa);
         auto z_slice = Cabana::slice<0>(zhaosoa);
@@ -125,16 +119,18 @@ class VTKWriter
         auto f_vids = Cabana::slice<F_VIDS>(_faces_h);
         auto f_gid = Cabana::slice<F_GID>(_faces_h);
         auto f_cids = Cabana::slice<F_CID>(_faces_h);
+        auto f_owner = Cabana::slice<F_OWNER>(_faces_h);
 
-        // create all points and triangles
-        for ( size_t n = 0; n < vertices.size(); ++n ) {
-            points->InsertNextPoint( z_slice( n, 0 ), z_slice( n, 1 ), z_slice( n, 2 ) );
+        // Create points and cells
+        for (size_t n = 0; n < vertices.size(); ++n) {
+            points->InsertNextPoint(z_slice(n, 0), z_slice(n, 1), z_slice(n, 2));
         }
-        for ( int n = 0; n < num_faces; ++n ) {
-            if ( f_cids( n, 0 ) != -1 ) {
-                // Only consider child faces
-                continue;
+
+        for (int n = 0; n < num_faces; ++n) {
+            if (f_cids(n, 0) != -1) {
+                continue;  // Skip child faces
             }
+
             int fvid0 = f_vids(n, 0);
             int vlid0 = NuMesh::Utils::get_lid(v_gids, fvid0, 0, _vertices_h.size());
             assert(vlid0 != -1);
@@ -144,23 +140,23 @@ class VTKWriter
             int fvid2 = f_vids(n, 2);
             int vlid2 = NuMesh::Utils::get_lid(v_gids, fvid2, 0, _vertices_h.size());
             assert(vlid2 != -1);
+
             vtkIdType tri_ids[3] = {vlid0, vlid1, vlid2};
             cells->InsertNextCell(3, tri_ids);
-            // if (f_gid(n) == 45 || f_gid(n) == 46 || f_gid(n) == 47 || f_gid(n) == 48 || f_gid(n) == 15)
-            // {
-            //     printf("R%d: f%d: v(%d, %d, %d), pos0(%0.3lf, %0.3lf, %0.3lf), pos1(%0.3lf, %0.3lf, %0.3lf), pos2(%0.3lf, %0.3lf, %0.3lf)\n",
-            //         _pm.mesh().rank(), f_gid(n), fvid0, fvid1, fvid2,
-            //         z_slice(vlid0, 0), z_slice(vlid0, 1), z_slice(vlid0, 2),
-            //         z_slice(vlid1, 0), z_slice(vlid1, 1), z_slice(vlid1, 2),
-            //         z_slice(vlid2, 0), z_slice(vlid2, 1), z_slice(vlid2, 2));
-            // }
+
+            // Add the owner rank to the cell data
+            ownerRanks->InsertNextValue(f_owner(n)); 
         }
 
-        // create unstructured mesh
+        // Create unstructured mesh
         _d_vtk_mesh = vtkSmartPointer<vtkUnstructuredGrid>::New();
-        _d_vtk_mesh->SetPoints( points );
-        _d_vtk_mesh->SetCells( VTK_TRIANGLE, cells );
+        _d_vtk_mesh->SetPoints(points);
+        _d_vtk_mesh->SetCells(VTK_TRIANGLE, cells);
+
+        // Add cell data
+        _d_vtk_mesh->GetCellData()->AddArray(ownerRanks);
     }
+
 
     // void VTKWriter<Policy>::writeData( const std::string name, Kokkos::View<scalar_t *> field )
     // {
@@ -299,6 +295,16 @@ class VTKWriter
             pvtuFile << "      <PDataArray type=\"Int32\" Name=\"offsets\" format=\"ascii\"/>\n";
             pvtuFile << "      <PDataArray type=\"UInt8\" Name=\"types\" format=\"ascii\"/>\n";
             pvtuFile << "    </PCells>\n";
+
+            // Define point data (for vorticity)
+            pvtuFile << "    <PPointData Scalars=\"vorticity\">\n";
+            pvtuFile << "      <PDataArray type=\"Float64\" Name=\"vorticity\" NumberOfComponents=\"2\" format=\"ascii\"/>\n";
+            pvtuFile << "    </PPointData>\n";
+
+            // Add the cell data section to describe `OwnerRank`
+            pvtuFile << "    <PCellData Scalars=\"OwnerRank\">\n";
+            pvtuFile << "      <PDataArray type=\"Int32\" Name=\"OwnerRank\" format=\"ascii\"/>\n";
+            pvtuFile << "    </PCellData>\n";
 
             // Add piece entries for each rank
             for (int i = 0; i < comm_size; i++)
