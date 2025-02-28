@@ -631,13 +631,12 @@ class UnstructuredSolver : public SolverBase
             //     _mesh->rank(), positions->array()->aosoa()->size(),
             //     _mesh->layoutObj()->vertices().size());
             _mesh->refine(fin);
-            positions->array()->update();
             _pm->gather();
             // printf("After refine and update: R%d: pos: %d, verts: %d\n",
             //     _mesh->rank(), positions->array()->aosoa()->size(),
             //     _mesh->layoutObj()->vertices().size());
             
-            _mesh->fill_positions(positions, 1);
+            _mesh->fill_positions(positions, true, 1);
             // printf("After pm->gather: R%d: pos: %d, verts: %d\n",
             //     _mesh->rank(), positions->array()->aosoa()->size(),
             //     _mesh->layoutObj()->vertices().size());

@@ -203,11 +203,13 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     /**
      * Sets the position of new vertices that have been created after refinement
      * 
-     * @param positions: a Beatnik::Array object containing the positions of vertices
+     * @param positions: a Beatnik::Array object containing the positions of vertices.
+     * @param is_ref: True is reference positions on unit sphere, false if actual positions.
+     *  Used to updated the correct is_pos_set view.
      * @param project_to_sphere: if greater than 0, project the positions of the
      *  new vertices onto a sphere of this radius.
      */
-    void fill_positions(std::shared_ptr<triple_array_type> positions_in, int project_to_sphere) const override
+    void fill_positions(std::shared_ptr<triple_array_type> positions_in, bool is_ref, int project_to_sphere) const override
     {
         static_assert(triple_array_type::isBeatnikArray(), "fill_positions: positions must be a valid Beantik array layout.");
         using member_type = Cabana::MemberTypes<double[3]>;
@@ -228,24 +230,44 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         auto total_edges = _mesh->edges().size();
         auto total_vertices = _mesh->vertices().size();
 
+        // Resize position views to hold true/false for new vertices
+        /**
+         * Resize position views to hold true/false for new vertices.
+         * When we de-refine position and is_pos_set views may need to
+         * be re-mapped before resizing down.alignas
+         * 
+         * For now, assert that the view size always increases
+         */
+        Kokkos::View<bool*, memory_space> is_pos_set = _is_vert_pos_set_ref;
+        if (is_ref)
+        {
+            assert(owned_vertices >= _is_vert_pos_set_ref.extent(0));
+            int old_size = _is_vert_pos_set_ref.extent(0);
+            Kokkos::resize(_is_vert_pos_set_ref, owned_vertices);
+
+            // Create subview of new extent and set to false
+            auto subview = Kokkos::subview(_is_vert_pos_set_ref, Kokkos::pair<int, int>(old_size, owned_vertices));
+            Kokkos::deep_copy(subview, false);
+        }
+        else
+        {
+            assert(owned_vertices >= _is_vert_pos_set.extent(0));
+            size_t old_size = _is_vert_pos_set.extent(0);
+            Kokkos::resize(_is_vert_pos_set, owned_vertices);
+
+            // Create subview of new extent and set to false
+            auto subview = Kokkos::subview(_is_vert_pos_set, Kokkos::pair<int, int>(old_size, owned_vertices));
+            Kokkos::deep_copy(subview, false);
+
+            is_pos_set = _is_vert_pos_set;
+        }
+
         auto e_vids = Cabana::slice<E_VIDS>(_mesh->edges());
         auto e_gid = Cabana::slice<E_GID>(_mesh->edges());
         auto e_cids = Cabana::slice<E_CIDS>(_mesh->edges());
         auto v_gid = Cabana::slice<V_GID>(_mesh->vertices());
         auto v_owner = Cabana::slice<V_OWNER>(_mesh->vertices());
-        /*
-        R1: f45: v(48, 66, 47), pos0(-0.335, -0.838, -0.430), pos1(-0.118, -0.714, -0.690), pos2(-0.029, -0.962, -0.270)
-        R1: f46: v(34, 39, 41), pos0(0.193, -0.799, 0.570), pos1(0.417, -0.855, 0.310), pos2(0.102, -0.983, 0.150)
-        R1: f47: v(36, 34, 30), pos0(0.635, -0.613, 0.470), pos1(0.193, -0.799, 0.570), pos2(0.379, -0.569, 0.730)
-        R1: f48: v(36, 34, 39), pos0(0.635, -0.613, 0.470), pos1(0.193, -0.799, 0.570), pos2(0.417, -0.855, 0.310)
-        R0: f15: v(20, 73, 66), pos0(-0.259, -0.459, -0.850), pos1(0.016, -0.312, -0.950), pos2(-0.118, -0.714, -0.690)
-        Step 0 / 1 at time = 0.000000
-        R0: f45: v(24, 77, 25), pos0(-0.259, -0.459, -0.850), pos1(-0.053, -0.530, -0.847), pos2(-0.259, -0.459, -0.850)
-        R0: f46: v(24, 77, 75), pos0(-0.259, -0.459, -0.850), pos1(-0.053, -0.530, -0.847), pos2(0.016, -0.312, -0.950)
-        R0: f47: v(77, 25, 68), pos0(-0.053, -0.530, -0.847), pos1(-0.259, -0.459, -0.850), pos2(-0.118, -0.714, -0.690)
-        R0: f48: v(24, 25, 20), pos0(-0.259, -0.459, -0.850), pos1(-0.259, -0.459, -0.850), pos2(-0.259, -0.459, -0.850)
 
-        */
         const int rank = _rank;
         // if (rank == 0) _mesh->printVertices(0, 0);
         Kokkos::parallel_for("fill positions", Kokkos::RangePolicy<execution_space>(0, total_edges),
@@ -272,14 +294,16 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
             vgid0 = e_vids(elid, 0);
             vgid1 = e_vids(elid, 1);
             vgid2 = e_vids(elid, 2);
+            vlid2 = NuMesh::Utils::get_lid(v_gid, vgid2, owned_vertices, total_vertices);
+            assert(vlid2 != -1);
+            if (v_owner(vlid2) != rank) return; // Only update vertices we own. Perform a gather to retrieve ghosts
+            // Check is position has already been set. If so, return
+            if (Kokkos::atomic_compare_exchange(&is_pos_set(vlid2), true, true)) return;
+
             vlid0 = NuMesh::Utils::get_lid(v_gid, vgid0, owned_vertices, total_vertices);
             assert(vlid0 != -1);
             vlid1 = NuMesh::Utils::get_lid(v_gid, vgid1, owned_vertices, total_vertices);
             assert(vlid1 != -1);
-            vlid2 = NuMesh::Utils::get_lid(v_gid, vgid2, owned_vertices, total_vertices);
-            assert(vlid2 != -1);
-
-            if (v_owner(vlid2) != rank) return; // Only update vertices we own. Perform a gather to retrieve ghosts
 
             double x_m = 0.5 * (positions(vlid0, 0) + positions(vlid1, 0));
             double y_m = 0.5 * (positions(vlid0, 1) + positions(vlid1, 1));

@@ -130,7 +130,7 @@ class MeshBase
     virtual void refine(Kokkos::View<int*, memory_space> fin) = 0;
 
     // Used by the unstructured mesh to set positions of new vertices created after refinement
-    virtual void fill_positions(std::shared_ptr<triple_array_type> positions_in, int project_to_sphere) const = 0;
+    virtual void fill_positions(std::shared_ptr<triple_array_type> positions_in, bool is_ref, int project_to_sphere) const = 0;
 
     virtual int is_periodic(void) const = 0;
     virtual MPI_Comm comm(void) const = 0;

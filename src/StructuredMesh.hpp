@@ -132,7 +132,7 @@ class StructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>
     void refine(Kokkos::View<int*, memory_space> fin) override {}
 
     // This function currently has no affect for structurd meshes
-    void fill_positions(std::shared_ptr<triple_array_type> positions_in, int project_to_sphere) const override {}
+    void fill_positions(std::shared_ptr<triple_array_type> positions_in, bool is_ref, int project_to_sphere) const override {}
 
     // Get the object used to create array layouts, which in
     // the structured case is also the local grid.
