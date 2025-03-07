@@ -137,13 +137,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
         // Initially all vertex positions are set
         Kokkos::deep_copy(_is_vert_pos_set_ref, true);
-        Kokkos::deep_copy(_is_vert_pos_set, true);
-
-        
-        // auto node_triple_layout =
-        //     ArrayUtils::createArrayLayout<base_triple_type>( _mesh, 3, entity_type() );
-        // auto pos_test = ArrayUtils::createArray<memory_space>("pos_test", node_triple_layout);
-        // compute_gradient(*pos_test, 0, 1.0, 1.0);
+        Kokkos::deep_copy(_is_vert_pos_set, true);        
     }
 
     /**
@@ -357,90 +351,13 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         int max_stecil_size = 6 * 3 * (_mesh->max_level()+1);
 
         // Allocate workspace for K and grad_sample
-        Kokkos::View<double***, memory_space> K("Kernel Matrix", owned_vertices, max_stecil_size + 1, max_stecil_size + 1);
-        Kokkos::View<double***, memory_space> grad_sample("Gradient Samples", owned_vertices, max_stecil_size + 1, 3);
-
         Kokkos::parallel_for("compute_gradient", Kokkos::RangePolicy<execution_space>(0, owned_vertices),
             KOKKOS_LAMBDA(int vlid) {
 
             int offset = offsets(vlid);
             int next_offset = (vlid + 1 < (int)offsets.extent(0)) ? offsets(vlid + 1) : (int)indices.extent(0);
             int sten_size = next_offset - offset;
-
-            // Position of current vertex
-            double pos_x = positions(vlid, 0);
-            double pos_y = positions(vlid, 1);
-            double pos_z = positions(vlid, 2);
-
-            // Initialize Kernel matrix and grad_sample
-            for (int i = 0; i <= sten_size; ++i) {
-                for (int j = 0; j <= sten_size; ++j) {
-                    K(vlid, i, j) = 0.0;
-                }
-                grad_sample(vlid, i, 0) = 0.0;
-                grad_sample(vlid, i, 1) = 0.0;
-                grad_sample(vlid, i, 2) = 0.0;
-            }
-
-            for (int i = 0; i < sten_size; ++i) {
-                int vi = indices(offset + i);
-                double vix = positions(vi, 0);
-                double viy = positions(vi, 1);
-                double viz = positions(vi, 2);
-
-                for (int j = 0; j <= i; ++j) {
-                    int vj = indices(offset + j);
-                    double dx = vix - positions(vj, 0);
-                    double dy = viy - positions(vj, 1);
-                    double dz = viz - positions(vj, 2);
-                    double d = sqrt(dx * dx + dy * dy + dz * dz);
-
-                    K(vlid, i, j) = kern(d, shape_factor, hybrid_weight);
-                    K(vlid, j, i) = K(vlid, i, j);
-                }
-                K(vlid, i, sten_size) = 1.0;
-                K(vlid, sten_size, i) = 1.0;
-
-                vix = pos_x - vix;
-                viy = pos_y - viy;
-                viz = pos_z - viz;
-                double ed = sqrt(vix * vix + viy * viy + viz * viz);
-                double kp = (i == 0) ? 0.0 : kernPrime(ed, shape_factor, hybrid_weight) / ed;
-
-                grad_sample(vlid, i, 0) = vix * kp;
-                grad_sample(vlid, i, 1) = viy * kp;
-                grad_sample(vlid, i, 2) = viz * kp;
-            }
-
-            K(vlid, sten_size, sten_size) = 0.0;
-
-            // LU factorization
-            KokkosBatched::SerialLU<KokkosBatched::Algo::LU::Unblocked>::invoke(Kokkos::subview(K, vlid, Kokkos::ALL, Kokkos::ALL));
-
-            // Solve for gradients
-            KokkosBatched::SerialTrsm<KokkosBatched::Side::Left,
-                                    KokkosBatched::Uplo::Lower,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Diag::Unit,
-                                    KokkosBatched::Algo::Trsm::Unblocked>::invoke(
-                1.0, Kokkos::subview(K, vlid, Kokkos::ALL, Kokkos::ALL), Kokkos::subview(grad_sample, vlid, Kokkos::ALL, Kokkos::ALL));
-
-            KokkosBatched::SerialTrsm<KokkosBatched::Side::Left,
-                                    KokkosBatched::Uplo::Upper,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Diag::NonUnit,
-                                    KokkosBatched::Algo::Trsm::Unblocked>::invoke(
-                1.0, Kokkos::subview(K, vlid, Kokkos::ALL, Kokkos::ALL), Kokkos::subview(grad_sample, vlid, Kokkos::ALL, Kokkos::ALL));
-
-            // Project onto surface tangent
-            for (int i = 0; i < sten_size; ++i) {
-                double xDg = pos_x * grad_sample(vlid, i, 0)
-                           + pos_y * grad_sample(vlid, i, 1)
-                           + pos_z * grad_sample(vlid, i, 2);
-                gradients(vlid, 0) += grad_sample(vlid, i, 0) - xDg * pos_x;
-                gradients(vlid, 1) += grad_sample(vlid, i, 1) - xDg * pos_y;
-                gradients(vlid, 2) += grad_sample(vlid, i, 2) - xDg * pos_z;
-            }
+            
         });
         _gradient_version = _v2v->version();
         // Graident only needs to be calculated for the reference mesh. Only needs to be updated when defined.
