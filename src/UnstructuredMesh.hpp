@@ -18,8 +18,6 @@
 
 #include <MeshBase.hpp>
 
-#include <KokkosBatched_LU_Decl.hpp>
-#include <KokkosBatched_Trsm_Decl.hpp>
 #include <NuMesh_Core.hpp>
 
 #include <mpi.h>
@@ -232,29 +230,29 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
          * 
          * For now, assert that the view size always increases
          */
-        Kokkos::View<bool*, memory_space> is_pos_set = _is_vert_pos_set_ref;
-        if (is_ref)
-        {
-            assert(owned_vertices >= _is_vert_pos_set_ref.extent(0));
-            int old_size = _is_vert_pos_set_ref.extent(0);
-            Kokkos::resize(_is_vert_pos_set_ref, owned_vertices);
+        // Kokkos::View<bool*, memory_space> is_pos_set = _is_vert_pos_set_ref;
+        // if (is_ref)
+        // {
+        //     assert(owned_vertices >= _is_vert_pos_set_ref.extent(0));
+        //     int old_size = _is_vert_pos_set_ref.extent(0);
+        //     Kokkos::resize(_is_vert_pos_set_ref, owned_vertices);
 
-            // Create subview of new extent and set to false
-            auto subview = Kokkos::subview(_is_vert_pos_set_ref, Kokkos::pair<int, int>(old_size, owned_vertices));
-            Kokkos::deep_copy(subview, false);
-        }
-        else
-        {
-            assert(owned_vertices >= _is_vert_pos_set.extent(0));
-            size_t old_size = _is_vert_pos_set.extent(0);
-            Kokkos::resize(_is_vert_pos_set, owned_vertices);
+        //     // Create subview of new extent and set to false
+        //     auto subview = Kokkos::subview(_is_vert_pos_set_ref, Kokkos::pair<int, int>(old_size, owned_vertices));
+        //     Kokkos::deep_copy(subview, false);
+        // }
+        // else
+        // {
+        //     assert(owned_vertices >= _is_vert_pos_set.extent(0));
+        //     size_t old_size = _is_vert_pos_set.extent(0);
+        //     Kokkos::resize(_is_vert_pos_set, owned_vertices);
 
-            // Create subview of new extent and set to false
-            auto subview = Kokkos::subview(_is_vert_pos_set, Kokkos::pair<int, int>(old_size, owned_vertices));
-            Kokkos::deep_copy(subview, false);
+        //     // Create subview of new extent and set to false
+        //     auto subview = Kokkos::subview(_is_vert_pos_set, Kokkos::pair<int, int>(old_size, owned_vertices));
+        //     Kokkos::deep_copy(subview, false);
 
-            is_pos_set = _is_vert_pos_set;
-        }
+        //     is_pos_set = _is_vert_pos_set;
+        // }
 
         auto e_vids = Cabana::slice<E_VIDS>(_mesh->edges());
         auto e_gid = Cabana::slice<E_GID>(_mesh->edges());
@@ -292,7 +290,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
             assert(vlid2 != -1);
             if (v_owner(vlid2) != rank) return; // Only update vertices we own. Perform a gather to retrieve ghosts
             // Check is position has already been set. If so, return
-            if (Kokkos::atomic_compare_exchange(&is_pos_set(vlid2), true, true)) return;
+            // if (Kokkos::atomic_compare_exchange(&is_pos_set(vlid2), true, true)) return;
 
             vlid0 = NuMesh::Utils::get_lid(v_gid, vgid0, owned_vertices, total_vertices);
             assert(vlid0 != -1);
@@ -349,17 +347,6 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
         // At worst, each vert is connected 6*3*(max tree level) verts
         int max_stecil_size = 6 * 3 * (_mesh->max_level()+1);
-
-        // Allocate workspace for K and grad_sample
-        Kokkos::parallel_for("compute_gradient", Kokkos::RangePolicy<execution_space>(0, owned_vertices),
-            KOKKOS_LAMBDA(int vlid) {
-
-            int offset = offsets(vlid);
-            int next_offset = (vlid + 1 < (int)offsets.extent(0)) ? offsets(vlid + 1) : (int)indices.extent(0);
-            int sten_size = next_offset - offset;
-            
-        });
-        _gradient_version = _v2v->version();
         // Graident only needs to be calculated for the reference mesh. Only needs to be updated when defined.
     }
 
@@ -416,7 +403,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
     std::shared_ptr<pair_array_type> laplace(const pair_array_type& in, [[maybe_unused]]const double dx, [[maybe_unused]]const double dy) const override
     {
-        assert((_v2v->version() == _mesh->version()) && (_v2v->version() == _gradient_version));
+        // assert((_v2v->version() == _mesh->version()) && (_v2v->version() == _gradient_version));
     
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
         auto out_aosoa = out->array()->aosoa();

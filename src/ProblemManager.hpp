@@ -216,8 +216,8 @@ class ProblemManager
         // Get State Arrays. These are AoSoA slices in the unstructured version
         auto zaosoa = get( Field::Position() )->array()->aosoa();
         auto waosoa = get( Field::Vorticity() )->array()->aosoa();
-        auto zslice = Cabana::slice<0>(zaosoa);
-        auto wslice = Cabana::slice<0>(waosoa);
+        auto zslice = Cabana::slice<0>(*zaosoa);
+        auto wslice = Cabana::slice<0>(*waosoa);
 
         /**
          * The initialization functions work in a 2D domain. To properly set the values
