@@ -485,11 +485,11 @@ class UnstructuredSolver : public SolverBase
         // Copy positions, vertices, and faces to the correct memory space
         // Host-side AoSoAs for storing VTU data
         using vertices_d = Cabana::MemberTypes<int,       // Vertex global ID                                 
-                                                int,       // Owning rank
-                                                >;
+                                               int       // Owning rank
+                                               >;
         using face_d = Cabana::MemberTypes<int[3],       // Vertex LIDs forming the triangle                                
-                                            bool,         // Flag indicating if the cell contains a ghost point
-                                            >;
+                                           bool         // Flag indicating if the cell contains a ghost point
+                                           >;
         using triple_d = Cabana::MemberTypes<double[3]>; // Vertex positions
         using vert_aosoa = Cabana::AoSoA<vertices_d, MemorySpace, 4>;
         using face_aosoa = Cabana::AoSoA<face_d, MemorySpace, 4>;
