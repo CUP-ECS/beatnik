@@ -18,8 +18,6 @@
 
 #include <MeshBase.hpp>
 
-#include <KokkosBatched_LU_Decl.hpp>
-#include <KokkosBatched_Trsm_Decl.hpp>
 #include <NuMesh_Core.hpp>
 
 #include <mpi.h>
@@ -238,29 +236,29 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
          * 
          * For now, assert that the view size always increases
          */
-        Kokkos::View<bool*, memory_space> is_pos_set = _is_vert_pos_set_ref;
-        if (is_ref)
-        {
-            assert(owned_vertices >= _is_vert_pos_set_ref.extent(0));
-            int old_size = _is_vert_pos_set_ref.extent(0);
-            Kokkos::resize(_is_vert_pos_set_ref, owned_vertices);
+        // Kokkos::View<bool*, memory_space> is_pos_set = _is_vert_pos_set_ref;
+        // if (is_ref)
+        // {
+        //     assert(owned_vertices >= _is_vert_pos_set_ref.extent(0));
+        //     int old_size = _is_vert_pos_set_ref.extent(0);
+        //     Kokkos::resize(_is_vert_pos_set_ref, owned_vertices);
 
-            // Create subview of new extent and set to false
-            auto subview = Kokkos::subview(_is_vert_pos_set_ref, Kokkos::pair<int, int>(old_size, owned_vertices));
-            Kokkos::deep_copy(subview, false);
-        }
-        else
-        {
-            assert(owned_vertices >= _is_vert_pos_set.extent(0));
-            size_t old_size = _is_vert_pos_set.extent(0);
-            Kokkos::resize(_is_vert_pos_set, owned_vertices);
+        //     // Create subview of new extent and set to false
+        //     auto subview = Kokkos::subview(_is_vert_pos_set_ref, Kokkos::pair<int, int>(old_size, owned_vertices));
+        //     Kokkos::deep_copy(subview, false);
+        // }
+        // else
+        // {
+        //     assert(owned_vertices >= _is_vert_pos_set.extent(0));
+        //     size_t old_size = _is_vert_pos_set.extent(0);
+        //     Kokkos::resize(_is_vert_pos_set, owned_vertices);
 
-            // Create subview of new extent and set to false
-            auto subview = Kokkos::subview(_is_vert_pos_set, Kokkos::pair<int, int>(old_size, owned_vertices));
-            Kokkos::deep_copy(subview, false);
+        //     // Create subview of new extent and set to false
+        //     auto subview = Kokkos::subview(_is_vert_pos_set, Kokkos::pair<int, int>(old_size, owned_vertices));
+        //     Kokkos::deep_copy(subview, false);
 
-            is_pos_set = _is_vert_pos_set;
-        }
+        //     is_pos_set = _is_vert_pos_set;
+        // }
 
         auto e_vids = Cabana::slice<E_VIDS>(_mesh->edges());
         auto e_gid = Cabana::slice<E_GID>(_mesh->edges());
@@ -298,7 +296,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
             assert(vlid2 != -1);
             if (v_owner(vlid2) != rank) return; // Only update vertices we own. Perform a gather to retrieve ghosts
             // Check is position has already been set. If so, return
-            if (Kokkos::atomic_compare_exchange(&is_pos_set(vlid2), true, true)) return;
+            // if (Kokkos::atomic_compare_exchange(&is_pos_set(vlid2), true, true)) return;
 
             vlid0 = NuMesh::Utils::get_lid(v_gid, vgid0, owned_vertices, total_vertices);
             assert(vlid0 != -1);
@@ -356,93 +354,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         // At worst, each vert is connected 6*3*(max tree level) verts
         int max_stecil_size = 6 * 3 * (_mesh->max_level()+1);
 
-        // Allocate workspace for K and grad_sample
-        Kokkos::View<double***, memory_space> K("Kernel Matrix", owned_vertices, max_stecil_size + 1, max_stecil_size + 1);
-        Kokkos::View<double***, memory_space> grad_sample("Gradient Samples", owned_vertices, max_stecil_size + 1, 3);
-
-        Kokkos::parallel_for("compute_gradient", Kokkos::RangePolicy<execution_space>(0, owned_vertices),
-            KOKKOS_LAMBDA(int vlid) {
-
-            int offset = offsets(vlid);
-            int next_offset = (vlid + 1 < (int)offsets.extent(0)) ? offsets(vlid + 1) : (int)indices.extent(0);
-            int sten_size = next_offset - offset;
-
-            // Position of current vertex
-            double pos_x = positions(vlid, 0);
-            double pos_y = positions(vlid, 1);
-            double pos_z = positions(vlid, 2);
-
-            // Initialize Kernel matrix and grad_sample
-            for (int i = 0; i <= sten_size; ++i) {
-                for (int j = 0; j <= sten_size; ++j) {
-                    K(vlid, i, j) = 0.0;
-                }
-                grad_sample(vlid, i, 0) = 0.0;
-                grad_sample(vlid, i, 1) = 0.0;
-                grad_sample(vlid, i, 2) = 0.0;
-            }
-
-            for (int i = 0; i < sten_size; ++i) {
-                int vi = indices(offset + i);
-                double vix = positions(vi, 0);
-                double viy = positions(vi, 1);
-                double viz = positions(vi, 2);
-
-                for (int j = 0; j <= i; ++j) {
-                    int vj = indices(offset + j);
-                    double dx = vix - positions(vj, 0);
-                    double dy = viy - positions(vj, 1);
-                    double dz = viz - positions(vj, 2);
-                    double d = sqrt(dx * dx + dy * dy + dz * dz);
-
-                    K(vlid, i, j) = kern(d, shape_factor, hybrid_weight);
-                    K(vlid, j, i) = K(vlid, i, j);
-                }
-                K(vlid, i, sten_size) = 1.0;
-                K(vlid, sten_size, i) = 1.0;
-
-                vix = pos_x - vix;
-                viy = pos_y - viy;
-                viz = pos_z - viz;
-                double ed = sqrt(vix * vix + viy * viy + viz * viz);
-                double kp = (i == 0) ? 0.0 : kernPrime(ed, shape_factor, hybrid_weight) / ed;
-
-                grad_sample(vlid, i, 0) = vix * kp;
-                grad_sample(vlid, i, 1) = viy * kp;
-                grad_sample(vlid, i, 2) = viz * kp;
-            }
-
-            K(vlid, sten_size, sten_size) = 0.0;
-
-            // LU factorization
-            KokkosBatched::SerialLU<KokkosBatched::Algo::LU::Unblocked>::invoke(Kokkos::subview(K, vlid, Kokkos::ALL, Kokkos::ALL));
-
-            // Solve for gradients
-            KokkosBatched::SerialTrsm<KokkosBatched::Side::Left,
-                                    KokkosBatched::Uplo::Lower,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Diag::Unit,
-                                    KokkosBatched::Algo::Trsm::Unblocked>::invoke(
-                1.0, Kokkos::subview(K, vlid, Kokkos::ALL, Kokkos::ALL), Kokkos::subview(grad_sample, vlid, Kokkos::ALL, Kokkos::ALL));
-
-            KokkosBatched::SerialTrsm<KokkosBatched::Side::Left,
-                                    KokkosBatched::Uplo::Upper,
-                                    KokkosBatched::Trans::NoTranspose,
-                                    KokkosBatched::Diag::NonUnit,
-                                    KokkosBatched::Algo::Trsm::Unblocked>::invoke(
-                1.0, Kokkos::subview(K, vlid, Kokkos::ALL, Kokkos::ALL), Kokkos::subview(grad_sample, vlid, Kokkos::ALL, Kokkos::ALL));
-
-            // Project onto surface tangent
-            for (int i = 0; i < sten_size; ++i) {
-                double xDg = pos_x * grad_sample(vlid, i, 0)
-                           + pos_y * grad_sample(vlid, i, 1)
-                           + pos_z * grad_sample(vlid, i, 2);
-                gradients(vlid, 0) += grad_sample(vlid, i, 0) - xDg * pos_x;
-                gradients(vlid, 1) += grad_sample(vlid, i, 1) - xDg * pos_y;
-                gradients(vlid, 2) += grad_sample(vlid, i, 2) - xDg * pos_z;
-            }
-        });
-        _gradient_version = _v2v->version();
+        
         // Graident only needs to be calculated for the reference mesh. Only needs to be updated when defined.
     }
 
@@ -499,7 +411,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
     std::shared_ptr<pair_array_type> laplace(const pair_array_type& in, [[maybe_unused]]const double dx, [[maybe_unused]]const double dy) const override
     {
-        assert((_v2v->version() == _mesh->version()) && (_v2v->version() == _gradient_version));
+        // assert((_v2v->version() == _mesh->version()) && (_v2v->version() == _gradient_version));
     
         auto out = Beatnik::ArrayUtils::ArrayOp::clone(in);
         auto out_aosoa = out->array()->aosoa();
