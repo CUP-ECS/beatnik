@@ -135,13 +135,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
         // Initially all vertex positions are set
         Kokkos::deep_copy(_is_vert_pos_set_ref, true);
-        Kokkos::deep_copy(_is_vert_pos_set, true);
-
-        
-        // auto node_triple_layout =
-        //     ArrayUtils::createArrayLayout<base_triple_type>( _mesh, 3, entity_type() );
-        // auto pos_test = ArrayUtils::createArray<memory_space>("pos_test", node_triple_layout);
-        // compute_gradient(*pos_test, 0, 1.0, 1.0);
+        Kokkos::deep_copy(_is_vert_pos_set, true);        
     }
 
     /**
@@ -353,8 +347,6 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
         // At worst, each vert is connected 6*3*(max tree level) verts
         int max_stecil_size = 6 * 3 * (_mesh->max_level()+1);
-
-        
         // Graident only needs to be calculated for the reference mesh. Only needs to be updated when defined.
     }
 
