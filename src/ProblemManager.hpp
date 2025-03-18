@@ -291,7 +291,7 @@ class ProblemManager
         assert(waosoa->size() == positions_in.size());
         Kokkos::parallel_for("Initialize Cells", Kokkos::RangePolicy<execution_space>(0, positions_in.size()),
             KOKKOS_LAMBDA( const int i ) {
-            for (int j = 0; j < 3; j++) 
+            for (int j = 0; j < 3; j++)
                 zslice(i, j) = positions_in_slice(i, j);
             for (int j = 0; j < 2; j++) 
                 wslice(i, j) = 0.0;
