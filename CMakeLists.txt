@@ -85,19 +85,17 @@ include_directories(${VTK_INCLUDE_DIRS})
 find_package(CLANG_FORMAT 10)
 
 # Tell CMAKE to find MPIAdvance
-find_package(MPI_Advance REQUIRED)
-if (MPI_Advance_FOUND)
-  include_directories(${MPI_Advance_INCLUDE_DIR})
-else()
-  message(FATAL_ERROR "MPI_Advance not found!")
-endif()
+# find_package(MPI_Advance REQUIRED)
+#if (MPI_Advance_FOUND)
+#  include_directories(${MPI_ADVANCE_INCLUDE_DIR})
+#else()
+#  message(FATAL_ERROR "MPI_ADVANCE not found!")
+#endif()
 
 # Tell CMAKE to find NuMesh
-find_package(NuMesh REQUIRED)
-if (NuMesh_FOUND)
-  include_directories(${NuMesh_INCLUDE_DIRS})
-else()
-  message(FATAL_ERROR "NuMesh not found!")
+find_package(numesh REQUIRED)
+if (NOT numesh_FOUND)
+  message(FATAL_ERROR "numesh not found!")
 endif()
 
 # library
