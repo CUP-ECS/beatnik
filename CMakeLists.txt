@@ -5,8 +5,9 @@ project(Beatnik LANGUAGES C CXX VERSION 0.1.0)
 
 # Default to C++17 so we can use if constexpr and [[maybe_unused]]
 # and so GTest/GMock can build
+# Update: Default to C++20 because we need to build Cabana with "requires"
 if (NOT BLT_CXX_STD)
-    set(BLT_CXX_STD "c++17" CACHE STRING "")
+    set(BLT_CXX_STD "c++20" CACHE STRING "")
 endif()
 
 include(GNUInstallDirs)
