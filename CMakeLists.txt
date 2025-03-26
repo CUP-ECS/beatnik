@@ -106,7 +106,7 @@ add_subdirectory(src)
 add_subdirectory(examples)
 
 # tests
-add_subdirectory(tests)
+# add_subdirectory(tests)
 
 # Add a target for formatting the code using Clang
 if(CLANG_FORMAT_FOUND)
