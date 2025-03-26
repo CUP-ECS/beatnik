@@ -58,6 +58,9 @@ add_library( beatnik INTERFACE ${SOURCES} )
 target_link_libraries( beatnik INTERFACE ${DEPENDS_ON} )
 # target_link_libraries( beatnik INTERFACE ${MPI_ADVANCE_LIBRARY} )
 target_link_libraries( beatnik INTERFACE ${VTK_LIBRARIES})
+# Must include these libraries to link with VTK correctly
+target_link_libraries( beatnik INTERFACE ${SEACASIoss_LIBRARIES})
+# target_link_libraries( beatnik INTERFACE OpenGL::GL) 
 target_include_directories( beatnik INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}
 	  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 	  $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}> )
