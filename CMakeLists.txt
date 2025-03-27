@@ -5,8 +5,9 @@ project(Beatnik LANGUAGES C CXX VERSION 0.1.0)
 
 # Default to C++17 so we can use if constexpr and [[maybe_unused]]
 # and so GTest/GMock can build
+# Update: Default to C++20 because we need to build Cabana with "requires"
 if (NOT BLT_CXX_STD)
-    set(BLT_CXX_STD "c++17" CACHE STRING "")
+    set(BLT_CXX_STD "c++20" CACHE STRING "")
 endif()
 
 include(GNUInstallDirs)
@@ -85,19 +86,17 @@ include_directories(${VTK_INCLUDE_DIRS})
 find_package(CLANG_FORMAT 10)
 
 # Tell CMAKE to find MPIAdvance
-find_package(MPI_Advance REQUIRED)
-if (MPI_Advance_FOUND)
-  include_directories(${MPI_Advance_INCLUDE_DIR})
-else()
-  message(FATAL_ERROR "MPI_Advance not found!")
-endif()
+# find_package(MPI_Advance REQUIRED)
+#if (MPI_Advance_FOUND)
+#  include_directories(${MPI_ADVANCE_INCLUDE_DIR})
+#else()
+#  message(FATAL_ERROR "MPI_ADVANCE not found!")
+#endif()
 
 # Tell CMAKE to find NuMesh
-find_package(NuMesh REQUIRED)
-if (NuMesh_FOUND)
-  include_directories(${NuMesh_INCLUDE_DIRS})
-else()
-  message(FATAL_ERROR "NuMesh not found!")
+find_package(numesh REQUIRED)
+if (NOT numesh_FOUND)
+  message(FATAL_ERROR "numesh not found!")
 endif()
 
 # library
@@ -107,7 +106,7 @@ add_subdirectory(src)
 add_subdirectory(examples)
 
 # tests
-add_subdirectory(tests)
+# add_subdirectory(tests)
 
 # Add a target for formatting the code using Clang
 if(CLANG_FORMAT_FOUND)

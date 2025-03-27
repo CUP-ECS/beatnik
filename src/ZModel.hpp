@@ -138,42 +138,42 @@ class ZModel
 
             switch (_heffte_configuration) {
                 case 0:
-                    fft_params.setAllToAll(false);
+                    fft_params.setAlltoAll(false);
                     fft_params.setPencils(false);
                     fft_params.setReorder(false);
                     break;
                 case 1:
-                    fft_params.setAllToAll(false);
+                    fft_params.setAlltoAll(false);
                     fft_params.setPencils(false);
                     fft_params.setReorder(true);
                     break;
                 case 2:
-                    fft_params.setAllToAll(false);
+                    fft_params.setAlltoAll(false);
                     fft_params.setPencils(true);
                     fft_params.setReorder(false);
                     break;
                 case 3:
-                    fft_params.setAllToAll(false);
+                    fft_params.setAlltoAll(false);
                     fft_params.setPencils(true);
                     fft_params.setReorder(true);
                     break;
                 case 4:
-                    fft_params.setAllToAll(true);
+                    fft_params.setAlltoAll(true);
                     fft_params.setPencils(false);
                     fft_params.setReorder(false);
                     break;
                 case 5:
-                    fft_params.setAllToAll(true);
+                    fft_params.setAlltoAll(true);
                     fft_params.setPencils(false);
                     fft_params.setReorder(true);
                     break;
                 case 6:
-                    fft_params.setAllToAll(true);
+                    fft_params.setAlltoAll(true);
                     fft_params.setPencils(true);
                     fft_params.setReorder(false);
                     break;
                 case 7:
-                    fft_params.setAllToAll(true);
+                    fft_params.setAlltoAll(true);
                     fft_params.setPencils(true);
                     fft_params.setReorder(true);
                     break;
