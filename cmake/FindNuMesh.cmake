@@ -26,4 +26,4 @@ find_package_handle_standard_args(NuMesh DEFAULT_MSG NuMesh_INCLUDE_DIR)
 
 # Hide internal variables
 # mark_as_advanced(NuMesh_INCLUDE_DIR MPI_Advance_FOUND MPI_Advance_LIBRARY MPI_Advance_PREFIX)
-mark_as_advanced(NuMesh_INCLUDE_DIR MPI_Advance_FOUND MPI_Advance_PREFIX)
+mark_as_advanced(NuMesh_INCLUDE_DIR NuMesh_FOUND NuMesh_FOUND_PREFIX)
