@@ -33,7 +33,7 @@
 #include <mpi.h>
 
 #ifndef WRITE_VIEWS
-#define WRITE_VIEWS 0
+#define WRITE_VIEWS 1
 #endif
 #if WRITE_VIEWS
 #include "../tests/TestingUtils.hpp"
@@ -279,7 +279,10 @@ class StructuredSolver : public SolverBase
             if ( write_freq && (0 == t % write_freq ))
             {
                 if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
+                {
                     _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
+                }
+                    
                 else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
                 {
                     auto vtk_writer = createVTKWriter(*_pm );
@@ -289,20 +292,23 @@ class StructuredSolver : public SolverBase
 
             // Write views for future testing, if enabled
             #if WRITE_VIEWS
-            int write_at_time = 5;
-            int rank, comm_size;
-            MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-            MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
-
-            if (t == write_at_time)
+            if constexpr (std::is_same_v<mesh_type_tag, Mesh::Structured>)
             {
-                auto z = _pm->get(Cabana::Grid::Node(), Field::Position())->view();
-                auto w = _pm->get(Cabana::Grid::Node(), Field::Vorticity())->view();
-                int mesh_size = _pm->mesh().mesh_size();
-                int periodic = _params.periodic[0];
-                // void writeView(int rank, int comm_size, int mesh_size, const View v)
-                BeatnikTest::Utils::writeView(rank, comm_size, mesh_size, periodic, z);
-                BeatnikTest::Utils::writeView(rank, comm_size, mesh_size, periodic, w);
+                int write_at_time = 180;
+                int rank, comm_size;
+                MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+                MPI_Comm_size(MPI_COMM_WORLD, &comm_size);
+
+                if (t == write_at_time)
+                {
+                    auto z = _pm->get(Field::Position())->array()->view();
+                    auto w = _pm->get(Field::Vorticity())->array()->view();
+                    int mesh_size = _pm->mesh().mesh_size();
+                    int periodic = _params.periodic[0];
+                    // void writeView(int rank, int comm_size, int mesh_size, const View v)
+                    BeatnikTest::Utils::writeView(rank, comm_size, mesh_size, periodic, z);
+                    BeatnikTest::Utils::writeView(rank, comm_size, mesh_size, periodic, w);
+                }
             }
             #endif
 
