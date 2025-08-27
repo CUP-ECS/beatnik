@@ -53,7 +53,7 @@ class ProblemManager
     using memory_space = typename BeatnikMeshType::memory_space;
     using execution_space = typename BeatnikMeshType::execution_space;
     using beatnik_mesh_type = BeatnikMeshType;
-    using entity_type = typename BeatnikMeshType::entity_type; // Cabana::Grid::Node or NuMesh::Face
+    using entity_type = typename BeatnikMeshType::entity_type; // Cabana::Grid::Node or Tessera::Face
     using mesh_type = typename BeatnikMeshType::mesh_type;
     using mesh_type_tag = typename BeatnikMeshType::mesh_type_tag;
     using base_triple_type = typename BeatnikMeshType::base_triple_type;
@@ -260,7 +260,7 @@ class ProblemManager
         Kokkos::parallel_for("populate_vertex_data", Kokkos::MDRangePolicy<execution_space, Kokkos::Rank<2>>({{istart, jstart}}, {{iend, jend}}),
             KOKKOS_LAMBDA(int i, int j) {
 
-            // Same vertex LID calculation as in NuMesh
+            // Same vertex LID calculation as in Tessera
             int v_lid = (i - istart) * (jend - jstart) + (j - jstart);
 
             for (int dim = 0; dim < 3; dim++)
@@ -344,11 +344,11 @@ class ProblemManager
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
             // We must remake the halo each time to ensure it stays up-to-date with the mesh
-            auto numesh_halo = NuMesh::createHalo(_mesh.layoutObj(), 0, 1, NuMesh::Vertex());
+            auto tessera_halo = Tessera::createHalo(_mesh.layoutObj(), 0, 1, Tessera::Vertex());
             _position->array()->update();
-            NuMesh::gather(numesh_halo, _position->array());
+            Tessera::gather(tessera_halo, _position->array());
             _vorticity->array()->update();
-            NuMesh::gather(numesh_halo, _vorticity->array());
+            Tessera::gather(tessera_halo, _vorticity->array());
         }
     }
 
@@ -368,11 +368,11 @@ class ProblemManager
         {
             // We must remake the halo each time to ensure it stays up-to-date with the mesh
             int halo_level = _mesh.layoutObj()->global_min_max_tree_depth();
-            auto numesh_halo = NuMesh::createHalo(_mesh.layoutObj(), halo_level, 1, NuMesh::Vertex());
+            auto tessera_halo = Tessera::createHalo(_mesh.layoutObj(), halo_level, 1, Tessera::Vertex());
             _position->array()->update();
-            NuMesh::gather(numesh_halo, _position->array());
+            Tessera::gather(tessera_halo, _position->array());
             _vorticity->array()->update();
-            NuMesh::gather(numesh_halo, _vorticity->array());
+            Tessera::gather(tessera_halo, _vorticity->array());
         }
     }
 

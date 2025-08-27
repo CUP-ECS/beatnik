@@ -18,7 +18,7 @@
 
 #include <MeshBase.hpp>
 
-#include <NuMesh_Core.hpp>
+#include <Tessera_Core.hpp>
 
 #include <mpi.h>
 
@@ -57,7 +57,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
     using pair_array_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::pair_array_type;
     using cabana_local_grid_type = typename MeshBase<ExecutionSpace, MemorySpace, MeshTypeTag>::cabana_local_grid_type;
 
-    using v2v_type = NuMesh::Maps::V2V<mesh_type>;
+    using v2v_type = Tessera::Maps::V2V<mesh_type>;
 
     // Constructor for deriving the mesh from a structured grid
     UnstructuredMesh( const std::array<double, 6>& global_bounding_box,
@@ -116,7 +116,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         _local_grid = Cabana::Grid::createLocalGrid( global_grid, surface_halo_width );
 
 
-        _mesh = NuMesh::createEmptyMesh<execution_space, memory_space>(_comm);
+        _mesh = Tessera::createEmptyMesh<execution_space, memory_space>(_comm);
 
         // Create dummy array from local grid from which to initialize the mesh
         auto dlayout = Cabana::Grid::createArrayLayout(_local_grid, 3, Cabana::Grid::Node());
@@ -130,8 +130,8 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         // Initialize vertex connectivity at level 0
         _v2v = std::make_shared<v2v_type>(_mesh, 0);
 
-        _is_vert_pos_set_ref = Kokkos::View<bool*, memory_space>("_is_vert_pos_set_ref", _mesh->count(NuMesh::Own(), NuMesh::Vertex()));
-        _is_vert_pos_set = Kokkos::View<bool*, memory_space>("_is_vert_pos_set", _mesh->count(NuMesh::Own(), NuMesh::Vertex()));
+        _is_vert_pos_set_ref = Kokkos::View<bool*, memory_space>("_is_vert_pos_set_ref", _mesh->count(Tessera::Own(), Tessera::Vertex()));
+        _is_vert_pos_set = Kokkos::View<bool*, memory_space>("_is_vert_pos_set", _mesh->count(Tessera::Own(), Tessera::Vertex()));
 
         // Initially all vertex positions are set
         Kokkos::deep_copy(_is_vert_pos_set_ref, true);
@@ -160,7 +160,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         MPI_Comm_rank( _comm, &_rank );
         MPI_Comm_size( _comm, &_comm_size );
 
-        _mesh = NuMesh::createEmptyMesh<execution_space, memory_space>(_comm);
+        _mesh = Tessera::createEmptyMesh<execution_space, memory_space>(_comm);
         _mesh->initializeFromConnectivity(vertices, faces);
 
         _gradient_version = -1;
@@ -168,8 +168,8 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         // Initialize vertex connectivity at level 0
         _v2v = std::make_shared<v2v_type>(_mesh, 0);
 
-        _is_vert_pos_set_ref = Kokkos::View<bool*, memory_space>("_is_vert_pos_set_ref", _mesh->count(NuMesh::Own(), NuMesh::Vertex()));
-        _is_vert_pos_set = Kokkos::View<bool*, memory_space>("_is_vert_pos_set", _mesh->count(NuMesh::Own(), NuMesh::Vertex()));
+        _is_vert_pos_set_ref = Kokkos::View<bool*, memory_space>("_is_vert_pos_set_ref", _mesh->count(Tessera::Own(), Tessera::Vertex()));
+        _is_vert_pos_set = Kokkos::View<bool*, memory_space>("_is_vert_pos_set", _mesh->count(Tessera::Own(), Tessera::Vertex()));
 
         // Initially all vertex positions are set
         Kokkos::deep_copy(_is_vert_pos_set_ref, true);
@@ -217,8 +217,8 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
         auto positions_aosoa = positions_array->aosoa();
         auto positions = Cabana::slice<0>(*positions_aosoa);
 
-        auto owned_vertices = _mesh->count(NuMesh::Own(), NuMesh::Vertex());
-        auto owned_edges = _mesh->count(NuMesh::Own(), NuMesh::Edge());
+        auto owned_vertices = _mesh->count(Tessera::Own(), Tessera::Vertex());
+        auto owned_edges = _mesh->count(Tessera::Own(), Tessera::Edge());
         auto total_edges = _mesh->edges().size();
         auto total_vertices = _mesh->vertices().size();
 
@@ -277,7 +277,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
             int ecgid0 = e_cids(elid, 0);
             if (ecgid0 == -1) return; // Edge has no children
 
-            int eclid0 = NuMesh::Utils::get_lid(e_gid, ecgid0, owned_edges, total_edges);
+            int eclid0 = Tessera::Utils::get_lid(e_gid, ecgid0, owned_edges, total_edges);
             if (eclid0 == -1) return;
             if (e_cids(eclid0, 0) != -1) return; // Child edge has children
             if (e_vids(elid, 2) == -1) return;  // Edge does not have a middle vertex set
@@ -286,15 +286,15 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
             vgid0 = e_vids(elid, 0);
             vgid1 = e_vids(elid, 1);
             vgid2 = e_vids(elid, 2);
-            vlid2 = NuMesh::Utils::get_lid(v_gid, vgid2, owned_vertices, total_vertices);
+            vlid2 = Tessera::Utils::get_lid(v_gid, vgid2, owned_vertices, total_vertices);
             assert(vlid2 != -1);
             if (v_owner(vlid2) != rank) return; // Only update vertices we own. Perform a gather to retrieve ghosts
             // Check is position has already been set. If so, return
             // if (Kokkos::atomic_compare_exchange(&is_pos_set(vlid2), true, true)) return;
 
-            vlid0 = NuMesh::Utils::get_lid(v_gid, vgid0, owned_vertices, total_vertices);
+            vlid0 = Tessera::Utils::get_lid(v_gid, vgid0, owned_vertices, total_vertices);
             assert(vlid0 != -1);
-            vlid1 = NuMesh::Utils::get_lid(v_gid, vgid1, owned_vertices, total_vertices);
+            vlid1 = Tessera::Utils::get_lid(v_gid, vgid1, owned_vertices, total_vertices);
             assert(vlid1 != -1);
 
             double x_m = 0.5 * (positions(vlid0, 0) + positions(vlid1, 0));
@@ -329,7 +329,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
         // Initialize gradients AoSoA, which has "num verts" Cabana::MemberTypes<double[3]> tuples
         auto vertex_triple_layout =
-            ArrayUtils::createArrayLayout<base_triple_type>(_mesh, 3, NuMesh::Vertex());
+            ArrayUtils::createArrayLayout<base_triple_type>(_mesh, 3, Tessera::Vertex());
         _gradients = ArrayUtils::createArray<memory_space>("_gradients", vertex_triple_layout);
         auto gradients = Cabana::slice<0>(_gradients->array()->aosoa());
 
@@ -341,7 +341,7 @@ class UnstructuredMesh : public MeshBase<ExecutionSpace, MemorySpace, MeshTypeTa
 
         auto offsets = _v2v->offsets();
         auto indices = _v2v->indices();
-        int owned_vertices = _mesh->count(NuMesh::Own(), NuMesh::Vertex());
+        int owned_vertices = _mesh->count(Tessera::Own(), Tessera::Vertex());
 
         auto positions = Cabana::slice<0>(positions_array.array()->aosoa());
 

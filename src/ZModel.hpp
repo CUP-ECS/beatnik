@@ -322,7 +322,7 @@ class ZModel
         {
             computeReiszTransform(w, etag);
         } 
-        else if constexpr (std::is_same_v<EntityTag, NuMesh::Face>)
+        else if constexpr (std::is_same_v<EntityTag, Tessera::Face>)
         {
             // XXX - Perform unstructured equaivalent
             throw std::invalid_argument("ZModel::prepareVelocities: Not yet implemented for unstructured meshes.");
@@ -341,7 +341,7 @@ class ZModel
             computeReiszTransform(w, etag);
             _br->computeInterfaceVelocity(zdot.array()->view(), z.array()->view(), omega.array()->view());
         } 
-        else if constexpr (std::is_same_v<EntityTag, NuMesh::Face>)
+        else if constexpr (std::is_same_v<EntityTag, Tessera::Face>)
         {
             // XXX - Perform unstructured equaivalent
             throw std::invalid_argument("ZModel::prepareVelocities: Not yet implemented for unstructured meshes.");
@@ -360,7 +360,7 @@ class ZModel
         {
             _br->computeInterfaceVelocity(zdot.array()->view(), z.array()->view(), omega.array()->view());
         } 
-        else if constexpr (std::is_same_v<EntityTag, NuMesh::Face>)
+        else if constexpr (std::is_same_v<EntityTag, Tessera::Face>)
         {
             // XXX - Perform unstructured equivalent
             throw std::invalid_argument("ZModel::prepareVelocities: Not yet implemented for unstructured meshes.");
@@ -469,8 +469,8 @@ class ZModel
 
     /**  
      * Shared internal entry point from the external points from the TimeIntegration object
-     * etag = Cabana::Grid::Node or NuMesh variant,
-     * dtag = Cabana::Grid::Own or NuMesh variant
+     * etag = Cabana::Grid::Node or Tessera variant,
+     * dtag = Cabana::Grid::Own or Tessera variant
      */
     template <class EntityTag, class DecompositionTag>
     void computeHaloedDerivatives( triple_array_type& z_array, triple_array_type& w_array,
@@ -646,9 +646,9 @@ class ZModel
         else if constexpr (std::is_same_v<mesh_type_tag, Mesh::Unstructured>)
         {
             // We must remake the halo each time to ensure it stays up-to-date with the mesh
-            auto numesh_halo = NuMesh::createHalo(_pm.mesh().layoutObj(), 0, 1, NuMesh::Vertex());
+            auto tessera_halo = Tessera::createHalo(_pm.mesh().layoutObj(), 0, 1, Tessera::Vertex());
             _V->array()->update();
-            NuMesh::gather(numesh_halo, _V->array());
+            Tessera::gather(tessera_halo, _V->array());
         }
 
         /**

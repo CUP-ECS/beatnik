@@ -3,7 +3,7 @@
 
 #include <Cabana_Core.hpp>
 #include <Cabana_Grid.hpp>
-#include <NuMesh_Core.hpp>
+#include <Tessera_Core.hpp>
 
 #include <type_traits>
 
@@ -105,7 +105,7 @@ template <typename T>
 struct IsValidValueType
 {
     static constexpr bool value =
-        std::is_fundamental<T>::value || NuMesh::IsCabanaMemberTypes<T>::value;
+        std::is_fundamental<T>::value || Tessera::IsCabanaMemberTypes<T>::value;
 };
 
 } // end namespace Beatnik

@@ -13,7 +13,7 @@
  * @author Jason Stewart <jastewart@unm.edu>
  *
  * @section DESCRIPTION
- * Array and ArrayLayouts that use Cabana::Grid::Arrays or NuMesh::Arrays depending on
+ * Array and ArrayLayouts that use Cabana::Grid::Arrays or Tessera::Arrays depending on
  * the mesh variant.
  * NOTE: Only Cabana::Grid::Node layout types are compatiable with this class.
  */
@@ -23,7 +23,7 @@
 
 #include <Cabana_Core.hpp>
 #include <Kokkos_Core.hpp>
-#include <NuMesh_Core.hpp>
+#include <Tessera_Core.hpp>
 
 #include <Beatnik_Types.hpp>
 #include <type_traits>
@@ -38,7 +38,7 @@ class ArrayLayout
 {
   public:
     /**
-     * NuMesh: MeshType = NuMesh::Mesh<ExecutionSpace, MemSpace>
+     * Tessera: MeshType = Tessera::Mesh<ExecutionSpace, MemSpace>
      * Cabana:: MeshType = Cabana::Grid::LocalGrid<cabana_mesh_type>, 
      *      where the struct isMeshType() is implemented for cabana_mesh_type.
      */
@@ -58,8 +58,8 @@ class ArrayLayout
         is_cabana_mesh<mesh_type>::value,
         Cabana::Grid::ArrayLayout<entity_type, cabana_mesh_type<mesh_type>>, // Case A: Cabana UniformMesh
         std::conditional_t<
-            NuMesh::is_numesh_mesh<MeshType>::value,
-            NuMesh::Array::ArrayLayout<entity_type, mesh_type, value_type>, // Case B: NuMesh Mesh
+            Tessera::is_tessera_mesh<MeshType>::value,
+            Tessera::Array::ArrayLayout<entity_type, mesh_type, value_type>, // Case B: Tessera Mesh
             void // Fallback type or an error type if neither condition is satisfied
         >
     >;
@@ -70,9 +70,9 @@ class ArrayLayout
         {
             _layout = Cabana::Grid::createArrayLayout(mesh, dofs_per_entity, tag);
         }
-        else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value)
+        else if constexpr (Tessera::is_tessera_mesh<mesh_type>::value)
         {
-            _layout = NuMesh::Array::createArrayLayout<ValueType>(mesh, dofs_per_entity, tag); 
+            _layout = Tessera::Array::createArrayLayout<ValueType>(mesh, dofs_per_entity, tag); 
         }
         else
         {
@@ -126,12 +126,12 @@ class Array
         is_cabana_mesh<mesh_type>::value,
         Cabana::Grid::Array<value_type, entity_type, cabana_mesh_type<mesh_type>, memory_space>, // Case A: Cabana Mesh
         std::conditional_t<
-            NuMesh::is_numesh_mesh<mesh_type>::value,
-            NuMesh::Array::Array<memory_space, layout_type>, // Case B: NuMesh Mesh
+            Tessera::is_tessera_mesh<mesh_type>::value,
+            Tessera::Array::Array<memory_space, layout_type>, // Case B: Tessera Mesh
             void // Fallback or error type if neither condition is satisfied
         >
     >;
-    // Constructor that takes either a Cabana or NuMesh object
+    // Constructor that takes either a Cabana or Tessera object
     Array(const std::string& label, const std::shared_ptr<container_layout_type>& array_layout)
         : _label( label )
         , _layout( array_layout )
@@ -141,9 +141,9 @@ class Array
         {
             _array = Cabana::Grid::createArray<value_type, memory_space>(label, layout);
         }
-        else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value)
+        else if constexpr (Tessera::is_tessera_mesh<mesh_type>::value)
         {
-            _array = NuMesh::Array::createArray<memory_space>(label, layout);
+            _array = Tessera::Array::createArray<memory_space>(label, layout);
         }
         else
         {	
@@ -185,7 +185,7 @@ namespace ArrayOp
 
 /**
  * Here, implement Cabana-array-specific ArrayOps not included in Cabana
- * This is mainly because NuMesh arrays are generally in the (i, x) format
+ * This is mainly because Tessera arrays are generally in the (i, x) format
  * whereas Cabana arrays are generally in the (i, j, x) format,
  * so they must be treated slightly differently
  * 
@@ -474,9 +474,9 @@ void copy( Array_t& a, const Array_t& b, DecompositionTag tag )
     {
         Cabana::Grid::ArrayOp::copy(*a.array(), *b.array(), tag);
     }
-    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    else if constexpr (Tessera::is_tessera_mesh<mesh_type>::value) 
     {
-        NuMesh::Array::ArrayOp::copy(*a.array(), *b.array(), tag);
+        Tessera::Array::ArrayOp::copy(*a.array(), *b.array(), tag);
     }
 
 }
@@ -502,12 +502,12 @@ std::shared_ptr<Array_t> copyDim( Array_t& a, int dimA, DecompositionTag tag )
         return out;
 
     }
-    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    else if constexpr (Tessera::is_tessera_mesh<mesh_type>::value) 
     {
-        auto numesh_out = NuMesh::Array::ArrayOp::copyDim(*a.array(), dimA, tag);
+        auto tessera_out = Tessera::Array::ArrayOp::copyDim(*a.array(), dimA, tag);
         auto layout = ArrayUtils::createArrayLayout<value_type>(a.clayout()->layout()->mesh(), 1, entity_type());
         auto out = ArrayUtils::createArray<memory_space>("copyDim", layout);
-        NuMesh::Array::ArrayOp::copy(*out->array(), *numesh_out, tag);
+        Tessera::Array::ArrayOp::copy(*out->array(), *tessera_out, tag);
         return out;
     }
 }
@@ -523,9 +523,9 @@ void copyDim( Array_t& a, int dimA, Array_t& b, int dimB, DecompositionTag tag )
     {
         CabanaOp::copyDim(*a.array(), dimA, *b.array(), dimB, tag);
     }
-    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    else if constexpr (Tessera::is_tessera_mesh<mesh_type>::value) 
     {
-        NuMesh::Array::ArrayOp::copyDim(*a.array(), dimA, *b.array(), dimB, tag);
+        Tessera::Array::ArrayOp::copyDim(*a.array(), dimA, *b.array(), dimB, tag);
     }
 }
 
@@ -546,9 +546,9 @@ void assign( Array_t& array, const double alpha,
     {
         Cabana::Grid::ArrayOp::assign(*array.array(), alpha, tag);
     }
-    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value)
+    else if constexpr (Tessera::is_tessera_mesh<mesh_type>::value)
     {
-        NuMesh::Array::ArrayOp::assign(*array.array(), alpha, tag);
+        Tessera::Array::ArrayOp::assign(*array.array(), alpha, tag);
     }
 }
 
@@ -563,9 +563,9 @@ void assign( Array_t& array, const double alpha )
     {
         Cabana::Grid::ArrayOp::assign(*array.array(), alpha, Cabana::Grid::Ghost());
     }
-    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value)
+    else if constexpr (Tessera::is_tessera_mesh<mesh_type>::value)
     {
-        NuMesh::Array::ArrayOp::assign(*array.array(), alpha, NuMesh::Ghost());
+        Tessera::Array::ArrayOp::assign(*array.array(), alpha, Tessera::Ghost());
     }
 }
 
@@ -578,9 +578,9 @@ void scale( Array_t& array, const double alpha,
     {
         Cabana::Grid::ArrayOp::scale(*array.array(), alpha, tag);
     }
-    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    else if constexpr (Tessera::is_tessera_mesh<mesh_type>::value) 
     {
-        NuMesh::Array::ArrayOp::scale(*array.array(), alpha, tag);
+        Tessera::Array::ArrayOp::scale(*array.array(), alpha, tag);
     }
 }
 
@@ -593,9 +593,9 @@ void update( Array_t& a, const double alpha, const Array_t& b,
     {
         Cabana::Grid::ArrayOp::update(*a.array(), alpha, *b.array(), beta, tag);
     }
-    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    else if constexpr (Tessera::is_tessera_mesh<mesh_type>::value) 
     {
-        NuMesh::Array::ArrayOp::update(*a.array(), alpha, *b.array(), beta, tag);
+        Tessera::Array::ArrayOp::update(*a.array(), alpha, *b.array(), beta, tag);
     }
 }
 
@@ -609,9 +609,9 @@ void update( Array_t& a, const double alpha, const Array_t& b,
     {
         Cabana::Grid::ArrayOp::update(*a.array(), alpha, *b.array(), beta, *c.array(), gamma, tag);
     }
-    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    else if constexpr (Tessera::is_tessera_mesh<mesh_type>::value) 
     {
-        NuMesh::Array::ArrayOp::update(*a.array(), alpha, *b.array(), beta, *c.array(), gamma, tag);
+        Tessera::Array::ArrayOp::update(*a.array(), alpha, *b.array(), beta, *c.array(), gamma, tag);
     }
 }
 
@@ -623,9 +623,9 @@ void apply( Array_t& a, Function& function, DecompositionTag tag )
     {
         CabanaOp::apply(*a.array(), function, tag);
     }
-    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    else if constexpr (Tessera::is_tessera_mesh<mesh_type>::value) 
     {
-        NuMesh::Array::ArrayOp::apply(*a.array(), function, tag);
+        Tessera::Array::ArrayOp::apply(*a.array(), function, tag);
     }
 }
 
@@ -651,12 +651,12 @@ std::shared_ptr<Array_t> element_dot( const Array_t& a, const Array_t& b, Decomp
         Cabana::Grid::ArrayOp::copy(*out->array(), *cabana_out, tag);
         return out;
     }
-    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    else if constexpr (Tessera::is_tessera_mesh<mesh_type>::value) 
     {
-        auto numesh_out = NuMesh::Array::ArrayOp::element_dot(*a.array(), *b.array(), tag);
+        auto tessera_out = Tessera::Array::ArrayOp::element_dot(*a.array(), *b.array(), tag);
         auto layout = ArrayUtils::createArrayLayout<value_type>(a.clayout()->layout()->mesh(), 1, entity_type());
         auto out = ArrayUtils::createArray<memory_space>("dot", layout);
-        NuMesh::Array::ArrayOp::copy(*out->array(), *numesh_out, tag);
+        Tessera::Array::ArrayOp::copy(*out->array(), *tessera_out, tag);
         return out;
     }
     
@@ -674,10 +674,10 @@ std::shared_ptr<Array_t> element_cross( const Array_t& a, const Array_t& b, Deco
         Cabana::Grid::ArrayOp::copy(*out->array(), *cabana_out, tag);
         return out;
     }
-    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    else if constexpr (Tessera::is_tessera_mesh<mesh_type>::value) 
     {
-        auto numesh_out = NuMesh::Array::ArrayOp::element_cross(*a.array(), *b.array(), tag);
-        NuMesh::Array::ArrayOp::copy(*out->array(), *numesh_out, tag);
+        auto tessera_out = Tessera::Array::ArrayOp::element_cross(*a.array(), *b.array(), tag);
+        Tessera::Array::ArrayOp::copy(*out->array(), *tessera_out, tag);
         return out;
     }
 
@@ -695,10 +695,10 @@ std::shared_ptr<Array_t> element_multiply( Array_t& a, const Array_t& b, Decompo
         Cabana::Grid::ArrayOp::copy(*out->array(), *cabana_out, tag);
         return out;
     }
-    else if constexpr (NuMesh::is_numesh_mesh<mesh_type>::value) 
+    else if constexpr (Tessera::is_tessera_mesh<mesh_type>::value) 
     {
-        auto numesh_out = NuMesh::Array::ArrayOp::element_multiply(*a.array(), *b.array(), tag);
-        NuMesh::Array::ArrayOp::copy(*out->array(), *numesh_out, tag);
+        auto tessera_out = Tessera::Array::ArrayOp::element_multiply(*a.array(), *b.array(), tag);
+        Tessera::Array::ArrayOp::copy(*out->array(), *tessera_out, tag);
         return out;
     }
 

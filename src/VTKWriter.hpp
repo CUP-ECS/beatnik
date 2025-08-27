@@ -105,7 +105,7 @@ class VTKWriter
 
         auto vertices = mesh->vertices();
         auto faces = mesh->faces();
-        int num_faces = mesh->count(NuMesh::Own(), NuMesh::Face());
+        int num_faces = mesh->count(Tessera::Own(), Tessera::Face());
 
         // Get positions AoSoA and copy to host memory
         using z_aosoa_type = Cabana::AoSoA<base_triple_type, Kokkos::HostSpace, 4>;
@@ -132,13 +132,13 @@ class VTKWriter
             }
 
             int fvid0 = f_vids(n, 0);
-            int vlid0 = NuMesh::Utils::get_lid(v_gids, fvid0, 0, _vertices_h.size());
+            int vlid0 = Tessera::Utils::get_lid(v_gids, fvid0, 0, _vertices_h.size());
             assert(vlid0 != -1);
             int fvid1 = f_vids(n, 1);
-            int vlid1 = NuMesh::Utils::get_lid(v_gids, fvid1, 0, _vertices_h.size());
+            int vlid1 = Tessera::Utils::get_lid(v_gids, fvid1, 0, _vertices_h.size());
             assert(vlid1 != -1);
             int fvid2 = f_vids(n, 2);
-            int vlid2 = NuMesh::Utils::get_lid(v_gids, fvid2, 0, _vertices_h.size());
+            int vlid2 = Tessera::Utils::get_lid(v_gids, fvid2, 0, _vertices_h.size());
             assert(vlid2 != -1);
 
             vtkIdType tri_ids[3] = {vlid0, vlid1, vlid2};
@@ -180,8 +180,8 @@ class VTKWriter
     void writeVorticity()
     {
         const auto& mesh = _pm.mesh().layoutObj();
-        // int num_verts = mesh->count(NuMesh::Own(), NuMesh::Vertex());
-        int num_faces = mesh->count(NuMesh::Own(), NuMesh::Face());
+        // int num_verts = mesh->count(Tessera::Own(), Tessera::Vertex());
+        int num_faces = mesh->count(Tessera::Own(), Tessera::Face());
         
         // Copy vorticity to host memory
         using w_aosoa_type = Cabana::AoSoA<base_pair_type, Kokkos::HostSpace, 4>;
@@ -212,13 +212,13 @@ class VTKWriter
                 continue;
             }
             int fvid0 = f_vids(n, 0);
-            int vlid0 = NuMesh::Utils::get_lid(v_gids, fvid0, 0, _vertices_h.size());
+            int vlid0 = Tessera::Utils::get_lid(v_gids, fvid0, 0, _vertices_h.size());
             assert(vlid0 != -1);
             int fvid1 = f_vids(n, 1);
-            int vlid1 = NuMesh::Utils::get_lid(v_gids, fvid1, 0, _vertices_h.size());
+            int vlid1 = Tessera::Utils::get_lid(v_gids, fvid1, 0, _vertices_h.size());
             assert(vlid1 != -1);
             int fvid2 = f_vids(n, 2);
-            int vlid2 = NuMesh::Utils::get_lid(v_gids, fvid2, 0, _vertices_h.size());
+            int vlid2 = Tessera::Utils::get_lid(v_gids, fvid2, 0, _vertices_h.size());
             assert(vlid2 != -1);
             vtk_data->SetTuple2( vlid0, w_slice( vlid0, 0 ), w_slice( vlid0, 1 ) );
             vtk_data->SetTuple2( vlid1, w_slice( vlid1, 0 ), w_slice( vlid1, 1 ) );

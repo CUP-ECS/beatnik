@@ -1,1 +1,1 @@
-cmake -DMPI_Advance_PREFIX=~/installed-libraries/mpi_advance/ -DNuMesh_PREFIX=~/installed-libraries/numesh/ ..
+cmake -DMPI_Advance_PREFIX=~/installed-libraries/mpi_advance/ -DTessera_PREFIX=~/installed-libraries/tessera/ ..

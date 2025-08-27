@@ -234,7 +234,7 @@ class StructuredSolver : public SolverBase
         else if constexpr (std::is_same_v<MeshTypeTag, Mesh::Unstructured>)
         {
             printf("WARNING: Solver::step: Unstructured mesh not yet implemented.\n");
-            // ti->step(_dt, entity_type(), NuMesh::Own());
+            // ti->step(_dt, entity_type(), Tessera::Own());
             // throw std::invalid_argument("Solver::step: Unstructured mesh not yet implemented.");
         }
         else
@@ -576,7 +576,7 @@ class UnstructuredSolver : public SolverBase
         if constexpr (std::is_same_v<MeshTypeTag, Mesh::Unstructured>)
         {
             // printf("WARNING: Solver::step: Unstructured mesh not yet implemented.\n");
-            // ti->step(_dt, entity_type(), NuMesh::Own());
+            // ti->step(_dt, entity_type(), Tessera::Own());
             // throw std::invalid_argument("Solver::step: Unstructured mesh not yet implemented.");
         }
         else
@@ -614,7 +614,7 @@ class UnstructuredSolver : public SolverBase
                 printf( "Step %d / %d at time = %f\n", t, num_step, _time );
 
             // Refine the mesh for testing purposes
-            int num_local_faces = _mesh->layoutObj()->count(NuMesh::Own(), NuMesh::Face());
+            int num_local_faces = _mesh->layoutObj()->count(Tessera::Own(), Tessera::Face());
             auto vef_gid_start = _mesh->layoutObj()->vef_gid_start();
             int face_gid_start = vef_gid_start(_mesh->rank(), 2);
             Kokkos::View<int*, MemorySpace> fin("fin", num_local_faces);

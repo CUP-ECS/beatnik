@@ -16,7 +16,7 @@
 
 #include <Kokkos_Core.hpp>
 #include <Cabana_Grid.hpp>
-#include <NuMesh_Core.hpp>
+#include <Tessera_Core.hpp>
 
 #include <Beatnik_Types.hpp>
 #include <Beatnik_ArrayUtils.hpp>
@@ -85,14 +85,14 @@ class MeshBase
 
     /*
      * Structured mesh is calculations are done from Cabana::Grid::Node entities
-     * Unstructured mesh calcuations are done from NuMesh::Face entities
+     * Unstructured mesh calcuations are done from Tessera::Face entities
      */ 
     using entity_type = std::conditional_t<
         std::is_same_v<MeshTypeTag, Mesh::Structured>,
         Cabana::Grid::Node,
         std::conditional_t<
             std::is_same_v<MeshTypeTag, Mesh::Unstructured>,
-            NuMesh::Vertex,
+            Tessera::Vertex,
             void
         >
     >;
@@ -102,7 +102,7 @@ class MeshBase
         Cabana::Grid::LocalGrid<Cabana::Grid::UniformMesh<base_type, 2>>,
         std::conditional_t<
             std::is_same_v<MeshTypeTag, Mesh::Unstructured>,
-            NuMesh::Mesh<execution_space, memory_space>,
+            Tessera::Mesh<execution_space, memory_space>,
             void
         >
     >;
