@@ -136,42 +136,42 @@ class ZModel
 
         switch (_heffte_configuration) {
             case 0:
-                params.setAllToAll(false);
+                params.setAlltoAll(false);
                 params.setPencils(false);
                 params.setReorder(false);
                 break;
             case 1:
-                params.setAllToAll(false);
+                params.setAlltoAll(false);
                 params.setPencils(false);
                 params.setReorder(true);
                 break;
             case 2:
-                params.setAllToAll(false);
+                params.setAlltoAll(false);
                 params.setPencils(true);
                 params.setReorder(false);
                 break;
             case 3:
-                params.setAllToAll(false);
+                params.setAlltoAll(false);
                 params.setPencils(true);
                 params.setReorder(true);
                 break;
             case 4:
-                params.setAllToAll(true);
+                params.setAlltoAll(true);
                 params.setPencils(false);
                 params.setReorder(false);
                 break;
             case 5:
-                params.setAllToAll(true);
+                params.setAlltoAll(true);
                 params.setPencils(false);
                 params.setReorder(true);
                 break;
             case 6:
-                params.setAllToAll(true);
+                params.setAlltoAll(true);
                 params.setPencils(true);
                 params.setReorder(false);
                 break;
             case 7:
-                params.setAllToAll(true);
+                params.setAlltoAll(true);
                 params.setPencils(true);
                 params.setReorder(true);
                 break;
