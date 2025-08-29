@@ -94,11 +94,12 @@ find_package(CLANG_FORMAT 10)
 
 # Tell CMAKE to find Tessera
 find_package(Tessera REQUIRED)
-if (Tessera_FOUND)
-  include_directories(${Tessera_INCLUDE_DIRS})
-else()
-  message(FATAL_ERROR "Tessera not found!")
-endif()
+# if (Tessera_FOUND)
+#   include_directories(${Tessera_INCLUDE_DIRS})
+# else()
+#   message(FATAL_ERROR "Tessera not found!")
+# endif()
+# find_package(Tessera REQUIRED)
 
 # library
 add_subdirectory(src)
