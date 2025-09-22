@@ -14,23 +14,6 @@
 
 #include <Beatnik_Config.hpp>
 
-#include <Cabana_Grid.hpp>
-
-#include <BoundaryCondition.hpp>
-#include <SurfaceMesh.hpp>
-#include <SpatialMesh.hpp>
-#include <ProblemManager.hpp>
-#include <SiloWriter.hpp>
-#include <TimeIntegrator.hpp>
-
-#include <ZModel.hpp>
-
-#include <Kokkos_Core.hpp>
-#include <memory>
-#include <string>
-
-#include <mpi.h>
-
 namespace Beatnik
 {
 
@@ -41,8 +24,7 @@ template <class ExecutionSpace, class MemorySpace, class Params>
 class BRSolverBase
 {
   public:
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
-    using node_view = Kokkos::View<double***, device_type>;
+    using node_view = Kokkos::View<double***, MemorySpace>;
     virtual ~BRSolverBase() = default;
     virtual void computeInterfaceVelocity(node_view zdot, node_view z, node_view o) const = 0;
 };

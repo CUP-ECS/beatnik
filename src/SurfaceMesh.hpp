@@ -34,7 +34,6 @@ class SurfaceMesh
 {
   public:
     using memory_space = MemorySpace;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
 
     // Construct a mesh.

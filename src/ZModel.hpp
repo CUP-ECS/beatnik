@@ -67,7 +67,6 @@ class ZModel
     using memory_space = MemorySpace;
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
     using br_solver_type = BRSolverBase<ExecutionSpace, MemorySpace, Params>;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>; 
 
     using Node = Cabana::Grid::Node;

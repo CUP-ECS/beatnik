@@ -34,7 +34,6 @@ class SpatialMesh
 {
   public:
     using memory_space = MemorySpace;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 3>;
     using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
     using global_particle_comm_type = Cabana::Grid::GlobalParticleComm<memory_space, local_grid_type>;
