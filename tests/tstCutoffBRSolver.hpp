@@ -20,7 +20,6 @@ class CutoffBRSolverTest : public TestingBase<T>
 {
     using ExecutionSpace = typename T::ExecutionSpace;
     using MemorySpace = typename T::MemorySpace;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
 
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
@@ -43,7 +42,7 @@ class CutoffBRSolverTest : public TestingBase<T>
                                               int,       // Owning rank in 3D space                         7
                                               int        // Point ID in 3D                                  8
                                               >;
-    using particle_array_type = Cabana::AoSoA<particle_node, device_type, 4>;
+    using particle_array_type = Cabana::AoSoA<particle_node, MemorySpace, 4>;
    
 
   protected:
@@ -90,7 +89,7 @@ class CutoffBRSolverTest : public TestingBase<T>
         particle_array_type particle_array_;
 
         int dim = this->comm_size_ + this->haloWidth_*2;
-        Kokkos::View<double**[2], device_type> omega_("omega_", dim, dim);
+        Kokkos::View<double**[2], MemorySpace> omega_("omega_", dim, dim);
         this->p_br_cutoff_->initializeParticles(particle_array_, z, omega_);
         this->p_br_cutoff_->migrateParticlesTo3D(particle_array_);
         int owned_3D_count = particle_array_.size();

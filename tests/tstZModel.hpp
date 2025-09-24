@@ -20,7 +20,6 @@ class ZModelTest : public TestingBase<T>
 {
     using ExecutionSpace = typename T::ExecutionSpace;
     using MemorySpace = typename T::MemorySpace;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
 
     using node_array =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,

@@ -104,7 +104,6 @@ template <class ExecutionSpace, class MemorySpace, class ModelOrder>
 class Solver : public SolverBase
 {
   public:
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using node_array =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>, MemorySpace>;
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
@@ -138,7 +137,7 @@ class Solver : public SolverBase
         // handle state
         _surface_mesh = std::make_unique<SurfaceMesh<ExecutionSpace, MemorySpace>>(
             _params.global_bounding_box, num_nodes, _params.periodic, partitioner,
-	    _halo_min, comm );
+	        _halo_min, comm );
 
         // XXX - Check that our timestep is small enough to handle the mesh size,
         // atwood number and acceleration, and solution method. 
@@ -322,7 +321,7 @@ createSolver( const std::string& device, MPI_Comm comm,
     {
 #ifdef KOKKOS_ENABLE_HIP
         return std::make_shared<Beatnik::Solver<Kokkos::HIP, 
-            Kokkos::Experimental::HIPSpace, ModelOrder>>(
+            Kokkos::HIPSpace, ModelOrder>>(
                 comm, global_num_cell, partitioner, atwood, g, 
                 create_functor, bc, mu, epsilon, delta_t, params);
 #else

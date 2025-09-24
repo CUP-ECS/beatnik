@@ -51,7 +51,6 @@ class ExactBRSolverTest : public TestingBase<T>
 {
     using ExecutionSpace = typename T::ExecutionSpace;
     using MemorySpace = typename T::MemorySpace;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
 
     using surface_mesh_type = Beatnik::SurfaceMesh<ExecutionSpace,MemorySpace>;
     using pm_type = Beatnik::ProblemManager<ExecutionSpace, MemorySpace>;
@@ -277,7 +276,7 @@ class ExactBRSolverTest : public TestingBase<T>
         /* Get an atomic view of the interface velocity, since each k/l point
          * is going to be updating it in parallel */
         Kokkos::View<double ***,
-             typename node_view::device_type,
+             typename node_view::memory_space,
              Kokkos::MemoryTraits<Kokkos::Atomic>> atomic_zdot = zdot_;
     
         /* Zero out all of the i/j points */
