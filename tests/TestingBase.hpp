@@ -11,9 +11,7 @@
 
 #include <mpi.h>
 
-#include "tstDriver.hpp"
-
-namespace BeatnikTest
+namespace Test
 {
 
 template <std::size_t Dim>
@@ -120,13 +118,14 @@ struct MeshInitFunc
  * Since so many objects depend on one another, it makes sense to initialize
  * one version of them here rather than multiple versions across different tests.
  */
+#define STRINGIFY(x) #x
+#pragma message ("TEST_MEMSPACE expands to: " STRINGIFY(TEST_MEMSPACE))
 
-template <class T>
 class TestingBase : public ::testing::Test
 {
     // Convenience type declarations
-    using ExecutionSpace = typename T::ExecutionSpace;
-    using MemorySpace = typename T::MemorySpace;
+    using ExecutionSpace = TEST_MEMSPACE;
+    using MemorySpace = TEST_EXECSPACE;
 
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
@@ -256,6 +255,6 @@ class TestingBase : public ::testing::Test
 
 };
 
-} // end namespace BeatnikTest
+} // end namespace Test
 
 #endif // _TESTINGBASE_HPP_

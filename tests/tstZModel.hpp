@@ -16,7 +16,7 @@ namespace BeatnikTest
 {
 
 template <class T>
-class ZModelTest : public TestingBase<T>
+class ZModelTest : public TestingBase
 {
     using ExecutionSpace = typename T::ExecutionSpace;
     using MemorySpace = typename T::MemorySpace;
@@ -31,12 +31,12 @@ class ZModelTest : public TestingBase<T>
 
     void SetUp() override
     {
-        TestingBase<T>::SetUp();
+        TestingBase::SetUp();
     }
 
     void TearDown() override
     { 
-        TestingBase<T>::TearDown();
+        TestingBase::TearDown();
     }
 
   public:

@@ -1,56 +1,31 @@
-if (ENABLE_TESTS)
+############################################################################
+# Copyright (c) 2025 by the Beatnik authors                                #
+# All rights reserved.                                                     #
+#                                                                          #
+# This file is part of the Beatnik library. Beatnik is distributed under a #
+# BSD 3-clause license. For the licensing terms see the LICENSE file in    #
+# the top-level directory.                                                 #
+#                                                                          #
+# SPDX-License-Identifier: BSD-3-Clause                                    #
+############################################################################
 
-    # tstMesh needs debugging for >1 processes
-    # blt_add_executable(NAME tstMesh
-    #                    SOURCES tstMesh.cpp 
-    #                    HEADERS tstMesh.hpp TestingBase.hpp 
-    #                    DEPENDS_ON beatnik gtest
-    #                    OUTPUT_DIR ${TEST_OUTPUT_DIRECTORY})
-    # blt_add_test(NAME MeshTests
-    #              COMMAND tstMesh)
-    
-                 
-    blt_add_executable( NAME     tstBoundaryCondition
-                 SOURCES tstBoundaryCondition.cpp
-                 HEADERS tstBoundaryCondition.hpp TestingBase.hpp
-                 DEPENDS_ON beatnik gtest
-                 OUTPUT_DIR ${TEST_OUTPUT_DIRECTORY})
-    blt_add_test(NAME BoundaryConditionTests
-                 COMMAND tstBoundaryCondition)
-    
+include(${TEST_HARNESS_DIR}/test_harness.cmake)
 
-    blt_add_executable(NAME tstCutoffBRSolver
-                      SOURCES tstCutoffBRSolver.cpp 
-                      HEADERS tstCutoffBRSolver.hpp TestingBase.hpp
-                      DEPENDS_ON beatnik gtest
-                      OUTPUT_DIR ${TEST_OUTPUT_DIRECTORY})
-    blt_add_test(NAME CutoffBRSolverTests
-                 COMMAND tstCutoffBRSolver)
-    
+# set(NOBACKEND_TESTS
+#   Kernels
+#   )
 
-    blt_add_executable( NAME     tstExactBRSolver
-                        SOURCES tstExactBRSolver.cpp
-                        HEADERS tstExactBRSolver.hpp TestingBase.hpp
-                        DEPENDS_ON beatnik gtest
-                        OUTPUT_DIR ${TEST_OUTPUT_DIRECTORY})             
-    blt_add_test(NAME ExactBRSolverTests
-                 COMMAND tstExactBRSolver)
-    
+set(SERIAL_TESTS
+  # None currently
+  )
 
-    blt_add_executable( NAME     tstZModel
-                        SOURCES  tstZModel.cpp
-                        HEADERS  tstZModel.hpp TestingBase.hpp
-                        DEPENDS_ON beatnik gtest
-                        OUTPUT_DIR ${TEST_OUTPUT_DIRECTORY})
-    blt_add_test(NAME ZModelTests
-                 COMMAND tstZModel)
+set(MPI_TESTS
+  BoundaryCondition
+  Mesh
+  )
 
-    # Disabled until working properly
-    # blt_add_executable(NAME tstProblemManager
-    #                   SOURCES tstProblemManager.cpp 
-    #                   HEADERS tstProblemManager.hpp tstMesh.hpp 
-    #                   DEPENDS_ON beatnik gtest)
-    # blt_add_test(NAME ProblemManagerTests
-    #              COMMAND tstProblemManager)
+# Beatnik_add_tests_nobackend(PACKAGE Beatnik NAMES ${NOBACKEND_TESTS})
 
-endif()
+Beatnik_add_tests(PACKAGE Beatnik NAMES ${SERIAL_TESTS})
+
+Beatnik_add_tests(MPI PACKAGE Beatnik NAMES ${MPI_TESTS})

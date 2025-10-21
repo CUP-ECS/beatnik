@@ -1,8 +1,6 @@
 #ifndef _TSTBOUNDARYCONDITION_HPP_
 #define _TSTBOUNDARYCONDITION_HPP_
 
-#include "gtest/gtest.h"
-
 #include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
 
@@ -11,17 +9,17 @@
 #include <mpi.h>
 
 #include "TestingBase.hpp"
-#include "tstDriver.hpp"
 
-namespace BeatnikTest
+#include "gtest/gtest.h"
+
+namespace Test
 {
 
 // XXX - Fix memory space issues in this test so it works on national labs machines
-template <class T>
-class BoundaryConditionTest : public TestingBase<T>
+class BoundaryConditionTest : public TestingBase
 {
-    using ExecutionSpace = typename T::ExecutionSpace;
-    using MemorySpace = typename T::MemorySpace;
+    using ExecutionSpace = TEST_EXECSPACE;
+    using MemorySpace = TEST_MEMSPACE;
 
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     using local_grid_type = Cabana::Grid::LocalGrid<mesh_type>;
@@ -36,7 +34,7 @@ class BoundaryConditionTest : public TestingBase<T>
     
     void SetUp() override
     {
-        TestingBase<T>::SetUp();
+        TestingBase::SetUp();
         this->f_node_layout_ = Cabana::Grid::createArrayLayout(this->f_mesh_->localGrid(), 1, Cabana::Grid::Node());
         this->f_position_ = Cabana::Grid::createArray<double, MemorySpace>("position", f_node_layout_);
     }
@@ -45,7 +43,7 @@ class BoundaryConditionTest : public TestingBase<T>
     { 
         this->f_position_ = NULL;
         this->f_node_layout_ = NULL;
-        TestingBase<T>::TearDown();
+        TestingBase::TearDown();
     }
 
   public:
@@ -54,7 +52,6 @@ class BoundaryConditionTest : public TestingBase<T>
         auto local_grid = this->f_pm_->mesh().localGrid();
         auto own_nodes = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(),
                                                  Cabana::Grid::Local());
-
         auto policy = Cabana::Grid::createExecutionPolicy(own_nodes, ExecutionSpace());
         auto z = this->f_position_->view();
         double dx = 0.3, dy = 0.4;
@@ -102,6 +99,15 @@ class BoundaryConditionTest : public TestingBase<T>
     }
 };
 
-} // end namespace BeatnikTest
+TEST_F(BoundaryConditionTest, testFreeBoundary)
+{ 
+    populateArray();  // now works, because we're inside the fixture context
+
+    this->f_bc_.applyField(*this->f_mesh_, *this->f_position_, 1);
+
+    testFreeBC();
+}
+
+} // end namespace Test
 
 #endif // _TSTBOUNDARYCONDITION_HPP_

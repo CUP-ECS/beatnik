@@ -25,7 +25,7 @@ namespace BeatnikTest
  */
 
 template <class T>
-class MeshTest : public TestingBase<T>
+class MeshTest : public TestingBase
 {
     // Convenience type declarations
     using Cell = Cabana::Grid::Node;
@@ -33,20 +33,99 @@ class MeshTest : public TestingBase<T>
     using node_array =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
-                      typename T::MemorySpace>;
+        typename TestingBase::MemorySpace>>;
     using mesh_type = Beatnik::SurfaceMesh<typename T::ExecutionSpace, typename T::MemorySpace>;
 
   protected:
     void SetUp() override
     {
-        TestingBase<T>::SetUp();
+        TestingBase::SetUp();
     }
 
     void TearDown() override
     { 
-        TestingBase<T>::TearDown();
+        TestingBase::TearDown();
     }
 };
+
+//---------------------------------------------------------------------------//
+// RUN TESTS
+//---------------------------------------------------------------------------//
+
+// template <typename TestCommSpace>
+// class MeshTypedTest : public ::testing::Test
+// {
+// };
+
+// // Add additional backends to test when implemented.
+// using CommSpaceTypes = ::testing::Types<Cabana::Mpi>;
+
+// // Need a trailing comma
+// // to avoid an error when compiling with clang++
+// TYPED_TEST_SUITE( DistributorTypedTest, CommSpaceTypes, );
+
+// TEST( MeshTest, BasicParameters )
+// {
+//     int r;
+
+//     MPI_Comm_rank( MPI_COMM_WORLD, &r );
+//     EXPECT_EQ( this->p_mesh_->rank(), r );
+//     EXPECT_EQ( this->f_mesh_->rank(), r );
+// };
+
+// TYPED_TEST( MeshTest, PeriodicGridSetup )
+// {
+//     /* Here we check that the local grid is decomposed like
+//      * we think it should be. That is, the number of ghosts cells
+//      * is right, the index spaces for owned, ghost, and boundary
+//      * cells are right, and so on. */
+//     auto local_grid = this->p_mesh_->localGrid();
+//     auto & global_grid = local_grid->globalGrid();
+//     int cabana_nodes = this->meshSize_ - 1;
+
+//     for ( int i = 0; i < 2; i++ )
+//     {
+//         EXPECT_EQ( cabana_nodes,
+//                    global_grid.globalNumEntity( Cabana::Grid::Node(), i ) );
+//     }
+// };
+// TYPED_TEST( MeshTest, NonperiodicGridSetup )
+// {
+//     /* Here we check that the local grid is decomposed like
+//      * we think it should be. That is, the number of ghosts cells
+//      * is right, the index spaces for owned, ghost, and boundary
+//      * cells are right, and so on. */
+//     auto local_grid = this->f_mesh_->localGrid();
+//     auto & global_grid = local_grid->globalGrid();
+
+//     for ( int i = 0; i < 2; i++ )
+//     {
+//         EXPECT_EQ( this->meshSize_,
+//                    global_grid.globalNumEntity( Cabana::Grid::Node(), i ) );
+//     }
+
+//     /* Make sure the number of owned nodes is our share of what was requested */
+//     auto own_local_node_space = local_grid->indexSpace(
+//         Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local() );
+//     for ( int i = 0; i < 2; i++ )
+//     {
+//         EXPECT_EQ( own_local_node_space.extent( i ),
+//                    this->meshSize_/ global_grid.dimNumBlock( i ) );
+//     }
+
+//     /*
+//      * Next we extract the ghosted nodes, which encompass the owned nodes and
+//      * the ghosts in each dimension. 
+//      */
+//     auto ghost_local_node_space = local_grid->indexSpace(
+//         Cabana::Grid::Ghost(), Cabana::Grid::Node(), Cabana::Grid::Local() );
+//     for ( int i = 0; i < 2; i++ ) {
+//         EXPECT_EQ( ghost_local_node_space.extent( i ),
+//                    this->meshSize_ / global_grid.dimNumBlock( i ) +
+//                    2 * this->haloWidth_ );
+//     }
+
+// };
 
 } // end namespace BeatnikTest
 

@@ -16,7 +16,7 @@ namespace BeatnikTest
 {
 
 template <class T>
-class CutoffBRSolverTest : public TestingBase<T>
+class CutoffBRSolverTest : public TestingBase
 {
     using ExecutionSpace = typename T::ExecutionSpace;
     using MemorySpace = typename T::MemorySpace;
@@ -52,7 +52,7 @@ class CutoffBRSolverTest : public TestingBase<T>
 
     void SetUp() override
     {
-        TestingBase<T>::SetUp();
+        TestingBase::SetUp();
         comm_ = this->p_pm_->mesh().localGrid()->globalGrid().comm();
         MPI_Comm_size(comm_, &comm_size_);
         MPI_Comm_rank(comm_, &rank_);
@@ -62,7 +62,7 @@ class CutoffBRSolverTest : public TestingBase<T>
 
     void TearDown() override
     { 
-        TestingBase<T>::TearDown();
+        TestingBase::TearDown();
     }
 
   public:

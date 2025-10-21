@@ -47,7 +47,7 @@ void BR(double out[3], PositionView z, PositionView z2, VorticityView w2,
 }
 
 template <class T>
-class ExactBRSolverTest : public TestingBase<T>
+class ExactBRSolverTest : public TestingBase
 {
     using ExecutionSpace = typename T::ExecutionSpace;
     using MemorySpace = typename T::MemorySpace;
@@ -79,7 +79,7 @@ class ExactBRSolverTest : public TestingBase<T>
 
     void SetUp() override
     {
-        TestingBase<T>::SetUp();
+        TestingBase::SetUp();
     }
 
     void TearDown() override
@@ -88,7 +88,7 @@ class ExactBRSolverTest : public TestingBase<T>
         this->zdot_correct_ = NULL;
         this->single_mesh_ = NULL;
         this->single_pm_ = NULL;
-        TestingBase<T>::TearDown();
+        TestingBase::TearDown();
     }
 
     // Get the global mesh comm from ProblemManager

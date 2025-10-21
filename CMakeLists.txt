@@ -57,6 +57,9 @@ endif()
 # find Silo
 find_package(SILO REQUIRED)
 
+# find MPI
+find_package(MPI COMPONENTS CXX )
+
 # standard dependency macro
 macro(Beatnik_add_dependency)
   cmake_parse_arguments(BEATNIK_DEPENDENCY "" "PACKAGE;VERSION" "COMPONENTS" ${ARGN})
@@ -70,10 +73,6 @@ macro(Beatnik_add_dependency)
   endif()
   set(Beatnik_ENABLE_${BEATNIK_DEPENDENCY_OPTION} ${${BEATNIK_DEPENDENCY_PACKAGE}_FOUND})
 endmacro()
-
-# find MPI
-Beatnik_add_dependency( PACKAGE MPI COMPONENTS CXX )
-set_package_properties(MPI PROPERTIES TYPE REQUIRED PURPOSE "Used for distributed parallelization")
 
 # find Clang Format
 find_package( CLANG_FORMAT 14 )
@@ -171,7 +170,7 @@ if(Beatnik_ENABLE_TESTING)
   endif()
   set(TEST_HARNESS_DIR ${CMAKE_SOURCE_DIR}/cmake/test_harness)
   include(cmake/test_harness/test_harness.cmake)
-  # add_subdirectory(tests)
+  add_subdirectory(tests)
   enable_testing()
 endif()
 
