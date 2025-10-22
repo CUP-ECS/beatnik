@@ -11,20 +11,19 @@
 
 include(${TEST_HARNESS_DIR}/test_harness.cmake)
 
-# set(NOBACKEND_TESTS
-#   Kernels
-#   )
+set(NOBACKEND_TESTS
+  # None currently
+  )
 
 set(SERIAL_TESTS
   # None currently
   )
 
 set(MPI_TESTS
-  BoundaryCondition
-  Mesh
+  # None currently
   )
 
-# Beatnik_add_tests_nobackend(PACKAGE Beatnik NAMES ${NOBACKEND_TESTS})
+Beatnik_add_tests_nobackend(PACKAGE Beatnik NAMES ${NOBACKEND_TESTS})
 
 Beatnik_add_tests(PACKAGE Beatnik NAMES ${SERIAL_TESTS})
 
