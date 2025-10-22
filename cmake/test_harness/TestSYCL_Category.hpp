@@ -15,8 +15,5 @@
 #define TEST_CATEGORY sycl
 #define TEST_EXECSPACE Kokkos::Experimental::SYCL
 #define TEST_MEMSPACE Kokkos::Experimental::SYCLDeviceUSMSpace
-#define TEST_DEVICE                                                            \
-    Kokkos::Device<Kokkos::Experimental::SYCL,                                 \
-                   Kokkos::Experimental::SYCLDeviceUSMSpace>
 
 #endif

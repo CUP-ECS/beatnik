@@ -15,8 +15,5 @@
 #define TEST_CATEGORY openmptarget
 #define TEST_EXECSPACE Kokkos::Experimental::OpenMPTarget
 #define TEST_MEMSPACE Kokkos::Experimental::OpenMPTargetSpace
-#define TEST_DEVICE                                                            \
-    Kokkos::Device<Kokkos::Experimental::OpenMPTarget,                         \
-                   Kokkos::Experimental::OpenMPTargetSpace>
 
 #endif // end CABANA_TEST_OPENMP_CATEGORY_HPP
