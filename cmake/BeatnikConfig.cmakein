@@ -9,22 +9,11 @@
 # SPDX-License-Identifier: BSD-3-Clause                                    #
 ############################################################################
 
-include(${TEST_HARNESS_DIR}/test_harness.cmake)
-
-set(NOBACKEND_TESTS
-  # None currently
-  )
-
-set(SERIAL_TESTS
-  # None currently
-  )
-
-set(MPI_TESTS
-  # None currently
-  )
-
-Beatnik_add_tests_nobackend(PACKAGE Beatnik NAMES ${NOBACKEND_TESTS})
-
-Beatnik_add_tests(PACKAGE Beatnik NAMES ${SERIAL_TESTS})
-
-Beatnik_add_tests(MPI PACKAGE Beatnik NAMES ${MPI_TESTS})
+include(CMakeFindDependencyMacro)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_LIST_DIR}" )
+list(APPEND CMAKE_PREFIX_PATH @CMAKE_PREFIX_PATH@)
+find_dependency(MPI REQUIRED CXX)
+find_dependency(Kokkos REQUIRED)
+find_dependency(Cabana REQUIRED COMPONENTS Cabana::Grid Cabana::Core)
+find_dependency(SILO REQUIRED)
+include("${CMAKE_CURRENT_LIST_DIR}/Beatnik_Targets.cmake")

@@ -30,7 +30,6 @@ class TimeIntegrator
 {
     using exec_space = ExecutionSpace;
     using mem_space = MemorySpace;
-    using device_type = Kokkos::Device<exec_space, mem_space>;
     using node_array =
         Cabana::Grid::Array<double, Cabana::Grid::Node, Cabana::Grid::UniformMesh<double, 2>,
                       mem_space>;

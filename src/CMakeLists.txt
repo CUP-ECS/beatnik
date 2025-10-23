@@ -1,7 +1,6 @@
-
 configure_file(Beatnik_Config.hpp.in Beatnik_Config.hpp)
 
-set(HEADERS
+set(HEADERS_PUBLIC
   # General problem/mesh/time integration files
   SurfaceMesh.hpp
   Operators.hpp
@@ -46,11 +45,34 @@ set(INCLUDES
     ${CMAKE_CURRENT_BINARY_DIR}
   )
        
-add_library( beatnik INTERFACE ${SOURCES} )
-target_link_libraries( beatnik INTERFACE ${DEPENDS_ON} )
-target_include_directories( beatnik INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}
-	  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
-	  $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}> )
+add_library( Beatnik INTERFACE )
 
-install(FILES ${HEADERS} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-install(TARGETS beatnik LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR} ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+# Require minimum of C++17
+set_target_properties(Beatnik PROPERTIES INTERFACE_COMPILE_FEATURES cxx_std_17)
+
+target_link_libraries( Beatnik INTERFACE ${DEPENDS_ON} )
+
+target_include_directories( Beatnik INTERFACE
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>
+  $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+  )
+
+install(TARGETS Beatnik
+  EXPORT Beatnik_Targets
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+  
+
+install(EXPORT Beatnik_Targets
+  FILE Beatnik_Targets.cmake
+  NAMESPACE Beatnik::
+  DESTINATION ${Beatnik_INSTALL_PACKAGEDIR})
+
+install(FILES ${HEADERS_PUBLIC} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+# install(FILES ${HEADERS_IMPL} DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/impl/)
+
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/Beatnik_Config.hpp DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+include(CMakePackageConfigHelpers)

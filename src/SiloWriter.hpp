@@ -44,7 +44,6 @@ class SiloWriter
 {
   public:
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     /**
      * Constructor
      * Create new SiloWriter

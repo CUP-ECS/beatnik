@@ -58,15 +58,13 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     using exec_space = ExecutionSpace;
     using memory_space = MemorySpace;
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
-    using spatial_mesh_type = SpatialMesh<ExecutionSpace, MemorySpace>;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     
     using Node = Cabana::Grid::Node;
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
     using node_array = typename pm_type::node_array;
     //using node_view = typename pm_type::node_view;
-    using node_view = Kokkos::View<double***, device_type>;
+    using node_view = Kokkos::View<double***, memory_space>;
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
 

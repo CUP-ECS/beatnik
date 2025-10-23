@@ -1,10 +1,12 @@
-include_directories(${CMAKE_CURRENT_BINARY_DIR})
-include_directories(${CMAKE_CURRENT_SOURCE_DIR})
+############################################################################
+# Copyright (c) 2025 by the Beatnik authors                                #
+# All rights reserved.                                                     #
+#                                                                          #
+# This file is part of the Beatnik library. Beatnik is distributed under a #
+# BSD 3-clause license. For the licensing terms see the LICENSE file in    #
+# the top-level directory.                                                 #
+#                                                                          #
+# SPDX-License-Identifier: BSD-3-Clause                                    #
+############################################################################
 
-blt_add_executable( NAME rocketrig
-                    SOURCES rocketrig.cpp 
-                    OUTPUT_DIR ${EXAMPLE_OUTPUT_DIRECTORY})
-
-target_link_libraries( rocketrig PRIVATE beatnik )
-
-install(TARGETS rocketrig DESTINATION ${CMAKE_INSTALL_BINDIR})
+add_subdirectory(01_rocketrig)

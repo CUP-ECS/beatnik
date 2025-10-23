@@ -21,17 +21,15 @@ We have tested the beatnik installation on the following systems via either spac
     * Hopper V100/A100 GPU cluster system - Build using the environment specification in `unm/hopper/spack.yaml`. It is sometimes possible to simply use `spack install beatnik +cuda cuda_arch=80 %gcc ^cuda@11` (or `cuda_arch=70` for the V100 nodes), but this may not always work depending on how spack chooses to concretize the spack installation.
     * General UNM (Wheeler/Hopper) CPU systems - `spack install beatnik` is generally sufficient.
   * Lawrence Livermore National Laboratory - These systems need a spack environment (provided) to set up compilers and external packages to use spack effectively on these systems. Use `spack env create` with the provided spack.yaml to build beatnik in an environment on these systems. Simple test run scripts are also provided.
-    * Lassen V100 GPU system - Build using the environment specification in llnl/lassen/spack.yaml. Other compilers besides gcc untested. Note that cuda-aware MPI support is broken in spectrum MPI with cuda versions later than 11.2; the spack configuration avoids this, but if you're building beatnik by hand on Lassen or another IBM CORAL system, be aware of this limitation.
     * Tioga MX250X GPU system - Build using the environment specification in llnl/tioga/spack.yaml; gcc should also work. Other compilers besides cce 16.0.1 untested. Note that you must run with the environment variable to enable gpu-aware cray-mpich, i.e. `export MPICH_GPU_SUPPORT_ENABLED=1`. The provided flux script (beatnik.flux) does this.
-    * Quartz CPU system - Build using the environment specification in llnl/quartz/spack.yaml. Othe rcompilers besides gcc@10.3.1 untested.
   * Los Alamos National Laboratory
-    * Chicoma Cray A100 GPU system - not yet complete. An environment still needs to be developed that uses cray-mpich with the appropriate flags to properly compile beatnik and its dependenvies to use GPU-aware MPI.
+    * Chicoma Cray A100 GPU system - not yet complete. An environment still needs to be developed that uses cray-mpich with the appropriate flags to properly compile beatnik and its dependencies to use GPU-aware MPI.
 
 If you use `spack install` to build beatnik (e.g., on the UNM systems), you'll then need to run `spack load beatnik` to get access to the test executables to run, for example the `rocketrig` benchmark. If you're running in an environment, the installed environment will include the benchmark executable.
 
 ### Developing Beatnik and its dependencies using a Spack package description
 
-If you want to develop Beatnik, we recommend using an environment along with the `spack develop` command to setup the development environment. In addition to allowing you to use spack to install dependecies, this will also let you tweak the package specification to control the details of the build environment, directly modify packages that you're developing (e.g. beatnik //and// its dependencies if you want!) and still use spack to build it. 
+If you want to develop Beatnik, we recommend using an environment along with the `spack develop` command to setup the development environment. In addition to allowing you to use spack to install dependencies, this will also let you tweak the package specification to control the details of the build environment, directly modify packages that you're developing (e.g. beatnik //and// its dependencies if you want!) and still use spack to build it. 
 
 For example, to work on the current development branch of beatnik on the LLNL lassen system, you might do the following:
 ```

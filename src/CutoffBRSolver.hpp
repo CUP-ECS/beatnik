@@ -35,6 +35,7 @@
 #include <memory>
 
 #include <BRSolverBase.hpp>
+#include <SpatialMesh.hpp>
 #include <HaloComm.hpp>
 #include <SurfaceMesh.hpp>
 #include <ProblemManager.hpp>
@@ -58,14 +59,13 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     using memory_space = MemorySpace;
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
     using spatial_mesh_type = SpatialMesh<ExecutionSpace, MemorySpace>;
-    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
     
     using Node = Cabana::Grid::Node;
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
     using node_array = typename pm_type::node_array;
     //using node_view = typename pm_type::node_view;
-    using node_view = Kokkos::View<double***, device_type>;
+    using node_view = Kokkos::View<double***, memory_space>;
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
@@ -81,7 +81,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                                               >;
     // XXX Change the final parameter of particle_array_type, vector type, to
     // be aligned with the machine we are using
-    using particle_array_type = Cabana::AoSoA<particle_node, device_type, 4>;
+    using particle_array_type = Cabana::AoSoA<particle_node, memory_space, 4>;
 
     // XXX - Get these from SpatialMesh class?
     using spatial_mesh_layout = Cabana::Grid::UniformMesh<double, 3>;
@@ -319,7 +319,7 @@ class CutoffBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         /* See https://kokkos.org/kokkos-core-wiki/API/core/view/deep_copy.html
          * "How to get layout incompatiable views copied"
          */
-        Kokkos::View<int*[4], device_type> boundary_topology_device("boundary_topology_device", _comm_size+1);
+        Kokkos::View<int*[4], memory_space> boundary_topology_device("boundary_topology_device", _comm_size+1);
         auto hv_tmp = Kokkos::create_mirror_view(boundary_topology_device);
         Kokkos::deep_copy(hv_tmp, boundary_topology);
         Kokkos::deep_copy(boundary_topology_device, hv_tmp);

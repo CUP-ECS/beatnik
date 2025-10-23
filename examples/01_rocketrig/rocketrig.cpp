@@ -53,7 +53,7 @@
 
 using namespace Beatnik;
 
-static char* shortargs = (char*)"n:B:t:d:x:F:o:c:H:I:b:g:a:T:m:v:p:i:w:O:S:M:e:h:";
+static char* shortargs = (char*)"n:B:t:d:x:F:o:c:H:I:b:g:a:T:m:v:p:i:w:O:S:M:e:h";
 
 static option longargs[] = {
     // Basic simulation parameters
@@ -539,6 +539,8 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             break;
         case 'h':
             help( rank, argv[0] );
+            Kokkos::finalize(); 
+            MPI_Finalize(); 
             exit( 0 );
             break;
         case 't':
