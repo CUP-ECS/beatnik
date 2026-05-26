@@ -175,7 +175,7 @@ class ZModel
                 params.setReorder(true);
                 break;
         }
-        _fft = Cabana::Grid::Experimental::createHeffteFastFourierTransform<double, memory_space>(*node_double_layout, params);
+        _fft = Cabana::Grid::Experimental::createHeffteFastFourierTransform<double, memory_space>(exec_space{}, *node_double_layout, params);
     }
 
     double computeMinTimestep(double atwood, double g)
