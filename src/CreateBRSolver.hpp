@@ -42,11 +42,11 @@ createBRSolver( const pm_type &pm, const BoundaryCondition &bc,
         using br_type = Beatnik::CutoffBRSolver<ExecutionSpace, MemorySpace, Params>;
         return std::make_unique<br_type>(pm, bc, epsilon, dx, dy, params);
     }
-    else if ( params.br_solver == BR_FMM )
-    {
-        using br_type = Beatnik::FmmBRSolver<ExecutionSpace, MemorySpace, Params>;
-        return std::make_unique<br_type>(pm, bc, epsilon, dx, dy, params);
-    }
+    // else if ( params.br_solver == BR_FMM )
+    // {
+    //     using br_type = Beatnik::FmmBRSolver<ExecutionSpace, MemorySpace, Params>;
+    //     return std::make_unique<br_type>(pm, bc, epsilon, dx, dy, params);
+    // }
     std::cerr << "Invalid BR solver type.\n";
     Kokkos::finalize();
     MPI_Finalize();
