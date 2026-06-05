@@ -24,7 +24,7 @@ By default, Beatnik solves a simple multi-mode rocket rig problem sized for a si
 
 ### General command line parameters
 
-  * `-x [cuda|threads|serial]` - The node-level parallelism/accelerator backend to use
+  * The node-level parallelism/accelerator backend is selected at compile time based on which Kokkos backends are enabled in the build (priority: CUDA/HIP/SYCL > OpenMP > Threads > Serial). The selected backend is printed in the banner when `rocketrig` runs.
   * `-F [write-frequency]` - Interval between timesteps when I/O is written
   * `-O [solution order]` - Order of solver to use ('high', 'medium', or 'low'). 'low' is the default.
   * `-w [weak scaling factor]` - Scale up the problem specification, including the x/y bounding box, to be N times larger
@@ -46,13 +46,13 @@ By default, Beatnik solves a simple multi-mode rocket rig problem sized for a si
   
 ### Example 1: Periodic Multi-mode Rocket Rig
 The simplest test case and the one to which the rocketrig example program defaults is an initial interface distributed according to a cosine function. Simple usage examples:
-  1. Serial execution: `bin/rocketrig -x serial`
-  1. Cuda execution (on systems with GPUs) with a 512x512 mesh: `bin/rocketrig -x cuda -n 512`
-  1. Cuda execution with a 1024x1024 problem scaled up to be sixteen times as large in terms of bounding box and number of total points with no I/O: bin/rocketrig -x cuda -n 1024 -F 0 -w 16`
+  1. Default execution: `bin/rocketrig` (uses whichever Kokkos backend was enabled at build time)
+  1. 512x512 mesh: `bin/rocketrig -n 512`
+  1. A 1024x1024 problem scaled up to be sixteen times as large in terms of bounding box and number of total points with no I/O: `bin/rocketrig -n 1024 -F 0 -w 16`
 
 ### Example 2: Non-periodic Single-mode Gaussian Rollup
 Another test case is a single-mode rollup test where the intitial interface is set according to a hyperbolic secant function. This testcase recreates the the Gaussian perturbation results in Panda and Shkoller's paper from sections 2.3 and 2.4.  To run this testcase with a high-order model, use the following command line parameters. Note that this works best with a GPU accelerator, as the exact high-order far field force solver is very compute intensive and is generally impractical for non-trivial mesh sizes without GPU acceleration:
-`bin/rocketrig -x cuda -O high -n 64 -I sech2 -m 0.1 -p 9.0 -b free -a 0.15 -M 2 -e 2`
+`bin/rocketrig -O high -n 64 -I sech2 -m 0.1 -p 9.0 -b free -a 0.15 -M 2 -e 2`
 
 ## Planned Development Steps
 
