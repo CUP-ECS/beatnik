@@ -23,7 +23,7 @@ export MPICH_GPU_SUPPORT_ENABLED=1
 export GTL_HSA_VSMSG_CUTOFF_SIZE=4096
 export FI_CXI_ATS=0
 echo "Starting MPI Run with ${FLUX_JOB_SIZE} processes"
-#flux run --ntasks=16 --nodes=2 --exclusive --gpus-per-task=1 --cores-per-task=8 --setopt=mpibind=verbose:1 rocketrig -x hip -n 12288 -w 16 -F 0
-flux run --ntasks=16 --nodes=2 --exclusive --gpus-per-task=1 --cores-per-task=8 --setopt=mpibind=verbose:1 rocketrig -x hip -n 256 -O high -I sech2 -m 0.1 -p 9.0 -b free -a 0.15 -M 2 -e 2 -S cutoff -c 0.25 -t 300 -w 16 -F 10
+#flux run --ntasks=16 --nodes=2 --exclusive --gpus-per-task=1 --cores-per-task=8 --setopt=mpibind=verbose:1 rocketrig -n 12288 -w 16 -F 0
+flux run --ntasks=16 --nodes=2 --exclusive --gpus-per-task=1 --cores-per-task=8 --setopt=mpibind=verbose:1 rocketrig -n 256 -O high -I sech2 -m 0.1 -p 9.0 -b free -a 0.15 -M 2 -e 2 -S cutoff -c 0.25 -t 300 -w 16 -F 10
 
 echo "Finished MPI Run. Output in ${BEATNIK_SCRATCH}/data"

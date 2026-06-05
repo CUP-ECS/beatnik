@@ -20,6 +20,6 @@ mkdir -p ${BEATNIK_SCRATCH}/data/raw
 
 cd ${BEATNIK_SCRATCH}
 echo "Starting MPI Run with ${SLURM_NTASKS} processes"
-srun -n ${SLURM_NTASKS} rocketrig -x cuda -n 8192 -F 0 -w ${SLURM_NTASKS}
+srun -n ${SLURM_NTASKS} rocketrig -n 8192 -F 0 -w ${SLURM_NTASKS}
 
 echo "Finished MPI Run. Output in ${BEATNIK_SCRATCH}/data"

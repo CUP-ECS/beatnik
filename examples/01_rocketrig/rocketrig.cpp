@@ -53,7 +53,7 @@
 
 using namespace Beatnik;
 
-static char* shortargs = (char*)"n:B:t:d:x:F:o:c:H:I:b:g:a:T:m:v:p:i:w:O:S:M:e:h";
+static char* shortargs = (char*)"n:B:t:d:F:o:c:H:I:b:g:a:T:m:v:p:i:w:O:S:M:e:h";
 
 static option longargs[] = {
     // Basic simulation parameters
@@ -61,7 +61,6 @@ static option longargs[] = {
     { "bounding_box", required_argument, NULL, 'B'},
     { "timesteps", required_argument, NULL, 't' },
     { "delta_t", required_argument, NULL, 'd' },
-    { "driver", required_argument, NULL, 'x' },
     { "write_frequency", required_argument, NULL, 'F' },
     { "outdir", required_argument, NULL, 'o' },
     { "cutoff_distance", required_argument, NULL, 'c' },
@@ -116,7 +115,6 @@ struct ClArgs
     std::array<int, 2> num_nodes;          /**< Number of cells */
     double t_final;     /**< Ending time */
     double delta_t;     /**< Timestep */
-    std::string driver; /**< ( Serial, Threads, OpenMP, CUDA ) */
     int weak_scale;     /**< Amount to scale up resulting problem */
 
     /* I/O parameters */
@@ -152,9 +150,6 @@ void help( const int rank, char* progname )
     {
         /* XXX Needs to be fixed for change in arguments */
         std::cout << "Usage: " << progname << "\n";
-        std::cout << std::left << std::setw( 10 ) << "-x" << std::setw( 40 )
-                  << "On-node Parallelism Model (default serial)" << std::left
-                  << "\n";
         std::cout << std::left << std::setw( 10 ) << "-n" << std::setw( 40 )
                   << "Number of points in each dimension (default 128)" << std::left << "\n";
         std::cout << std::left << std::setw( 10 ) << "-B" << std::setw( 40 )
@@ -213,7 +208,6 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
     signed char ch;
 
     /// Set default values
-    cl.driver = "serial"; // Default Thread Setting
     cl.weak_scale = 1;
     cl.write_freq = 10;
 
@@ -332,24 +326,6 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
             }
             break;
         }
-        case 'x':
-            cl.driver = strdup( optarg );
-            if ( ( cl.driver.compare( "serial" ) != 0 ) &&
-                 ( cl.driver.compare( "openmp" ) != 0 ) &&
-                 ( cl.driver.compare( "threads" ) != 0 ) &&
-                 ( cl.driver.compare( "cuda" ) != 0 ) &&
-                 ( cl.driver.compare( "hip" ) != 0 ) )
-            {
-                if ( rank == 0 )
-                {
-                    std::cerr << "Invalid  parallel driver argument.\n";
-                    help( rank, argv[0] );
-                }
-                Kokkos::finalize(); 
-                MPI_Finalize(); 
-                exit( -1 );  
-            }
-            break;
         case 'F':
             cl.write_freq = atoi( optarg ) ;
             if ( cl.write_freq < 0 )
@@ -730,19 +706,19 @@ void rocketrig( ClArgs& cl )
     std::shared_ptr<Beatnik::SolverBase> solver;
     if (cl.params.solver_order == SolverOrder::ORDER_LOW) {
         solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
+            MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
             bc, Beatnik::Order::Low(), cl.mu, cl.eps, cl.delta_t,
             cl.params );
     } else if (cl.params.solver_order == SolverOrder::ORDER_MEDIUM) {
         solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
+            MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
             bc, Beatnik::Order::Medium(), cl.mu, cl.eps, cl.delta_t,
             cl.params );
     } else if (cl.params.solver_order == SolverOrder::ORDER_HIGH) {
         solver = Beatnik::createSolver(
-            cl.driver, MPI_COMM_WORLD, cl.num_nodes,
+            MPI_COMM_WORLD, cl.num_nodes,
             partitioner, cl.atwood, cl.gravity, initializer,
             bc, Beatnik::Order::High(), cl.mu, cl.eps, cl.delta_t,
             cl.params );
@@ -785,9 +761,9 @@ int main( int argc, char* argv[] )
         // Print Command Line Options
         std::cout << "RocketRig\n";
         std::cout << "============Command line arguments============\n";
-        std::cout << std::left << std::setw( 30 ) << "Thread Setting"
-                  << ": " << std::setw( 8 ) << cl.driver
-                  << "\n"; // Threading Setting
+        std::cout << std::left << std::setw( 30 ) << "Execution Space"
+                  << ": " << std::setw( 8 ) << Kokkos::DefaultExecutionSpace::name()
+                  << "\n";
         std::cout << std::left << std::setw( 30 ) << "Mesh Dimension"
                   << ": " << cl.num_nodes[0] << ", "
                   << cl.num_nodes[1] << "\n"; // Number of Cells

@@ -261,78 +261,23 @@ class Solver : public SolverBase
 // Creation method.
 template <class InitFunc, class ModelOrder, class Params>
 std::shared_ptr<SolverBase>
-createSolver( const std::string& device, MPI_Comm comm,
+createSolver( MPI_Comm comm,
               const std::array<int, 2>& global_num_cell,
               const Cabana::Grid::BlockPartitioner<2> & partitioner,
-              const double atwood, const double g, 
-              const InitFunc& create_functor, 
-              const BoundaryCondition& bc, 
+              const double atwood, const double g,
+              const InitFunc& create_functor,
+              const BoundaryCondition& bc,
               const ModelOrder,
               const double mu,
-              const double epsilon, 
+              const double epsilon,
               const double delta_t,
               const Params params )
 {
-    if ( 0 == device.compare( "serial" ) )
-    {
-#if defined( KOKKOS_ENABLE_SERIAL )
-        return std::make_shared<
-            Beatnik::Solver<Kokkos::Serial, Kokkos::HostSpace, ModelOrder>>(
-            comm, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t, params);
-#else
-        throw std::runtime_error( "Serial Backend Not Enabled" );
-#endif
-    }
-    else if ( 0 == device.compare( "threads" ) )
-    {
-#if defined( KOKKOS_ENABLE_THREADS )
-        return std::make_shared<
-            Beatnik::Solver<Kokkos::Threads, Kokkos::HostSpace, ModelOrder>>(
-            comm, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t, params);
-#else
-        throw std::runtime_error( "Threads Backend Not Enabled" );
-#endif
-    }
-    else if ( 0 == device.compare( "openmp" ) )
-    {
-#if defined( KOKKOS_ENABLE_OPENMP )
-        return std::make_shared<
-            Beatnik::Solver<Kokkos::OpenMP, Kokkos::HostSpace, ModelOrder>>(
-            comm, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t, params);
-#else
-        throw std::runtime_error( "OpenMP Backend Not Enabled" );
-#endif
-    }
-    else if ( 0 == device.compare( "cuda" ) )
-    {
-#if defined(KOKKOS_ENABLE_CUDA)
-        return std::make_shared<
-            Beatnik::Solver<Kokkos::Cuda, Kokkos::CudaSpace, ModelOrder>>(
-            comm, global_num_cell, partitioner, atwood, g, 
-            create_functor, bc, mu, epsilon, delta_t, params);
-#else
-        throw std::runtime_error( "CUDA Backend Not Enabled" );
-#endif
-    }
-    else if ( 0 == device.compare( "hip" ) )
-    {
-#ifdef KOKKOS_ENABLE_HIP
-        return std::make_shared<Beatnik::Solver<Kokkos::HIP, 
-            Kokkos::HIPSpace, ModelOrder>>(
-                comm, global_num_cell, partitioner, atwood, g, 
-                create_functor, bc, mu, epsilon, delta_t, params);
-#else
-        throw std::runtime_error( "HIP Backend Not Enabled" );
-#endif
-    }
-    else
-    {
-        throw std::runtime_error( "invalid backend" );
-        return nullptr;
-    }
+    using ExecSpace = Kokkos::DefaultExecutionSpace;
+    using MemSpace  = Kokkos::DefaultExecutionSpace::memory_space;
+    return std::make_shared<Beatnik::Solver<ExecSpace, MemSpace, ModelOrder>>(
+        comm, global_num_cell, partitioner, atwood, g,
+        create_functor, bc, mu, epsilon, delta_t, params );
 }
 
 //---------------------------------------------------------------------------//
