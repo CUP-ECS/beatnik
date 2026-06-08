@@ -10,7 +10,8 @@ and the review at
 
 | # | Checkpoint | Commit | Verified |
 |---|-----------|--------|----------|
-| 1 | Wire `BEATNIK_ENABLE_CANOPY` through CMake | _pending commit_ | OFF/ON builds via `spack install` |
+| 1 | Wire `BEATNIK_ENABLE_CANOPY` through CMake | fb123c6 | `spack install` succeeds with Canopy ON (env has Canopy installed). OFF path is structurally guarded via `if(Beatnik_ENABLE_CANOPY)`; testing OFF would require an env without Canopy and is deferred. |
+| 2 | Accept `-S fmm` in rocketrig + README sync | _pending_ | `spack install` succeeds; rocketrig recompiled (1m 3s). Actual `-S fmm` runtime accept/reject behavior verified at the next checkpoint when the dispatch lands. |
 
 ### Notes on checkpoint 1
 

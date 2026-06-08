@@ -30,6 +30,7 @@
 
 
 // Include Statements
+#include <Beatnik_Config.hpp>
 #include <BoundaryCondition.hpp>
 #include <Solver.hpp>
 
@@ -251,6 +252,21 @@ int parseInput( const int rank, const int argc, char** argv, ClArgs& cl )
                 cl.params.br_solver = BRSolverType::BR_EXACT;
             } else if (solver.compare("cutoff") == 0 ) {
                 cl.params.br_solver = BRSolverType::BR_CUTOFF;
+            } else if (solver.compare("fmm") == 0 ) {
+#ifdef BEATNIK_ENABLE_CANOPY
+                cl.params.br_solver = BRSolverType::BR_FMM;
+#else
+                if ( rank == 0 )
+                {
+                    std::cerr << "BR solver 'fmm' requires Beatnik to be "
+                                 "built with Canopy support "
+                                 "(Beatnik_ENABLE_CANOPY=ON).\n";
+                    help( rank, argv[0] );
+                }
+                Kokkos::finalize();
+                MPI_Finalize();
+                exit( -1 );
+#endif
             } else {
                 if ( rank == 0 )
                 {
@@ -790,6 +806,11 @@ int main( int argc, char* argv[] )
                     << ": " << std::setw( 8 ) << "cutoff" << "\n";
                 std::cout << std::left << std::setw( 30 ) << "Cutoff distance"
                     << ": " << std::setw( 8 ) << cl.params.cutoff_distance  << "\n";
+            }
+            else if (cl.params.br_solver == BRSolverType::BR_FMM)
+            {
+                std::cout <<  std::left << std::setw( 30 ) << "BR Solver type"
+                    << ": " << std::setw( 8 ) << "fmm" << "\n";
             }
         }
         std::cout << std::left << std::setw( 30 ) << "Total Simulation Time"

@@ -28,7 +28,7 @@ By default, Beatnik solves a simple multi-mode rocket rig problem sized for a si
   * `-F [write-frequency]` - Interval between timesteps when I/O is written
   * `-O [solution order]` - Order of solver to use ('high', 'medium', or 'low'). 'low' is the default.
   * `-w [weak scaling factor]` - Scale up the problem specification, including the x/y bounding box, to be N times larger
-  * `-S [BR solver type]` - If using the high-order solution, whether to use the 'exact' or 'cutoff' BR solver. 'exact' is the default
+  * `-S [BR solver type]` - If using the high-order solution, whether to use the 'exact', 'cutoff', or 'fmm' BR solver. 'exact' is the default. 'fmm' requires Beatnik to be built with Canopy support (`Beatnik_ENABLE_CANOPY=ON`).
 
 ### Problem-specific command line parameters
 
