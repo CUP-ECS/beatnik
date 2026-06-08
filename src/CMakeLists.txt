@@ -28,6 +28,10 @@ set(HEADERS_PUBLIC
   HaloComm.hpp
   )
 
+if(Beatnik_ENABLE_CANOPY)
+  list(APPEND HEADERS_PUBLIC FmmBRSolver.hpp)
+endif()
+
 #set(SOURCES
 #  Mesh.cpp
 #  ProblemManager.cpp
@@ -36,9 +40,13 @@ set(HEADERS_PUBLIC
 set(DEPENDS_ON
   Cabana::Core
   Cabana::Grid
-  SILO::silo 
+  SILO::silo
   MPI::MPI_CXX
   )
+
+if(Beatnik_ENABLE_CANOPY)
+  list(APPEND DEPENDS_ON Canopy::Canopy)
+endif()
  
 set(INCLUDES
     ${CMAKE_CURRENT_SOURCE_DIR}

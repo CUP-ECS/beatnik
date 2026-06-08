@@ -1,5 +1,8 @@
 # Beatnik
 
+For Canopy FMM integration progress, open questions, and known issues,
+see [tasks/integrate_canopy.md](tasks/integrate_canopy.md).
+
 ## System detection
 
 Build and run commands differ by system. Before building or running anything,
