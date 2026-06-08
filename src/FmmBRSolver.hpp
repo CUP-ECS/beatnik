@@ -6,7 +6,7 @@
  * distributed under a BSD 3-clause license. For the licensing terms see    *
  * the LICENSE file in the top-level directory.                             *
  *                                                                          *
- * SPDX-License-Identifier,BSD-3-Clause                                    *
+ * SPDX-License-Identifier: BSD-3-Clause                                   *
  ****************************************************************************/
 /**
  * @file FmmBRSolver.hpp
@@ -55,22 +55,17 @@ template <class ExecutionSpace, class MemorySpace, class Params>
 class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 {
   public:
-    using execution_space = ExecutionSpace;
+    using exec_space = ExecutionSpace;
     using memory_space = MemorySpace;
     using pm_type = ProblemManager<ExecutionSpace, MemorySpace>;
     using mesh_type = Cabana::Grid::UniformMesh<double, 2>;
-    
+
     using Node = Cabana::Grid::Node;
     using l2g_type = Cabana::Grid::IndexConversion::L2G<mesh_type, Node>;
     using node_array = typename pm_type::node_array;
-    //using node_view = typename pm_type::node_view;
     using node_view = Kokkos::View<double***, memory_space>;
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
-
-    // Fmm solver data
-    using Solver_t =
-    Canopy::Solver<MemorySpace, ExecutionSpace, double, P_ORDER, N_COMPS>;
 
     FmmBRSolver( const pm_type &pm, const BoundaryCondition &bc,
                    const double epsilon, const double dx, const double dy,

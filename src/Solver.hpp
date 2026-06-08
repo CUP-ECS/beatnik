@@ -71,6 +71,18 @@ struct Params
         7	    True	    True	True
     */
     int heffte_configuration;
+
+    /* FMM-specific tunables (only meaningful when br_solver == BR_FMM).
+     * Defaults are baked in for the v1 integration; runtime CLI flags
+     * for these are a follow-up. P_ORDER is a Canopy template
+     * parameter and is fixed at FmmBRSolver instantiation. */
+    int    fmm_ncrit              = 32;
+    int    fmm_max_depth          = 15;
+    double fmm_mac_theta          = 0.5;
+    int    fmm_replication_depth  = 3;
+    double fmm_imbalance_tol      = 0.10;
+    double fmm_ncrit_tol          = 0.10;
+    double fmm_bbox_tol           = 0.10;
 };
 
 /*
