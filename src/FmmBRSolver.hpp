@@ -25,6 +25,10 @@
 #include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
 
+#include <Canopy_Solver.hpp>
+
+#include <cmath>
+#include <iostream>
 #include <memory>
 
 #include <SurfaceMesh.hpp>
@@ -67,6 +71,9 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
     using halo_type = Cabana::Grid::Halo<MemorySpace>;
 
+    using canopy_solver_type =
+        Canopy::Solver<MemorySpace, ExecutionSpace, double, P_ORDER, N_COMPS>;
+
     FmmBRSolver( const pm_type &pm, const BoundaryCondition &bc,
                    const double epsilon, const double dx, const double dy,
                    const Params params)
@@ -78,9 +85,35 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         , _params( params )
         , _local_L2G( *_pm.mesh().localGrid() )
         , _comm( _pm.mesh().localGrid()->globalGrid().comm() )
+        , _canopy( _pm.mesh().localGrid()->globalGrid().comm(),
+                   params.fmm_ncrit,
+                   params.fmm_max_depth,
+                   std::array<double, 3>{ params.fmm_bbox_tol,
+                                          params.fmm_bbox_tol,
+                                          params.fmm_bbox_tol },
+                   params.fmm_ncrit_tol,
+                   params.fmm_replication_depth,
+                   params.fmm_imbalance_tol,
+                   params.fmm_mac_theta,
+                   /* softening = sqrt(epsilon) so Canopy's
+                    * (r^2 + softening^2)^(-3/2) matches Beatnik's
+                    * (r^2 + epsilon)^(-3/2) — Operators::BR does not
+                    * square epsilon. */
+                   std::sqrt( epsilon ) )
     {
         MPI_Comm_size(_comm, &_num_procs);
         MPI_Comm_rank(_comm, &_rank);
+
+        if ( _bc.isPeriodicBoundary({0, 1}) || _bc.isPeriodicBoundary({1, 1}) )
+        {
+            if ( _rank == 0 )
+            {
+                std::cerr << "FmmBRSolver: periodic boundary conditions are "
+                             "not supported in v1. Use -S exact or -S cutoff, "
+                             "or run with non-periodic boundaries.\n";
+            }
+            MPI_Abort( _comm, 1 );
+        }
     }
 
     void computeInterfaceVelocityPiece(node_view zdot, node_view z, 
@@ -390,6 +423,12 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     MPI_Comm _comm;
 
     int _num_procs, _rank;
+
+    /* Persistent Canopy FMM solver instance. Holds the tree, the
+     * partitioner, and the comm plan; reused across every
+     * computeInterfaceVelocity call. Wired up here in checkpoint 5
+     * but the compute path is not yet routed through it. */
+    canopy_solver_type _canopy;
     // XXX Communication views and extents to avoid allocations during each ring pass
 };
 
