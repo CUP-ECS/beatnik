@@ -14,7 +14,7 @@ and the review at
 | 2 | Accept `-S fmm` in rocketrig + README sync | 4209e51 | `spack install` succeeds; rocketrig recompiled (1m 3s). Actual `-S fmm` runtime accept/reject behavior verified at the next checkpoint when the dispatch lands. |
 | 3 | CreateBRSolver dispatch + Params extension | 0ae01cd | `spack install` succeeds (1m 4s). `FmmBRSolver` is currently the all-pairs ExactBRSolver body — runtime equivalence test is part of checkpoint 7. |
 | 4 | Lift `simpsonWeight` into `Operators.hpp` | bfcd383 | Pure refactor; both BR solvers now call `Operators::simpsonWeight`. `spack install` succeeds (1m 3s). |
-| 5 | FmmBRSolver: hold Canopy::Solver instance; guard periodic; legacy compute path | _pending_ | `spack install` succeeds (1m 3s after `touch rocketrig.cpp` — see Bugs/follow-ups). Compute path is still ring-pass all-pairs; the persistent Canopy solver is held but not yet invoked. Periodic-boundary guard added in the constructor. |
+| 5 | FmmBRSolver: hold Canopy::Solver instance; guard periodic; legacy compute path | ca2d8c7 | `spack install` succeeds (1m 3s after `touch rocketrig.cpp` — see Bugs/follow-ups). Compute path is still ring-pass all-pairs; the persistent Canopy solver is held but not yet invoked. Periodic-boundary guard added in the constructor. |
 
 ### Notes on checkpoint 1
 
