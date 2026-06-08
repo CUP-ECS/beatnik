@@ -25,18 +25,23 @@ create) the doc before proceeding.
    run before compiling or running any binary from this library.
 2. **CMake args** — system-specific args that must be passed to `cmake` (or to
    any helper bash script that wraps `cmake`).
-3. **Run command for binaries** — the command template for running a built
+3. **Build command** — how to build a target on this system. Default:
+   `make [EXECUTABLE]` (the user specifies the target when appropriate). If
+   the system installs via spack, the build command is `spack install`
+   instead. Every `docs/claude-<system>.md` must state which of the two
+   applies.
+4. **Run command for binaries** — the command template for running a built
    binary. Default starting point:
    `mpirun --oversubscribe -n [num_procs] [EXECUTABLE] [EXTRA_ARGS]`. Replace
    `mpirun` with `flux run`, `srun`, or whatever the system uses.
-4. **Job-scheduler batch template** — if the system has a scheduler (flux,
+5. **Job-scheduler batch template** — if the system has a scheduler (flux,
    slurm, …), include a template batch script that can be filled in and
    submitted (e.g. `flux batch <script>`) to run binaries when the user is
    not inside an interactive allocation. Save concrete scripts to
    `scripts/<hostname>/` (create the directory if it does not exist).
-5. **Running non-test binaries** — when asked to run something other than a
+6. **Running non-test binaries** — when asked to run something other than a
    test (e.g. an `examples/` problem), ask the user for the example name and
-   args, then plug them into sections 3 and 4.
+   args, then plug them into sections 4 and 5.
 
 The required tests themselves (names + MPI rank counts) are project-wide and
 live in [Minimum test set](#minimum-test-set) below, not in the per-system
