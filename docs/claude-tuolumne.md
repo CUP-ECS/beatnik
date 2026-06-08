@@ -5,7 +5,7 @@
 Before compiling or running any binary from this library, run:
 
 ```
-spack env activate ~/spack_envs/beatnik-canopy
+spack env activate ~/spack_envs/tuolumne_beatnik
 ```
 
 ## 2. CMake args

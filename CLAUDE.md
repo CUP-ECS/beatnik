@@ -61,8 +61,8 @@ the first test lands — add the test name and required rank counts here.
 
 ## Plans
 
-Save plan files to `./plans/` in this repository, not the default plan
-location.
+When creating plans via plan mode, save plan files to `./plans/` in this
+repository, not the default plan location.
 
 ## General guidelines
 
