@@ -42,7 +42,18 @@ namespace Beatnik
  * curvature of surface can make lower-order operators inaccurate */
 namespace Operators
 {
-    /* Fourth order central difference calculation for derivatives along the 
+    /* Simpson 3/8 quadrature weight for global index `index` of a row of
+     * length `len`. Shared by every BR solver that integrates a quantity
+     * over the interface mesh using Simpson's rule. */
+    KOKKOS_INLINE_FUNCTION
+    double simpsonWeight( int index, int len )
+    {
+        if ( index == ( len - 1 ) || index == 0 ) return 3.0 / 8.0;
+        else if ( index % 3 == 0 ) return 3.0 / 4.0;
+        else return 9.0 / 8.0;
+    }
+
+    /* Fourth order central difference calculation for derivatives along the
      * interface surface */
     template <class ViewType>
     KOKKOS_INLINE_FUNCTION

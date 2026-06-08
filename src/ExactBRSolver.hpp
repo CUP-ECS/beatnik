@@ -84,13 +84,6 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         MPI_Comm_rank(_comm, &_rank);
     }
 
-    static KOKKOS_INLINE_FUNCTION double simpsonWeight(int index, int len)
-    {
-        if (index == (len - 1) || index == 0) return 3.0/8.0;
-        else if (index % 3 == 0) return 3.0/4.0;
-        else return 9.0/8.0;
-    }
-
     void computeInterfaceVelocityPiece(node_view zdot, node_view z, 
                                        node_view zremote, 
                                        node_view oremote,
@@ -183,8 +176,8 @@ class ExactBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
                 /* Compute Simpson's 3/8 quadrature weight for this index */
                 double weight;
-                weight = simpsonWeight(remote_gi[0], mesh_size)
-                            * simpsonWeight(remote_gi[1], mesh_size);
+                weight = Operators::simpsonWeight(remote_gi[0], mesh_size)
+                            * Operators::simpsonWeight(remote_gi[1], mesh_size);
                 /* We already have N^4 parallelism, so no need to parallelize on 
                     * the BR periodic points. Instead we serialize this in each thread
                     * and reuse the fetch of the i/j and k/l points */
