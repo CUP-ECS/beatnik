@@ -128,6 +128,7 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         }
     }
 
+#if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
     ~FmmBRSolver()
     {
         if ( _rank == 0 )
@@ -142,6 +143,7 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                       << " (auto_maintain calls=" << total_am << ")\n";
         }
     }
+#endif
 
     /* Pack the grid-ordered owned nodes into an AoSoA tuple per node:
      *   position = z(i, j, :)
@@ -363,9 +365,15 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             const auto action =
                 _canopy.template auto_maintain<FmmField::Position, FmmField::Charge>(
                     _canopy_particles );
+#if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
             recordAutoMaintainAction( action );
+#else
+            (void)action;
+#endif
         }
+#if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
         ++_call_count;
+#endif
         const int num_local = _canopy.num_local_particles();
 
         // 3. Solve with compute_gradient=true
@@ -462,11 +470,14 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
      * subsequent calls take the `auto_maintain()` path. */
     mutable bool _first_call{ true };
 
+#if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
     /* Instrumentation for the auto_maintain switch. Logged per call
      * at rank 0, plus a final histogram in the destructor. Useful
      * when a failure correlates with a Rebalance/Rebuild action
      * (which exercise more of Canopy's internal state than Migrate).
-     * Cheap enough to leave always on. */
+     * Gated behind Beatnik_ENABLE_PROFILING level >= 1; configure with
+     * `-DBeatnik_ENABLE_PROFILING=ON` or `-DBeatnik_PROFILING_LEVEL=1`,
+     * or via the `+profiling` / `profiling_level=N` spack variants. */
     mutable long _call_count{ 0 };
     mutable long _am_migrate{ 0 };
     mutable long _am_rebalance{ 0 };
@@ -488,6 +499,7 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                       << "] auto_maintain action=" << name << "\n";
         }
     }
+#endif
 };
 
 }; // namespace Beatnik

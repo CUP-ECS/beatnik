@@ -155,6 +155,48 @@ ELSE()
 ENDIF()
 MESSAGE(STATUS "Beatnik Revision = '${Beatnik_GIT_COMMIT_HASH}'")
 
+##---------------------------------------------------------------------------##
+## Diagnostics / profiling instrumentation
+##---------------------------------------------------------------------------##
+# Mirrors Canopy_ENABLE_PROFILING / Canopy_PROFILING_LEVEL semantics:
+#
+#   Beatnik_ENABLE_PROFILING (OFF by default) — kill switch. OFF forces
+#     the resolved level to 0 regardless of any Beatnik_PROFILING_LEVEL.
+#   Beatnik_PROFILING_LEVEL (cache string "") — detail level:
+#     0=off, 1=basic (e.g. FmmBRSolver auto_maintain action log),
+#     2=detailed, 3=verbose (both reserved for future per-phase timers).
+#     If left "" and ENABLE_PROFILING is ON, defaults to 1.
+#
+# When the resolved level is > 0, BEATNIK_ENABLE_PROFILING and
+# BEATNIK_PROFILING_LEVEL=<level> are added as compile definitions both
+# at the top level and on the Beatnik INTERFACE target so consumers see
+# them too.
+option(Beatnik_ENABLE_PROFILING "Profiling" OFF)
+set(Beatnik_PROFILING_LEVEL "" CACHE STRING
+    "Profiling detail level: 0=off, 1=basic, 2=detailed, 3=verbose (reserved)")
+set_property(CACHE Beatnik_PROFILING_LEVEL PROPERTY STRINGS "" 0 1 2 3)
+
+if(NOT Beatnik_ENABLE_PROFILING AND NOT Beatnik_PROFILING_LEVEL STREQUAL "")
+  set(_beatnik_profiling_level 0)
+elseif(Beatnik_PROFILING_LEVEL STREQUAL "")
+  if(Beatnik_ENABLE_PROFILING)
+    set(_beatnik_profiling_level 1)
+  else()
+    set(_beatnik_profiling_level 0)
+  endif()
+else()
+  set(_beatnik_profiling_level ${Beatnik_PROFILING_LEVEL})
+endif()
+
+if(_beatnik_profiling_level GREATER 0)
+  set(Beatnik_ENABLE_PROFILING ON CACHE BOOL "Profiling" FORCE)
+  add_compile_definitions(BEATNIK_ENABLE_PROFILING)
+  add_compile_definitions(BEATNIK_PROFILING_LEVEL=${_beatnik_profiling_level})
+endif()
+
+add_feature_info(Profiling Beatnik_ENABLE_PROFILING
+    "Enable Beatnik diagnostics (level=${_beatnik_profiling_level})")
+
 #------------------------------------------------------------------------------#
 # Tests and Documentation
 #------------------------------------------------------------------------------#

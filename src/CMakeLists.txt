@@ -64,6 +64,16 @@ add_library( Beatnik INTERFACE )
 # Require minimum of C++17
 set_target_properties(Beatnik PROPERTIES INTERFACE_COMPILE_FEATURES cxx_std_17)
 
+# Propagate the resolved profiling level to consumers of Beatnik
+# (rocketrig, tests, external projects) so the same #ifdef
+# BEATNIK_ENABLE_PROFILING / BEATNIK_PROFILING_LEVEL checks fire in
+# their TUs. _beatnik_profiling_level is computed at the top level.
+if(_beatnik_profiling_level GREATER 0)
+  target_compile_definitions(Beatnik INTERFACE BEATNIK_ENABLE_PROFILING)
+  target_compile_definitions(Beatnik INTERFACE
+    BEATNIK_PROFILING_LEVEL=${_beatnik_profiling_level})
+endif()
+
 target_link_libraries( Beatnik INTERFACE ${DEPENDS_ON} )
 
 target_include_directories( Beatnik INTERFACE
