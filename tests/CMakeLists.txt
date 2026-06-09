@@ -23,6 +23,15 @@ set(MPI_TESTS
   # None currently
   )
 
+# FMM vs Exact BR comparison — only meaningful when Beatnik builds
+# with Canopy support. Test sources are guarded by
+# #ifdef BEATNIK_ENABLE_CANOPY internally so they're safe to compile
+# in any config, but registering the test target only when the FMM
+# solver is actually built avoids ctest noise for non-FMM builds.
+if(Beatnik_ENABLE_CANOPY)
+  list(APPEND MPI_TESTS FmmVsExact)
+endif()
+
 Beatnik_add_tests_nobackend(PACKAGE Beatnik NAMES ${NOBACKEND_TESTS})
 
 Beatnik_add_tests(PACKAGE Beatnik NAMES ${SERIAL_TESTS})

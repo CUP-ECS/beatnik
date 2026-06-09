@@ -59,8 +59,14 @@ test name and the MPI rank counts it must be run at (e.g.
 batch template from the active system's `docs/claude-<system>.md` to execute
 them.
 
-**There are no tests in the project yet.** Update this section as soon as
-the first test lands — add the test name and required rank counts here.
+The minimum test set:
+
+- `Beatnik_Test_FmmVsExact_MPI_<DEVICE>` — at 1, 4 ranks.
+  Built only when `Beatnik_ENABLE_TESTING=ON` and
+  `Beatnik_ENABLE_CANOPY=ON` (spack: `beatnik +testing +canopy`).
+  Verifies the FMM BR solver agrees with the Exact BR solver on a
+  32×32 free-boundary case. `<DEVICE>` is the active Kokkos backend
+  (e.g. `HIP`, `OPENMP`, `SERIAL`).
 
 ## Plans
 
