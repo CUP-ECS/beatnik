@@ -1,7 +1,11 @@
 # Beatnik
 
-For Canopy FMM integration progress, open questions, and known issues,
-see [tasks/integrate_canopy.md](tasks/integrate_canopy.md).
+The Canopy FMM integration (v1) is complete. See
+[tasks/integrate_canopy.md](tasks/integrate_canopy.md) for the
+checkpoint-by-checkpoint history and the user-driven TODO list
+(smoke scaling run remains). Open optimization opportunities are
+listed under [Future optimization opportunities](#future-optimization-opportunities)
+below.
 
 ## System detection
 
@@ -72,6 +76,67 @@ The minimum test set:
 
 When creating plans via plan mode, save plan files to `./plans/` in this
 repository, not the default plan location.
+
+## Future optimization opportunities
+
+Carried forward from the v1 Canopy FMM integration. Each is
+self-contained — pick them up in any order. See
+[tasks/integrate_canopy.md](tasks/integrate_canopy.md) for the
+detailed context behind each.
+
+- **Cache the forward `Cabana::Distributor` across Migrate-action
+  steps in `FmmBRSolver::computeInterfaceVelocity`.** Today
+  `buildForwardDistributor()` runs every call. When
+  `auto_maintain()` returns `Migrate` (no topology change), the
+  forward distributor's comm pattern is reusable. Hook the
+  returned `MaintenanceAction` into a cache-invalidation check
+  and only rebuild on `Rebalance`/`Rebuild`. Profile first: at
+  small drift (the typical RK3 step), the build is already a
+  small share of the per-call cost.
+
+- **Expose every Canopy tunable as a runtime rocketrig CLI flag.**
+  Today `ncrit`, `max_depth`, `bbox_tol`, `ncrit_tol`,
+  `replication_depth`, `imbalance_tolerance`, `mac_theta`, and
+  `softening` are baked into `Beatnik::Params` defaults. `P_ORDER`
+  is a compile-time constant (`6` in
+  [src/FmmBRSolver.hpp](src/FmmBRSolver.hpp)). Mirror the flag
+  names from
+  [Canopy/examples/03_gravity_solve/gravity_solve.cpp](../canopy/examples/03_gravity_solve/gravity_solve.cpp).
+  Surfacing `P_ORDER` at runtime requires either compile-time
+  enumeration of common values or a runtime template dispatch.
+
+- **Track header dependencies in the Beatnik INTERFACE target.**
+  Today `add_library(Beatnik INTERFACE)` in
+  [src/CMakeLists.txt](src/CMakeLists.txt) means consumer .o files
+  don't depend on `HEADERS_PUBLIC`. When only a header changes,
+  `make` sees nothing to rebuild and `spack install` reports a
+  sub-second build — the workaround is to `touch
+  examples/01_rocketrig/rocketrig.cpp` before `spack install`.
+  Fix: use `target_sources(Beatnik INTERFACE FILE_SET HEADERS
+  BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR} FILES ${HEADERS_PUBLIC})`
+  or attach a `PUBLIC_HEADER` property so consumers track them
+  as real dependencies.
+
+- **Higher profiling levels (2, 3) in FmmBRSolver.** Levels 2 and
+  3 are reserved but unused today. Natural additions: at level 2,
+  per-phase timing inside `computeInterfaceVelocity`
+  (`packGridParticles`, `buildForwardDistributor`, the migrate,
+  `auto_maintain`, `solve`, the reverse distribute, `writeZdot`);
+  at level 3, per-rank particle counts and Canopy's `Migrate`-vs-rebuild
+  cost ratio. Mirror Canopy's existing `[Canopy Diagnostics] solve()
+  phase breakdown` format.
+
+- **Switch from `setup()` every step to a more aggressive cache
+  pattern.** Today the AoSoA itself is rebuilt every call via
+  `Cabana::migrate`. If the local-grid layout never changes (the
+  common case), the destination AoSoA could be a persistent member
+  resized only on rebuild. Profile first.
+
+- **Real assertion on the multi-step trajectory in the test suite.**
+  `OneRK3StepComparison` and `FiveRK3StepsComparison` both compare
+  `z` after stepping; extending to e.g. 20 steps would catch slow
+  drift. Tolerance accumulates roughly linearly with step count;
+  raise to ~1e-2 or compute a per-step bound.
 
 ## General guidelines
 

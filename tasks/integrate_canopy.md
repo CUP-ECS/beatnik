@@ -22,6 +22,19 @@ and the review at
 | 8a | OneRK3StepComparison: real post-step z assertion | 7efe0ed | `Solver::position()` + `Solver::problemManager()` accessors added. Test passes at 1 rank with `max_rel=7.6e-8`, `max_abs=8e-12`. Verified at 4 ranks. |
 | AM | FmmBRSolver: setup() every step → auto_maintain() | ef68b28 + `290b680` + `e0e7fb5` | All three tstFmmVsExact cases pass at 1 rank and 4 ranks with diffs identical to the setup-every-step baseline. With profiling on, 14 auto_maintain calls in FiveRK3StepsComparison all returned Migrate (cheapest path). Instrumentation gated behind Beatnik_PROFILING_LEVEL >= 1; spack `+profiling` / `profiling_level=N` variants land in compass-repo `fa0e148`. |
 | 8b | FiveRK3StepsComparison test | 12bf603 | Same setup as 8a, runs 5 RK3 steps before comparing. Passes at 1 rank with `max_rel=1.5e-6`, `max_abs=1.1e-10` — drift is ~20× per-step, well under 1e-3 tolerance. Catches divergence that only manifests after solvers feed their own output back in. |
+| P  | rocketrig wallclock instrumentation at PROFILING_LEVEL>=1 | ec9b20a | `Solver::solve()` logs `[Beatnik profile] step <k> wallclock = <s> s` per step and `[Beatnik profile] solve() total wallclock = <s> s (<N> steps)` at the end, rank 0 only, timed via `MPI_Wtime`. The pre-existing `Step k / N at time = T` rank-0 print is suppressed at profiling level >= 1 to avoid doubling output. |
+
+## Integration closed (v1)
+
+The v1 Canopy FMM integration is complete. The new `-S fmm` BR
+solver is functionally equivalent to `-S exact` (verified to noise
+level by all three tstFmmVsExact cases at 1 and 4 ranks), uses
+`auto_maintain()` for cheap per-step maintenance (all Migrate on
+small drift), and is gated behind the spack `+canopy` variant on
+the compass beatnik package. Profiling and timing diagnostics are
+gated behind `Beatnik_PROFILING_LEVEL >= 1` / spack `+profiling`.
+Visual rocketrig comparison at `-O high -b free -t 50` overlaps
+between Exact and FMM (user verification).
 
 ### Notes on checkpoint 1
 
@@ -65,23 +78,27 @@ and the review at
   PUBLIC_HEADER property so consumers track them as real
   dependencies.
 
-## Next planned work (ordered)
+## TODO — user-driven follow-ups
 
-1. **Smoke scaling run.** Originally checkpoint 9 in the plan. 256² ×
-   4 ranks × 20 steps with `-S fmm` and `-S exact`; capture wallclock
-   ratio and the auto_maintain action histogram from the +profiling
-   build. Now meaningful since the auto_maintain switch has landed
-   and 14/14 maintenance calls return Migrate on the small test
-   (256² should follow the same pattern at small dt). Expect
-   `-S fmm` wallclock to be a large multiple under `-S exact` at
-   this size — exact is O(N²) per step, fmm is O(N log N).
-   Deliverable: a flux batch script under `scripts/tuolumne/` plus
-   a tasks/integrate_canopy.md entry recording the numbers.
+- **Smoke scaling run.** 256² × 4 ranks × 20 steps with `-S fmm` and
+  `-S exact` on tuolumne, profiling on. Captures the wallclock
+  ratio (expected to be a large multiple in FMM's favor at this
+  size — exact is O(N²) per step, FMM is O(N log N)) and the
+  auto_maintain action histogram. The instrumentation needed has
+  landed (`Beatnik_PROFILING_LEVEL >= 1` prints per-step and total
+  solve wallclock plus the FmmBRSolver action histogram); the user
+  will explore runtimes on their own.
 
-2. **Cache the forward Distributor across Migrate steps.** Currently
-   `buildForwardDistributor()` runs every call. When auto_maintain
-   returns Migrate (no topology change), the forward distributor's
-   comm pattern is reusable — only the destination slots within
-   each canopy rank change, which Cabana's migrate handles
-   internally. Wire the action returned by `auto_maintain` into a
-   cache-invalidation check.
+## Future optimization opportunities
+
+See [../CLAUDE.md](../CLAUDE.md) for the canonical list. Briefly:
+
+- Cache the forward `Cabana::Distributor` across `Migrate`-action
+  auto_maintain steps in `FmmBRSolver::computeInterfaceVelocity`.
+- Expose every Canopy tunable as a runtime rocketrig CLI flag
+  (currently baked into `Params` defaults; see plan §"Open
+  follow-ups (after v1 lands)").
+- Switch the BR solvers to a `target_sources(... FILE_SET HEADERS ...)`
+  build so consumer .o files track header dependencies (today
+  `spack install` skips rebuilds on header-only changes; see the
+  Bugs/follow-ups note above).
