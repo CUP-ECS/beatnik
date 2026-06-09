@@ -219,6 +219,19 @@ class Solver : public SolverBase
         _time += _dt;
     }
 
+    /* Read-only access to the surface-position field. Used by tests and
+     * any caller that needs to inspect z after stepping. The returned
+     * view has shape [Ni+halo][Nj+halo][3]; iterate over the owned
+     * index space (see ProblemManager / SurfaceMesh) to skip halos. */
+    typename pm_type::node_array::view_type position() const
+    {
+        return _pm->get( Cabana::Grid::Node(), Field::Position() );
+    }
+
+    /* Read-only access to the underlying ProblemManager. Useful in
+     * tests that need the owned index space or the local mesh. */
+    const pm_type& problemManager() const { return *_pm; }
+
     void solve( const double t_final, const int write_freq ) override
     {
         int t = 0;

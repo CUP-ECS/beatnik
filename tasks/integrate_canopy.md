@@ -34,21 +34,14 @@ and the review at
 - Canopy's exported target is `Canopy::Canopy` (interface library,
   confirmed via [canopy/src/CMakeLists.txt](../../canopy/src/CMakeLists.txt)).
 
-## Bugs / follow-ups
+## Explicitly out of scope (deferred)
 
-- **Update Beatnik's spack `package.py` to add a `+canopy` variant.**
-  Today the spack-side `beatnik` package has no Canopy variant — see
-  `spack info beatnik` (variants are `cuda`, `openmp`, `rocm` only).
-  Whether Beatnik builds with Canopy is decided purely by whether
-  `find_package(Canopy)` happens to succeed at configure time, which
-  in turn depends on Canopy being installed in the env *before*
-  beatnik. That's fragile: any spack reconcretization that schedules
-  beatnik before canopy silently disables FMM support. Add a
-  `+canopy` variant that explicitly `depends_on('canopy', when='+canopy')`
-  and passes `-DBeatnik_REQUIRE_CANOPY=ON` to cmake. Until then,
-  build Canopy first by spec, e.g.
-  `spack install canopy@develop amdgpu_target=gfx942 +profiling ldflags=... ldlibs=... %cce`,
-  then `spack install` the rest of the env.
+- **Periodic boundary support.** Not needed in the foreseeable future.
+  FmmBRSolver still `MPI_Abort`s at construction if either dim is
+  periodic. If this changes, the path is 9× image replication of
+  sources around the central tile.
+
+## Bugs / follow-ups
 - **Canopy's exported CMake config didn't `find_dependency(Trilinos)`.**
   `Canopy_Targets.cmake` lists Trilinos sub-targets
   (`Zoltan2::all_libs`, `Tpetra::all_libs`, `Teuchos*::all_libs`, ...)
@@ -71,4 +64,11 @@ and the review at
 
 ## Future optimization areas
 
-_(none yet)_
+- **Switch from `setup()` every step to `auto_maintain()`.** Currently
+  FmmBRSolver rebuilds Canopy's tree on every `computeInterfaceVelocity`
+  call — see the v1 simplification comment in
+  [../src/FmmBRSolver.hpp](../src/FmmBRSolver.hpp). The plan target was
+  to call `auto_maintain` on subsequent calls so Canopy picks
+  Migrate/Rebalance/Rebuild based on actual particle drift. Requires
+  a persistent forward distributor keyed on `tag.origin_rank`; design
+  is sketched in [../plans/i-am-designing-a-clever-moonbeam.md](../plans/i-am-designing-a-clever-moonbeam.md).

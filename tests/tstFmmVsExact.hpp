@@ -55,7 +55,18 @@ namespace
 {
 
 constexpr double kRelTolerance     = 1.0e-3;  // Plan target at P=6
-constexpr double kAbsFloor         = 1.0e-12; // Avoid div-by-near-zero
+/* Floor used in the relative-error metric: max(|a|, |b|, kAbsFloor).
+ * For nodes where both values are below this floor, the metric
+ * degrades to diff / kAbsFloor, which acts as a combined
+ * absolute/relative tolerance: a node passes if either
+ *   diff < kRelTolerance * max(|a|, |b|)   [relative]
+ *   diff < kRelTolerance * kAbsFloor       [absolute, = 1e-8]
+ * The OneRK3StepComparison test has many post-step z nodes where
+ * the value is naturally near zero (e.g. the z1/z2 components
+ * along the boundary), and the BR contribution to those nodes is
+ * FP-rounding-level, not physically meaningful — without this
+ * floor, those would dominate the relative metric. */
+constexpr double kAbsFloor         = 1.0e-5;
 constexpr int    kMeshNodesPerSide = 32;      // 32x32 owned nodes total
 constexpr double kBoxHalfSide      = 1.0;     // Domain [-1, 1]^2
 constexpr double kAmplitude        = 0.05;    // Sinusoidal z amplitude
@@ -302,15 +313,17 @@ TEST( TEST_CATEGORY, BRDirectComparison )
  * Test 2: full Beatnik::Solver, one step each, compare post-step z.
  *
  * Uses CurvedNonZeroVorticityInitFunc so the first RK3 BR call sees
- * non-trivial omega. Skipped (with a clear message) if the Solver
- * instantiation surface here drifts from the rocketrig pattern —
- * we'd rather flag the drift than silently mask a regression.
+ * non-trivial omega. Instantiates the templated Beatnik::Solver
+ * directly (rather than going through createSolver, which returns a
+ * shared_ptr<SolverBase>) so we can call Solver::position() to
+ * extract the post-step z view for comparison.
  * ----------------------------------------------------------------- */
 TEST( TEST_CATEGORY, OneRK3StepComparison )
 {
     using ExecSpace = TEST_EXECSPACE;
     using MemSpace  = TEST_MEMSPACE;
     using ModelOrderTag = Beatnik::Order::High;
+    using TypedSolver = Beatnik::Solver<ExecSpace, MemSpace, ModelOrderTag>;
 
     const std::array<double, 6> bbox{ -kBoxHalfSide, -kBoxHalfSide, -kBoxHalfSide,
                                        kBoxHalfSide,  kBoxHalfSide,  kBoxHalfSide };
@@ -332,27 +345,38 @@ TEST( TEST_CATEGORY, OneRK3StepComparison )
 
     CurvedNonZeroVorticityInitFunc init;
 
-    auto solver_exact = Beatnik::createSolver(
-        MPI_COMM_WORLD, nodes, partitioner, atwood, gravity, init, bc,
-        ModelOrderTag{}, mu, epsilon, dt, params_exact );
-    auto solver_fmm = Beatnik::createSolver(
-        MPI_COMM_WORLD, nodes, partitioner, atwood, gravity, init, bc,
-        ModelOrderTag{}, mu, epsilon, dt, params_fmm );
+    TypedSolver solver_exact( MPI_COMM_WORLD, nodes, partitioner, atwood, gravity,
+                              init, bc, mu, epsilon, dt, params_exact );
+    TypedSolver solver_fmm  ( MPI_COMM_WORLD, nodes, partitioner, atwood, gravity,
+                              init, bc, mu, epsilon, dt, params_fmm );
 
-    solver_exact->setup();
-    solver_fmm  ->setup();
-    solver_exact->step();
-    solver_fmm  ->step();
+    solver_exact.setup();
+    solver_fmm  .setup();
+    solver_exact.step();
+    solver_fmm  .step();
 
-    // To compare post-step z, we'd need a SolverBase accessor for
-    // the ProblemManager. That doesn't exist today — see
-    // tasks/integrate_canopy.md "Follow-ups". For v1 we treat the
-    // RK3 comparison as a smoke test: both solvers complete one
-    // step without aborting. The position-field comparison lands
-    // alongside the SolverBase accessor change.
-    SUCCEED() << "Both solvers completed one RK3 step. Post-step z "
-                 "comparison pends a SolverBase accessor; see "
-                 "tasks/integrate_canopy.md.";
+    // Compare post-step position fields over the owned index space.
+    auto local_grid = solver_exact.problemManager().mesh().localGrid();
+    auto own_nodes  = local_grid->indexSpace( Cabana::Grid::Own(),
+                                              Cabana::Grid::Node(),
+                                              Cabana::Grid::Local() );
+    auto z_exact = solver_exact.position();
+    auto z_fmm   = solver_fmm  .position();
+
+    Kokkos::fence();
+    auto [max_rel, max_abs] = maxRelDiff( z_exact, z_fmm, own_nodes );
+
+    int rank;
+    MPI_Comm_rank( MPI_COMM_WORLD, &rank );
+    if ( rank == 0 )
+    {
+        std::cout << "[OneRK3StepComparison] max_rel_diff=" << max_rel
+                  << " max_abs_diff=" << max_abs
+                  << " (rel tolerance=" << kRelTolerance << ")\n";
+    }
+
+    EXPECT_LT( max_rel, kRelTolerance )
+        << "Post-step z disagrees between -S exact and -S fmm above tolerance";
 }
 
 } // namespace BeatnikTest
