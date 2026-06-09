@@ -22,3 +22,7 @@ target_link_libraries(rocketrig Beatnik)
 add_test(NAME Beatnik_Example_01_rocketrig COMMAND ${MPIEXEC} ${MPIEXEC_NUMPROC_FLAG}
 ${MPIEXEC_MAX_NUMPROCS} ${MPIEXEC_PREFLAGS} $<TARGET_FILE:rocketrig> ${MPIEXEC_POSTFLAGS})
 set_tests_properties(Beatnik_Example_01_rocketrig PROPERTIES PROCESSORS ${MPIEXEC_MAX_NUMPROCS})
+if(Beatnik_INSTALL_EXAMPLES)
+      install(TARGETS rocketrig
+              RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+endif()

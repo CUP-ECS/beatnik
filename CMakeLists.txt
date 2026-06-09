@@ -199,7 +199,9 @@ else()
   message(FATAL_ERROR "Beatnik requires MPI")
 endif()
 
-option(Beatnik_ENABLE_EXAMPLES "Build examples" ON)
+option(Beatnik_ENABLE_EXAMPLES "Build examples" OFF)
+# Set installing examples to off by default
+option(Beatnik_INSTALL_EXAMPLES "Install Beatnik example executables" OFF)
 add_feature_info(Examples Beatnik_ENABLE_EXAMPLES "Build examples")
 if(Beatnik_ENABLE_EXAMPLES)
   add_subdirectory(examples)
