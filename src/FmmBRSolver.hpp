@@ -184,25 +184,129 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         });
     }
 
+    /* Build a forward Distributor that routes grid-order particles
+     * (one per owned mesh node, currently sitting in _grid_particles)
+     * to wherever the matching Canopy-order tuple currently lives in
+     * _canopy_particles.
+     *
+     * Algorithm (the "tag-reverse handshake"):
+     *   1. On every canopy rank, for each _canopy_particles[p] with
+     *      tag (R, li, lj), pack a small "claim" tuple (li, lj, my_rank).
+     *   2. Build a Distributor keyed on tag.origin_rank and migrate
+     *      the claims back to their origin grid rank.
+     *   3. On the receiving grid rank, fill a 2D map
+     *        dest_rank_map(li - imin, lj - jmin) = canopy_rank_that_owns
+     *      from the received claims.
+     *   4. Walk the local owned index space in the same row-major
+     *      order that packGridParticles uses, and emit one
+     *      forward_dest_ranks entry per grid tuple from the map.
+     *   5. Construct the forward Distributor from forward_dest_ranks.
+     *
+     * Cost: O(num_canopy + num_grid) compute + 1 Cabana::Distributor
+     * build + 1 migrate of small (3-int) claims. Rebuilt every call;
+     * caching across `Migrate`-action steps is a follow-up.
+     */
+    Cabana::Distributor<MemorySpace> buildForwardDistributor() const
+    {
+        using claim_member_types = Cabana::MemberTypes<int[3]>;
+        using claim_aosoa = Cabana::AoSoA<claim_member_types, MemorySpace>;
+
+        const int num_canopy = static_cast<int>( _canopy_particles.size() );
+
+        // Pack claims and their destination ranks (= tag.origin_rank).
+        claim_aosoa claims_canopy( "FmmBRSolver_claims_canopy", num_canopy );
+        Kokkos::View<int*, MemorySpace> claim_dests(
+            Kokkos::ViewAllocateWithoutInitializing( "FmmBRSolver_claim_dests" ),
+            num_canopy );
+        {
+            auto tag = Cabana::slice<FmmField::Tag>( _canopy_particles );
+            auto claim = Cabana::slice<0>( claims_canopy );
+            const int my_rank = _rank;
+            Kokkos::parallel_for( "FmmBRSolver::packClaims",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, num_canopy ),
+                KOKKOS_LAMBDA( const int p )
+            {
+                claim( p, 0 )       = tag( p, 1 );  // li
+                claim( p, 1 )       = tag( p, 2 );  // lj
+                claim( p, 2 )       = my_rank;
+                claim_dests( p )    = tag( p, 0 );  // grid rank that owns (li, lj)
+            });
+        }
+        Kokkos::fence();
+
+        // Send claims back to the grid ranks that own each (li, lj).
+        Cabana::Distributor<MemorySpace> claim_dist( _comm, claim_dests );
+        claim_aosoa claims_grid( "FmmBRSolver_claims_grid",
+                                 claim_dist.totalNumImport() );
+        Cabana::migrate( claim_dist, claims_canopy, claims_grid );
+
+        // Fill (li - imin, lj - jmin) -> canopy_rank from received claims.
+        auto local_space = _pm.mesh().localGrid()->indexSpace(
+            Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local() );
+        const long imin = local_space.min( 0 );
+        const long jmin = local_space.min( 1 );
+        const long ni   = local_space.max( 0 ) - imin;
+        const long nj   = local_space.max( 1 ) - jmin;
+
+        Kokkos::View<int**, MemorySpace> dest_rank_map(
+            "FmmBRSolver_dest_rank_map", ni, nj );
+        Kokkos::deep_copy( dest_rank_map, -1 );
+        {
+            auto claim_recv = Cabana::slice<0>( claims_grid );
+            const int num_claims = static_cast<int>( claims_grid.size() );
+            Kokkos::parallel_for( "FmmBRSolver::fillDestMap",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, num_claims ),
+                KOKKOS_LAMBDA( const int c )
+            {
+                const int li = claim_recv( c, 0 );
+                const int lj = claim_recv( c, 1 );
+                dest_rank_map( li - imin, lj - jmin ) = claim_recv( c, 2 );
+            });
+        }
+        Kokkos::fence();
+
+        // Walk the grid in the same row-major order packGridParticles uses,
+        // emit one forward dest rank per grid tuple.
+        const long num_grid = ni * nj;
+        Kokkos::View<int*, MemorySpace> forward_dests(
+            Kokkos::ViewAllocateWithoutInitializing( "FmmBRSolver_forward_dests" ),
+            num_grid );
+        Kokkos::parallel_for( "FmmBRSolver::forwardDests",
+            Kokkos::RangePolicy<ExecutionSpace>( 0, num_grid ),
+            KOKKOS_LAMBDA( const long k )
+        {
+            const long li_local = k / nj;
+            const long lj_local = k % nj;
+            forward_dests( k ) = dest_rank_map( li_local, lj_local );
+        });
+        Kokkos::fence();
+
+        return Cabana::Distributor<MemorySpace>( _comm, forward_dests );
+    }
+
     /* Directly compute the interface velocity by integrating the
      * vorticity across the surface, using Canopy's fast multipole
      * solver in place of the all-pairs Birkhoff-Rott evaluation.
      *
-     * Pipeline (run on every call — auto_maintain is a follow-up):
-     *   1. Pack grid-ordered owned nodes into _canopy_particles
-     *   2. _canopy.setup() — Canopy builds the tree, partitions, and
-     *      migrates particles across ranks; the `tag` field travels
-     *      with each particle so the FMM result can be routed back.
+     * Pipeline:
+     *   1. Pack grid-ordered owned nodes into _grid_particles
+     *      (position from z, charge = simpson * omega, tag = (rank, i, j)).
+     *   2. First call:
+     *        deep-copy _grid_particles -> _canopy_particles, then run
+     *        _canopy.setup() to build the tree, partition, and migrate.
+     *      Subsequent calls:
+     *        build a forward Distributor from the current
+     *        _canopy_particles tags (see buildForwardDistributor),
+     *        migrate _grid_particles -> _canopy_particles, then
+     *        _canopy.auto_maintain() to handle position-driven
+     *        migration. auto_maintain returns Migrate/Rebalance/Rebuild
+     *        based on detected drift.
      *   3. _canopy.solve(..., compute_gradient=true) — returns
      *      gradient(p, c, d) = -sum_j q_c^(j) (x_p - x_j)_d / r^3
-     *      with Plummer softening (r^2 + softening^2)^(-3/2).
-     *      We packed charges as w_simpson * omega so the per-source
-     *      prefactor is folded in.
-     *   4. u_cross = omega x grad G via cross-of-gradients:
-     *        u[0] = grad(p,1,2) - grad(p,2,1)
-     *        u[1] = grad(p,2,0) - grad(p,0,2)
-     *        u[2] = grad(p,0,1) - grad(p,1,0)
-     *   5. Reverse-distribute (canopy -> grid origin) via a
+     *      with Plummer softening (r^2 + softening^2)^(-3/2). Charges
+     *      already carry the per-source w_simpson factor.
+     *   4. u_cross = omega x grad G via cross-of-gradients.
+     *   5. Reverse-distribute (canopy -> grid origin) via a fresh
      *      Cabana::Distributor keyed on tag.origin_rank.
      *   6. Write zdot(i, j, d) = (dx*dy)/(4*pi) * u_cross[d] using
      *      tag.(i, j) on the receiving (grid-owning) rank.
@@ -218,15 +322,32 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                 for ( int d = 0; d < 3; ++d ) zdot( i, j, d ) = 0.0;
             });
 
-        // 1. Pack grid particles into _canopy_particles (grid-ordered)
-        packGridParticles( _canopy_particles, z, o );
-        const int num_before = static_cast<int>( _canopy_particles.size() );
+        // 1. Pack grid particles into _grid_particles (grid-ordered)
+        packGridParticles( _grid_particles, z, o );
+        const int num_grid = static_cast<int>( _grid_particles.size() );
 
-        // 2. Setup: build tree, partition, migrate. Calling setup() every
-        //    step (rather than auto_maintain) is a v1 simplification —
-        //    see tasks/integrate_canopy.md for the follow-up note.
-        _canopy.template setup<FmmField::Position, FmmField::Charge>(
-            _canopy_particles, num_before );
+        // 2. First call: deep-copy + full setup. Subsequent calls:
+        //    forward-migrate fresh grid data into _canopy_particles,
+        //    then auto_maintain to handle position drift.
+        if ( _first_call )
+        {
+            _canopy_particles.resize( num_grid );
+            Cabana::deep_copy( _canopy_particles, _grid_particles );
+            _canopy.template setup<FmmField::Position, FmmField::Charge>(
+                _canopy_particles, num_grid );
+            _first_call = false;
+        }
+        else
+        {
+            auto forward_dist = buildForwardDistributor();
+            aosoa_type new_canopy_particles(
+                "FmmBRSolver_canopy_particles",
+                forward_dist.totalNumImport() );
+            Cabana::migrate( forward_dist, _grid_particles, new_canopy_particles );
+            _canopy_particles = new_canopy_particles;
+            _canopy.template auto_maintain<FmmField::Position, FmmField::Charge>(
+                _canopy_particles );
+        }
         const int num_local = _canopy.num_local_particles();
 
         // 3. Solve with compute_gradient=true
@@ -297,15 +418,31 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     int _num_procs, _rank;
 
     /* Persistent Canopy FMM solver instance. Holds the tree, the
-     * partitioner, and the comm plan. Currently rebuilt every step
-     * via setup() — switching to auto_maintain is a follow-up. */
+     * partitioner, and the comm plan. After the first setup() call,
+     * subsequent steps use auto_maintain() instead of setup() so
+     * the tree is built incrementally. */
     mutable canopy_solver_type _canopy;
 
-    /* AoSoA holding one tuple per FMM particle. After setup() it
-     * lives in Canopy order; the `tag` field preserves each
-     * particle's grid origin (rank, i, j) so the post-solve reverse
-     * distribute can return the FMM result to the grid-owning rank. */
+    /* AoSoA holding one tuple per FMM particle in Canopy's current
+     * partitioning. The `tag` field preserves each particle's grid
+     * origin (rank, i, j) so a forward Distributor (rebuilt every
+     * step by buildForwardDistributor) can refresh positions/charges
+     * from the grid each call, and the post-solve reverse distribute
+     * can route the FMM result back to the grid-owning rank. */
     mutable aosoa_type _canopy_particles{ "FmmBRSolver_canopy_particles", 0 };
+
+    /* AoSoA holding one tuple per owned grid node, in row-major
+     * (li, lj) order. Repacked from z, o on every computeInterfaceVelocity
+     * call. On the first call, deep-copied into _canopy_particles
+     * directly; on subsequent calls, forwarded to _canopy_particles
+     * via buildForwardDistributor. */
+    mutable aosoa_type _grid_particles{ "FmmBRSolver_grid_particles", 0 };
+
+    /* On the first computeInterfaceVelocity call, _canopy_particles
+     * is empty and Canopy's tree hasn't been built yet — take the
+     * `setup()` path. Flipped to false at the end of that call so
+     * subsequent calls take the `auto_maintain()` path. */
+    mutable bool _first_call{ true };
 };
 
 }; // namespace Beatnik
