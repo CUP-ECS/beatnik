@@ -128,6 +128,21 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         }
     }
 
+    ~FmmBRSolver()
+    {
+        if ( _rank == 0 )
+        {
+            const long total_am = _am_migrate + _am_rebalance + _am_rebuild;
+            std::cout << "[FmmBRSolver] action histogram across "
+                      << _call_count << " computeInterfaceVelocity calls: "
+                      << "setup=1 "
+                      << "Migrate=" << _am_migrate << " "
+                      << "Rebalance=" << _am_rebalance << " "
+                      << "Rebuild=" << _am_rebuild
+                      << " (auto_maintain calls=" << total_am << ")\n";
+        }
+    }
+
     /* Pack the grid-ordered owned nodes into an AoSoA tuple per node:
      *   position = z(i, j, :)
      *   charge   = simpson(global_i, N) * simpson(global_j, N) * omega(i, j, :)
@@ -345,9 +360,12 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                 forward_dist.totalNumImport() );
             Cabana::migrate( forward_dist, _grid_particles, new_canopy_particles );
             _canopy_particles = new_canopy_particles;
-            _canopy.template auto_maintain<FmmField::Position, FmmField::Charge>(
-                _canopy_particles );
+            const auto action =
+                _canopy.template auto_maintain<FmmField::Position, FmmField::Charge>(
+                    _canopy_particles );
+            recordAutoMaintainAction( action );
         }
+        ++_call_count;
         const int num_local = _canopy.num_local_particles();
 
         // 3. Solve with compute_gradient=true
@@ -443,6 +461,33 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
      * `setup()` path. Flipped to false at the end of that call so
      * subsequent calls take the `auto_maintain()` path. */
     mutable bool _first_call{ true };
+
+    /* Instrumentation for the auto_maintain switch. Logged per call
+     * at rank 0, plus a final histogram in the destructor. Useful
+     * when a failure correlates with a Rebalance/Rebuild action
+     * (which exercise more of Canopy's internal state than Migrate).
+     * Cheap enough to leave always on. */
+    mutable long _call_count{ 0 };
+    mutable long _am_migrate{ 0 };
+    mutable long _am_rebalance{ 0 };
+    mutable long _am_rebuild{ 0 };
+
+    void recordAutoMaintainAction( typename canopy_solver_type::MaintenanceAction action ) const
+    {
+        using A = typename canopy_solver_type::MaintenanceAction;
+        const char* name = "?";
+        switch ( action )
+        {
+            case A::Migrate:   ++_am_migrate;   name = "Migrate";   break;
+            case A::Rebalance: ++_am_rebalance; name = "Rebalance"; break;
+            case A::Rebuild:   ++_am_rebuild;   name = "Rebuild";   break;
+        }
+        if ( _rank == 0 )
+        {
+            std::cout << "[FmmBRSolver step " << _call_count
+                      << "] auto_maintain action=" << name << "\n";
+        }
+    }
 };
 
 }; // namespace Beatnik
