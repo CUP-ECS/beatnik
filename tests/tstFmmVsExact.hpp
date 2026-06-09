@@ -379,6 +379,81 @@ TEST( TEST_CATEGORY, OneRK3StepComparison )
         << "Post-step z disagrees between -S exact and -S fmm above tolerance";
 }
 
+/* -----------------------------------------------------------------
+ * Test 3: full Solver, 5 RK3 steps each, compare z trajectories.
+ *
+ * Same setup as OneRK3StepComparison but runs 5 timesteps before
+ * comparing. Catches drift that only appears once the solvers have
+ * fed their own output back into themselves a few times — a one-step
+ * comparison only exercises the first BR call, which sees a clean
+ * init functor on both sides.
+ * ----------------------------------------------------------------- */
+TEST( TEST_CATEGORY, FiveRK3StepsComparison )
+{
+    using ExecSpace = TEST_EXECSPACE;
+    using MemSpace  = TEST_MEMSPACE;
+    using ModelOrderTag = Beatnik::Order::High;
+    using TypedSolver = Beatnik::Solver<ExecSpace, MemSpace, ModelOrderTag>;
+
+    constexpr int kNumSteps = 5;
+
+    const std::array<double, 6> bbox{ -kBoxHalfSide, -kBoxHalfSide, -kBoxHalfSide,
+                                       kBoxHalfSide,  kBoxHalfSide,  kBoxHalfSide };
+    const std::array<int, 2> nodes{ kMeshNodesPerSide, kMeshNodesPerSide };
+
+    Cabana::Grid::DimBlockPartitioner<2> partitioner;
+    auto bc = makeFreeBC();
+    const double atwood  = 0.5;
+    const double gravity = 25.0;
+    const double mu      = 1.0;
+    const double epsilon = 0.25;
+    const double dt      = 0.01;
+
+    auto base_params = makeParams( Beatnik::BR_EXACT, bbox );
+    base_params.solver_order = 2;
+
+    auto params_exact = base_params; params_exact.br_solver = Beatnik::BR_EXACT;
+    auto params_fmm   = base_params; params_fmm.br_solver   = Beatnik::BR_FMM;
+
+    CurvedNonZeroVorticityInitFunc init;
+
+    TypedSolver solver_exact( MPI_COMM_WORLD, nodes, partitioner, atwood, gravity,
+                              init, bc, mu, epsilon, dt, params_exact );
+    TypedSolver solver_fmm  ( MPI_COMM_WORLD, nodes, partitioner, atwood, gravity,
+                              init, bc, mu, epsilon, dt, params_fmm );
+
+    solver_exact.setup();
+    solver_fmm  .setup();
+    for ( int s = 0; s < kNumSteps; ++s )
+    {
+        solver_exact.step();
+        solver_fmm  .step();
+    }
+
+    auto local_grid = solver_exact.problemManager().mesh().localGrid();
+    auto own_nodes  = local_grid->indexSpace( Cabana::Grid::Own(),
+                                              Cabana::Grid::Node(),
+                                              Cabana::Grid::Local() );
+    auto z_exact = solver_exact.position();
+    auto z_fmm   = solver_fmm  .position();
+
+    Kokkos::fence();
+    auto [max_rel, max_abs] = maxRelDiff( z_exact, z_fmm, own_nodes );
+
+    int rank;
+    MPI_Comm_rank( MPI_COMM_WORLD, &rank );
+    if ( rank == 0 )
+    {
+        std::cout << "[FiveRK3StepsComparison] max_rel_diff=" << max_rel
+                  << " max_abs_diff=" << max_abs
+                  << " (rel tolerance=" << kRelTolerance << ", steps=" << kNumSteps << ")\n";
+    }
+
+    EXPECT_LT( max_rel, kRelTolerance )
+        << "After " << kNumSteps << " RK3 steps, z disagrees between -S exact "
+           "and -S fmm above tolerance";
+}
+
 } // namespace BeatnikTest
 
 #endif // BEATNIK_ENABLE_CANOPY

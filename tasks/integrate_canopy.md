@@ -19,6 +19,8 @@ and the review at
 | 7 | FmmBRSolver: full FMM compute path | c2b5250 | `spack install` succeeds (1m 2s). Pipeline: pack → setup → solve → cross-product → reverse-distribute → write zdot. Runtime equivalence against `-S exact` is gated on the test target in checkpoint 7a. v1 simplification: `setup()` runs every step; switching to `auto_maintain` is a follow-up. |
 | 7a | Add `Beatnik_Test_FmmVsExact` CTest + spack `+testing`/`+canopy` variants | 0d66fa7 + `e5ec649` | Two TEST cases in `tests/tstFmmVsExact.hpp` (`.BRDirectComparison`, `.OneRK3StepComparison`); both pass at `ntasks=1` on tuolumne after the `e5ec649` cmakedefine fix. spack: `+testing`, `+canopy`, `+examples` variants on the compass-repo beatnik package; `setup_run_environment` prepends `share/Beatnik/tests/` to `PATH`. CLAUDE.md "Minimum test set" registered `Beatnik_Test_FmmVsExact_MPI_<DEVICE>` at 1, 4 ranks. |
 | 8 | Multi-rank correctness | ea70c9c | Both TEST cases pass at `ntasks=4` interactively on tuolumne. Batch script at [scripts/tuolumne/fmm_vs_exact.flux](../scripts/tuolumne/fmm_vs_exact.flux) covers HIP/OPENMP/SERIAL at 1 and 4 ranks for reproducibility. |
+| 8a | OneRK3StepComparison: real post-step z assertion | 7efe0ed | `Solver::position()` + `Solver::problemManager()` accessors added. Test passes at 1 rank with `max_rel=7.6e-8`, `max_abs=8e-12`. Verified at 4 ranks. |
+| 8b | FiveRK3StepsComparison test | _pending_ | Same setup as 8a, runs 5 RK3 steps before comparing. Passes at 1 rank with `max_rel=1.5e-6`, `max_abs=1.1e-10` — drift is ~20× per-step, well under 1e-3 tolerance. Catches divergence that only manifests after solvers feed their own output back in. |
 
 ### Notes on checkpoint 1
 
@@ -62,13 +64,26 @@ and the review at
   PUBLIC_HEADER property so consumers track them as real
   dependencies.
 
-## Future optimization areas
+## Next planned work (ordered)
 
-- **Switch from `setup()` every step to `auto_maintain()`.** Currently
-  FmmBRSolver rebuilds Canopy's tree on every `computeInterfaceVelocity`
-  call — see the v1 simplification comment in
-  [../src/FmmBRSolver.hpp](../src/FmmBRSolver.hpp). The plan target was
-  to call `auto_maintain` on subsequent calls so Canopy picks
-  Migrate/Rebalance/Rebuild based on actual particle drift. Requires
-  a persistent forward distributor keyed on `tag.origin_rank`; design
-  is sketched in [../plans/i-am-designing-a-clever-moonbeam.md](../plans/i-am-designing-a-clever-moonbeam.md).
+1. **Switch from `setup()` every step to `auto_maintain()`.** This is
+   the next thing to land. Currently FmmBRSolver rebuilds Canopy's
+   tree on every `computeInterfaceVelocity` call — see the v1
+   simplification comment in [../src/FmmBRSolver.hpp](../src/FmmBRSolver.hpp).
+   The plan target was to call `auto_maintain` on subsequent calls so
+   Canopy picks Migrate/Rebalance/Rebuild based on actual particle
+   drift. Requires a persistent forward distributor keyed on
+   `tag.origin_rank`; design sketched in
+   [../plans/i-am-designing-a-clever-moonbeam.md](../plans/i-am-designing-a-clever-moonbeam.md).
+   **Correctness gate:** [../tests/tstFmmVsExact.hpp](../tests/tstFmmVsExact.hpp)
+   must still pass — all three tests at 1 and 4 ranks. The
+   `FiveRK3StepsComparison` test is the load-bearing one for this
+   change, since auto_maintain's behavior only diverges from
+   per-step setup() after positions drift.
+
+2. **Smoke scaling run.** Originally checkpoint 9 in the plan. 256² ×
+   4 ranks × 20 steps with `-S fmm` and `-S exact`; capture wallclock
+   ratio and the auto_maintain action histogram (only meaningful
+   after item 1 lands). Pushed back behind the auto_maintain
+   optimization since scaling numbers from the current "setup every
+   step" implementation would be misleading.
