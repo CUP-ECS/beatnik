@@ -245,13 +245,32 @@ class Solver : public SolverBase
 
         num_step = t_final / _dt;
 
+#if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
+        const bool is_rank_0 = ( _surface_mesh->rank() == 0 );
+        const double solve_t0 = MPI_Wtime();
+#endif
+
         // Start advancing time.
         do
         {
+#if !defined(BEATNIK_ENABLE_PROFILING) || BEATNIK_PROFILING_LEVEL < 1
             if ( 0 == _surface_mesh->rank() )
                 printf( "Step %d / %d at time = %f\n", t, num_step, _time );
+#endif
 
+#if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
+            const double step_t0 = MPI_Wtime();
+#endif
             step();
+#if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
+            const double step_dt = MPI_Wtime() - step_t0;
+            if ( is_rank_0 )
+            {
+                printf( "[Beatnik profile] step %d wallclock = %.6f s\n",
+                        t, step_dt );
+            }
+#endif
+
             t++;
             // 4. Output mesh state periodically
             if ( write_freq && (0 == t % write_freq ))
@@ -259,6 +278,16 @@ class Solver : public SolverBase
                 _silo->siloWrite( strdup( "Mesh" ), t, _time, _dt );
             }
         } while ( ( _time < t_final ) );
+
+#if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
+        const double solve_total = MPI_Wtime() - solve_t0;
+        if ( is_rank_0 )
+        {
+            printf( "[Beatnik profile] solve() total wallclock = %.6f s "
+                    "(%d steps)\n", solve_total, t );
+        }
+#endif
+
         Kokkos::Profiling::popRegion();
     }
 
