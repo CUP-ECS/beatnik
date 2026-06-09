@@ -128,139 +128,6 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         }
     }
 
-    void computeInterfaceVelocityPiece(node_view zdot, node_view z, 
-                                       node_view zremote, 
-                                       node_view oremote,
-                                       l2g_type remote_L2G) const
-    {
-        /* Project the Birkhoff-Rott calculation between all pairs of points on the 
-         * interface, including accounting for any periodic boundary conditions.
-         * Right now we brute force all of the points with no tiling to improve
-         * memory access or optimizations to remove duplicate calculations. */
-
-        // Get the local index spaces of pieces we're working with. For the local surface piece
-        // this is just the nodes we own. For the remote surface piece, we extract it from the
-        // L2G converter they sent us.
-        auto local_grid = _pm.mesh().localGrid();
-        auto local_space = local_grid->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
-        std::array<long, 2> rmin, rmax;
-        for (int d = 0; d < 2; d++) {
-            rmin[d] = remote_L2G.local_own_min[d];
-            rmax[d] = remote_L2G.local_own_max[d];
-        }
-	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
-
-        /* Figure out which directions we need to project the k/l point to
-         * for any periodic boundary conditions */
-        int kstart, lstart, kend, lend;
-        if (_bc.isPeriodicBoundary({0, 1})) {
-            kstart = -1; kend = 1;
-        } else {
-            kstart = kend = 0;
-        }
-        if (_bc.isPeriodicBoundary({1, 1})) {
-            lstart = -1; lend = 1;
-        } else {
-            lstart = lend = 0;
-        }
-
-        /* Figure out how wide the bounding box is in each direction */
-        auto low = _pm.mesh().boundingBoxMin();
-        auto high = _pm.mesh().boundingBoxMax();;
-        double width[3];
-        for (int d = 0; d < 3; d++) {
-            width[d] = high[d] - low[d];
-        }
-
-        /* Local temporaries for any instance variables we need so that we
-         * don't have to lambda-capture "this" */
-        double epsilon = _epsilon;
-        double dx = _dx, dy = _dy;
-
-        // Mesh dimensions for Simpson weight calc
-        int mesh_size = _pm.mesh().get_surface_mesh_size();
-    
-        /* If the mesh is periodic, the index range is from
-         * (halo width) to (halo width + mesh size)
-         * If the mesh is non-periodic, the index range is from
-         * (halo width) to (halo width + mesh size - 1)
-         */
-        int halo_width = _pm.mesh().get_halo_width();
-        std::array<long, 2> lmin;
-        std::array<long, 2> lmax;
-        for ( int d = 0; d < 2; ++d ) {
-            lmin[d] = local_space.min( d );
-            lmax[d] = local_space.max( d );
-        }
-
-        int local_size = (lmax[0] - lmin[0]) * (lmax[1] - lmin[1]);
-        int remote_size = (rmax[0] - rmin[0]) * (rmax[1] - rmin[1]);
-        int l_num_cols = lmax[1] - lmin[1];
-        int r_num_cols = rmax[1] - rmin[1];
-        
-        typedef typename Kokkos::TeamPolicy<exec_space>::member_type member_type;
-        Kokkos::TeamPolicy<exec_space> mesh_policy(local_size, Kokkos::AUTO);
-        Kokkos::parallel_for("Exact BR Force Team Loop", mesh_policy, 
-            KOKKOS_LAMBDA(member_type team) 
-        {
-            int league_rank = team.league_rank();
-            int i = (league_rank / l_num_cols) + halo_width;
-            int j = (league_rank % l_num_cols) + halo_width;
-        
-            auto policy = Kokkos::TeamThreadRange(team, remote_size);
-            double brsum[3];
-            Kokkos::parallel_reduce(policy, [=] (const int &w, double &lsum0, double &lsum1, double &lsum2) {
-                int k = (w / r_num_cols) + halo_width;
-                int l = (w % r_num_cols) + halo_width;
-
-                // We need the global indicies of the (k, l) point for Simpson's weight
-                int remote_li[2] = {k, l};
-                int remote_gi[2] = {0, 0};  // k, l
-                remote_L2G(remote_li, remote_gi);
-
-                /* Compute Simpson's 3/8 quadrature weight for this index */
-                double weight;
-                weight = Operators::simpsonWeight(remote_gi[0], mesh_size)
-                            * Operators::simpsonWeight(remote_gi[1], mesh_size);
-                /* We already have N^4 parallelism, so no need to parallelize on 
-                    * the BR periodic points. Instead we serialize this in each thread
-                    * and reuse the fetch of the i/j and k/l points */
-                for (int kdir = kstart; kdir <= kend; kdir++) {
-                    for (int ldir = lstart; ldir <= lend; ldir++) {
-                        double offset[3] = {0.0, 0.0, 0.0}, br[3];
-                        offset[0] = kdir * width[0];
-                        offset[1] = ldir * width[1];
-
-                        /* Do the Birkhoff-Rott evaluation for this point */
-                        Operators::BR(br, z, zremote, oremote, epsilon, dx, dy, weight,
-                                        i, j, k, l, offset);
-                        
-                        lsum0 += br[0];
-                        lsum1 += br[1];
-                        lsum2 += br[2];
-                    }
-                }
-            }, brsum[0], brsum[1], brsum[2]);
-
-            // Need a team barrier here to synchronize threads
-            team.team_barrier();
-
-            Kokkos::single(Kokkos::PerTeam(team), [=] () {
-                for (int d = 0; d < 3; d++) {
-                    // zdot is initialized to zero so '=' "should" work,
-                    // but for some reason we need `+=' for correct behavior.
-                    zdot(i, j, d) += brsum[d];   
-                }
-            });
-        });
-        Kokkos::fence();
-    }
-
-    /* Directly compute the interface velocity by integrating the vorticity 
-     * across the surface. 
-     * This function is called three times per time step to compute the initial, forward, and half-step
-     * derivatives for velocity and vorticity.
-     */
     /* Pack the grid-ordered owned nodes into an AoSoA tuple per node:
      *   position = z(i, j, :)
      *   charge   = simpson(global_i, N) * simpson(global_j, N) * omega(i, j, :)
@@ -317,183 +184,104 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         });
     }
 
+    /* Directly compute the interface velocity by integrating the
+     * vorticity across the surface, using Canopy's fast multipole
+     * solver in place of the all-pairs Birkhoff-Rott evaluation.
+     *
+     * Pipeline (run on every call — auto_maintain is a follow-up):
+     *   1. Pack grid-ordered owned nodes into _canopy_particles
+     *   2. _canopy.setup() — Canopy builds the tree, partitions, and
+     *      migrates particles across ranks; the `tag` field travels
+     *      with each particle so the FMM result can be routed back.
+     *   3. _canopy.solve(..., compute_gradient=true) — returns
+     *      gradient(p, c, d) = -sum_j q_c^(j) (x_p - x_j)_d / r^3
+     *      with Plummer softening (r^2 + softening^2)^(-3/2).
+     *      We packed charges as w_simpson * omega so the per-source
+     *      prefactor is folded in.
+     *   4. u_cross = omega x grad G via cross-of-gradients:
+     *        u[0] = grad(p,1,2) - grad(p,2,1)
+     *        u[1] = grad(p,2,0) - grad(p,0,2)
+     *        u[2] = grad(p,0,1) - grad(p,1,0)
+     *   5. Reverse-distribute (canopy -> grid origin) via a
+     *      Cabana::Distributor keyed on tag.origin_rank.
+     *   6. Write zdot(i, j, d) = (dx*dy)/(4*pi) * u_cross[d] using
+     *      tag.(i, j) on the receiving (grid-owning) rank.
+     */
     void computeInterfaceVelocity(node_view zdot, node_view z, node_view o) const override
     {
-        if ( _first_call )
+        auto local_node_space = _pm.mesh().localGrid()->indexSpace(
+            Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local() );
+
+        Kokkos::parallel_for( "FmmBRSolver::zeroZdot",
+            Cabana::Grid::createExecutionPolicy( local_node_space, ExecutionSpace() ),
+            KOKKOS_LAMBDA( int i, int j ) {
+                for ( int d = 0; d < 3; ++d ) zdot( i, j, d ) = 0.0;
+            });
+
+        // 1. Pack grid particles into _canopy_particles (grid-ordered)
+        packGridParticles( _canopy_particles, z, o );
+        const int num_before = static_cast<int>( _canopy_particles.size() );
+
+        // 2. Setup: build tree, partition, migrate. Calling setup() every
+        //    step (rather than auto_maintain) is a v1 simplification —
+        //    see tasks/integrate_canopy.md for the follow-up note.
+        _canopy.template setup<FmmField::Position, FmmField::Charge>(
+            _canopy_particles, num_before );
+        const int num_local = _canopy.num_local_particles();
+
+        // 3. Solve with compute_gradient=true
+        _canopy.template solve<FmmField::Position, FmmField::Charge>(
+            _canopy_particles, /*compute_gradient=*/true );
+        const auto gradient = _canopy.gradient();
+
+        // 4. Cross-product of component gradients into u_out
         {
-            packGridParticles( _canopy_particles, z, o );
-            const int num_before = static_cast<int>( _canopy_particles.size() );
-            _canopy.template setup<FmmField::Position, FmmField::Charge>(
-                _canopy_particles, num_before );
-            const int num_after = _canopy.num_local_particles();
-            if ( _rank == 0 )
+            auto u_out = Cabana::slice<FmmField::UOut>( _canopy_particles );
+            Kokkos::parallel_for( "FmmBRSolver::crossProduct",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, num_local ),
+                KOKKOS_LAMBDA( const int p )
             {
-                std::cout << "[FmmBRSolver] first-call setup: "
-                          << "rank0 num_local_before=" << num_before
-                          << " num_local_after=" << num_after << "\n";
-            }
-            _first_call = false;
+                u_out( p, 0 ) = gradient( p, 1, 2 ) - gradient( p, 2, 1 );
+                u_out( p, 1 ) = gradient( p, 2, 0 ) - gradient( p, 0, 2 );
+                u_out( p, 2 ) = gradient( p, 0, 1 ) - gradient( p, 1, 0 );
+            });
         }
 
-        auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
-
-        /* Zero out all of the i/j points */
-        Kokkos::parallel_for("Exact BR Zero Loop",
-            Cabana::Grid::createExecutionPolicy(local_node_space, ExecutionSpace()),
-            KOKKOS_LAMBDA(int i, int j) {
-            for (int n = 0; n < 3; n++)
-               zdot(i, j, n) = 0.0;
-        });
-    
-        // Compute forces for all owned nodes on this process
-        computeInterfaceVelocityPiece(zdot, z, z, o, _local_L2G);
-
-        /* Perform a ring pass of data between each process to compute forces of nodes 
-         * on other processes on he nodes owned by this process */
-        int next_rank = (_rank + 1) % _num_procs;
-        int prev_rank = (_rank + _num_procs - 1) % _num_procs;
-
-        // Create views for receiving data. Alternate which views are being sent and received into
-        // *remote2 sends first, so it needs to be deep copied. *remote1 can just be allocated
-        node_view zremote1(Kokkos::ViewAllocateWithoutInitializing ("zremote1"), z.extent(0), z.extent(1), z.extent(2));
-        node_view zremote2(Kokkos::ViewAllocateWithoutInitializing ("zremote2"), z.extent(0), z.extent(1), z.extent(2));
-        node_view oremote1(Kokkos::ViewAllocateWithoutInitializing ("oremote1"), o.extent(0), o.extent(1), o.extent(2));
-        node_view oremote2(Kokkos::ViewAllocateWithoutInitializing ("oremote2"), o.extent(0), o.extent(1), o.extent(2));
-        l2g_type L2G_remote1 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cabana::Grid::Node());
-        l2g_type L2G_remote2 = Cabana::Grid::IndexConversion::createL2G(*_pm.mesh().localGrid(), Cabana::Grid::Node());
-        
-        int zextents1[3];
-        int zextents2[3];
-        int oextents1[3];
-        int oextents2[3];
-  
-        // Now create references to these buffers. We go ahead and assign them here to get 
-        // same type declarations. The loop reassigns these references as needed each time
-        // around the loop.
-        node_view *zsend_view = NULL; 
-        node_view *osend_view = NULL;
-        int * zsend_extents = NULL;
-        int * osend_extents = NULL;
-        l2g_type * L2G_send = NULL;
-
-        node_view *zrecv_view = NULL; 
-        node_view *orecv_view = NULL;
-        int * zrecv_extents = NULL;
-        int * orecv_extents = NULL;
-        l2g_type * L2G_recv = NULL;
-
-        // Perform the ring pass
-        //int DEBUG_RANK = 1;
-        for (int i = 0; i < _num_procs - 1; i++) {
-
-            // Alternate between remote1 and remote2 sending and receiving data 
-            // to avoid copying data across interations
-            if (i % 2) {
-                zsend_view = &zremote1;
-                osend_view = &oremote1; 
-                
-                zsend_extents = zextents1;
-                osend_extents = oextents1;
-                L2G_send = &L2G_remote1;
-
-                zrecv_view = &zremote2;
-                orecv_view = &oremote2;
-                zrecv_extents = zextents2;
-                orecv_extents = oextents2;
-                L2G_recv = &L2G_remote2;
-            } else {
-                if (i == 0) {
-                    /* Avoid a deep copy on the first iteration */
-                    zsend_view = &z;
-                    osend_view = &o;
-                } else {
-                    zsend_view = &zremote2;
-                    osend_view = &oremote2; 
-                } 
-                
-                zsend_extents = zextents2;
-                osend_extents = oextents2;
-                L2G_send = &L2G_remote2;
-
-                zrecv_view = &zremote1;
-                orecv_view = &oremote1;
-                zrecv_extents = zextents1;
-                orecv_extents = oextents1;
-                L2G_recv = &L2G_remote1;
-            }
-
-            // Prepare extents to send
-            for (int j = 0; j < 3; j++) {
-                zsend_extents[j] = zsend_view->extent(j);
-                osend_extents[j] = osend_view->extent(j);
-            }
-                
-            // Send o and z view sizes
-            MPI_Sendrecv(zsend_extents, 3, MPI_INT, next_rank, 1, 
-                        zrecv_extents, 3, MPI_INT, prev_rank, 1, _comm, MPI_STATUS_IGNORE);
-            MPI_Sendrecv(osend_extents, 3, MPI_INT, next_rank, 6, 
-                        orecv_extents, 3, MPI_INT, prev_rank, 6, _comm, MPI_STATUS_IGNORE);
-
-            // Resize *remote2, which is receiving data
-            Kokkos::resize(*zrecv_view, zrecv_extents[0], zrecv_extents[1], zrecv_extents[2]);
-            Kokkos::resize(*orecv_view, orecv_extents[0], orecv_extents[1], orecv_extents[2]);
-
-            // Send/receive the views
-            MPI_Sendrecv(zsend_view->data(), int(zsend_view->size()), MPI_DOUBLE, next_rank, 3, 
-                        zrecv_view->data(), int(zrecv_view->size()), MPI_DOUBLE, prev_rank, 3, 
-                        _comm, MPI_STATUS_IGNORE);
-            MPI_Sendrecv(osend_view->data(), int(osend_view->size()), MPI_DOUBLE, next_rank, 4, 
-                        orecv_view->data(), int(orecv_view->size()), MPI_DOUBLE, prev_rank, 4, 
-                        _comm, MPI_STATUS_IGNORE);
-
-            // Send/receive the L2G structs. They have a constant size of 72 bytes (found using sizeof())
-            MPI_Sendrecv(L2G_send, int(sizeof(*L2G_send)), MPI_BYTE, next_rank, 5, 
-                         L2G_recv, int(sizeof(*L2G_recv)), MPI_BYTE, prev_rank, 5, 
-                         _comm, MPI_STATUS_IGNORE);
-
-            // Do computations
-           computeInterfaceVelocityPiece(zdot, z, *zrecv_view, *orecv_view, *L2G_recv);
-	    }
-    }
-    
-    template <class l2g_type, class View>
-    void printView(l2g_type local_L2G, int rank, View z, int option, int DEBUG_X, int DEBUG_Y) const
-    {
-        int dims = z.extent(2);
-
-        std::array<long, 2> rmin, rmax;
-        for (int d = 0; d < 2; d++) {
-            rmin[d] = local_L2G.local_own_min[d];
-            rmax[d] = local_L2G.local_own_max[d];
+        // 5. Reverse-distribute back to the origin grid rank
+        Kokkos::View<int*, MemorySpace> origin_ranks(
+            Kokkos::ViewAllocateWithoutInitializing( "FmmBRSolver_origin_ranks" ),
+            num_local );
+        {
+            auto tag = Cabana::slice<FmmField::Tag>( _canopy_particles );
+            Kokkos::parallel_for( "FmmBRSolver::extractOriginRanks",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, num_local ),
+                KOKKOS_LAMBDA( const int p ) {
+                    origin_ranks( p ) = tag( p, 0 );
+                });
         }
-	    Cabana::Grid::IndexSpace<2> remote_space(rmin, rmax);
+        Kokkos::fence();
 
-        Kokkos::parallel_for("print views",
-            Cabana::Grid::createExecutionPolicy(remote_space, ExecutionSpace()),
-            KOKKOS_LAMBDA(int i, int j) {
-            
-            int local_li[2] = {i, j};
-            int local_gi[2] = {0, 0};   // global i, j
-            local_L2G(local_li, local_gi);
-            if (option == 1){
-                if (dims == 3) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
-                }
-                else if (dims == 2) {
-                    printf("R%d %d %d %d %d %.12lf %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
-                }
-            }
-            else if (option == 2) {
-                if (local_gi[0] == DEBUG_X && local_gi[1] == DEBUG_Y) {
-                    if (dims == 3) {
-                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf: %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1), z(i, j, 2));
-                    }   
-                    else if (dims == 2) {
-                        printf("R%d: %d: %d: %d: %d: %.12lf: %.12lf\n", rank, local_gi[0], local_gi[1], i, j, z(i, j, 0), z(i, j, 1));
-                    }
-                }
-            }
+        Cabana::Distributor<MemorySpace> distributor( _comm, origin_ranks );
+        aosoa_type out_particles(
+            "FmmBRSolver_out_particles",
+            distributor.totalNumImport() );
+        Cabana::migrate( distributor, _canopy_particles, out_particles );
+
+        // 6. Write zdot from the migrated (grid-rank) tuples
+        const int num_recv  = static_cast<int>( out_particles.size() );
+        const double scale  = ( _dx * _dy ) / ( 4.0 * M_PI );
+        auto out_tag = Cabana::slice<FmmField::Tag>( out_particles );
+        auto out_u   = Cabana::slice<FmmField::UOut>( out_particles );
+        Kokkos::parallel_for( "FmmBRSolver::writeZdot",
+            Kokkos::RangePolicy<ExecutionSpace>( 0, num_recv ),
+            KOKKOS_LAMBDA( const int p )
+        {
+            const int li = out_tag( p, 1 );
+            const int lj = out_tag( p, 2 );
+            for ( int d = 0; d < 3; ++d )
+                zdot( li, lj, d ) = scale * out_u( p, d );
         });
+        Kokkos::fence();
     }
 
   private:
@@ -509,18 +297,15 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     int _num_procs, _rank;
 
     /* Persistent Canopy FMM solver instance. Holds the tree, the
-     * partitioner, and the comm plan; reused across every
-     * computeInterfaceVelocity call. Wired up here in checkpoint 5
-     * but the compute path is not yet routed through it. */
+     * partitioner, and the comm plan. Currently rebuilt every step
+     * via setup() — switching to auto_maintain is a follow-up. */
     mutable canopy_solver_type _canopy;
 
-    /* AoSoA holding one tuple per FMM particle. Lives on the Canopy
-     * side after setup() permutes/migrates it; the `tag` field
-     * preserves each particle's grid origin (rank, i, j) so a future
-     * reverse distribute can return the FMM result. */
+    /* AoSoA holding one tuple per FMM particle. After setup() it
+     * lives in Canopy order; the `tag` field preserves each
+     * particle's grid origin (rank, i, j) so the post-solve reverse
+     * distribute can return the FMM result to the grid-owning rank. */
     mutable aosoa_type _canopy_particles{ "FmmBRSolver_canopy_particles", 0 };
-    mutable bool _first_call{ true };
-    // XXX Communication views and extents to avoid allocations during each ring pass
 };
 
 }; // namespace Beatnik
