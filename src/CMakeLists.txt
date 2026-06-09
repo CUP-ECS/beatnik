@@ -1,3 +1,9 @@
+# Expose the uppercase BEATNIK_ENABLE_CANOPY for #cmakedefine in
+# Beatnik_Config.hpp.in. The Beatnik_add_dependency macro sets the
+# PascalCase Beatnik_ENABLE_CANOPY cmake variable; cmakedefine is
+# case-sensitive on the cmake-variable lookup, so without this alias
+# the C macro stays #undef'd even when the build is +canopy.
+set(BEATNIK_ENABLE_CANOPY ${Beatnik_ENABLE_CANOPY})
 configure_file(Beatnik_Config.hpp.in Beatnik_Config.hpp)
 
 set(HEADERS_PUBLIC
