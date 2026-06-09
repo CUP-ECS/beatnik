@@ -20,6 +20,7 @@ and the review at
 | 7a | Add `Beatnik_Test_FmmVsExact` CTest + spack `+testing`/`+canopy` variants | 0d66fa7 + `e5ec649` | Two TEST cases in `tests/tstFmmVsExact.hpp` (`.BRDirectComparison`, `.OneRK3StepComparison`); both pass at `ntasks=1` on tuolumne after the `e5ec649` cmakedefine fix. spack: `+testing`, `+canopy`, `+examples` variants on the compass-repo beatnik package; `setup_run_environment` prepends `share/Beatnik/tests/` to `PATH`. CLAUDE.md "Minimum test set" registered `Beatnik_Test_FmmVsExact_MPI_<DEVICE>` at 1, 4 ranks. |
 | 8 | Multi-rank correctness | ea70c9c | Both TEST cases pass at `ntasks=4` interactively on tuolumne. Batch script at [scripts/tuolumne/fmm_vs_exact.flux](../scripts/tuolumne/fmm_vs_exact.flux) covers HIP/OPENMP/SERIAL at 1 and 4 ranks for reproducibility. |
 | 8a | OneRK3StepComparison: real post-step z assertion | 7efe0ed | `Solver::position()` + `Solver::problemManager()` accessors added. Test passes at 1 rank with `max_rel=7.6e-8`, `max_abs=8e-12`. Verified at 4 ranks. |
+| AM | FmmBRSolver: setup() every step → auto_maintain() | ef68b28 + `290b680` + `e0e7fb5` | All three tstFmmVsExact cases pass at 1 rank and 4 ranks with diffs identical to the setup-every-step baseline. With profiling on, 14 auto_maintain calls in FiveRK3StepsComparison all returned Migrate (cheapest path). Instrumentation gated behind Beatnik_PROFILING_LEVEL >= 1; spack `+profiling` / `profiling_level=N` variants land in compass-repo `fa0e148`. |
 | 8b | FiveRK3StepsComparison test | 12bf603 | Same setup as 8a, runs 5 RK3 steps before comparing. Passes at 1 rank with `max_rel=1.5e-6`, `max_abs=1.1e-10` — drift is ~20× per-step, well under 1e-3 tolerance. Catches divergence that only manifests after solvers feed their own output back in. |
 
 ### Notes on checkpoint 1
@@ -66,24 +67,21 @@ and the review at
 
 ## Next planned work (ordered)
 
-1. **Switch from `setup()` every step to `auto_maintain()`.** This is
-   the next thing to land. Currently FmmBRSolver rebuilds Canopy's
-   tree on every `computeInterfaceVelocity` call — see the v1
-   simplification comment in [../src/FmmBRSolver.hpp](../src/FmmBRSolver.hpp).
-   The plan target was to call `auto_maintain` on subsequent calls so
-   Canopy picks Migrate/Rebalance/Rebuild based on actual particle
-   drift. Requires a persistent forward distributor keyed on
-   `tag.origin_rank`; design sketched in
-   [../plans/i-am-designing-a-clever-moonbeam.md](../plans/i-am-designing-a-clever-moonbeam.md).
-   **Correctness gate:** [../tests/tstFmmVsExact.hpp](../tests/tstFmmVsExact.hpp)
-   must still pass — all three tests at 1 and 4 ranks. The
-   `FiveRK3StepsComparison` test is the load-bearing one for this
-   change, since auto_maintain's behavior only diverges from
-   per-step setup() after positions drift.
-
-2. **Smoke scaling run.** Originally checkpoint 9 in the plan. 256² ×
+1. **Smoke scaling run.** Originally checkpoint 9 in the plan. 256² ×
    4 ranks × 20 steps with `-S fmm` and `-S exact`; capture wallclock
-   ratio and the auto_maintain action histogram (only meaningful
-   after item 1 lands). Pushed back behind the auto_maintain
-   optimization since scaling numbers from the current "setup every
-   step" implementation would be misleading.
+   ratio and the auto_maintain action histogram from the +profiling
+   build. Now meaningful since the auto_maintain switch has landed
+   and 14/14 maintenance calls return Migrate on the small test
+   (256² should follow the same pattern at small dt). Expect
+   `-S fmm` wallclock to be a large multiple under `-S exact` at
+   this size — exact is O(N²) per step, fmm is O(N log N).
+   Deliverable: a flux batch script under `scripts/tuolumne/` plus
+   a tasks/integrate_canopy.md entry recording the numbers.
+
+2. **Cache the forward Distributor across Migrate steps.** Currently
+   `buildForwardDistributor()` runs every call. When auto_maintain
+   returns Migrate (no topology change), the forward distributor's
+   comm pattern is reusable — only the destination slots within
+   each canopy rank change, which Cabana's migrate handles
+   internally. Wire the action returned by `auto_maintain` into a
+   cache-invalidation check.
