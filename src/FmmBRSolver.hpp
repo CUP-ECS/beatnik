@@ -39,15 +39,22 @@
 namespace Beatnik
 {
 
-enum FieldIdx
-{
-    Position = 0,
-    Mass = 1,
-    Velocity = 2
-};
-
 static constexpr int P_ORDER = 6;
 static constexpr int N_COMPS = 3;
+
+/* AoSoA field indices used by FmmBRSolver. The tuple layout is
+ *   [0] position  double[3]
+ *   [1] charge    double[3]   (Simpson-weighted omega)
+ *   [2] u_out     double[3]   (cross-product of Canopy gradients)
+ *   [3] tag       int[3]      (origin_rank, local_i, local_j)
+ */
+namespace FmmField
+{
+    static constexpr int Position = 0;
+    static constexpr int Charge   = 1;
+    static constexpr int UOut     = 2;
+    static constexpr int Tag      = 3;
+}
 
 /**
  * The ExactBRSolver Class
@@ -73,6 +80,11 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 
     using canopy_solver_type =
         Canopy::Solver<MemorySpace, ExecutionSpace, double, P_ORDER, N_COMPS>;
+
+    using particle_member_types =
+        Cabana::MemberTypes<double[3], double[3], double[3], int[3]>;
+    using aosoa_type =
+        Cabana::AoSoA<particle_member_types, MemorySpace>;
 
     FmmBRSolver( const pm_type &pm, const BoundaryCondition &bc,
                    const double epsilon, const double dx, const double dy,
@@ -249,8 +261,80 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
      * This function is called three times per time step to compute the initial, forward, and half-step
      * derivatives for velocity and vorticity.
      */
+    /* Pack the grid-ordered owned nodes into an AoSoA tuple per node:
+     *   position = z(i, j, :)
+     *   charge   = simpson(global_i, N) * simpson(global_j, N) * omega(i, j, :)
+     *   u_out    = 0 (filled later from Canopy gradients)
+     *   tag      = (origin_rank, local_i, local_j) — travels with the
+     *              particle through any Canopy migration so we can
+     *              route the FMM result back to its grid origin.
+     */
+    void packGridParticles( aosoa_type& particles, node_view z, node_view o ) const
+    {
+        auto local_grid  = _pm.mesh().localGrid();
+        auto local_space = local_grid->indexSpace( Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local() );
+
+        const long imin = local_space.min( 0 );
+        const long jmin = local_space.min( 1 );
+        const long ni   = local_space.max( 0 ) - imin;
+        const long nj   = local_space.max( 1 ) - jmin;
+        const long num_local = ni * nj;
+
+        particles.resize( static_cast<std::size_t>( num_local ) );
+
+        auto pos    = Cabana::slice<FmmField::Position>( particles );
+        auto charge = Cabana::slice<FmmField::Charge>( particles );
+        auto u_out  = Cabana::slice<FmmField::UOut>( particles );
+        auto tag    = Cabana::slice<FmmField::Tag>( particles );
+
+        const int mesh_size = _pm.mesh().get_surface_mesh_size();
+        const int rank      = _rank;
+        l2g_type  L2G       = _local_L2G;
+
+        Kokkos::parallel_for( "FmmBRSolver::packGridParticles",
+            Kokkos::RangePolicy<ExecutionSpace>( 0, num_local ),
+            KOKKOS_LAMBDA( const long p )
+        {
+            const int li = static_cast<int>( imin + p / nj );
+            const int lj = static_cast<int>( jmin + p % nj );
+
+            int local_idx[2]  = { li, lj };
+            int global_idx[2] = { 0, 0 };
+            L2G( local_idx, global_idx );
+
+            const double w = Operators::simpsonWeight( global_idx[0], mesh_size )
+                           * Operators::simpsonWeight( global_idx[1], mesh_size );
+
+            for ( int d = 0; d < 3; ++d )
+            {
+                pos( p, d )    = z( li, lj, d );
+                charge( p, d ) = w * o( li, lj, d );
+                u_out( p, d )  = 0.0;
+            }
+            tag( p, 0 ) = rank;
+            tag( p, 1 ) = li;
+            tag( p, 2 ) = lj;
+        });
+    }
+
     void computeInterfaceVelocity(node_view zdot, node_view z, node_view o) const override
     {
+        if ( _first_call )
+        {
+            packGridParticles( _canopy_particles, z, o );
+            const int num_before = static_cast<int>( _canopy_particles.size() );
+            _canopy.template setup<FmmField::Position, FmmField::Charge>(
+                _canopy_particles, num_before );
+            const int num_after = _canopy.num_local_particles();
+            if ( _rank == 0 )
+            {
+                std::cout << "[FmmBRSolver] first-call setup: "
+                          << "rank0 num_local_before=" << num_before
+                          << " num_local_after=" << num_after << "\n";
+            }
+            _first_call = false;
+        }
+
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local());
 
         /* Zero out all of the i/j points */
@@ -428,7 +512,14 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
      * partitioner, and the comm plan; reused across every
      * computeInterfaceVelocity call. Wired up here in checkpoint 5
      * but the compute path is not yet routed through it. */
-    canopy_solver_type _canopy;
+    mutable canopy_solver_type _canopy;
+
+    /* AoSoA holding one tuple per FMM particle. Lives on the Canopy
+     * side after setup() permutes/migrates it; the `tag` field
+     * preserves each particle's grid origin (rank, i, j) so a future
+     * reverse distribute can return the FMM result. */
+    mutable aosoa_type _canopy_particles{ "FmmBRSolver_canopy_particles", 0 };
+    mutable bool _first_call{ true };
     // XXX Communication views and extents to avoid allocations during each ring pass
 };
 

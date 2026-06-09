@@ -15,6 +15,7 @@ and the review at
 | 3 | CreateBRSolver dispatch + Params extension | 0ae01cd | `spack install` succeeds (1m 4s). `FmmBRSolver` is currently the all-pairs ExactBRSolver body — runtime equivalence test is part of checkpoint 7. |
 | 4 | Lift `simpsonWeight` into `Operators.hpp` | bfcd383 | Pure refactor; both BR solvers now call `Operators::simpsonWeight`. `spack install` succeeds (1m 3s). |
 | 5 | FmmBRSolver: hold Canopy::Solver instance; guard periodic; legacy compute path | ca2d8c7 | `spack install` succeeds (1m 3s after `touch rocketrig.cpp` — see Bugs/follow-ups). Compute path is still ring-pass all-pairs; the persistent Canopy solver is held but not yet invoked. Periodic-boundary guard added in the constructor. |
+| 6 | FmmBRSolver: first-call setup + grid pack (no solve, no Distributor) | _pending_ | `spack install` succeeds (1m 12s) after installing Canopy first via `spack install canopy@develop … %cce` and fixing Canopy's `CanopyConfig.cmakein` to `find_dependency(Trilinos)` (Canopy commit `ab1e8fc`). Compute path still falls through to ring-pass all-pairs after first-call setup. |
 
 ### Notes on checkpoint 1
 
@@ -32,6 +33,28 @@ and the review at
 
 ## Bugs / follow-ups
 
+- **Update Beatnik's spack `package.py` to add a `+canopy` variant.**
+  Today the spack-side `beatnik` package has no Canopy variant — see
+  `spack info beatnik` (variants are `cuda`, `openmp`, `rocm` only).
+  Whether Beatnik builds with Canopy is decided purely by whether
+  `find_package(Canopy)` happens to succeed at configure time, which
+  in turn depends on Canopy being installed in the env *before*
+  beatnik. That's fragile: any spack reconcretization that schedules
+  beatnik before canopy silently disables FMM support. Add a
+  `+canopy` variant that explicitly `depends_on('canopy', when='+canopy')`
+  and passes `-DBeatnik_REQUIRE_CANOPY=ON` to cmake. Until then,
+  build Canopy first by spec, e.g.
+  `spack install canopy@develop amdgpu_target=gfx942 +profiling ldflags=... ldlibs=... %cce`,
+  then `spack install` the rest of the env.
+- **Canopy's exported CMake config didn't `find_dependency(Trilinos)`.**
+  `Canopy_Targets.cmake` lists Trilinos sub-targets
+  (`Zoltan2::all_libs`, `Tpetra::all_libs`, `Teuchos*::all_libs`, ...)
+  in `INTERFACE_LINK_LIBRARIES` for `Canopy::Canopy`, but
+  `CanopyConfig.cmake` only `find_dependency`'d Kokkos and MPI.
+  Consumers of `Canopy::Canopy` hit "target Zoltan2::all_libs not
+  found" at cmake generate time. Fixed in Canopy as
+  `ab1e8fc` ("CanopyConfig: find_dependency(Trilinos) before targets
+  include") on the `redesign` branch.
 - **`spack install` does not always pick up header-only changes.**
   `add_library(Beatnik INTERFACE)` in [../src/CMakeLists.txt](../src/CMakeLists.txt)
   means consumer .o files don't depend on `HEADERS_PUBLIC`. When only
