@@ -7,7 +7,7 @@
 # flux: -q pdebug
 
 # Activate the Beatnik spack environment.
-spack env activate ~/spack_envs/beatnik-canopy
+spack env activate ~/spack_envs/tuolumne_beatnik
 
 # Runtime environment for MPICH + Kokkos on tuolumne.
 export MPICH_GPU_SUPPORT_ENABLED=1
