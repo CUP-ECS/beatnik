@@ -98,20 +98,7 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         , _local_L2G( *_pm.mesh().localGrid() )
         , _comm( _pm.mesh().localGrid()->globalGrid().comm() )
         , _canopy( _pm.mesh().localGrid()->globalGrid().comm(),
-                   params.fmm_ncrit,
-                   params.fmm_max_depth,
-                   std::array<double, 3>{ params.fmm_bbox_tol,
-                                          params.fmm_bbox_tol,
-                                          params.fmm_bbox_tol },
-                   params.fmm_ncrit_tol,
-                   params.fmm_replication_depth,
-                   params.fmm_imbalance_tol,
-                   params.fmm_mac_theta,
-                   /* softening = sqrt(epsilon) so Canopy's
-                    * (r^2 + softening^2)^(-3/2) matches Beatnik's
-                    * (r^2 + epsilon)^(-3/2) — Operators::BR does not
-                    * square epsilon. */
-                   std::sqrt( epsilon ) )
+                   makeCanopyConfig( params, epsilon ) )
     {
         MPI_Comm_size(_comm, &_num_procs);
         MPI_Comm_rank(_comm, &_rank);
@@ -432,7 +419,31 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     }
 
   private:
-    
+
+    /* Build a Canopy::FmmConfig from Beatnik's Params + epsilon. The
+     * softening is sqrt(epsilon) so Canopy's
+     * (r^2 + softening^2)^(-3/2) matches Beatnik's
+     * (r^2 + epsilon)^(-3/2) — Operators::BR does not square epsilon. */
+    static Canopy::FmmConfig makeCanopyConfig( const Params& params,
+                                               double epsilon )
+    {
+        Canopy::FmmConfig cfg;
+        cfg.ncrit               = params.fmm_ncrit;
+        cfg.max_depth           = params.fmm_max_depth;
+        cfg.xmin_tol            = params.fmm_xmin_tol;
+        cfg.xmax_tol            = params.fmm_xmax_tol;
+        cfg.ymin_tol            = params.fmm_ymin_tol;
+        cfg.ymax_tol            = params.fmm_ymax_tol;
+        cfg.zmin_tol            = params.fmm_zmin_tol;
+        cfg.zmax_tol            = params.fmm_zmax_tol;
+        cfg.ncrit_tol           = params.fmm_ncrit_tol;
+        cfg.replication_depth   = params.fmm_replication_depth;
+        cfg.imbalance_tolerance = params.fmm_imbalance_tol;
+        cfg.mac_theta           = params.fmm_mac_theta;
+        cfg.softening           = std::sqrt( epsilon );
+        return cfg;
+    }
+
     const pm_type & _pm;
     const BoundaryCondition & _bc;
     double _epsilon, _dx, _dy;

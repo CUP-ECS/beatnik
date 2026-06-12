@@ -82,7 +82,17 @@ struct Params
     int    fmm_replication_depth  = 3;
     double fmm_imbalance_tol      = 0.10;
     double fmm_ncrit_tol          = 0.10;
-    double fmm_bbox_tol           = 0.10;
+
+    /* Per-face bounding-box padding tolerances (Canopy FmmConfig).
+     * Each is a fraction of the corresponding axis width applied as
+     * padding to the global root box on that face. Asymmetric values
+     * are allowed; defaults are uniform. */
+    double fmm_xmin_tol           = 0.10;
+    double fmm_xmax_tol           = 0.10;
+    double fmm_ymin_tol           = 0.10;
+    double fmm_ymax_tol           = 0.10;
+    double fmm_zmin_tol           = 0.10;
+    double fmm_zmax_tol           = 0.10;
 };
 
 /*
