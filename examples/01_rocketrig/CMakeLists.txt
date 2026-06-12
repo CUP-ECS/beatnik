@@ -19,10 +19,17 @@ endif()
 
 add_executable(rocketrig rocketrig.cpp)
 target_link_libraries(rocketrig Beatnik)
+
+# rocketrig requires a positional input file. Use the shipped sample
+# rocketrig.in for the smoke-test ctest run.
 add_test(NAME Beatnik_Example_01_rocketrig COMMAND ${MPIEXEC} ${MPIEXEC_NUMPROC_FLAG}
-${MPIEXEC_MAX_NUMPROCS} ${MPIEXEC_PREFLAGS} $<TARGET_FILE:rocketrig> ${MPIEXEC_POSTFLAGS})
+${MPIEXEC_MAX_NUMPROCS} ${MPIEXEC_PREFLAGS} $<TARGET_FILE:rocketrig> ${MPIEXEC_POSTFLAGS}
+${CMAKE_CURRENT_SOURCE_DIR}/rocketrig.in)
 set_tests_properties(Beatnik_Example_01_rocketrig PROPERTIES PROCESSORS ${MPIEXEC_MAX_NUMPROCS})
+
 if(Beatnik_INSTALL_EXAMPLES)
       install(TARGETS rocketrig
               RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+      install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/rocketrig.in
+              DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/Beatnik/examples/01_rocketrig)
 endif()

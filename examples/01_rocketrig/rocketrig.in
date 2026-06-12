@@ -1,0 +1,52 @@
+# rocketrig.in — periodic multi-mode rocket rig (the previous default
+# problem when rocketrig was invoked with no CLI flags).
+#
+# Syntax: `key = value` per line. `#` starts a comment to end-of-line.
+# Blank lines are OK. Missing keys keep their built-in defaults, so a
+# trimmed-down `.in` file is valid — only override what you care about.
+
+# --- mesh / domain ---
+nodes                = 128       # NxN interface mesh
+bounding_box         = 1.0       # half-size; domain is (-B,-B,-B)..(B,B,B)
+weak_scale           = 1         # multiplies bounding_box and nodes by sqrt(w)
+
+# --- time integration ---
+timesteps            = 0         # 0 -> auto: 2*tau characteristic periods
+delta_t              = 0         # 0 -> auto: tau/25 (low/med) or tau/50 (high)
+write_frequency      = 10
+
+# --- initial condition ---
+initial_condition    = cos       # cos | sech2 | gaussian | random
+magnitude            = 0.05
+variation            = 0.0
+period               = 1.0
+tilt                 = 0.0
+
+# --- physics / boundary ---
+boundary             = periodic  # periodic | free
+gravity              = 25.0      # Gs (converted to m/s^2 internally)
+atwood               = 0.5
+
+# --- solver ---
+solver_order         = low       # low | medium | high
+br_solver            = exact     # exact | cutoff | fmm
+cutoff_distance      = 0.5       # used only by br_solver = cutoff
+heffte_configuration = 6         # 0..7; used only by low-order solver
+mu                   = 1.0
+epsilon              = 0.25
+
+# --- FMM tunables (consulted only when br_solver = fmm) ---
+fmm_ncrit             = 32
+fmm_max_depth         = 15
+fmm_mac_theta         = 0.5
+fmm_replication_depth = 3
+fmm_imbalance_tol     = 0.10
+fmm_ncrit_tol         = 0.10
+
+# Per-face bounding-box padding tolerances (Canopy FmmConfig).
+fmm_xmin_tol          = 0.10
+fmm_xmax_tol          = 0.10
+fmm_ymin_tol          = 0.10
+fmm_ymax_tol          = 0.10
+fmm_zmin_tol          = 0.10
+fmm_zmax_tol          = 0.10
