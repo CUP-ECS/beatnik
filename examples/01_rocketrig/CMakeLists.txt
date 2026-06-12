@@ -31,5 +31,6 @@ if(Beatnik_INSTALL_EXAMPLES)
       install(TARGETS rocketrig
               RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
       install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/rocketrig.in
+                    ${CMAKE_CURRENT_SOURCE_DIR}/fmm.in
               DESTINATION ${CMAKE_INSTALL_DATAROOTDIR}/Beatnik/examples/01_rocketrig)
 endif()

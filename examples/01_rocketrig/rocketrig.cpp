@@ -440,6 +440,31 @@ int main( int argc, char* argv[] )
             {
                 std::cout <<  std::left << std::setw( 30 ) << "BR Solver type"
                     << ": " << std::setw( 8 ) << "fmm" << "\n";
+                /* Echo the FMM tunables that actually shape the
+                 * Canopy::FmmConfig handed to the solver. Useful when
+                 * a run misbehaves and we need to confirm what landed
+                 * in Params after the input file was applied. */
+                std::cout << std::left << std::setw( 30 ) << "FMM ncrit"
+                    << ": " << std::setw( 8 ) << cl.params.fmm_ncrit << "\n";
+                std::cout << std::left << std::setw( 30 ) << "FMM max_depth"
+                    << ": " << std::setw( 8 ) << cl.params.fmm_max_depth << "\n";
+                std::cout << std::left << std::setw( 30 ) << "FMM mac_theta"
+                    << ": " << std::setw( 8 ) << cl.params.fmm_mac_theta << "\n";
+                std::cout << std::left << std::setw( 30 ) << "FMM replication_depth"
+                    << ": " << std::setw( 8 ) << cl.params.fmm_replication_depth << "\n";
+                std::cout << std::left << std::setw( 30 ) << "FMM imbalance_tol"
+                    << ": " << std::setw( 8 ) << cl.params.fmm_imbalance_tol << "\n";
+                std::cout << std::left << std::setw( 30 ) << "FMM ncrit_tol"
+                    << ": " << std::setw( 8 ) << cl.params.fmm_ncrit_tol << "\n";
+                std::cout << std::left << std::setw( 30 ) << "FMM bbox_tol x[min,max]"
+                    << ": " << cl.params.fmm_xmin_tol << ", "
+                    << cl.params.fmm_xmax_tol << "\n";
+                std::cout << std::left << std::setw( 30 ) << "FMM bbox_tol y[min,max]"
+                    << ": " << cl.params.fmm_ymin_tol << ", "
+                    << cl.params.fmm_ymax_tol << "\n";
+                std::cout << std::left << std::setw( 30 ) << "FMM bbox_tol z[min,max]"
+                    << ": " << cl.params.fmm_zmin_tol << ", "
+                    << cl.params.fmm_zmax_tol << "\n";
             }
         }
         std::cout << std::left << std::setw( 30 ) << "Total Simulation Time"
