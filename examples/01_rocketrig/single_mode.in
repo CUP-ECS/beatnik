@@ -9,7 +9,7 @@
 #       rocketrig examples/01_rocketrig/fmm.in
 
 # --- mesh / domain ---
-nodes                = 64
+nodes                = 256
 bounding_box         = 1.0
 
 # --- initial condition: single-mode sech2 rollup ---
@@ -42,9 +42,9 @@ fmm_imbalance_tol     = 0.20     # default 0.10
 fmm_ncrit_tol         = 0.15     # default 0.10
 
 # Asymmetric bbox padding: tighter on the bottom faces, looser on top.
-fmm_xmin_tol          = 0.05
+fmm_xmin_tol          = 0.15
 fmm_xmax_tol          = 0.15
-fmm_ymin_tol          = 0.05
+fmm_ymin_tol          = 0.15
 fmm_ymax_tol          = 0.15
-fmm_zmin_tol          = 0.05
-fmm_zmax_tol          = 0.15
+fmm_zmin_tol          = 0.15
+fmm_zmax_tol          = 0.50
