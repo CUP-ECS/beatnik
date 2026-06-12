@@ -269,6 +269,7 @@ class Solver : public SolverBase
 #endif
 
 #if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
+            if ( _br ) _br->beginBeatnikStep( t );
             const double step_t0 = MPI_Wtime();
 #endif
             step();
@@ -279,6 +280,7 @@ class Solver : public SolverBase
                 printf( "[Beatnik profile] step %d wallclock = %.6f s\n",
                         t, step_dt );
             }
+            if ( _br ) _br->flushProfile();
 #endif
 
             t++;

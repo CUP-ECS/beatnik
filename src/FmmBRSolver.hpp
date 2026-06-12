@@ -27,7 +27,10 @@
 
 #include <Canopy_Solver.hpp>
 
+#include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstdio>
 #include <iostream>
 #include <memory>
 
@@ -317,6 +320,9 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
      */
     void computeInterfaceVelocity(node_view zdot, node_view z, node_view o) const override
     {
+#if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
+        const double call_t0 = MPI_Wtime();
+#endif
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(
             Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local() );
 
@@ -333,6 +339,9 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         // 2. First call: deep-copy + full setup. Subsequent calls:
         //    forward-migrate fresh grid data into _canopy_particles,
         //    then auto_maintain to handle position drift.
+#if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
+        const char* action_name = "Setup";
+#endif
         if ( _first_call )
         {
             _canopy_particles.resize( num_grid );
@@ -353,7 +362,7 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                 _canopy.template auto_maintain<FmmField::Position, FmmField::Charge>(
                     _canopy_particles );
 #if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
-            recordAutoMaintainAction( action );
+            action_name = recordAutoMaintainAction( action );
 #else
             (void)action;
 #endif
@@ -416,7 +425,38 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                 zdot( li, lj, d ) = scale * out_u( p, d );
         });
         Kokkos::fence();
+
+#if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
+        const double call_dt = MPI_Wtime() - call_t0;
+        if ( _rank == 0 && _substep_idx < static_cast<int>( _substep_records.size() ) )
+        {
+            _substep_records[_substep_idx] = { action_name, call_dt };
+        }
+        ++_substep_idx;
+#endif
     }
+
+#if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
+    void beginBeatnikStep( int step ) const override
+    {
+        _beatnik_step = step;
+        _substep_idx  = 0;
+    }
+
+    void flushProfile() const override
+    {
+        if ( _rank != 0 ) return;
+        const int n = std::min( _substep_idx,
+                                static_cast<int>( _substep_records.size() ) );
+        for ( int s = 0; s < n; ++s )
+        {
+            printf( "    [FmmBRSolver step %d.%d] action=%s solve_time=%.6f s\n",
+                    _beatnik_step, s,
+                    _substep_records[s].action,
+                    _substep_records[s].seconds );
+        }
+    }
+#endif
 
   private:
 
@@ -494,7 +534,16 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
     mutable long _am_rebalance{ 0 };
     mutable long _am_rebuild{ 0 };
 
-    void recordAutoMaintainAction( typename canopy_solver_type::MaintenanceAction action ) const
+    /* Per-Beatnik-step buffer of substep records. Filled inside
+     * computeInterfaceVelocity, drained by flushProfile() once the
+     * Solver has printed its [Beatnik profile] header line. Sized
+     * for the 3 RK3 substeps; extras are silently dropped. */
+    struct SubstepRecord { const char* action; double seconds; };
+    mutable std::array<SubstepRecord, 3> _substep_records{};
+    mutable int _beatnik_step{ 0 };
+    mutable int _substep_idx{ 0 };
+
+    const char* recordAutoMaintainAction( typename canopy_solver_type::MaintenanceAction action ) const
     {
         using A = typename canopy_solver_type::MaintenanceAction;
         const char* name = "?";
@@ -504,11 +553,7 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             case A::Rebalance: ++_am_rebalance; name = "Rebalance"; break;
             case A::Rebuild:   ++_am_rebuild;   name = "Rebuild";   break;
         }
-        if ( _rank == 0 )
-        {
-            std::cout << "[FmmBRSolver step " << _call_count
-                      << "] auto_maintain action=" << name << "\n";
-        }
+        return name;
     }
 #endif
 };

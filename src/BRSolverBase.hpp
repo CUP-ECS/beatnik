@@ -27,6 +27,13 @@ class BRSolverBase
     using node_view = Kokkos::View<double***, MemorySpace>;
     virtual ~BRSolverBase() = default;
     virtual void computeInterfaceVelocity(node_view zdot, node_view z, node_view o) const = 0;
+
+    /* Profiling hooks. Solver calls beginBeatnikStep() before each
+     * outer step, then flushProfile() after printing its own
+     * [Beatnik profile] line so any per-substep records can be
+     * emitted indented underneath. Default no-ops. */
+    virtual void beginBeatnikStep( int /*step*/ ) const {}
+    virtual void flushProfile() const {}
 };
 
 } // end namespace Beantik
