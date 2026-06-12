@@ -20,39 +20,63 @@ To ease building Beatnik, the configs/ directory includes Spack configuration fi
 
 ## Running Beatnik
 
-By default, Beatnik solves a simple multi-mode rocket rig problem sized for a single serial CPU core with approximately 4GB of memory. It also includes command line options to change initial problem state, I/O frequency, and to weak-scale scale up the initial problem to larger number of processes. It also includes problem-specific command line parameters; setting these parameters accurately generally requires expertise in fluid interface models. However, we provide several useful examples drawn from the ZModel papers that recreate the results in those papers.
+By default, Beatnik solves a multi-mode rocket rig problem sized for a single serial CPU core with about 4GB of memory. All run-time parameters — mesh size, initial condition, physics constants, solver choice, I/O frequency, weak-scaling factor, and the FMM tunables — are read from a single input file passed to `rocketrig` as its only argument. Setting these parameters accurately generally requires expertise in fluid interface models, so we ship two examples drawn from the Z-Model papers as starting points.
 
-### General command line parameters
+The node-level parallelism / accelerator backend is selected at compile time based on which Kokkos backends are enabled in the build (priority: CUDA/HIP/SYCL > OpenMP > Threads > Serial). The selected backend is printed in the banner when `rocketrig` runs.
 
-  * The node-level parallelism/accelerator backend is selected at compile time based on which Kokkos backends are enabled in the build (priority: CUDA/HIP/SYCL > OpenMP > Threads > Serial). The selected backend is printed in the banner when `rocketrig` runs.
-  * `-F [write-frequency]` - Interval between timesteps when I/O is written
-  * `-O [solution order]` - Order of solver to use ('high', 'medium', or 'low'). 'low' is the default.
-  * `-w [weak scaling factor]` - Scale up the problem specification, including the x/y bounding box, to be N times larger
-  * `-S [BR solver type]` - If using the high-order solution, whether to use the 'exact', 'cutoff', or 'fmm' BR solver. 'exact' is the default. 'fmm' requires Beatnik to be built with Canopy support (`Beatnik_ENABLE_CANOPY=ON`).
+### Invocation
 
-### Problem-specific command line parameters
+```
+rocketrig <input_file>          # run with the supplied input file
+rocketrig --help                # print the full input-file schema
+```
 
-  * `-n [i/j mesh dimension ]` - Number of points on the interface manifold in the I and J dimensions
-  * `-t [timesteps]` - number of timesteps to simulate
-  * `-I [interface initialization]` - Function to use for interface initial condition. Currently only 'cos' and 'sech2' are supported.
-  * `-m [magnitude]` - The maximum magnitude of the initialization function. 
-  * `-p [period]` - The number of periods of the interface in the initial bounding box
-  * `-a [atwood]` - Atwood's constant for the difference in pressure between the two fluids 
-  * `-g [gravity]` - Gravitational acceleration in the -Z direction
-  * `-a [atwood]` -  Atwood's constant for the difference in pressure between the two fluids 
-  * `-M [mu]` - Mu, the artificial viscosity constant used in the Z-Model
-  * `-e [epsilon]` - Epsilon, the desingularization constant used in the Z-Model expressed as a fraction of the distance between interface mesh points
-  * `-c [cutoff distance]` - If using the 'cutoff' BR solver, the cutoff distance for which to consider neighboring particles
-  
-### Example 1: Periodic Multi-mode Rocket Rig
-The simplest test case and the one to which the rocketrig example program defaults is an initial interface distributed according to a cosine function. Simple usage examples:
-  1. Default execution: `bin/rocketrig` (uses whichever Kokkos backend was enabled at build time)
-  1. 512x512 mesh: `bin/rocketrig -n 512`
-  1. A 1024x1024 problem scaled up to be sixteen times as large in terms of bounding box and number of total points with no I/O: `bin/rocketrig -n 1024 -F 0 -w 16`
+To run under MPI, prepend the usual launcher (`mpirun -n N`, `flux run`, `srun`, …) — `rocketrig` itself still takes exactly one positional argument.
 
-### Example 2: Non-periodic Single-mode Gaussian Rollup
-Another test case is a single-mode rollup test where the intitial interface is set according to a hyperbolic secant function. This testcase recreates the the Gaussian perturbation results in Panda and Shkoller's paper from sections 2.3 and 2.4.  To run this testcase with a high-order model, use the following command line parameters. Note that this works best with a GPU accelerator, as the exact high-order far field force solver is very compute intensive and is generally impractical for non-trivial mesh sizes without GPU acceleration:
-`bin/rocketrig -O high -n 64 -I sech2 -m 0.1 -p 9.0 -b free -a 0.15 -M 2 -e 2`
+### Input file format
+
+Plain text, `key = value` per line. `#` starts a comment to end-of-line. Blank lines are OK. Missing keys keep their built-in defaults, so a near-empty file is valid — override only what you care about. Unknown keys, malformed lines, and bad enum values all error with the file path, line number, key, offending value, and (for enums) the full list of accepted values, e.g. `rocketrig.in:21: invalid value for 'br_solver': 'magic' (expected one of: exact, cutoff, fmm)`.
+
+Run `rocketrig --help` for the full schema. The key groups are:
+
+| Group | Keys |
+| --- | --- |
+| Mesh / domain | `nodes`, `bounding_box`, `weak_scale` |
+| Time integration | `timesteps`, `delta_t`, `write_frequency` |
+| Initial condition | `initial_condition` (`cos`/`sech2`/`gaussian`/`random`), `magnitude`, `variation`, `period`, `tilt` |
+| Physics / boundary | `boundary` (`periodic`/`free`), `gravity` (Gs), `atwood` |
+| Solver | `solver_order` (`low`/`medium`/`high`), `br_solver` (`exact`/`cutoff`/`fmm`), `cutoff_distance`, `heffte_configuration`, `mu`, `epsilon` |
+| FMM tunables (when `br_solver = fmm`) | `fmm_ncrit`, `fmm_max_depth`, `fmm_mac_theta`, `fmm_replication_depth`, `fmm_imbalance_tol`, `fmm_ncrit_tol`, `fmm_{x,y,z}{min,max}_tol` |
+
+`br_solver = fmm` requires Beatnik to be built with Canopy support (`Beatnik_ENABLE_CANOPY=ON`).
+
+### Example 1: periodic multi-mode rocket rig
+
+The default test case is a cosine-distributed initial interface, periodic boundaries, low-order Z-model with the exact BR solver. The shipped [examples/01_rocketrig/rocketrig.in](examples/01_rocketrig/rocketrig.in) reproduces this configuration:
+
+```
+mpirun -n 4 bin/rocketrig examples/01_rocketrig/rocketrig.in
+```
+
+To explore variations, copy `rocketrig.in` and edit the keys you care about — e.g. set `nodes = 512` for a larger mesh, or `weak_scale = 16` with `write_frequency = 0` to scale up by 16× and skip I/O.
+
+### Example 2: non-periodic single-mode Gaussian rollup
+
+A single-mode `sech2` rollup that recreates the Gaussian perturbation results in Pandya and Shkoller's paper (sections 2.3 and 2.4). High-order Z-model on free boundaries; works best on a GPU accelerator since the exact high-order BR solver is compute-intensive. An input file for this case (n=64, sech2, free, atwood 0.15, μ=2, ε=2, magnitude 0.1, period 9.0):
+
+```
+nodes              = 64
+initial_condition  = sech2
+magnitude          = 0.1
+period             = 9.0
+atwood             = 0.15
+boundary           = free
+solver_order       = high
+mu                 = 2.0
+epsilon            = 2.0
+```
+
+The shipped [examples/01_rocketrig/fmm.in](examples/01_rocketrig/fmm.in) is the same problem driven by the Canopy FMM BR solver instead of the exact solver, with several FMM tunables nudged off their defaults — useful as a starting point when configuring an FMM run.
 
 ## Planned Development Steps
 
