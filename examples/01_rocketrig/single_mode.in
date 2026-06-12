@@ -27,6 +27,10 @@ br_solver            = fmm
 mu                   = 2.0
 epsilon              = 2.0
 
+# --- time integration ---
+timesteps            = 200
+write_frequency      = 1
+
 # --- FMM tunables nudged off defaults so the banner echo verifies
 #     the .in -> Params plumbing end-to-end. Asymmetric bbox tols
 #     also exercise the per-face split. ---
