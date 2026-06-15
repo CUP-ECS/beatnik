@@ -2,11 +2,25 @@
 
 ## 1. Spack environment
 
-Before compiling or running any binary from this library, run:
+Tuolumne has two spack environments for this project:
+
+- **Development** (`~/spack_envs/tuolumne_beatnik`) — used for builds and
+  iterative work. Rebuilt frequently as code changes.
+- **Production** (`~/spack_envs/tuolumne_beatnik_production`) — used for
+  large-scale runs that may sit in the queue for hours. Pinning queued
+  jobs to this env means ongoing development rebuilds in the development
+  env cannot break a job that is already queued or running.
+
+Before compiling or running anything interactively (default), activate
+the development env:
 
 ```
 spack env activate ~/spack_envs/tuolumne_beatnik
 ```
+
+When generating a new batch script under `scripts/tuolumne/`, **ask the
+user whether the script should activate the production env or the
+development env** before writing the `spack env activate` line.
 
 ## 2. CMake args
 

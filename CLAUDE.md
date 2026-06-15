@@ -29,7 +29,14 @@ create) the doc before proceeding.
 ### Required sections in every `docs/claude-<system>.md`
 
 1. **Spack environment** — the `spack env activate ...` command that must be
-   run before compiling or running any binary from this library.
+   run before compiling or running any binary from this library. When
+   setting up a new system, ask the user for **both** a development spack
+   environment (used for builds and iterative work) and a production
+   spack environment (used for large-scale runs that may sit in queue
+   for a long time, so ongoing development rebuilds cannot break a
+   queued job). Record both in the system doc, and note that batch
+   scripts under `scripts/<hostname>/` should ask the user which env to
+   activate before being written.
 2. **CMake args** — system-specific args that must be passed to `cmake` (or to
    any helper bash script that wraps `cmake`).
 3. **Build command** — how to build a target on this system. Default:
