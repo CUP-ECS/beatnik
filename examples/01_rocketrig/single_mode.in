@@ -1,4 +1,4 @@
-# fmm.in — small free-boundary sech2 rollup driven by Canopy's FMM
+# single_mode.in — small free-boundary sech2 rollup driven by Canopy's FMM
 # BR solver. Mirrors the high-order rollup example in README.md, but
 # with `br_solver = fmm` (requires Beatnik built with +canopy) and a
 # few FMM tunables nudged off their defaults so the banner echo
@@ -6,7 +6,7 @@
 #
 # Run (tuolumne, 4 ranks, 1 node):
 #   flux run --ntasks=4 --nodes=1 --gpus-per-task=1 \
-#       rocketrig examples/01_rocketrig/fmm.in
+#       rocketrig examples/01_rocketrig/single_mode.in
 
 # --- mesh / domain ---
 nodes                = 64

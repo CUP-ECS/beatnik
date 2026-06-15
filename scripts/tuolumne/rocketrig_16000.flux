@@ -31,18 +31,18 @@ export OMP_PROC_BIND=close
 export OMP_PLACES=cores
 export OMP_WAIT_POLICY=PASSIVE
 
-NUM_PROCS=4
-MESH_SIZE=16000
+NUM_PROCS=16
+MESH_SIZE=4000
 RUN_DIR="/p/lustre5/stewartj/beatnik/fmm/${NUM_PROCS}p_${MESH_SIZE}mesh"
 
 ROCKETRIG="$(command -v rocketrig)"
-INPUT_SRC="$(spack location -i beatnik)/share/Beatnik/examples/01_rocketrig/single_mode_large.in"
+INPUT_SRC="~/spack_envs/tuolumne_beatnik/beatnik/examples/01_rocketrig/single_mode_4000.in"
 
 mkdir -p "${RUN_DIR}"
-cp "${INPUT_SRC}" "${RUN_DIR}/single_mode_large.in"
+cp "${INPUT_SRC}" "${RUN_DIR}/single_mode_4000.in"
 cd "${RUN_DIR}"
 
-INPUT="${RUN_DIR}/single_mode_large.in"
+INPUT="${RUN_DIR}/single_mode_4000.in"
 
 echo ":::"
 echo "::: rocketrig binary: ${ROCKETRIG}"
@@ -52,7 +52,7 @@ echo ":::"
 
 flux run \
     --ntasks=${NUM_PROCS} \
-    --nodes=1 \
+    --nodes=4 \
     --exclusive \
     --gpus-per-task=1 \
     --cores-per-task=24 \

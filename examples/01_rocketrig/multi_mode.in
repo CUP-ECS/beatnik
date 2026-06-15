@@ -1,4 +1,4 @@
-# rocketrig.in — periodic multi-mode rocket rig (the previous default
+# multi_mode.in — periodic multi-mode rocket rig (the previous default
 # problem when rocketrig was invoked with no CLI flags).
 #
 # Syntax: `key = value` per line. `#` starts a comment to end-of-line.

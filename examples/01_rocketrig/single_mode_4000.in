@@ -1,0 +1,79 @@
+# single_mode_4000.in — mid-scale single-mode sech2 rollup driven by
+# Canopy's FMM BR solver. Same physics as single_mode.in, but scaled up
+# to a 4000x4000 mesh. The bounding box and initial-condition geometry
+# are scaled linearly with the mesh resolution from the 64-node baseline
+# (bbox=1.0, period=9.0, magnitude=0.1) so the rollup occupies the same
+# fraction of the domain as in the small case.
+#
+# Scaling rule (from 64 nodes / bbox=1.0 baseline). The domain is
+# (-B..B) centered on the origin and the sech2 IC is
+#   z = magnitude * sech^2(period * r^2),  r = physical dist from center,
+# so the bump's physical half-width is ~1/sqrt(period). To keep the bump
+# the same FRACTION of a domain whose half-width B grows linearly we need
+# 1/sqrt(period) ~ B, i.e. period scales as the INVERSE SQUARE of B.
+# (magnitude is the vertical amplitude and scales linearly with B.)
+#   B         = nodes / 64           (4000/64    = 62.5)
+#   magnitude = 0.1  * B             (0.1 * 62.5  = 6.25)
+#   period    = 9.0  / B^2           (9 / 62.5^2  = 0.0023040)
+#
+# Run (tuolumne — fill in rank/node count for the target allocation):
+#   flux run --ntasks=N --nodes=M --gpus-per-task=1 \
+#       rocketrig examples/01_rocketrig/single_mode_4000.in
+
+# --- mesh / domain ---
+nodes                = 4000
+bounding_box         = 62.5
+
+# --- initial condition: single-mode sech2 rollup, scaled to domain ---
+initial_condition    = sech2
+magnitude            = 6.25
+period               = 0.0023040
+atwood               = 0.15
+
+# --- physics / boundary ---
+boundary             = free      # FmmBRSolver does not support periodic in v1
+
+# --- solver: high-order Z-model + FMM BR solver ---
+solver_order         = high
+br_solver            = fmm
+mu                   = 2.0
+epsilon              = 2.0
+
+# --- time integration ---
+# Do NOT inflate delta_t to force faster evolution: it triggers a CFL
+# blowup. The interface velocity scales as v ~ sqrt(A*g*lambda) with
+# lambda ~ B, so a larger domain has HIGHER characteristic velocities and
+# the CFL-stable step SHRINKS as ~1/sqrt(B), not grows. Vorticity (hence
+# v) starts at zero and builds with physical time, so an oversized step
+# stays stable for a few steps, then explodes the instant v crosses
+# dx/delta_t -- with the large-scale bump still nearly flat (the "2%
+# growth then sudden collapse" seen at delta_t=0.026, which died at
+# step 6).
+#
+# delta_t is kept at the auto value (tau/50) -- safe for the low-velocity
+# early phase. NOTE: full rollup needs ~B times more steps than the small
+# case (physical time ~sqrt(B) longer AND a ~1/sqrt(B) smaller stable step
+# at peak velocity), and delta_t itself may need to drop toward
+# tau/50/sqrt(B) ~ 0.0004 once the rollup gets going. 100 steps here just
+# exercises the stable early phase; it will not fully roll up.
+#   tau          = 1/sqrt(0.15 * 25*9.81) = 0.16487
+#   delta_t      = tau/50 = 0.0032975  (== rocketrig auto for high order)
+delta_t              = 0.0032975
+timesteps            = 100
+write_frequency      = 1
+
+# --- FMM tunables ---
+fmm_ncrit             = 64       # default 32
+fmm_max_depth         = 12       # default 15
+fmm_mac_theta         = 0.6      # default 0.5
+fmm_replication_depth = 2        # default 3
+fmm_imbalance_tol     = 0.20     # default 0.10
+fmm_ncrit_tol         = 0.15     # default 0.10
+
+# Asymmetric bbox padding: tighter on the bottom faces, looser on top.
+fmm_xmin_tol          = 0.15
+fmm_xmax_tol          = 0.15
+fmm_ymin_tol          = 0.15
+fmm_ymax_tol          = 0.15
+fmm_zmin_tol          = 0.15
+fmm_zmax_tol          = 0.50

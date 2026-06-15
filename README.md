@@ -52,13 +52,13 @@ Run `rocketrig --help` for the full schema. The key groups are:
 
 ### Example 1: periodic multi-mode rocket rig
 
-The default test case is a cosine-distributed initial interface, periodic boundaries, low-order Z-model with the exact BR solver. The shipped [examples/01_rocketrig/rocketrig.in](examples/01_rocketrig/rocketrig.in) reproduces this configuration:
+The default test case is a cosine-distributed initial interface, periodic boundaries, low-order Z-model with the exact BR solver. The shipped [examples/01_rocketrig/multi_mode.in](examples/01_rocketrig/multi_mode.in) reproduces this configuration:
 
 ```
-mpirun -n 4 bin/rocketrig examples/01_rocketrig/rocketrig.in
+mpirun -n 4 bin/rocketrig examples/01_rocketrig/multi_mode.in
 ```
 
-To explore variations, copy `rocketrig.in` and edit the keys you care about — e.g. set `nodes = 512` for a larger mesh, or `weak_scale = 16` with `write_frequency = 0` to scale up by 16× and skip I/O.
+To explore variations, copy `multi_mode.in` and edit the keys you care about — e.g. set `nodes = 512` for a larger mesh, or `weak_scale = 16` with `write_frequency = 0` to scale up by 16× and skip I/O.
 
 ### Example 2: non-periodic single-mode Gaussian rollup
 
@@ -76,7 +76,23 @@ mu                 = 2.0
 epsilon            = 2.0
 ```
 
-The shipped [examples/01_rocketrig/fmm.in](examples/01_rocketrig/fmm.in) is the same problem driven by the Canopy FMM BR solver instead of the exact solver, with several FMM tunables nudged off their defaults — useful as a starting point when configuring an FMM run.
+The shipped [examples/01_rocketrig/single_mode.in](examples/01_rocketrig/single_mode.in) is this 64-node case driven by the Canopy FMM BR solver (`br_solver = fmm`) instead of the exact solver, with several FMM tunables nudged off their defaults — useful as a starting point when configuring an FMM run. The larger pre-scaled variants [single_mode_1024.in](examples/01_rocketrig/single_mode_1024.in), [single_mode_4000.in](examples/01_rocketrig/single_mode_4000.in), and [single_mode_16000.in](examples/01_rocketrig/single_mode_16000.in) take the same problem to bigger meshes — see [Scaling to large meshes](#scaling-to-large-meshes-timestep-stability-and-step-count-caveats) for the rules they follow and the caveats that come with them.
+
+### Scaling to large meshes (timestep stability and step-count caveats)
+
+Running the single-mode rollup at large `nodes` is not just a matter of raising the mesh resolution. The intended way to grow the problem is to scale `bounding_box` **linearly** with `nodes` (e.g. `bounding_box = nodes / 64`, taking the 64-node `bounding_box = 1.0` case as the baseline). This keeps the physical grid spacing `dx = 2·bounding_box/(nodes-1)` roughly constant, which is what stops interface points from getting pathologically close together — the regime where the BR/FMM velocity evaluation blows up. The scaled example inputs `single_mode_1024.in`, `single_mode_4000.in`, and `single_mode_16000.in` follow this rule.
+
+When you scale the domain this way, two things must change with it, and a third becomes an unavoidable cost:
+
+1. **Initial-condition geometry must be re-scaled.** For the `sech2` IC the height is `magnitude · sech²(period · r²)` with `r` the physical distance from the domain center, so:
+   - `magnitude` (the vertical amplitude) scales **linearly** with `bounding_box`.
+   - `period` scales as the **inverse square** of `bounding_box`. `period` sets an inverse width (larger `period` ⇒ *narrower* bump), so leaving it unscaled — or worse, scaling it up — collapses the bump to a sub-cell spike and you get a flat, unevolving surface.
+
+2. **`delta_t` must be kept small — do not inflate it to "evolve faster".** A geometrically larger domain has *higher* characteristic interface velocities (`v ~ sqrt(A·g·λ)` with the feature wavelength `λ ∝ bounding_box`, so `v ∝ √bounding_box`). With `dx` held fixed, the CFL-stable timestep therefore *shrinks* as `~1/√bounding_box`, roughly `delta_t_auto / √(bounding_box)` at peak velocity (where `delta_t_auto = tau/50` for the high-order solver and `tau = 1/sqrt(atwood·gravity)`). Because the initial vorticity is zero, the velocity starts near zero and grows as the instability develops — so an oversized `delta_t` will appear stable for the first several steps and then suddenly blow up *while the surface is still nearly flat*. That sudden blowup is numerical (CFL), not a physical rollup instability; the cure is a smaller `delta_t`, not more smoothing.
+
+3. **The step count to reach a rollup grows ~linearly with `bounding_box`.** Reaching a rollup needs physical time `∝ √bounding_box` (the feature timescale), integrated at a stable step `∝ 1/√bounding_box`, so the number of timesteps for a comparable rollup scales as roughly `bounding_box` relative to the small-domain case. A large-mesh run with the same modest step count as a small case will only show early, small-amplitude motion — not a developed rollup. Note that `gravity` and `atwood` do **not** provide a shortcut: with the auto `delta_t` they cancel out of the achieved evolution.
+
+In short: scale `bounding_box` with `nodes`, re-scale `magnitude` (∝ B) and `period` (∝ 1/B²) to match, keep `delta_t` at or below `tau/(50·√B)`, and budget timesteps that grow with `B`. When in doubt, verify the physics on a moderate mesh (e.g. the 1024 case) where a full rollup is cheap, then trust the scaling for the production meshes.
 
 ## Planned Development Steps
 
