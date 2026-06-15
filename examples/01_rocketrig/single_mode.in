@@ -9,7 +9,7 @@
 #       rocketrig examples/01_rocketrig/fmm.in
 
 # --- mesh / domain ---
-nodes                = 256
+nodes                = 64
 bounding_box         = 1.0
 
 # --- initial condition: single-mode sech2 rollup ---
