@@ -3,3 +3,4 @@ build*
 spack-env
 data
 .DS_Store
+*.log
