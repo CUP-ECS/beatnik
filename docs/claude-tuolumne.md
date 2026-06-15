@@ -36,6 +36,35 @@ Tuolumne builds via spack. The build command is:
 spack install
 ```
 
+### Required: clear stray `HIPCC_*_FLAGS_APPEND` before installing
+
+With the default modules loaded, the interactive shell can carry a
+contaminated `HIPCC_LINK_FLAGS_APPEND` (a stray leading `.`). Spack's
+`hip` package *appends* to whatever value is already exported, so the
+`.` survives into the cabana build and hipcc passes it to the linker
+as `--hip-link .`, which fails with:
+
+```
+ld.lld: error: cannot open .: Is a directory
+... The C++ compiler "/opt/rocm-.../bin/hipcc" is not able to compile a simple test program.
+```
+
+This only triggers when a hip-using package (e.g. cabana) actually
+builds — if it is already cached in the spack store, `spack install`
+skips it and the bug stays hidden. Before installing (especially in a
+freshly concretized env where cabana must build), clear the variables
+and re-concretize:
+
+```
+unset HIPCC_LINK_FLAGS_APPEND HIPCC_COMPILE_FLAGS_APPEND
+spack concretize -f
+spack install
+```
+
+A fresh login shell with only the standard modules also works, since
+nothing in the spack config or any modulefile sets these variables —
+the `.` comes from leftover interactive shell state.
+
 ## 4. Run command for binaries
 
 The following environment variables must be exported before `flux run`:
