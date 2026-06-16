@@ -467,6 +467,18 @@ int main( int argc, char* argv[] )
                     << cl.params.fmm_zmax_tol << "\n";
             }
         }
+        const char* ic_name =
+            cl.initial_condition == IC_COS      ? "cos"      :
+            cl.initial_condition == IC_SECH2    ? "sech2"    :
+            cl.initial_condition == IC_GAUSSIAN ? "gaussian" :
+            cl.initial_condition == IC_RANDOM   ? "random"   :
+            cl.initial_condition == IC_FILE     ? "file"     : "unknown";
+        std::cout << std::left << std::setw( 30 ) << "Initial Condition"
+                  << ": " << std::setw( 8 ) << ic_name << "\n";
+        std::cout << std::left << std::setw( 30 ) << "IC Magnitude"
+                  << ": " << std::setw( 8 ) << cl.magnitude << "\n";
+        std::cout << std::left << std::setw( 30 ) << "IC Period"
+                  << ": " << std::setw( 8 ) << cl.params.period << "\n";
         std::cout << std::left << std::setw( 30 ) << "Total Simulation Time"
                   << ": " << std::setw( 8 ) << cl.t_final << "\n";
         std::cout << std::left << std::setw( 30 ) << "Timestep Size"
