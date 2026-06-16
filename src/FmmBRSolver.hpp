@@ -42,7 +42,7 @@
 namespace Beatnik
 {
 
-static constexpr int P_ORDER = 6;
+static constexpr int P_ORDER = 10;
 static constexpr int N_COMPS = 3;
 
 /* AoSoA field indices used by FmmBRSolver. The tuple layout is
