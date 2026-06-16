@@ -31,9 +31,20 @@ class BRSolverBase
     /* Profiling hooks. Solver calls beginBeatnikStep() before each
      * outer step, then flushProfile() after printing its own
      * [Beatnik profile] line so any per-substep records can be
-     * emitted indented underneath. Default no-ops. */
-    virtual void beginBeatnikStep( int /*step*/ ) const {}
+     * emitted indented underneath. The base records the current step
+     * so any caller (e.g. ZModel's NaN/Inf guard) can report which
+     * timestep a blowup occurred on, for any BR backend. Overrides
+     * should set _beatnik_step (or call this base method). */
+    virtual void beginBeatnikStep( int step ) const { _beatnik_step = step; }
     virtual void flushProfile() const {}
+
+    /* Current outer (Beatnik) timestep, as last set by beginBeatnikStep().
+     * Only meaningful when the Solver drives beginBeatnikStep(), which it
+     * does under profiling. */
+    int beatnikStep() const { return _beatnik_step; }
+
+  protected:
+    mutable int _beatnik_step{ 0 };
 };
 
 } // end namespace Beantik

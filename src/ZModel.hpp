@@ -31,7 +31,12 @@
 #include <Cabana_Grid.hpp>
 #include <Kokkos_Core.hpp>
 
+#include <mpi.h>
+
+#include <iostream>
 #include <memory>
+#include <stdexcept>
+#include <string>
 
 #include <SurfaceMesh.hpp>
 #include <CreateBRSolver.hpp>
@@ -318,8 +323,55 @@ class ZModel
         });
     }
 
+#if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
+    /* Detect NaN/Inf in the interface velocity (zdot) right after the BR
+     * solver computes it. Lives here at the common call site so it covers
+     * every BR backend (exact / cutoff / fmm). A blowup left undetected
+     * corrupts downstream solves -- e.g. a NaN coordinate crashes the FMM
+     * tree build with a segfault, hiding the real cause -- so abort with
+     * the offending timestep instead. Profiling-gated; the timestep comes
+     * from the BR solver's beginBeatnikStep() hook, which the Solver drives
+     * under profiling. */
+    void checkInterfaceVelocityFinite( node_view zdot ) const
+    {
+        auto local_grid = _pm.mesh().localGrid();
+        auto own_node_space = local_grid->indexSpace(
+            Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local() );
+
+        long bad_local = 0;
+        Kokkos::parallel_reduce( "ZModel::checkZdotFinite",
+            createExecutionPolicy( own_node_space, ExecutionSpace() ),
+            KOKKOS_LAMBDA( int i, int j, long& acc ) {
+                for ( int d = 0; d < 3; ++d ) {
+                    const double v = zdot( i, j, d );
+                    if ( Kokkos::isnan( v ) || Kokkos::isinf( v ) ) ++acc;
+                }
+            }, bad_local );
+        Kokkos::fence();
+
+        long bad_global = 0;
+        MPI_Comm comm = _pm.mesh().localGrid()->globalGrid().comm();
+        MPI_Allreduce( &bad_local, &bad_global, 1, MPI_LONG, MPI_SUM, comm );
+        if ( bad_global > 0 )
+        {
+            const int step = _br ? _br->beatnikStep() : -1;
+            if ( _pm.mesh().rank() == 0 )
+            {
+                std::cerr << "[ZModel] ERROR: " << bad_global
+                          << " NaN/Inf value(s) detected in interface velocity "
+                             "(zdot) during timestep " << step
+                          << ". The interface velocity blew up; aborting before "
+                             "it corrupts downstream solves.\n";
+            }
+            throw std::runtime_error(
+                "ZModel: NaN/Inf detected in interface velocity during timestep "
+                + std::to_string( step ) );
+        }
+    }
+#endif
+
     /* For low order, we calculate the reisz transform used to compute the magnitude
-     * of the interface velocity. This will be projected onto surface normals later 
+     * of the interface velocity. This will be projected onto surface normals later
      * once we have the normals */
     void prepareVelocities(Order::Low, [[maybe_unused]] node_view zdot,
                            [[maybe_unused]] node_view z, node_view w,
@@ -336,6 +388,9 @@ class ZModel
     {
         computeReiszTransform(w);
         _br->computeInterfaceVelocity(zdot, z, omega_view);
+#if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
+        checkInterfaceVelocityFinite(zdot);
+#endif
     }
 
     /* For high order, we just directly compute the interface velocity (zdot)
@@ -345,6 +400,9 @@ class ZModel
                            [[maybe_unused]]node_view w, node_view omega_view) const
     {
         _br->computeInterfaceVelocity(zdot, z, omega_view);
+#if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
+        checkInterfaceVelocityFinite(zdot);
+#endif
     }
 
     // Compute the final interface velocities and normalized BR velocities

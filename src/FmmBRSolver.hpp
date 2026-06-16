@@ -439,7 +439,8 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 #if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
     void beginBeatnikStep( int step ) const override
     {
-        _beatnik_step = step;
+        // this-> required: _beatnik_step is a dependent base-class member.
+        this->_beatnik_step = step;
         _substep_idx  = 0;
     }
 
@@ -451,7 +452,7 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         for ( int s = 0; s < n; ++s )
         {
             printf( "    [FmmBRSolver step %d.%d] action=%s solve_time=%.6f s\n",
-                    _beatnik_step, s,
+                    this->_beatnik_step, s,
                     _substep_records[s].action,
                     _substep_records[s].seconds );
         }
@@ -540,7 +541,8 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
      * for the 3 RK3 substeps; extras are silently dropped. */
     struct SubstepRecord { const char* action; double seconds; };
     mutable std::array<SubstepRecord, 3> _substep_records{};
-    mutable int _beatnik_step{ 0 };
+    /* _beatnik_step lives in BRSolverBase now (shared by all backends so
+     * ZModel can report the offending timestep on a NaN/Inf blowup). */
     mutable int _substep_idx{ 0 };
 
     const char* recordAutoMaintainAction( typename canopy_solver_type::MaintenanceAction action ) const
