@@ -145,6 +145,41 @@ detailed context behind each.
   drift. Tolerance accumulates roughly linearly with step count;
   raise to ~1e-2 or compute a per-step bound.
 
+## Known issues
+
+- **FMM full-rollup crash: Slingshot NIC registration exhaustion during
+  Canopy `Rebalance` (OPEN).** In a single-mode rollup driven by the FMM
+  BR solver, once the sheet fully rolls up and particles concentrate in
+  the core, Canopy's `auto_maintain` switches to near-continuous
+  `Rebalance`, and the resulting all-to-all migration traffic exhausts
+  the tuolumne Slingshot CXI NIC's memory-registration resources. The run
+  aborts with `cxil_map: write error` followed by
+  `MPI_Isend ... MPIDI_OFI_send_normal: Invalid argument`. This is **not a
+  NaN** — the ZModel interface-velocity guard never fires, and the physics
+  is stable through full rollup (the exact BR solver completes the same
+  case).
+  - Repro config: single-mode `sech2`, 256×256 (B=4), `P_ORDER=10`,
+    `fmm_max_depth=19`, `fmm_mac_theta=0.4`, `fmm_imbalance_tol=0.20`,
+    `epsilon=2`, `delta_t=0.0006`, 16 ranks / 4 nodes. Crash at ~step 1272
+    (full rollup); by ~step 600 `auto_maintain` is already a
+    Migrate/Rebalance mix, trending to all-Rebalance as the core tightens.
+  - **Level-2 profile (16 ranks) shows the cost is the FMM evaluation, not
+    comm.** Per-call `computeInterfaceVelocity` mean of 1127 s splits as:
+    Canopy `solve()` = 1044 s (**92.6%**), `auto_maintain` = 56 s (~5%),
+    build fwd+rev distributor = 22 s (~2%), fwd+rev migrate = 4.5 s (<1%).
+    => The "Cache the forward `Cabana::Distributor`" and "`setup()` every
+    step" items under [Future optimization opportunities](#future-optimization-opportunities)
+    are **not worth pursuing at this scale** — the bottleneck is Canopy
+    `solve()`. Revisit only if higher rank counts change the balance.
+  - Reference logs (on `develop-canopy`):
+    `scripts/tuolumne/rocketrig_debug_fmm.f3ExhEXgrG4X.log` (the crash),
+    `scripts/tuolumne/rocketrig_testprof.f3Eyjvuf1wFV.log` (level-2 profile).
+  - Related, already FIXED: the *premature* FMM NaN at rollup onset was a
+    separate accuracy problem, resolved by raising `P_ORDER` 6→10 and
+    tightening `fmm_mac_theta` 0.6→0.4 (committed on `develop-canopy`).
+    This NIC crash is what remains, and is expected to be worse at
+    production mesh sizes (e.g. 16000).
+
 ## General guidelines
 
 - **Checkpoint commits in plans.** When planning a large code change, include
