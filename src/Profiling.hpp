@@ -282,4 +282,3 @@ inline void print_timing_table( MPI_Comm comm, const char* section_name,
 #endif
 
 #endif // BEATNIK_PROFILING_HPP
-</content>
