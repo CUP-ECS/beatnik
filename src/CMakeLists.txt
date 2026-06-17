@@ -13,6 +13,7 @@ set(HEADERS_PUBLIC
   ProblemManager.hpp
   Solver.hpp
   SiloWriter.hpp
+  Profiling.hpp
 
   # Routines to support the general Z-Model Solution Approach
   TimeIntegrator.hpp

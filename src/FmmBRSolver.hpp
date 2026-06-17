@@ -38,6 +38,7 @@
 #include <ProblemManager.hpp>
 #include <Operators.hpp>
 #include <BRSolverBase.hpp>
+#include <Profiling.hpp>
 
 namespace Beatnik
 {
@@ -132,6 +133,9 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
                       << "Rebuild=" << _am_rebuild
                       << " (auto_maintain calls=" << total_am << ")\n";
         }
+        // Level-2 sub-phase breakdown (collective; no-op below level 2).
+        // Accumulated across every computeInterfaceVelocity call of the run.
+        BEATNIK_PRINT_FMM_TIMERS( _comm );
     }
 #endif
 
@@ -323,6 +327,11 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 #if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
         const double call_t0 = MPI_Wtime();
 #endif
+        // Level-2 total spanning the whole body. The small zeroZdot kernel
+        // below is intentionally left unattributed (counted in total but not
+        // in any sub-phase), matching Canopy's "unaccounted slack" convention.
+        BEATNIK_SCOPED_TIMER_DETAILED( Beatnik::Profiling::TIMER_CIV_TOTAL );
+
         auto local_node_space = _pm.mesh().localGrid()->indexSpace(
             Cabana::Grid::Own(), Cabana::Grid::Node(), Cabana::Grid::Local() );
 
@@ -333,7 +342,10 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
             });
 
         // 1. Pack grid particles into _grid_particles (grid-ordered)
-        packGridParticles( _grid_particles, z, o );
+        {
+            BEATNIK_SCOPED_TIMER_DETAILED( Beatnik::Profiling::TIMER_PACK );
+            packGridParticles( _grid_particles, z, o );
+        }
         const int num_grid = static_cast<int>( _grid_particles.size() );
 
         // 2. First call: deep-copy + full setup. Subsequent calls:
@@ -344,6 +356,7 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 #endif
         if ( _first_call )
         {
+            BEATNIK_SCOPED_TIMER_DETAILED( Beatnik::Profiling::TIMER_SETUP );
             _canopy_particles.resize( num_grid );
             Cabana::deep_copy( _canopy_particles, _grid_particles );
             _canopy.template setup<FmmField::Position, FmmField::Charge>(
@@ -352,15 +365,23 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         }
         else
         {
-            auto forward_dist = buildForwardDistributor();
+            auto forward_dist = [&] {
+                BEATNIK_SCOPED_TIMER_DETAILED( Beatnik::Profiling::TIMER_FWD_DIST );
+                return buildForwardDistributor();
+            }();
             aosoa_type new_canopy_particles(
                 "FmmBRSolver_canopy_particles",
                 forward_dist.totalNumImport() );
-            Cabana::migrate( forward_dist, _grid_particles, new_canopy_particles );
+            {
+                BEATNIK_SCOPED_TIMER_DETAILED( Beatnik::Profiling::TIMER_FWD_MIGRATE );
+                Cabana::migrate( forward_dist, _grid_particles, new_canopy_particles );
+            }
             _canopy_particles = new_canopy_particles;
-            const auto action =
-                _canopy.template auto_maintain<FmmField::Position, FmmField::Charge>(
+            const auto action = [&] {
+                BEATNIK_SCOPED_TIMER_DETAILED( Beatnik::Profiling::TIMER_AUTO_MAINTAIN );
+                return _canopy.template auto_maintain<FmmField::Position, FmmField::Charge>(
                     _canopy_particles );
+            }();
 #if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
             action_name = recordAutoMaintainAction( action );
 #else
@@ -373,12 +394,16 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         const int num_local = _canopy.num_local_particles();
 
         // 3. Solve with compute_gradient=true
-        _canopy.template solve<FmmField::Position, FmmField::Charge>(
-            _canopy_particles, /*compute_gradient=*/true );
-        const auto gradient = _canopy.gradient();
+        const auto gradient = [&] {
+            BEATNIK_SCOPED_TIMER_DETAILED( Beatnik::Profiling::TIMER_SOLVE );
+            _canopy.template solve<FmmField::Position, FmmField::Charge>(
+                _canopy_particles, /*compute_gradient=*/true );
+            return _canopy.gradient();
+        }();
 
         // 4. Cross-product of component gradients into u_out
         {
+            BEATNIK_SCOPED_TIMER_DETAILED( Beatnik::Profiling::TIMER_CROSS );
             auto u_out = Cabana::slice<FmmField::UOut>( _canopy_particles );
             Kokkos::parallel_for( "FmmBRSolver::crossProduct",
                 Kokkos::RangePolicy<ExecutionSpace>( 0, num_local ),
@@ -391,40 +416,48 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         }
 
         // 5. Reverse-distribute back to the origin grid rank
-        Kokkos::View<int*, MemorySpace> origin_ranks(
-            Kokkos::ViewAllocateWithoutInitializing( "FmmBRSolver_origin_ranks" ),
-            num_local );
-        {
-            auto tag = Cabana::slice<FmmField::Tag>( _canopy_particles );
-            Kokkos::parallel_for( "FmmBRSolver::extractOriginRanks",
-                Kokkos::RangePolicy<ExecutionSpace>( 0, num_local ),
-                KOKKOS_LAMBDA( const int p ) {
-                    origin_ranks( p ) = tag( p, 0 );
-                });
-        }
-        Kokkos::fence();
-
-        Cabana::Distributor<MemorySpace> distributor( _comm, origin_ranks );
+        Cabana::Distributor<MemorySpace> distributor = [&] {
+            BEATNIK_SCOPED_TIMER_DETAILED( Beatnik::Profiling::TIMER_REV_DIST );
+            Kokkos::View<int*, MemorySpace> origin_ranks(
+                Kokkos::ViewAllocateWithoutInitializing( "FmmBRSolver_origin_ranks" ),
+                num_local );
+            {
+                auto tag = Cabana::slice<FmmField::Tag>( _canopy_particles );
+                Kokkos::parallel_for( "FmmBRSolver::extractOriginRanks",
+                    Kokkos::RangePolicy<ExecutionSpace>( 0, num_local ),
+                    KOKKOS_LAMBDA( const int p ) {
+                        origin_ranks( p ) = tag( p, 0 );
+                    });
+            }
+            Kokkos::fence();
+            return Cabana::Distributor<MemorySpace>( _comm, origin_ranks );
+        }();
         aosoa_type out_particles(
             "FmmBRSolver_out_particles",
             distributor.totalNumImport() );
-        Cabana::migrate( distributor, _canopy_particles, out_particles );
+        {
+            BEATNIK_SCOPED_TIMER_DETAILED( Beatnik::Profiling::TIMER_REV_MIGRATE );
+            Cabana::migrate( distributor, _canopy_particles, out_particles );
+        }
 
         // 6. Write zdot from the migrated (grid-rank) tuples
-        const int num_recv  = static_cast<int>( out_particles.size() );
-        const double scale  = ( _dx * _dy ) / ( 4.0 * M_PI );
-        auto out_tag = Cabana::slice<FmmField::Tag>( out_particles );
-        auto out_u   = Cabana::slice<FmmField::UOut>( out_particles );
-        Kokkos::parallel_for( "FmmBRSolver::writeZdot",
-            Kokkos::RangePolicy<ExecutionSpace>( 0, num_recv ),
-            KOKKOS_LAMBDA( const int p )
         {
-            const int li = out_tag( p, 1 );
-            const int lj = out_tag( p, 2 );
-            for ( int d = 0; d < 3; ++d )
-                zdot( li, lj, d ) = scale * out_u( p, d );
-        });
-        Kokkos::fence();
+            BEATNIK_SCOPED_TIMER_DETAILED( Beatnik::Profiling::TIMER_WRITE_ZDOT );
+            const int num_recv  = static_cast<int>( out_particles.size() );
+            const double scale  = ( _dx * _dy ) / ( 4.0 * M_PI );
+            auto out_tag = Cabana::slice<FmmField::Tag>( out_particles );
+            auto out_u   = Cabana::slice<FmmField::UOut>( out_particles );
+            Kokkos::parallel_for( "FmmBRSolver::writeZdot",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, num_recv ),
+                KOKKOS_LAMBDA( const int p )
+            {
+                const int li = out_tag( p, 1 );
+                const int lj = out_tag( p, 2 );
+                for ( int d = 0; d < 3; ++d )
+                    zdot( li, lj, d ) = scale * out_u( p, d );
+            });
+            Kokkos::fence();
+        }
 
 #if defined(BEATNIK_ENABLE_PROFILING) && BEATNIK_PROFILING_LEVEL >= 1
         const double call_dt = MPI_Wtime() - call_t0;
