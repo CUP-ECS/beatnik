@@ -1,6 +1,6 @@
 # FMM full-rollup crash — investigation & fix
 
-**Status: OPEN** (last updated 2026-06-17)
+**Status: IN PROGRESS** (last updated 2026-06-17)
 
 Single-mode FMM rollups abort at full rollup with a Slingshot CXI NIC
 memory-registration failure (`cxil_map: write error` → `MPI_Isend` abort).
@@ -122,4 +122,29 @@ sizes (target 16000×16000).
   Exact BR solver completes the same case, confirming the physics is fine.
   Crash signature: `cxil_map: write error` + `MPI_Isend` abort at ~step 1272,
   during continuous Canopy Rebalance.
+- **2026-06-17 — root cause found + structural fix landed in Canopy (validation
+  run in flight).** Traced the `cxil_map: write error` to GPU-aware-MPI memory
+  *registration churn*, not message volume. Both halo exchanges inside Canopy
+  `solve()` allocated a brand-new device `Kokkos::View` per peer **every call**
+  and passed its `.data()` device pointer to `MPI_Isend`/`MPI_Irecv`:
+  `detail::coalesced_view_exchange` (M2M in UpwardSweep; M2L + L2L in
+  DownwardSweep) and `P2P::gather_ghost_particles`. On Slingshot/CXI each fresh
+  device allocation is a fresh NIC registration; at full rollup (near-continuous
+  Rebalance + growing M2L working set) the registration cache accumulates until
+  the NIC is exhausted → the failing `MPI_Isend` (count=210672 B is a solve()
+  buffer, consistent with this). Fix: added
+  `Canopy_RegisteredBufferPool.hpp` — a persistent, grow-only (1.5× headroom,
+  never shrinks) device buffer with a stable base address. Each exchange now
+  carves per-peer **unmanaged subviews** from one registered region per
+  direction, so the CXI cache registers a small bounded set once and reuses it.
+  Pack/unpack, peer ordering, message layout, and the accumulate-on-recv (L2L)
+  path are byte-for-byte unchanged — pure buffer management. Committed on Canopy
+  branch `redesign`: `fac4519` (pool + P2P), `d834034` (coalesced M2M/M2L/L2L).
+  **Guardrail green:** `Beatnik_Test_FmmVsExact` passes on HIP, OPENMP, SERIAL
+  at 1 and 4 ranks (agreement vs exact unchanged: BRDirect rel_diff ~1e-20,
+  OneRK3 ~7e-10; job `f3F1Peev48XH`). The decisive full crash-deck run
+  (single_mode_debug.in, 1400 steps, 16 ranks/4 nodes; job `f3F1T7e6F24F`,
+  pbatch) is queued — success = it passes step ~1272 and reaches 1400 with no
+  `cxil_map` error. Will flip Status → RESOLVED and add a Resolution section
+  once that run confirms.
 - _(append next entry here)_
