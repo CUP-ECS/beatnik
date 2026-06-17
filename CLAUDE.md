@@ -157,7 +157,8 @@ detailed context behind each.
   `MPI_Isend ... MPIDI_OFI_send_normal: Invalid argument`. This is **not a
   NaN** — the ZModel interface-velocity guard never fires, and the physics
   is stable through full rollup (the exact BR solver completes the same
-  case).
+  case). See [tasks/fmm_fullrollup_crash.md](tasks/fmm_fullrollup_crash.md)
+  for the full investigation record (kept updated as work continues).
   - Repro config: single-mode `sech2`, 256×256 (B=4), `P_ORDER=10`,
     `fmm_max_depth=19`, `fmm_mac_theta=0.4`, `fmm_imbalance_tol=0.20`,
     `epsilon=2`, `delta_t=0.0006`, 16 ranks / 4 nodes. Crash at ~step 1272
