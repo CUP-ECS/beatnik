@@ -150,4 +150,93 @@ sizes (e.g. 16000).
   snapshots for the ~10 steps before the crash (Beatnik, CMake flag); Step 2 =
   offline Canopy replay harness seeded from the last pre-crash snapshot; Step 3 =
   root-cause fix, guarded by FmmVsExact (1,4 ranks) + full run to 1400.
+- **2026-06-18 — Step 1 instrumentation landed; guardrail green; harness built;
+  full run in flight.** Work on new branch `debug-nan` (both Beatnik, based on
+  `develop-canopy`, and Canopy, based on `redesign`/NIC-fix).
+  - **Canopy** (`a6bf9f2`): `CANOPY_NAN_DEBUG` (hard-coded ON in
+    `src/CMakeLists.txt`) — per-stage non-finite counts after each `solve()`
+    stage (upward P2M+M2M / downward M2L+L2L+L2P / P2P), printing the first
+    stage that goes non-finite; plus a root-box + min/max leaf-half-width dump
+    on every `auto_maintain` Rebuild.
+  - **Beatnik** (`68e8135`): `BEATNIK_FMM_SNAPSHOT_DEBUG` (hard-coded ON) — dumps
+    `_canopy_particles` (positions+charges as solve() sees them) to one binary
+    file per rank per (step, substep) for steps 1350–1370. Added
+    `scripts/tuolumne/rocketrig_debug_fmm_nan.flux` (pbatch, 90 min; pdebug now
+    caps at 1 h but the run needs ~67 min).
+  - **Guardrail green:** `Beatnik_Test_FmmVsExact` passed on HIP/OPENMP/SERIAL at
+    1 and 4 ranks, 0 failures (job `f3FADNH2oko9`) — instrumentation is
+    physics-neutral.
+  - **Replay harness** (Canopy `examples/04_nan_replay`): built clean against
+    installed Canopy with hipcc. Loads a (step,sub) snapshot into one
+    `Canopy::Solver` and runs a single `solve()`; reproduces the NaN offline.
+    Note: the spack env *view* symlink farm lagged the newer
+    `Canopy_RegisteredBufferPool.hpp`; pass `-DCANOPY_INC=$(spack location -i
+    canopy)/include` so quote-includes resolve.
+  - **Instrumented full run** `f3FAEHku97QK` (pbatch, 16 ranks/4 nodes) in
+    flight — will abort ~step 1364 and leave the 1350–1370 snapshots + the
+    per-stage diagnostics at the failing solve. Awaiting completion.
+- **2026-06-18 — KEY FINDING: domain explodes during step 1363; trigger is the
+  first Rebuild solve at 1362.2.** Two instrumented runs (`f3FAEHku97QK` 90 min,
+  `f3FB7vveyfn7` 120 min) both *timed out at step 1362* — the per-solve
+  NaN-debug reductions slow the run ~22 min, so neither reached the 1364 NaN.
+  **But the geometry@Rebuild dumps make the 1364 NaN unnecessary:** the root
+  bounding box explodes ~1000×/substep across the three Rebuild actions —
+    - 1362.2 (first Rebuild): extent ≈ (389, 389, 530), min leaf hw 0.065 — SANE.
+    - 1363.0: extent ≈ (2.9e5, 2.9e5, 4.2e5), min leaf hw 51.
+    - 1363.1: extent ≈ (4.5e11, 4.8e11, 7.5e10), min leaf hw 4.5e5.
+  ⇒ A node gets a spurious large interface velocity at the **first bbox-escape
+  Rebuild (step 1362.2), on a still-sane box**; RK3 flings its `z` to ~1.5e5 by
+  1363.0, ~1e11 by 1363.1 — runaway feedback ending in the 1364 whole-field
+  NaN. The exact solver never does this ⇒ FMM far-field error at the
+  rollup-escape moment, **not** a degenerate-tiny-leaf overflow (the trigger box
+  is sane; the huge boxes are downstream symptoms).
+  - **Trigger snapshot captured:** complete 16-rank dumps exist for
+    `step1362_sub2` (the input to the first Rebuild solve) plus 1363.0/1363.1
+    (already-exploded). The runaway is fully reproducible offline from
+    `step1362_sub2`; **no further full-run is needed.** (1363 sub 2 is partial —
+    timed out mid-step.)
+  - Snapshots live in `/p/lustre5/stewartj/beatnik/fmm/debug/fmm/`
+    (`fmm_snapshot_step1362_sub2_rank*.bin`, steps 1357–1363.1).
+  - **Next:** replay `step1362_sub2` through `examples/04_nan_replay`, augmented
+    with a brute-force all-pairs exact gradient reference, to localize which
+    node(s) diverge and confirm/root-cause the far-field error.
+- **2026-06-18 — ROOT-CAUSE LEAD: single-node spurious FMM gradient seeds the
+  runaway (NOT the physical singularity, NOT a uniform far-field blow-up).**
+  Enhanced `examples/04_nan_replay` with a brute-force all-pairs **exact**
+  reference (same softened kernel: `grad(i,c,d) = -Σ_{j≠i} q(j,c)(x_i-x_j)_d
+  (r²+eps²)^-3/2`, eps²=softening²=2) + per-node max|grad| and worst
+  FMM-vs-exact divergence reporting. Ran 1-rank replays (GPU-aware MPI off; no
+  peers at 1 rank) on the captured snapshots:
+
+  | step.sub | EXACT max\|grad\| | FMM max\|grad\| | worst FMM−exact | spurious node |
+  |----------|------------------|----------------|-----------------|---------------|
+  | 1357.0   | **3491**         | 108855         | 106474          | ~(0.03,0.04,0.04) origin |
+  | 1359.0   | **3484**         | 92489          | 90138           | ~origin |
+  | 1360.0   | **3478**         | 89266          | 86862           | ~origin |
+  | 1361.0   | **3523**         | 55650          | 53853           | (3.30,3.33,3.33) |
+  | 1362.0   | 52392            | 52392          | 0.07 (roundoff) | — |
+  | 1362.2   | 1.40e12          | 1.40e12        | 2e-4 (roundoff) | — |
+  | 1363.0   | 3.0e17           | 3.0e17         | 1e-12 (roundoff)| — |
+
+  **Interpretation:** the true field maximum is a stable, moderate **~3500**
+  (exact all-pairs). At steps ≤1361 the **FMM injects a spurious ~1e5 gradient
+  at a single node** (near the tree center/origin) that the exact kernel — same
+  softening, same positions — does not produce. Same kernel + same positions
+  disagreeing ~30× ⇒ the FMM is **missing/double-counting interactions for that
+  one node** (a MAC / neighbor-list / multipole edge case), not approximation
+  error. That node is flung; by 1362 the configuration is distorted enough that
+  a *genuine* near-collision cascade takes over (FMM==exact, both exploding) →
+  1364 whole-field NaN. So: not the physical singularity (exact field max stays
+  ~3500), not a uniform far-field error — a **single-node interaction-completeness
+  bug** that seeds a runaway. Updating thread 2 accordingly.
+  - **Caveat to verify:** replays are 1-rank; the FMM gradient is supposed to be
+    partition-independent, so a 1-rank spurious outlier should also appear at 16
+    ranks — but confirm by replaying at 4/16 ranks (needs the Cray GTL lib
+    linked into the harness for GPU-aware MPI). If the outlier is 1-rank-only,
+    that is itself a parallel-FMM bug.
+  - **Next diagnostic:** for the spurious node at step 1357, determine whether
+    the error is in the far field (M2L/L2L) or near field (P2P) — e.g. add a
+    Canopy debug switch to run far-only / near-only, or compute the exact
+    near/far split for that node — and find the offending interaction. Likely a
+    node near the root-cell center (octant boundary) or a MAC edge case.
 - _(append next entry here)_
