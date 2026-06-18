@@ -2,7 +2,7 @@
 # flux: --job-name=rocketrig_debug_fmm_nan
 # flux: --nodes=4
 # flux: --exclusive
-# flux: --time=90
+# flux: --time=120
 # flux: --output={{name}}.{{jobid}}.log
 # flux: -q pbatch
 #
