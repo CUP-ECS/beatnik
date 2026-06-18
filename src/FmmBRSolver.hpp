@@ -393,6 +393,16 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 #endif
         const int num_local = _canopy.num_local_particles();
 
+#if defined( BEATNIK_FMM_SNAPSHOT_DEBUG )
+        // TEMPORARY (debug-nan branch): dump the exact (positions, charges)
+        // that the upcoming solve() sees, for the steps bracketing the
+        // premature full-rollup NaN, so the offline replay harness can
+        // reproduce the blow-up without a 75-min queued run. One binary file
+        // per rank per (step, substep). Requires profiling (sets _beatnik_step);
+        // outside the window it is a no-op. Remove on resolution.
+        maybeDumpSnapshot( num_local );
+#endif
+
         // 3. Solve with compute_gradient=true
         const auto gradient = [&] {
             BEATNIK_SCOPED_TIMER_DETAILED( Beatnik::Profiling::TIMER_SOLVE );
@@ -493,6 +503,83 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
 #endif
 
   private:
+
+#if defined( BEATNIK_FMM_SNAPSHOT_DEBUG )
+    /* TEMPORARY (debug-nan branch): step window to dump particle snapshots.
+     * The premature NaN aborts at step 1364; dump a margin on either side in
+     * case the failing step shifts between runs. Inclusive bounds. */
+    static constexpr int SNAP_FIRST_STEP = 1350;
+    static constexpr int SNAP_LAST_STEP  = 1370;
+
+    mutable int _snap_step{ -1 };
+    mutable int _snap_sub{ 0 };
+
+    /* Dump _canopy_particles (positions + charges) as seen by the upcoming
+     * solve() to one binary file per rank per (step, substep), when the
+     * current Beatnik step is inside [SNAP_FIRST_STEP, SNAP_LAST_STEP].
+     * File layout (little-endian host): int32 num_local, then num_local
+     * records of 6 doubles {px,py,pz,qx,qy,qz}. The replay harness globs all
+     * rank files for a chosen (step, substep) and concatenates them. */
+    void maybeDumpSnapshot( int num_local ) const
+    {
+        const int step = this->_beatnik_step;
+        if ( step < SNAP_FIRST_STEP || step > SNAP_LAST_STEP )
+            return;
+
+        // Track substep index per step without depending on the profiling
+        // counter (which may be compiled out independently).
+        if ( step != _snap_step )
+        {
+            _snap_step = step;
+            _snap_sub  = 0;
+        }
+        const int sub = _snap_sub++;
+
+        auto pos = Cabana::slice<FmmField::Position>( _canopy_particles );
+        auto chg = Cabana::slice<FmmField::Charge>( _canopy_particles );
+
+        Kokkos::View<double* [6], MemorySpace> packed(
+            Kokkos::ViewAllocateWithoutInitializing( "FmmBRSolver_snap_packed" ),
+            num_local );
+        Kokkos::parallel_for( "FmmBRSolver::packSnapshot",
+            Kokkos::RangePolicy<ExecutionSpace>( 0, num_local ),
+            KOKKOS_LAMBDA( const int p ) {
+                packed( p, 0 ) = pos( p, 0 );
+                packed( p, 1 ) = pos( p, 1 );
+                packed( p, 2 ) = pos( p, 2 );
+                packed( p, 3 ) = chg( p, 0 );
+                packed( p, 4 ) = chg( p, 1 );
+                packed( p, 5 ) = chg( p, 2 );
+            } );
+        Kokkos::fence();
+
+        auto h_packed =
+            Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), packed );
+
+        char fname[256];
+        std::snprintf( fname, sizeof( fname ),
+                       "fmm_snapshot_step%04d_sub%d_rank%04d.bin", step, sub,
+                       _rank );
+        std::FILE* f = std::fopen( fname, "wb" );
+        if ( !f )
+        {
+            std::fprintf( stderr,
+                          "[FmmBRSolver snapshot] rank %d: failed to open %s\n",
+                          _rank, fname );
+            return;
+        }
+        const int n = num_local;
+        std::fwrite( &n, sizeof( int ), 1, f );
+        std::fwrite( h_packed.data(), sizeof( double ),
+                     static_cast<size_t>( num_local ) * 6, f );
+        std::fclose( f );
+        if ( _rank == 0 )
+            std::fprintf( stderr,
+                          "[FmmBRSolver snapshot] wrote step %d sub %d "
+                          "(rank 0 num_local=%d)\n",
+                          step, sub, num_local );
+    }
+#endif // BEATNIK_FMM_SNAPSHOT_DEBUG
 
     /* Build a Canopy::FmmConfig from Beatnik's Params + epsilon. The
      * softening is sqrt(epsilon) so Canopy's
