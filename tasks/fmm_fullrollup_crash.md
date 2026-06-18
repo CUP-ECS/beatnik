@@ -1,6 +1,10 @@
 # FMM full-rollup crash — investigation & fix
 
-**Status: IN PROGRESS** (last updated 2026-06-17)
+**Status: NIC CRASH RESOLVED** (last updated 2026-06-17). The Slingshot
+`cxil_map` registration crash is fixed (see Resolution). Full-rollup
+*completion* is now blocked by a **separate, pre-existing premature FMM NaN
+at step 1364** that the NIC crash had been masking — tracked as a new open
+item below ("Premature FMM NaN at full rollup").
 
 Single-mode FMM rollups abort at full rollup with a Slingshot CXI NIC
 memory-registration failure (`cxil_map: write error` → `MPI_Isend` abort).
@@ -108,6 +112,61 @@ sizes (target 16000×16000).
 - Don't pursue the distributor-caching or `setup()`-every-step items — the
   profile rules them out at this scale.
 
+## Resolution (NIC crash)
+
+**Root cause:** GPU-aware-MPI memory **registration churn**. Both halo
+exchanges inside Canopy `solve()` allocated a fresh device `Kokkos::View`
+per peer on every call and passed its `.data()` device pointer to
+`MPI_Isend`/`MPI_Irecv` — `detail::coalesced_view_exchange` (M2M in
+UpwardSweep; M2L + L2L in DownwardSweep) and `P2P::gather_ghost_particles`.
+On Slingshot/CXI each fresh device allocation is a fresh NIC registration;
+at full rollup (near-continuous Rebalance + growing M2L working set) the
+registration cache accumulates until the NIC is exhausted →
+`cxil_map: write error` → `MPIDI_OFI_send_normal: Invalid argument`.
+
+**Fix:** `Canopy_RegisteredBufferPool.hpp` — a persistent, grow-only (1.5×
+headroom, never shrinks) device buffer with a stable base address. Each
+exchange now carves per-peer **unmanaged subviews** from one registered
+region per direction, so the CXI cache registers a small bounded set once
+and reuses it. Pure buffer management: pack/unpack, peer ordering, message
+layout, and the accumulate-on-recv (L2L) path are unchanged.
+
+**Commits (Canopy branch `redesign`):** `fac4519` (pool + P2P),
+`d834034` (coalesced M2M/M2L/L2L). Beatnik unchanged.
+
+**Validation:** `Beatnik_Test_FmmVsExact` green on HIP/OPENMP/SERIAL at 1
+and 4 ranks (agreement vs exact unchanged: BRDirect rel_diff ~1e-20,
+OneRK3 ~7e-10; job `f3F1Peev48XH`). Full crash-deck run `f3F1T7e6F24F`
+(pbatch, 16 ranks/4 nodes) ran with **0 `cxil_map` errors** through the
+entire Rebalance-heavy tail (1213 Migrate + 2874 Rebalance actions),
+proving the registration crash is gone. The run did not reach step 1400 —
+it hit the separate premature NaN below.
+
+## Premature FMM NaN at full rollup (OPEN — new, was masked by the NIC crash)
+
+With the NIC crash fixed, run `f3F1T7e6F24F` advanced to step 1363 and then
+aborted via the ZModel guard: `196608 NaN/Inf value(s) detected in
+interface velocity (zdot) during timestep 1364`. This is **premature**: the
+**exact BR solver completes all 1400 steps** on the identical deck
+(`rocketrig_debug_exact.f3Eozj7DCRQs.log`: `solve() total wallclock =
+108.8 s (1400 steps)`, no NaN). So it is an FMM accuracy/robustness failure,
+not the physical singularity.
+
+**Diagnostic lead:** the NaN onset coincides exactly with the **first and
+only** `auto_maintain` → `Rebuild` actions of the whole run (steps 1362.2,
+1363.0–1363.2; 4 total; everything before is Migrate/Rebalance). `Rebuild`
+fires on `needs_rebuild` = a particle escaping the global bounding box. So
+the blow-up is triggered the moment particle(s) leave the bbox at maximal
+rollup, and the FMM produces a spurious large velocity the exact all-pairs
+solver does not. This is investigation **thread 2** (accuracy/cost), now the
+gating issue for full-rollup completion. Candidate directions: (a) far-field
+accuracy (P_ORDER 10→higher, mac_theta 0.4→tighter, max_depth) to see if the
+NaN step moves toward 1400 — if it does, it is inherent approximation error;
+(b) localize which particles/region produce the NaN at step 1363 (compare
+FMM vs exact zdot) to test whether it is the bbox-escape/Rebuild path
+specifically rather than gradual error; (c) bbox padding tolerances
+(`fmm_*_tol`) so the escape/Rebuild is handled before it blows up.
+
 ## Investigation log
 
 - **2026-06-17 — initial diagnosis.** Single-mode FMM rollups were dying; built
@@ -147,4 +206,16 @@ sizes (target 16000×16000).
   pbatch) is queued — success = it passes step ~1272 and reaches 1400 with no
   `cxil_map` error. Will flip Status → RESOLVED and add a Resolution section
   once that run confirms.
+- **2026-06-17 — NIC crash fix validated; premature NaN exposed.** Full
+  crash-deck run `f3F1T7e6F24F` (log
+  `rocketrig_debug_fmm.f3F1T7e6F24F.log`) confirmed **0 `cxil_map` errors** —
+  the persistent-buffer-pool fix eliminated the Slingshot registration crash.
+  The run cleared the entire Rebalance-heavy tail (1213 Migrate + 2874
+  Rebalance) that previously aborted at ~1272, reaching step 1363. It then hit
+  a **premature FMM NaN at step 1364** (ZModel guard: 196608 NaN zdot values).
+  Exact completes 1400 on the same deck → premature, not the singularity. NaN
+  onset is locked to the **first-ever `Rebuild` actions** (bbox escape) at
+  1362–1363. Marked the NIC crash RESOLVED (Resolution section added) and
+  opened "Premature FMM NaN at full rollup" as the new gating item (thread 2).
+  Pending user decision on whether to pursue the NaN now or hand it off.
 - _(append next entry here)_

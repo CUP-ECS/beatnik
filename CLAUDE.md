@@ -148,38 +148,54 @@ detailed context behind each.
 ## Known issues
 
 - **FMM full-rollup crash: Slingshot NIC registration exhaustion during
-  Canopy `Rebalance` (OPEN).** In a single-mode rollup driven by the FMM
-  BR solver, once the sheet fully rolls up and particles concentrate in
-  the core, Canopy's `auto_maintain` switches to near-continuous
-  `Rebalance`, and the resulting all-to-all migration traffic exhausts
-  the tuolumne Slingshot CXI NIC's memory-registration resources. The run
-  aborts with `cxil_map: write error` followed by
-  `MPI_Isend ... MPIDI_OFI_send_normal: Invalid argument`. This is **not a
-  NaN** — the ZModel interface-velocity guard never fires, and the physics
-  is stable through full rollup (the exact BR solver completes the same
-  case). See [tasks/fmm_fullrollup_crash.md](tasks/fmm_fullrollup_crash.md)
-  for the full investigation record (kept updated as work continues).
+  Canopy `Rebalance` (RESOLVED 2026-06-17).** In a single-mode rollup
+  driven by the FMM BR solver, once the sheet fully rolled up, Canopy's
+  `auto_maintain` went near-continuous `Rebalance` and the run aborted with
+  `cxil_map: write error` → `MPIDI_OFI_send_normal: Invalid argument`.
+  **Root cause:** GPU-aware-MPI memory *registration churn* — both halo
+  exchanges in Canopy `solve()` (`coalesced_view_exchange` for M2M/M2L/L2L,
+  and `P2P::gather_ghost_particles`) allocated a fresh device `Kokkos::View`
+  per peer every call, and each fresh device allocation is a fresh CXI NIC
+  registration; the cache accumulated until the NIC was exhausted.
+  **Fix:** `Canopy_RegisteredBufferPool.hpp` — persistent, grow-only device
+  buffers with stable base addresses; each exchange carves per-peer
+  unmanaged subviews from one registered region per direction (Canopy
+  branch `redesign`: `fac4519`, `d834034`). Validated: `FmmVsExact` green on
+  HIP/OPENMP/SERIAL at 1,4 ranks; full crash-deck run `f3F1T7e6F24F` cleared
+  the entire Rebalance-heavy tail with **0 `cxil_map` errors**. See
+  [tasks/fmm_fullrollup_crash.md](tasks/fmm_fullrollup_crash.md) for the
+  full record.
+
+- **Premature FMM NaN at full rollup (OPEN — exposed once the NIC crash was
+  fixed).** With the registration crash gone, the same crash-deck run
+  reaches step 1363 and then aborts via the ZModel guard
+  (`NaN/Inf ... interface velocity ... timestep 1364`). The **exact BR
+  solver completes all 1400 steps** on the identical deck, so this is an FMM
+  accuracy/robustness failure, not the physical singularity. The NaN onset
+  is locked to the **first-and-only `auto_maintain` → `Rebuild`** actions of
+  the run (bounding-box escape, steps 1362–1363). This is investigation
+  thread 2 (FMM accuracy/cost) and is now the gating issue for full-rollup
+  completion; expected to matter more at production mesh sizes (e.g. 16000).
   - Repro config: single-mode `sech2`, 256×256 (B=4), `P_ORDER=10`,
     `fmm_max_depth=19`, `fmm_mac_theta=0.4`, `fmm_imbalance_tol=0.20`,
-    `epsilon=2`, `delta_t=0.0006`, 16 ranks / 4 nodes. Crash at ~step 1272
-    (full rollup); by ~step 600 `auto_maintain` is already a
-    Migrate/Rebalance mix, trending to all-Rebalance as the core tightens.
-  - **Level-2 profile (16 ranks) shows the cost is the FMM evaluation, not
-    comm.** Per-call `computeInterfaceVelocity` mean of 1127 s splits as:
-    Canopy `solve()` = 1044 s (**92.6%**), `auto_maintain` = 56 s (~5%),
-    build fwd+rev distributor = 22 s (~2%), fwd+rev migrate = 4.5 s (<1%).
-    => The "Cache the forward `Cabana::Distributor`" and "`setup()` every
-    step" items under [Future optimization opportunities](#future-optimization-opportunities)
-    are **not worth pursuing at this scale** — the bottleneck is Canopy
-    `solve()`. Revisit only if higher rank counts change the balance.
+    `epsilon=2`, `delta_t=0.0006`, 16 ranks / 4 nodes.
+  - **Level-2 profile (16 ranks): the cost is the FMM evaluation, not comm.**
+    Per-call `computeInterfaceVelocity` mean 1127 s = Canopy `solve()` 1044 s
+    (**92.6%**), `auto_maintain` 56 s (~5%), build fwd+rev distributor 22 s
+    (~2%), fwd+rev migrate 4.5 s (<1%). ⇒ The "Cache the forward
+    `Cabana::Distributor`" and "`setup()` every step" items under
+    [Future optimization opportunities](#future-optimization-opportunities)
+    are **not worth pursuing at this scale**.
   - Reference logs (on `develop-canopy`):
-    `scripts/tuolumne/rocketrig_debug_fmm.f3ExhEXgrG4X.log` (the crash),
-    `scripts/tuolumne/rocketrig_testprof.f3Eyjvuf1wFV.log` (level-2 profile).
-  - Related, already FIXED: the *premature* FMM NaN at rollup onset was a
+    `rocketrig_debug_fmm.f3F1T7e6F24F.log` (NIC fix validated, NaN at 1364),
+    `scripts/tuolumne/rocketrig_debug_exact.f3Eozj7DCRQs.log` (exact, 1400
+    steps clean), `scripts/tuolumne/rocketrig_debug_fmm.f3ExhEXgrG4X.log`
+    (the original NIC crash), `scripts/tuolumne/rocketrig_testprof.f3Eyjvuf1wFV.log`
+    (level-2 profile).
+  - Earlier, already FIXED: the *premature* FMM NaN at rollup *onset* was a
     separate accuracy problem, resolved by raising `P_ORDER` 6→10 and
-    tightening `fmm_mac_theta` 0.6→0.4 (committed on `develop-canopy`).
-    This NIC crash is what remains, and is expected to be worse at
-    production mesh sizes (e.g. 16000).
+    tightening `fmm_mac_theta` 0.6→0.4. This step-1364 NaN at full rollup is
+    what remains.
 
 ## General guidelines
 
