@@ -167,13 +167,16 @@ detailed context behind each.
   full record.
 
 - **Premature FMM NaN at full rollup (OPEN — exposed once the NIC crash was
-  fixed).** With the registration crash gone, the same crash-deck run
+  fixed).** Live record: [tasks/fmm_premature_nan.md](tasks/fmm_premature_nan.md).
+  With the registration crash gone, the same crash-deck run
   reaches step 1363 and then aborts via the ZModel guard
   (`NaN/Inf ... interface velocity ... timestep 1364`). The **exact BR
   solver completes all 1400 steps** on the identical deck, so this is an FMM
   accuracy/robustness failure, not the physical singularity. The NaN onset
   is locked to the **first-and-only `auto_maintain` → `Rebuild`** actions of
-  the run (bounding-box escape, steps 1362–1363). This is investigation
+  the run (bounding-box escape, steps 1362–1363); the `196608` NaN count =
+  256×256×3 (whole owned-node field), pointing at the far-field multipole
+  path rather than the softened near-field P2P. This is investigation
   thread 2 (FMM accuracy/cost) and is now the gating issue for full-rollup
   completion; expected to matter more at production mesh sizes (e.g. 16000).
   - Repro config: single-mode `sech2`, 256×256 (B=4), `P_ORDER=10`,

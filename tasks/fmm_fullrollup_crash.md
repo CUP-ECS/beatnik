@@ -144,6 +144,11 @@ it hit the separate premature NaN below.
 
 ## Premature FMM NaN at full rollup (OPEN — new, was masked by the NIC crash)
 
+> **Now tracked in its own living record:**
+> [fmm_premature_nan.md](fmm_premature_nan.md). That file is the authoritative
+> record for this issue going forward; the summary below is retained for
+> context on how it was first exposed.
+
 With the NIC crash fixed, run `f3F1T7e6F24F` advanced to step 1363 and then
 aborted via the ZModel guard: `196608 NaN/Inf value(s) detected in
 interface velocity (zdot) during timestep 1364`. This is **premature**: the
