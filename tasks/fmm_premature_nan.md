@@ -334,4 +334,55 @@ sizes (e.g. 16000).
     documented `ncrit`) is a low-risk mitigation that should let the full run
     finish — to be confirmed by a full FMM run + FmmVsExact, pending the
     root-cause decision.
+- **2026-06-18 — ROOT CAUSE CONFIRMED: the FMM far-field (M2L) ignores the
+  Plummer softening (softening is applied only in P2P).** Two findings:
+  1. **Secondary latent bug (fixed): L2P finite-difference gradient step.**
+     `l2p_evaluate` computes the gradient by central differences with a **fixed
+     `h=1e-5`** (a documented "correctness-first" placeholder). For tiny deep
+     cells the FD truncation error ~`h²/w_self³` explodes and, once `h≳w_self`,
+     the perturbed eval point leaves the cell where the local series diverges.
+     Changed to `h=1e-5·w_self` (`Canopy_LaplaceKernel.hpp`). This cleaned up the
+     ultra-deep tail (1362.2 far-field 1.4e12 → ~0) but **not** the 1357 seed.
+  2. **Primary root cause: softening missing from the far field.** With the
+     harness run at `softening=0`, the FMM matches the unsoftened all-pairs
+     reference **to machine precision** (both 1.59762e21, rel diff ~2e-16) — so
+     the M2L faithfully computes the *unsoftened* 1/r kernel. With the real
+     `softening=eps=√2≈1.414`, only P2P is softened; M2L is not. At full rollup
+     the core collapses (cells ~3e-3, far-field M2L pairs at rho≈0.03–0.4 ≪
+     eps=1.414), where the true softened kernel `(r²+eps²)^(-1/2)` is nearly
+     flat but the unsoftened multipole 1/r is ~35× larger → the spurious
+     single-node far-field gradient that seeds the runaway. This explains all
+     prior evidence: P-independent (wrong *kernel*, not truncation),
+     depth-dependent (smaller cells ⇒ smaller far-rho ⇒ larger softening error;
+     `max_depth=12` keeps cells/rho larger so it mitigates), far-field-only,
+     P2P-correct, and FmmVsExact-passing (that config keeps far-rho ≳ eps).
+  - **Fix direction (needs decision — core Canopy change with a cost tradeoff):**
+    ensure M2L pairs are separated by more than ~the softening length so the
+    unsoftened far-field is accurate, i.e. widen the near-field (P2P, softened)
+    to cover everything within ~`K·eps` by adding an `R > K·eps` term to the MAC
+    / interaction-list admission (`mac_satisfied`/`build_all_interaction_lists`
+    in `Canopy_CommunicationPlan.hpp`; softening must be plumbed into the plan).
+    Cost: at full rollup the dense core puts more pairs in P2P (toward O(N²)
+    locally). Alternatives: a softened multipole kernel (hard), or capping
+    `fmm_max_depth`/raising softening-vs-resolution (Beatnik-side mitigation).
+- **2026-06-18 — FIX implemented + validated on snapshots; FmmVsExact green;
+  full run submitted.** Canopy commit `f484cbc`:
+  - `CommunicationPlan::mac_satisfied` now rejects M2L (→ softened P2P) for any
+    pair closer than `K*eps` (K=4), with `eps` plumbed from the Solver
+    (`set_near_softening`, explicit + auto paths; no-op at eps=0).
+  - `LaplaceKernel::l2p_evaluate` FD gradient step scaled to the cell
+    (`h=1e-5*w_self`).
+  - **Snapshot validation:** the ~35× single-node outlier is gone —
+    FMM max|grad| at 1357.0 = 3504 vs exact 3490 (was 108855); 1361.0 3536 vs
+    3523 (was 55650). Note θ alone could not fix this (it scales with cell
+    size, but the softening floor is absolute), confirming the floor is the
+    right mechanism.
+  - **Guardrail green:** `Beatnik_Test_FmmVsExact` passes HIP/OPENMP/SERIAL at
+    1,4 ranks, 0 failures (job `f3FZycxsexw1`) — the floor is a no-op in that
+    config (far-rho ≫ eps), so accuracy is unchanged.
+  - **Pending:** full crash-deck run (16 ranks) to confirm it reaches step 1400.
+    Watch the cost: the softening floor widens P2P at full rollup (the dense
+    core puts more pairs in near-field), so the run may be slower; if it times
+    out, raise `--time` or reconsider K. The temporary `CANOPY_NAN_DEBUG`
+    diagnostics remain ON for this run and will be removed once it passes.
 - _(append next entry here)_
