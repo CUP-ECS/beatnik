@@ -1,6 +1,12 @@
 # Premature FMM NaN at full rollup — investigation & fix
 
-**Status: OPEN** (last updated 2026-06-18). With the Slingshot NIC-registration
+**Status: FIX VALIDATED — cleanup pending** (last updated 2026-06-18). Root
+cause found and fixed (far-field ignored the Plummer softening); the full
+crash-deck FMM run now completes **all 1400 steps with 0 NaN and 0 bbox-escape
+Rebuilds** (job `f3Fa1vABnaHu`). Remaining: remove the temporary
+`CANOPY_NAN_DEBUG` / snapshot diagnostics, add the Resolution section, mirror to
+CLAUDE.md. See the latest Investigation-log entry and the (forthcoming)
+Resolution section. With the Slingshot NIC-registration
 crash RESOLVED (see [fmm_fullrollup_crash.md](fmm_fullrollup_crash.md)), the
 full crash-deck FMM run now reaches step **1363** and aborts at step **1364**
 via the ZModel NaN/Inf interface-velocity guard. The **exact BR solver completes
@@ -385,4 +391,16 @@ sizes (e.g. 16000).
     core puts more pairs in near-field), so the run may be slower; if it times
     out, raise `--time` or reconsider K. The temporary `CANOPY_NAN_DEBUG`
     diagnostics remain ON for this run and will be removed once it passes.
+- **2026-06-18 — FIX VALIDATED: full run completes 1400 steps, 0 NaN, 0
+  Rebuilds.** Full crash-deck run `f3Fa1vABnaHu` (16 ranks/4 nodes, fix +
+  diagnostics) **completed** (state CD, ~69 min): reached step 1399, **0
+  NaN/Inf**, and the action histogram is `Migrate=1180 Rebalance=3019
+  Rebuild=0` across all 4200 computeInterfaceVelocity calls. **Rebuild=0** means
+  no particle ever escaped the bounding box — the spurious far-field that drove
+  the runaway is gone, so the trajectory stays bounded like the exact solver (no
+  explosion, no Rebuild, no NaN). This confirms the root cause and fix
+  end-to-end. Remaining work: remove the temporary `CANOPY_NAN_DEBUG` diagnostics
+  + `BEATNIK_FMM_SNAPSHOT_DEBUG` dump + the `04_nan_replay` harness, re-run
+  FmmVsExact on the clean build, decide the final `NEAR_SOFTENING_K` value
+  (K=4 ⇒ ~3% far-field softening error), and mirror the Resolution to CLAUDE.md.
 - _(append next entry here)_
