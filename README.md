@@ -46,9 +46,18 @@ Run `rocketrig --help` for the full schema. The key groups are:
 | Initial condition | `initial_condition` (`cos`/`sech2`/`gaussian`/`random`), `magnitude`, `variation`, `period`, `tilt` |
 | Physics / boundary | `boundary` (`periodic`/`free`), `gravity` (Gs), `atwood` |
 | Solver | `solver_order` (`low`/`medium`/`high`), `br_solver` (`exact`/`cutoff`/`fmm`), `cutoff_distance`, `heffte_configuration`, `mu`, `epsilon` |
-| FMM tunables (when `br_solver = fmm`) | `fmm_ncrit`, `fmm_max_depth`, `fmm_mac_theta`, `fmm_replication_depth`, `fmm_imbalance_tol`, `fmm_ncrit_tol`, `fmm_{x,y,z}{min,max}_tol` |
+| FMM tunables (when `br_solver = fmm`) | `fmm_ncrit`, `fmm_max_depth`, `fmm_mac_theta`, `fmm_replication_depth`, `fmm_imbalance_tol`, `fmm_ncrit_tol`, `fmm_{x,y,z}{min,max}_tol`, `fmm_near_softening_factor` |
 
 `br_solver = fmm` requires Beatnik to be built with Canopy support (`Beatnik_ENABLE_CANOPY=ON`).
+
+`fmm_near_softening_factor` (default `4.0`) guards the FMM far field against the
+Plummer softening (`eps = sqrt(epsilon)`): pairs closer than
+`fmm_near_softening_factor · eps` are evaluated by the softened near-field (P2P)
+rather than the unsoftened multipole far-field (M2L). This prevents a premature
+blow-up at full roll-up, where the rolled-up core shrinks below `eps` and the
+unsoftened far field would otherwise produce a spurious, far-too-large velocity.
+Larger values are more accurate but push more pairs into the costlier P2P path;
+`0` disables the floor. See Canopy's `near_softening_factor` for details.
 
 ### Example 1: periodic multi-mode rocket rig
 

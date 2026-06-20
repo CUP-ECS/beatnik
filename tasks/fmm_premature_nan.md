@@ -137,6 +137,68 @@ sizes (e.g. 16000).
 - Don't pursue the distributor-caching or `setup()`-every-step items — the
   level-2 profile rules them out at this scale (see the NIC-crash record).
 
+## Resolution
+
+**Root cause:** the FMM **far-field (M2L) uses the unsoftened `1/r` Laplace
+kernel** — the Plummer softening (`eps = sqrt(epsilon) ≈ 1.414` for this deck)
+was applied only in the near-field P2P. At full roll-up the sheet collapses so
+tree cells shrink to `~3e-3` and "geometrically far" M2L pairs sit at separations
+`rho ≈ 0.03–0.4`, **far below `eps`**. There the true softened kernel
+`(r²+eps²)^(-1/2)` is nearly flat, but the FMM's unsoftened multipole `1/r` is
+~35× larger, so one node gets a spurious large interface velocity. That seeds a
+runaway (corrupted node → bbox escape → `Rebuild` on an exploding box → the box
+inflates ~1000×/substep → NaN at step 1364). The **exact BR solver** sums the
+softened kernel directly, so it stays bounded and completes 1400 steps.
+
+Confirmed decisively: with `softening = 0` the FMM matches a brute-force
+unsoftened all-pairs reference **to machine precision** (both `1.59762e21`, rel
+diff `~2e-16`). The error appears only with softening on, only in the far field.
+This also explains every earlier observation: **P-independent** (wrong *kernel*,
+not multipole truncation — `P_ORDER` 10→16 gave byte-identical results),
+**depth-dependent** (smaller cells ⇒ smaller far-`rho` ⇒ larger softening error;
+`max_depth=12` mitigated), **far-field-only** (P2P is softened and correct), and
+**`FmmVsExact`-passing** (that config keeps far-`rho ≫ eps`). `mac_theta` could
+not fix it because it scales the near-field with cell size, while the softening
+floor is *absolute*.
+
+**Fix (Canopy):**
+- `CommunicationPlan::mac_satisfied` now rejects M2L (forces the softened P2P
+  path) for any pair closer than `near_softening_factor · eps`. The softening
+  length and factor are plumbed in from the Solver
+  (`set_near_softening(eps, factor)`, explicit + auto-softening paths); no-op at
+  `eps = 0`. Exposed as a runtime knob: `FmmConfig::near_softening_factor`
+  (default `4.0`, ⇒ ~3% worst-case far-field softening error at the boundary,
+  less beyond), surfaced in Beatnik as `Params::fmm_near_softening_factor` /
+  the `fmm_near_softening_factor` input-deck key.
+- Secondary latent bug fixed: `LaplaceKernel::l2p_evaluate` computed the gradient
+  by central finite differences with a **fixed** step `h = 1e-5` (a documented
+  "correctness-first" placeholder). The FD truncation error `~ h²/w_self³`
+  explodes for deep (tiny) cells; scaled it to `h = 1e-5 · w_self` so the
+  relative error is depth-independent. (This cleaned up the ultra-deep runaway
+  tail; the softening floor fixes the actual seed. Ideal future work: analytical
+  L2P derivatives.)
+
+**Validation:**
+- On the captured snapshots the ~35× single-node outlier is gone: FMM
+  `max|grad|` at step 1357.0 = `3504` vs exact `3490` (was `108855`); 1361.0
+  `3536` vs `3523` (was `55650`).
+- `Beatnik_Test_FmmVsExact` green on HIP/OPENMP/SERIAL at 1 and 4 ranks, 0
+  failures (job `f3FZycxsexw1`).
+- Full crash-deck run (16 ranks/4 nodes, job `f3Fa1vABnaHu`) **completed all
+  1400 steps, 0 NaN**, action histogram `Migrate=1180 Rebalance=3019
+  **Rebuild=0**` — i.e. **zero bbox escapes**: the trajectory now stays bounded
+  like the exact solver.
+
+**Commits (Canopy branch `debug-nan`):** `f484cbc` (fix: softening floor + L2P
+FD step) plus the runtime-knob + README follow-ups. Beatnik branch `debug-nan`:
+the `fmm_near_softening_factor` param wiring.
+
+**Remaining (deferred):** remove the temporary `CANOPY_NAN_DEBUG` diagnostics and
+the `BEATNIK_FMM_SNAPSHOT_DEBUG` per-step dump (gate it OFF by default; keep the
+`examples/04_nan_replay` harness as a reusable offline FMM-vs-exact tool),
+re-run `FmmVsExact` on the clean build, then merge `debug-nan` → the integration
+branches.
+
 ## Investigation log
 
 - **2026-06-18 — record opened; planning + initial source triage.** Split this

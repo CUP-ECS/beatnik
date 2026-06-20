@@ -83,6 +83,15 @@ struct Params
     double fmm_imbalance_tol      = 0.10;
     double fmm_ncrit_tol          = 0.10;
 
+    /* Near-field softening floor (Canopy FmmConfig.near_softening_factor).
+     * The FMM far-field uses the unsoftened 1/r kernel, so any pair closer
+     * than this multiple of the Plummer softening length (eps = sqrt(epsilon))
+     * is handled by the softened near-field (P2P) instead of the multipole
+     * far-field (M2L). Larger = more accurate far field but more P2P pairs;
+     * 0 disables. Prevents the premature full-rollup NaN where the rolled-up
+     * core shrinks below eps. */
+    double fmm_near_softening_factor = 4.0;
+
     /* Per-face bounding-box padding tolerances (Canopy FmmConfig).
      * Each is a fraction of the corresponding axis width applied as
      * padding to the global root box on that face. Asymmetric values

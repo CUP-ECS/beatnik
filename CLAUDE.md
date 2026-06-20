@@ -166,39 +166,39 @@ detailed context behind each.
   [tasks/fmm_fullrollup_crash.md](tasks/fmm_fullrollup_crash.md) for the
   full record.
 
-- **Premature FMM NaN at full rollup (OPEN — exposed once the NIC crash was
-  fixed).** Live record: [tasks/fmm_premature_nan.md](tasks/fmm_premature_nan.md).
-  With the registration crash gone, the same crash-deck run
-  reaches step 1363 and then aborts via the ZModel guard
-  (`NaN/Inf ... interface velocity ... timestep 1364`). The **exact BR
-  solver completes all 1400 steps** on the identical deck, so this is an FMM
-  accuracy/robustness failure, not the physical singularity. The NaN onset
-  is locked to the **first-and-only `auto_maintain` → `Rebuild`** actions of
-  the run (bounding-box escape, steps 1362–1363); the `196608` NaN count =
-  256×256×3 (whole owned-node field), pointing at the far-field multipole
-  path rather than the softened near-field P2P. This is investigation
-  thread 2 (FMM accuracy/cost) and is now the gating issue for full-rollup
-  completion; expected to matter more at production mesh sizes (e.g. 16000).
+- **Premature FMM NaN at full rollup (RESOLVED 2026-06-18 — pending diagnostic
+  cleanup).** Live record: [tasks/fmm_premature_nan.md](tasks/fmm_premature_nan.md).
+  **Root cause:** the FMM **far-field (M2L) used the unsoftened `1/r` Laplace
+  kernel** — the Plummer softening (`eps = sqrt(epsilon) ≈ 1.414`) was applied
+  only in the near-field P2P. At full roll-up the core collapses so cells shrink
+  to `~3e-3` and "geometrically far" M2L pairs sit at `rho ≈ 0.03–0.4 ≪ eps`,
+  where the softened kernel is nearly flat but the unsoftened multipole `1/r` is
+  ~35× larger → a spurious single-node velocity that seeds a runaway (bbox
+  escape → `Rebuild` on an exploding box → NaN at step 1364). The exact solver
+  sums the softened kernel directly, so it stays bounded. Confirmed: at
+  `softening=0` the FMM matches an unsoftened all-pairs reference to machine
+  precision; the error is P-independent (`P_ORDER` 10→16 byte-identical, ruling
+  out truncation), depth-dependent, and far-field-only.
+  **Fix:** Canopy `CommunicationPlan::mac_satisfied` now forces any pair closer
+  than `near_softening_factor · eps` to the softened P2P path instead of M2L —
+  a runtime knob `FmmConfig::near_softening_factor` (default `4.0`), surfaced in
+  Beatnik as `fmm_near_softening_factor`. Plus a secondary fix to the L2P
+  gradient finite-difference step (fixed `h=1e-5` → `h=1e-5·w_self`). Canopy
+  branch `debug-nan`: `f484cbc` + knob/README follow-ups.
+  **Validation:** `FmmVsExact` green on HIP/OPENMP/SERIAL at 1,4 ranks (job
+  `f3FZycxsexw1`); full crash-deck run (16 ranks/4 nodes, job `f3Fa1vABnaHu`)
+  completed **all 1400 steps, 0 NaN, 0 bbox-escape Rebuilds**
+  (`Migrate=1180 Rebalance=3019 Rebuild=0`).
   - Repro config: single-mode `sech2`, 256×256 (B=4), `P_ORDER=10`,
     `fmm_max_depth=19`, `fmm_mac_theta=0.4`, `fmm_imbalance_tol=0.20`,
     `epsilon=2`, `delta_t=0.0006`, 16 ranks / 4 nodes.
-  - **Level-2 profile (16 ranks): the cost is the FMM evaluation, not comm.**
-    Per-call `computeInterfaceVelocity` mean 1127 s = Canopy `solve()` 1044 s
-    (**92.6%**), `auto_maintain` 56 s (~5%), build fwd+rev distributor 22 s
-    (~2%), fwd+rev migrate 4.5 s (<1%). ⇒ The "Cache the forward
-    `Cabana::Distributor`" and "`setup()` every step" items under
-    [Future optimization opportunities](#future-optimization-opportunities)
-    are **not worth pursuing at this scale**.
-  - Reference logs (on `develop-canopy`):
-    `rocketrig_debug_fmm.f3F1T7e6F24F.log` (NIC fix validated, NaN at 1364),
-    `scripts/tuolumne/rocketrig_debug_exact.f3Eozj7DCRQs.log` (exact, 1400
-    steps clean), `scripts/tuolumne/rocketrig_debug_fmm.f3ExhEXgrG4X.log`
-    (the original NIC crash), `scripts/tuolumne/rocketrig_testprof.f3Eyjvuf1wFV.log`
-    (level-2 profile).
+  - **Still pending:** remove the temporary `CANOPY_NAN_DEBUG` / snapshot-dump
+    diagnostics (keep the `04_nan_replay` harness), re-run `FmmVsExact` on the
+    clean build, then merge `debug-nan`. The softening floor widens P2P at full
+    roll-up, so watch the cost at production mesh sizes (e.g. 16000).
   - Earlier, already FIXED: the *premature* FMM NaN at rollup *onset* was a
     separate accuracy problem, resolved by raising `P_ORDER` 6→10 and
-    tightening `fmm_mac_theta` 0.6→0.4. This step-1364 NaN at full rollup is
-    what remains.
+    tightening `fmm_mac_theta` 0.6→0.4.
 
 ## General guidelines
 

@@ -602,6 +602,7 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         cfg.imbalance_tolerance = params.fmm_imbalance_tol;
         cfg.mac_theta           = params.fmm_mac_theta;
         cfg.softening           = std::sqrt( epsilon );
+        cfg.near_softening_factor = params.fmm_near_softening_factor;
         return cfg;
     }
 
