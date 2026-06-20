@@ -239,4 +239,51 @@ sizes (e.g. 16000).
     Canopy debug switch to run far-only / near-only, or compute the exact
     near/far split for that node — and find the offending interaction. Likely a
     node near the root-cell center (octant boundary) or a MAC edge case.
+- **2026-06-18 — far/near split + θ/depth sweep: far-field M2L cancellation at
+  deep tree is the mechanism.** Added a Canopy `solve()` stage mask
+  (`dbg_skip_far`/`dbg_skip_p2p`, under `CANOPY_NAN_DEBUG`) and a `run_l2p`
+  rho_norm diagnostic; harness does far-only/near-only solves at the spurious
+  node.
+  - **Far/near split:** at every spurious node the near-field (P2P) is small and
+    correct (~90–106); the **far-field carries the entire spurious value**
+    (1357.0: far=108827, near=93.6, exact total=2453). Culprit = FAR-FIELD
+    (M2L/L2L/L2P).
+  - **rho_norm ruled out:** the worst node sits *inside* its leaf (rho_norm
+    1.19–1.21; global max 1.71≈√3 corner). So L2P evaluation is fine — the
+    **local coefficients from M2L/L2L are wrong**. Target is a tiny deep leaf
+    (half_width ~0.003–0.013) in the rolled-up core.
+  - **θ / max_depth sweep on snapshot 1357.0** (far-only @ worst node vs exact):
+    θ=0.4→108827 (44×), θ=0.2→37404 (15×), θ=0.1→10039 (4×); max_depth=15→17923
+    (22×), **max_depth=12→1607 (~1×, essentially correct)**. Monotone with both
+    knobs.
+  - **Mechanism = catastrophic cancellation in the far field at the steep
+    rollup.** True net gradient is small (~2453) but the M2L sum is of huge,
+    nearly-cancelling contributions; each term's truncation error (~θ^(P+1),
+    small relative to the term but the terms are enormous) does not cancel and
+    dominates the small net. Deeper tree ⇒ more, smaller cells ⇒ more terms ⇒
+    worse cancellation. The exact all-pairs sums exactly ⇒ immune. So this is
+    **inherent FMM accuracy degradation under cancellation**, not a discrete
+    code bug (no NaN/Inf in any moment; rho_norm normal).
+  - **Open fix question (testing next):** does raising **P_ORDER** (smaller
+    per-term error) restore far≈exact at max_depth=19, or is a shallower
+    `max_depth` / tighter θ (or a cancellation-aware near/far split) required?
+    P_ORDER is compile-time — parametrize the harness and sweep P∈{10,12,14,16}.
+
+- **2026-06-18 — P_ORDER sweep RULES OUT cancellation: it's a P-independent
+  structural M2L bug.** Parametrized the harness (`-DREPLAY_P_ORDER=N`) and
+  re-ran snapshot 1357.0 at P=10/12/16 (verified the define propagates — the
+  printed P_ORDER differs). **far-only=108827 is byte-identical across all P.**
+  Truncation/cancellation error would shrink sharply with P, so the previous
+  "catastrophic cancellation" reading is **falsified**. The spurious far-field
+  value is dominated by a **P-independent term** (leading-order), while θ
+  (interaction-set) and max_depth (cell sizes/tree) *do* change it
+  (θ:0.4→108827, 0.1→10039; depth12→1607≈exact). ⇒ A **structural M2L geometry
+  bug**: a specific interaction is mis-handled at leading order, excited by the
+  deep asymmetric-size cell pairs that form at max_depth=19 in the rolled-up
+  core. **Next:** instrument the M2L (run_m2l / operator build in
+  Canopy_DownwardSweep + the translate in Canopy_LaplaceKernel) to find, for the
+  worst target cell, the single source cell driving the spurious contribution
+  and compare the operator's assumed geometry (reconstructed from the
+  (dd,ii,jj,kk) key) to the true cell centers/half-widths — focus on asymmetric
+  (dd≠0) pairs.
 - _(append next entry here)_
