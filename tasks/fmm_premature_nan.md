@@ -286,4 +286,52 @@ sizes (e.g. 16000).
   and compare the operator's assumed geometry (reconstructed from the
   (dd,ii,jj,kk) key) to the true cell centers/half-widths — focus on asymmetric
   (dd≠0) pairs.
+- **2026-06-18 — ruled out translation/moments; narrowed to the M2L interaction
+  list.** Read the M2L internals and probed each input:
+  - **Operator-table vs fallback:** forcing all M2L pairs through the exact
+    per-pair fallback (`m2l_translate` with real widths, `M2L_KEY_OFFSET_MAX=0`)
+    gives the **same** 108827 ⇒ not the scale-normalized operator table.
+  - **`m2l_translate` is numerically sound:** its scale factors are
+    `(w_s/rho)^{n+1}·(w_t/rho)^j`, all ≤1 and decaying for separated cells — no
+    `2^{j·dd}` blow-up (that factor lives only in the *normalized* operator-table
+    build `m2l_build_operator`, which the fallback bypasses). The
+    `M2L_KEY_DD_MAX=6` "comfortable for double" comment was a red herring for
+    this case.
+  - **Moments are sound:** max|multipole| = 134941 at depth19 (cell depth 15,
+    hw 0.046) and 28430 at depth12 — modest, not precision-blown.
+  ⇒ The M2L **faithfully** computes 108827 from correct moments via a sound
+  translation, yet the exact all-pairs total is 2453. By elimination the error
+  is in the **far/near interaction-list partition** — a source cell summed as
+  "far" whose multipole contribution should be small/cancel, i.e. a too-close /
+  overlapping source wrongly admitted by the MAC, or a partition gap. This is
+  consistent with P-independence (the pair set is P-independent) and θ/depth
+  dependence (both change the pair set). **Next:** instrument the M2L apply to
+  dump, for the worst target cell, each source cell's contribution magnitude +
+  pair geometry (rho, w_s, w_t, MAC ratio R/[√3(w_s+w_t)]) and find the
+  offending source; then inspect `build_all_interaction_lists` /
+  `mac_satisfied` / `is_well_separated` for the admitting bug.
+- **2026-06-18 — completeness check PASSES; partition is not the bug. Validated
+  max_depth mitigation.** Added a single-rank M2L/P2P completeness invariant in
+  `build_all_interaction_lists`: for each leaf, sum `global_count` over the M2L
+  sources of the leaf and all its ancestors (these reach the leaf via L2L) plus
+  its P2P neighbor leaves; must equal N_total. **Result: bad_leaves=0** at both
+  depth19 and depth12 — every leaf sees exactly 65536 particles once. So **no
+  double-counting and no gaps**; the interaction-list partition is correct.
+  - **Ruled out so far** (the far-field is wrong by ~44× yet): truncation/order
+    (P-independent), the scale-normalized operator table (fallback gives same),
+    `m2l_translate` numerics (all scale factors ≤1), moment magnitude (~135k,
+    sound), and partition completeness (exact). The remaining suspect is a
+    **wrong moment VALUE** (P2M/M2M) or a **specific well-separated pair whose
+    multipole is nonetheless inaccurate** — i.e. the far-field sum of
+    sound-looking pieces still lands at 108827 vs the exact 2453. Next decisive
+    measurement: per-source M2L contribution dump for the worst target cell
+    (flag the cell, re-solve, print each source's contribution + geometry +
+    multipole-vs-exact for that source) to find the single dominant wrong
+    contribution; then audit P2M/M2M for that source.
+  - **Practical mitigation (validated on the snapshot):** `max_depth=12` makes
+    far+near ≈ exact at the spurious node (3136 vs 2705) and removes the ~1e5
+    outlier; the deck uses `max_depth=19`. Capping `fmm_max_depth` (and/or the
+    documented `ncrit`) is a low-risk mitigation that should let the full run
+    finish — to be confirmed by a full FMM run + FmmVsExact, pending the
+    root-cause decision.
 - _(append next entry here)_
