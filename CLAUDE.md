@@ -79,6 +79,66 @@ The minimum test set:
   32×32 free-boundary case. `<DEVICE>` is the active Kokkos backend
   (e.g. `HIP`, `OPENMP`, `SERIAL`).
 
+## Scaling single-mode runs
+
+When creating a new single-mode `sech2` rollup deck or flux script, scale every
+geometry/IC parameter from the **64-node baseline** (`bounding_box = 1.0`,
+`magnitude = 0.1`, `period = 9.0`, `atwood = 0.15`). The shipped
+`examples/01_rocketrig/single_mode_{1024,4000,16000}.in` are worked examples,
+and README's "Scaling to large meshes" section has the long-form rationale.
+
+Let `B = bounding_box`. Scale by mesh resolution:
+
+- **`bounding_box = nodes / 64`** (linear in mesh). This holds the physical grid
+  spacing `dx = 2B/(nodes − 1) ≈ 0.031` constant, which is what keeps interface
+  points from getting too close together — the regime where the BR/FMM solve
+  collapses. At a *fixed* bbox the points crowd as `nodes` grows (empirically
+  64→1.0 is fine but 256 needs bbox ≥ 3.0); the `nodes/64` rule avoids that.
+- **`magnitude = 0.1 · B`** (linear). `magnitude` is the vertical amplitude.
+- **`period = 9.0 / B²`** (**inverse square**). The sech² IC is
+  `z = magnitude · sech²(period · r²)` with `r` the physical distance from the
+  domain centre (domain is `(−B..B)`), so the bump half-width is `~1/√period`.
+  To keep the bump the same *fraction* of a domain whose half-width grows
+  linearly, `period ∝ 1/B²`. Scaling `period` the wrong way collapses the bump
+  to a sub-cell spike → a flat, unevolving surface. (This inverse-square rule is
+  specific to `sech2`; the `cos` IC's `period` is a wavelength and scales
+  *linearly*.)
+
+| nodes | B = bbox | magnitude | period      |
+| ----- | -------- | --------- | ----------- |
+| 64    | 1        | 0.1       | 9.0         |
+| 256   | 4        | 0.4       | 0.5625      |
+| 512   | 8        | 0.8       | 0.140625    |
+| 1024  | 16       | 1.6       | 0.03515625  |
+| 4000  | 62.5     | 6.25      | 0.0023040   |
+| 16000 | 250      | 25.0      | 0.000144    |
+
+**Time integration.** `delta_t` is *not* the cause of the rollup failures (those
+were FMM accuracy + the NIC crash, both resolved under Known issues), but it has
+its own scaling:
+
+- Keep `delta_t` at or below the auto value `tau/50` (high order),
+  `tau = 1/√(atwood·gravity)` — independent of `B`. Do **not** inflate it to
+  "evolve faster": interface velocity grows as `v ~ √(atwood·gravity·λ)` with
+  `λ ∝ B`, so the CFL-stable step *shrinks* as `~1/√B` (≈ `auto/√B` at peak
+  velocity). An oversized `delta_t` triggers a separate CFL blowup.
+- **Timesteps to reach a full rollup grow ~linearly with `B`** (physical time
+  `∝ √B`, stable step `∝ 1/√B`). A large mesh with a small fixed step count
+  shows only early motion, not a developed rollup.
+
+**FMM solver settings for rollup runs** (validated configuration from the
+rollup debugging — see [Known issues](#known-issues)):
+
+- `P_ORDER = 10` (compile-time, [src/FmmBRSolver.hpp](src/FmmBRSolver.hpp)),
+  `fmm_mac_theta = 0.4`, `fmm_max_depth = 19`, `fmm_imbalance_tol = 0.20`,
+  `epsilon = 2`. This is the config that cleared full rollup (256², 16 ranks).
+- Keep `fmm_near_softening_factor` at its default (`4.0`) or higher — it is the
+  M2L-vs-P2P softening floor that fixed the premature far-field NaN.
+- **Watch FMM cost at production sizes (e.g. 16000):** Canopy `solve()` is ~92%
+  of per-call cost, and the softening floor widens the near-field P2P as the
+  core densifies, so cost grows through roll-up. `fmm_near_softening_factor`
+  trades far-field accuracy against that cost.
+
 ## Plans
 
 When creating plans via plan mode, save plan files to `./plans/` in this
