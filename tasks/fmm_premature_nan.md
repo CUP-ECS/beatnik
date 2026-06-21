@@ -1,11 +1,12 @@
 # Premature FMM NaN at full rollup — investigation & fix
 
-**Status: FIX VALIDATED — cleanup pending** (last updated 2026-06-18). Root
-cause found and fixed (far-field ignored the Plummer softening); the full
-crash-deck FMM run now completes **all 1400 steps with 0 NaN and 0 bbox-escape
-Rebuilds** (job `f3Fa1vABnaHu`). Remaining: remove the temporary
-`CANOPY_NAN_DEBUG` / snapshot diagnostics, add the Resolution section, mirror to
-CLAUDE.md. See the latest Investigation-log entry and the (forthcoming)
+**Status: RESOLVED** (last updated 2026-06-18). Root cause found and fixed
+(far-field ignored the Plummer softening); the full crash-deck FMM run completes
+**all 1400 steps with 0 NaN and 0 bbox-escape Rebuilds** (job `f3Fa1vABnaHu`).
+Temporary diagnostics removed, runtime knob added, branches merged
+(Beatnik `debug-nan` → `develop-canopy`; Canopy `debug-nan` → `redesign`). A
+final clean 256×256 FMM-with-IO confirmation run is in flight (job
+`f3FnURKDGXz7`). See the **Resolution** section below. See the latest Investigation-log entry and the (forthcoming)
 Resolution section. With the Slingshot NIC-registration
 crash RESOLVED (see [fmm_fullrollup_crash.md](fmm_fullrollup_crash.md)), the
 full crash-deck FMM run now reaches step **1363** and aborts at step **1364**
@@ -465,4 +466,17 @@ branches.
   + `BEATNIK_FMM_SNAPSHOT_DEBUG` dump + the `04_nan_replay` harness, re-run
   FmmVsExact on the clean build, decide the final `NEAR_SOFTENING_K` value
   (K=4 ⇒ ~3% far-field softening error), and mirror the Resolution to CLAUDE.md.
-- _(append next entry here)_
+- **2026-06-18 — cleanup + runtime knob + branch merges + confirmation run.**
+  Made the softening floor a runtime knob (`FmmConfig::near_softening_factor`,
+  default 4.0 → Beatnik `Params::fmm_near_softening_factor` / deck key);
+  documented it in both READMEs. Removed all temporary `CANOPY_NAN_DEBUG`
+  diagnostics (per-stage finiteness, geometry dump, completeness invariant, M2L
+  source dump, L2P rho_norm, far/near stage mask) and the CMake flag; gated the
+  Beatnik snapshot dump behind the OFF-by-default `Beatnik_ENABLE_FMM_SNAPSHOT`
+  option (kept the `04_nan_replay` harness as a reusable FMM-vs-exact tool).
+  Clean rebuild: `FmmVsExact` green on HIP/OPENMP/SERIAL at 1,4 ranks (job
+  `f3FnQ2sgDZUK`). Merged `debug-nan` into `develop-canopy` (Beatnik, `9e12739`)
+  and `redesign` (Canopy, `10567e1`) with descriptive merge messages. Submitted
+  the final clean 256×256 FMM-with-IO run on the merged build
+  (`rocketrig_debug_fmm.flux`, 16 ranks/4 nodes, write_frequency=20; job
+  `f3FnURKDGXz7`) to confirm end-to-end on the production-shaped path.

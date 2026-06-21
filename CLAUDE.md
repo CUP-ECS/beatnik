@@ -166,8 +166,8 @@ detailed context behind each.
   [tasks/fmm_fullrollup_crash.md](tasks/fmm_fullrollup_crash.md) for the
   full record.
 
-- **Premature FMM NaN at full rollup (RESOLVED 2026-06-18 — pending diagnostic
-  cleanup).** Live record: [tasks/fmm_premature_nan.md](tasks/fmm_premature_nan.md).
+- **Premature FMM NaN at full rollup (RESOLVED 2026-06-18).** Live record:
+  [tasks/fmm_premature_nan.md](tasks/fmm_premature_nan.md).
   **Root cause:** the FMM **far-field (M2L) used the unsoftened `1/r` Laplace
   kernel** — the Plummer softening (`eps = sqrt(epsilon) ≈ 1.414`) was applied
   only in the near-field P2P. At full roll-up the core collapses so cells shrink
@@ -192,10 +192,15 @@ detailed context behind each.
   - Repro config: single-mode `sech2`, 256×256 (B=4), `P_ORDER=10`,
     `fmm_max_depth=19`, `fmm_mac_theta=0.4`, `fmm_imbalance_tol=0.20`,
     `epsilon=2`, `delta_t=0.0006`, 16 ranks / 4 nodes.
-  - **Still pending:** remove the temporary `CANOPY_NAN_DEBUG` / snapshot-dump
-    diagnostics (keep the `04_nan_replay` harness), re-run `FmmVsExact` on the
-    clean build, then merge `debug-nan`. The softening floor widens P2P at full
-    roll-up, so watch the cost at production mesh sizes (e.g. 16000).
+  - Temporary `CANOPY_NAN_DEBUG` / snapshot-dump diagnostics removed (the
+    `04_nan_replay` FMM-vs-exact harness is kept; the snapshot dump is now the
+    OFF-by-default `Beatnik_ENABLE_FMM_SNAPSHOT` option). `FmmVsExact` re-run
+    green on the clean build (job `f3FnQ2sgDZUK`); `debug-nan` merged into
+    `develop-canopy` (Beatnik) and `redesign` (Canopy).
+  - **Watch:** the softening floor widens P2P at full roll-up (more near-field
+    pairs in the dense core), so keep an eye on FMM cost at production mesh
+    sizes (e.g. 16000); `fmm_near_softening_factor` trades far-field accuracy
+    against that cost.
   - Earlier, already FIXED: the *premature* FMM NaN at rollup *onset* was a
     separate accuracy problem, resolved by raising `P_ORDER` 6→10 and
     tightening `fmm_mac_theta` 0.6→0.4.
