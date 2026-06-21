@@ -75,6 +75,16 @@ if(_beatnik_profiling_level GREATER 0)
     BEATNIK_PROFILING_LEVEL=${_beatnik_profiling_level})
 endif()
 
+# Optional: per-step FMM particle-snapshot dumps in FmmBRSolver.hpp, feeding the
+# offline FMM-vs-exact replay harness (canopy/examples/04_nan_replay). OFF by
+# default; enable with -DBeatnik_ENABLE_FMM_SNAPSHOT=ON. Requires profiling for
+# the step number; a no-op outside the snapshot step window (see FmmBRSolver.hpp).
+option(Beatnik_ENABLE_FMM_SNAPSHOT
+  "Dump per-step FMM particle snapshots for the offline replay harness" OFF)
+if(Beatnik_ENABLE_FMM_SNAPSHOT)
+  target_compile_definitions(Beatnik INTERFACE BEATNIK_FMM_SNAPSHOT_DEBUG)
+endif()
+
 target_link_libraries( Beatnik INTERFACE ${DEPENDS_ON} )
 
 target_include_directories( Beatnik INTERFACE
