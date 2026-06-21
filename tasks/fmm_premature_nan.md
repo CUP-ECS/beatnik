@@ -1,12 +1,13 @@
 # Premature FMM NaN at full rollup — investigation & fix
 
-**Status: RESOLVED** (last updated 2026-06-18). Root cause found and fixed
-(far-field ignored the Plummer softening); the full crash-deck FMM run completes
-**all 1400 steps with 0 NaN and 0 bbox-escape Rebuilds** (job `f3Fa1vABnaHu`).
-Temporary diagnostics removed, runtime knob added, branches merged
-(Beatnik `debug-nan` → `develop-canopy`; Canopy `debug-nan` → `redesign`). A
-final clean 256×256 FMM-with-IO confirmation run is in flight (job
-`f3FnURKDGXz7`). See the **Resolution** section below. See the latest Investigation-log entry and the (forthcoming)
+**Status: RESOLVED & CONFIRMED** (last updated 2026-06-18). Root cause found and
+fixed (far-field ignored the Plummer softening); the full crash-deck FMM run
+completes **all 1400 steps with 0 NaN and 0 bbox-escape Rebuilds**. Temporary
+diagnostics removed, runtime knob added, branches merged (Beatnik `debug-nan` →
+`develop-canopy`; Canopy `debug-nan` → `redesign`). The final clean 256×256
+FMM-with-IO confirmation run (job `f3FnURKDGXz7`) completed 1400 steps clean with
+71 output frames, and **the FMM and exact interface trajectories match exactly
+when graphed** — closing the issue. See the **Resolution** section below. See the latest Investigation-log entry and the (forthcoming)
 Resolution section. With the Slingshot NIC-registration
 crash RESOLVED (see [fmm_fullrollup_crash.md](fmm_fullrollup_crash.md)), the
 full crash-deck FMM run now reaches step **1363** and aborts at step **1364**
@@ -480,3 +481,12 @@ branches.
   the final clean 256×256 FMM-with-IO run on the merged build
   (`rocketrig_debug_fmm.flux`, 16 ranks/4 nodes, write_frequency=20; job
   `f3FnURKDGXz7`) to confirm end-to-end on the production-shaped path.
+- **2026-06-18 — CONFIRMED on the clean merged build with IO; issue closed.**
+  The 256×256 FMM-with-IO confirmation run `f3FnURKDGXz7` completed: step 1399
+  reached, **0 NaN**, action histogram `Migrate=1180 Rebalance=3019 Rebuild=0`
+  (identical to the validation run — deterministic), **71 silo frames written**.
+  The user graphed the FMM output against the exact run and **the interface
+  trajectories match exactly** through all 1400 steps. This closes the premature
+  full-rollup FMM NaN. (Note: Canopy's own `Canopy_Test_MultiSolve` minimum test
+  was not separately run for the merged fix — coverage came from Beatnik
+  `FmmVsExact` + this end-to-end FMM-vs-exact match; deemed sufficient.)
