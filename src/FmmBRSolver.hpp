@@ -394,12 +394,12 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
         const int num_local = _canopy.num_local_particles();
 
 #if defined( BEATNIK_FMM_SNAPSHOT_DEBUG )
-        // TEMPORARY (debug-nan branch): dump the exact (positions, charges)
-        // that the upcoming solve() sees, for the steps bracketing the
-        // premature full-rollup NaN, so the offline replay harness can
-        // reproduce the blow-up without a 75-min queued run. One binary file
-        // per rank per (step, substep). Requires profiling (sets _beatnik_step);
-        // outside the window it is a no-op. Remove on resolution.
+        // Optional (Beatnik_ENABLE_FMM_SNAPSHOT, OFF by default): dump the exact
+        // (positions, charges) the upcoming solve() sees, for a window of steps,
+        // so the offline FMM-vs-exact replay harness
+        // (canopy/examples/04_nan_replay) can reproduce a solve without a queued
+        // run. One binary file per rank per (step, substep). Requires profiling
+        // (sets _beatnik_step); outside the window it is a no-op.
         maybeDumpSnapshot( num_local );
 #endif
 
@@ -505,9 +505,9 @@ class FmmBRSolver : public BRSolverBase<ExecutionSpace, MemorySpace, Params>
   private:
 
 #if defined( BEATNIK_FMM_SNAPSHOT_DEBUG )
-    /* TEMPORARY (debug-nan branch): step window to dump particle snapshots.
-     * The premature NaN aborts at step 1364; dump a margin on either side in
-     * case the failing step shifts between runs. Inclusive bounds. */
+    /* Inclusive step window to dump particle snapshots for the offline replay
+     * harness. Adjust to bracket the steps of interest (e.g. a suspected
+     * blow-up) and rebuild with -DBeatnik_ENABLE_FMM_SNAPSHOT=ON. */
     static constexpr int SNAP_FIRST_STEP = 1350;
     static constexpr int SNAP_LAST_STEP  = 1370;
 
