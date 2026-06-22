@@ -264,6 +264,10 @@ void parseInputFile( const std::string& path, ClArgsT& cl )
     setters["fmm_ncrit_tol"] = [&]( const std::string& v ) {
         cl.params.fmm_ncrit_tol = parseDoubleValue( "fmm_ncrit_tol", v );
     };
+    setters["fmm_near_softening_factor"] = [&]( const std::string& v ) {
+        cl.params.fmm_near_softening_factor =
+            parseDoubleValue( "fmm_near_softening_factor", v );
+    };
     setters["fmm_xmin_tol"] = [&]( const std::string& v ) {
         cl.params.fmm_xmin_tol = parseDoubleValue( "fmm_xmin_tol", v );
     };
@@ -383,6 +387,7 @@ inline void printSchema( std::ostream& os )
 "  fmm_replication_depth int    (default 3)\n"
 "  fmm_imbalance_tol     double (default 0.10)\n"
 "  fmm_ncrit_tol         double (default 0.10)\n"
+"  fmm_near_softening_factor double (default 4.0)\n"
 "  fmm_{x,y,z}{min,max}_tol  double  per-face bbox padding (default 0.10 each)\n";
 }
 

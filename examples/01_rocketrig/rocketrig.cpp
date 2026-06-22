@@ -456,6 +456,8 @@ int main( int argc, char* argv[] )
                     << ": " << std::setw( 8 ) << cl.params.fmm_imbalance_tol << "\n";
                 std::cout << std::left << std::setw( 30 ) << "FMM ncrit_tol"
                     << ": " << std::setw( 8 ) << cl.params.fmm_ncrit_tol << "\n";
+                std::cout << std::left << std::setw( 30 ) << "FMM near_softening_factor"
+                    << ": " << std::setw( 8 ) << cl.params.fmm_near_softening_factor << "\n";
                 std::cout << std::left << std::setw( 30 ) << "FMM bbox_tol x[min,max]"
                     << ": " << cl.params.fmm_xmin_tol << ", "
                     << cl.params.fmm_xmax_tol << "\n";
