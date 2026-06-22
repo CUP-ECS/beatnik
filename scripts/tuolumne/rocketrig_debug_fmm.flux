@@ -2,9 +2,9 @@
 # flux: --job-name=rocketrig_debug_fmm
 # flux: --nodes=4
 # flux: --exclusive
-# flux: --time=75
+# flux: --time=90
 # flux: --output={{name}}.{{jobid}}.log
-# flux: -q pdebug
+# flux: -q pbatch
 #
 # Overnight debug run: FMM BR solver on the shared debug deck
 #   /p/lustre5/stewartj/beatnik/fmm/debug/single_mode_debug.in
