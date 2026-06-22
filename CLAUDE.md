@@ -217,6 +217,29 @@ detailed context behind each.
 
 ## Known issues
 
+- **FMM large-scale crash: GTL dreg-cache exhaustion in the Canopy `Rebalance`
+  particle migrate (MITIGATED 2026-06-22; durable fix tracked in Canopy #22).**
+  The 256-rank / 64-node 1536² full-rollup run
+  ([scripts/tuolumne/rocketrig1536.flux](scripts/tuolumne/rocketrig1536.flux))
+  deadlocked at step 307 of 8400, during the first significant `Rebalance`, with
+  `(GTL DEBUG) dreg_evict returned NO_SPACE ... more than 10000 active memory
+  regions`. One rank's GPU comm died and the other 255 blocked in the next
+  collective, so the job hung (flux still showed it `R` for ~19 h until
+  cancelled). **Root cause:** `dreg_evict NO_SPACE` is a peak-*simultaneity*
+  failure (all 10000 GTL registration-cache entries active at once), not a leak.
+  Canopy's `RegisteredBufferPool` bounds the `solve()` exchanges (coalesced M2L
+  + P2P) to one registered region per direction, but the `Rebalance` particle
+  migration (`TreePartitioner::migrate_particles` → `Cabana::Distributor` /
+  `Cabana::migrate`) is **not** pooled — at 256 ranks the many-way scatter hands
+  O(peers) device buffers to GPU-aware MPI at once, blowing the 10000 default.
+  **Stopgap (deployed):** `export GTL_DREG_CACHE_SIZE=262144` in the
+  `rocketrig1536*.flux` scripts (≈26× headroom). Out-provisioning only; the peak
+  likely grows as the core densifies, so this may not survive to full rollup.
+  **Durable fix:** route the rebalance migrate through a pool-backed coalesced
+  exchange (one registered region per direction), mirroring the `solve()` fix —
+  **Canopy #22**. When that lands and Beatnik picks up the new Canopy, the env
+  bump becomes belt-and-suspenders.
+
 - **FMM full-rollup crash: Slingshot NIC registration exhaustion during
   Canopy `Rebalance` (RESOLVED 2026-06-17).** In a single-mode rollup
   driven by the FMM BR solver, once the sheet fully rolled up, Canopy's

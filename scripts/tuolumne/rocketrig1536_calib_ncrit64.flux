@@ -20,6 +20,7 @@ spack env activate ~/spack_envs/tuolumne_beatnik_production
 
 export MPICH_GPU_SUPPORT_ENABLED=1
 export GTL_HSA_VSMSG_CUTOFF_SIZE=4096
+export GTL_DREG_CACHE_SIZE=262144   # default 10000 exhausted at 256 ranks (GTL dreg_evict NO_SPACE during Rebalance)
 export FI_CXI_ATS=0
 export HSA_XNACK=1
 export MPICH_SMP_SINGLE_COPY_MODE=NONE

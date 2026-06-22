@@ -1,8 +1,8 @@
 #!/bin/bash
-# flux: --job-name=rocketrig1536
+# flux: --job-name=rk1536_verify400
 # flux: --nodes=64
 # flux: --exclusive
-# flux: --time=1440
+# flux: --time=60
 # flux: --output={{name}}.{{jobid}}.log
 # flux: -q pbatch
 #
@@ -10,7 +10,7 @@
 # FULL rollup in one job:
 #   mesh   : 1536x1536 (B=24)
 #   ranks  : 256 (64 nodes x 4 GPUs/tasks, 1 GPU/task)
-#   deck   : /p/lustre5/stewartj/beatnik/fmm/n1536_p256/single_mode.in
+#   deck   : /p/lustre5/stewartj/beatnik/fmm/n1536_p256/single_mode_verify400.in
 #
 # Sizing (CALIBRATED on this exact geometry, jobs f3Fp373YbYRu/f3Fp37BBsqh1):
 #   measured early-regime per-step (50-step calib, ncrit=64) = 3.802 s
@@ -42,23 +42,23 @@ export OMP_PLACES=cores
 export OMP_WAIT_POLICY=PASSIVE
 
 BASE_DIR="/p/lustre5/stewartj/beatnik/fmm/n1536_p256"
-RUN_DIR="${BASE_DIR}/fmm"
-SRC_INPUT="${BASE_DIR}/single_mode.in"
+RUN_DIR="${BASE_DIR}/verify400"
+SRC_INPUT="${BASE_DIR}/single_mode_verify400.in"
 
 mkdir -p "${RUN_DIR}"
 # Force the BR solver to fmm in this run's copy (only the 'br_solver' line).
 sed 's/^br_solver.*/br_solver            = fmm/' "${SRC_INPUT}" \
-    > "${RUN_DIR}/single_mode.in"
+    > "${RUN_DIR}/single_mode_verify400.in"
 cd "${RUN_DIR}"
 
 ROCKETRIG="$(command -v rocketrig)"
-INPUT="${RUN_DIR}/single_mode.in"
+INPUT="${RUN_DIR}/single_mode_verify400.in"
 
 echo ":::"
 echo "::: rocketrig binary: ${ROCKETRIG}"
 echo "::: rocketrig input : ${INPUT} (br_solver forced to fmm)"
 echo "::: run directory   : ${RUN_DIR}"
-echo "::: mesh 1536^2 (B=24), 256 ranks / 64 nodes, full-rollup run"
+echo "::: mesh 1536^2 (B=24), 256 ranks / 64 nodes, 400-step GTL_DREG_CACHE_SIZE verification (must clear step ~307 Rebalance)"
 echo ":::"
 
 flux run \
