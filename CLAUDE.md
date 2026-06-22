@@ -134,6 +134,16 @@ rollup debugging — see [Known issues](#known-issues)):
   `epsilon = 2`. This is the config that cleared full rollup (256², 16 ranks).
 - Keep `fmm_near_softening_factor` at its default (`4.0`) or higher — it is the
   M2L-vs-P2P softening floor that fixed the premature far-field NaN.
+- **`fmm_ncrit = 64` beats `128` at scale (GPU).** On a 1536² (B=24) full-rollup
+  run at 256 ranks / 64 nodes, calibration measured **3.80 s/step at `ncrit=64`
+  vs 4.11 s/step at `ncrit=128`** (early-regime, 50 steps) — keep `ncrit=64`; the
+  larger-leaf GPU-throughput win does not materialize here. `fmm_max_depth = 19`
+  is the hard maximum (Canopy's `TreeBuilder` throws above 19 — Morton-key
+  storage). That run is staged in
+  [scripts/tuolumne/rocketrig1536.flux](scripts/tuolumne/rocketrig1536.flux)
+  (24 h wall sized for ~20 h full rollup; deck
+  `/p/lustre5/stewartj/beatnik/fmm/n1536_p256/single_mode.in`), with calibration
+  variants `rocketrig1536_calib_ncrit{64,128}.flux`.
 - **Watch FMM cost at production sizes (e.g. 16000):** Canopy `solve()` is ~92%
   of per-call cost, and the softening floor widens the near-field P2P as the
   core densifies, so cost grows through roll-up. `fmm_near_softening_factor`
@@ -241,8 +251,11 @@ detailed context behind each.
   out truncation), depth-dependent, and far-field-only.
   **Fix:** Canopy `CommunicationPlan::mac_satisfied` now forces any pair closer
   than `near_softening_factor · eps` to the softened P2P path instead of M2L —
-  a runtime knob `FmmConfig::near_softening_factor` (default `4.0`), surfaced in
-  Beatnik as `fmm_near_softening_factor`. Plus a secondary fix to the L2P
+  a runtime knob `FmmConfig::near_softening_factor` (default `4.0`), settable
+  from a rocketrig `.in` deck as `fmm_near_softening_factor` — the parser wiring
+  in `InputFile.hpp` was completed in `db6a956`; before that commit the key was
+  rejected as "unknown" and only the compile-time `4.0` default applied. Plus a
+  secondary fix to the L2P
   gradient finite-difference step (fixed `h=1e-5` → `h=1e-5·w_self`). Canopy
   branch `debug-nan`: `f484cbc` + knob/README follow-ups.
   **Validation:** `FmmVsExact` green on HIP/OPENMP/SERIAL at 1,4 ranks (job
