@@ -313,3 +313,14 @@ detailed context behind each.
 - **Keep `README.md` in sync.** When a public-facing API changes, or when the
   arguments accepted by an example problem change, update `README.md` in the
   same change so its documentation stays accurate.
+- **Finalize the production env before submitting big jobs (any HPC system).**
+  On any system with a separate production spack env (insulated from dev
+  rebuilds), make "production env up to date + built" a gate *before* `flux
+  batch`/`srun`/`sbatch` of a large or long-running job: pull the dependency
+  source clones (e.g. canopy and beatnik) to the intended commits and run the
+  install (`spack install`) *first*, so the binary reflects them. **Never run
+  the install against the production env while a production job is live** — a
+  `spack install` overwrites the binary on disk in place, and a running job
+  whose executable pages change underneath it takes a SIGBUS (Bus error,
+  rc=135) and dies. (This bit us on 2026-06-24: a reinstall during a live
+  64-node run SIGBUS-killed it.)
