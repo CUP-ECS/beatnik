@@ -18,9 +18,11 @@ Tuolumne has two spack environments for this project:
 
 No pre-activation `module load` is required; the default module set is enough.
 
-Both paths are the committed defaults in
+Both paths are the committed **fallbacks** in
 [scripts/tuolumne/profile.defaults.sh](../../scripts/tuolumne/profile.defaults.sh)
-as `BEATNIK_SPACK_ENV` and `BEATNIK_SPACK_PROD_ENV`. **Do not hardcode
+as `BEATNIK_SPACK_ENV` and `BEATNIK_SPACK_PROD_ENV`. They say "these envs exist on
+tuolumne", not "your checkout uses them" — a checkout developed into a different
+env overrides them in its own `profile.local.sh`. **Do not hardcode
 `spack env activate` in a script** — source the resolver, which activates the
 dev env by default and the production env under `BEATNIK_USE_PROD=1`:
 
@@ -67,20 +69,53 @@ Update this section if that changes.
 
 ## 3. Build command
 
-**spack mode — the only sanctioned way to build this repository.** The env
-already has `spack develop beatnik`, so this builds the working tree in place:
+**Which of the two applies is a property of your checkout, not of tuolumne.**
+Check it before building — the mode and the file it came from are both reported:
+
+```
+BEATNIK_ENV_DRY_RUN=1 source scripts/lib/beatnik_env.sh
+```
+
+If that says the mode came from `profile.defaults.sh`, the checkout has never
+recorded a choice and you are looking at the machine fallback — confirm with the
+user before building, then write `scripts/tuolumne/profile.local.sh`.
+
+### spack mode
+
+The fallback on tuolumne, and the mode most checkouts here use. The env already
+has `spack develop beatnik`, so this builds the working tree in place:
 
 ```
 spack env activate ~/spack_envs/tuolumne_beatnik
 spack install
 ```
 
-**Do not build manually.** No `cmake`, no `make`, no out-of-tree build
-directory, not even to check that the project configures — the dependency graph
+In this mode, **do not hand-build**: no `cmake`, no `make`, no out-of-tree build
+directory, not even to check that the project configures. The dependency graph
 comes from the spack environment, so a configure outside it does not represent a
-real build and its failures are misleading. `BEATNIK_BUILD_MODE=manual` exists in
-the resolver for portability to a system that needs it; tuolumne is not such a
-system.
+real build and its failures are misleading rather than informative.
+
+### manual mode
+
+For a checkout that hand-compiles out-of-tree (`BEATNIK_BUILD_MODE=manual` in its
+`profile.local.sh`). The env supplies dependencies only, so `spack install` is
+*not* the build command here:
+
+```
+spack env activate ~/spack_envs/tuolumne_beatnik   # dependencies only
+cmake -S "${BEATNIK_REPO}" -B "${BEATNIK_BUILD_DIR}" \
+    -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+    -DBeatnik_ENABLE_TESTING=ON \
+    -DBeatnik_ENABLE_EXAMPLES=ON
+cmake --build "${BEATNIK_BUILD_DIR}" -j
+```
+
+`BEATNIK_BUILD_DIR` defaults to `${BEATNIK_REPO}/build-tuolumne`, derived from the
+repo root so two clones cannot collide on one build tree.
+
+**Do not mix the modes in one checkout.** A stale hand-built tree sitting beside
+an installed binary is how you end up running something other than what you
+changed.
 
 ### Required: clear stray `HIPCC_*_FLAGS_APPEND` before installing
 

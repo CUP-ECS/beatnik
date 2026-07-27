@@ -1,0 +1,65 @@
+############################################################################
+# Copyright (c) 2025 by the Beatnik authors                                #
+# All rights reserved.                                                     #
+#                                                                          #
+# This file is part of the Beatnik library. Beatnik is distributed under a #
+# BSD 3-clause license. For the licensing terms see the LICENSE file in    #
+# the top-level directory.                                                 #
+#                                                                          #
+# SPDX-License-Identifier: BSD-3-Clause                                    #
+############################################################################
+#
+# TEMPLATE for scripts/<system>/profile.local.sh.
+#
+# Copy to scripts/<system>/profile.local.sh (e.g. scripts/tuolumne/) and edit.
+# That path is gitignored, which is the whole point: this file records facts
+# about ONE CHECKOUT on ONE MACHINE, and committing it would impose your
+# checkout's choices on every clone.
+#
+#   Per-instance (here)         build mode; which env this checkout is developed
+#                               into; the build directory.
+#   Per-system (committed)      scripts/<system>/profile.defaults.sh — fallbacks
+#                               so a fresh clone works with zero configuration,
+#                               plus runtime_env.sh for launch-time exports.
+#   Project-wide (committed)    CLAUDE.md, tests/CMakeLists.txt.
+#
+# Only set what DIFFERS from that system's profile.defaults.sh. Anything you
+# leave out falls through to the fallback, so a short file is a good file.
+#
+# Use ${VAR:=value}, not VAR=value: the resolver visits environment, then this
+# file, then the defaults, and `:=` makes the first assignment win. A plain
+# `VAR=value` here would stomp an explicit environment override on the command
+# line, breaking `BEATNIK_USE_PROD=1 flux batch ...` and similar.
+############################################################################
+
+# --- Build mode: "spack" or "manual" -------------------------------------
+#
+# spack   The environment provides dependencies AND builds Beatnik
+#         (`spack develop` + `spack install`); binaries land on PATH; there is
+#         no build tree, so the gate runs installed binaries via the scheduler.
+#         In this mode NEVER hand-run cmake/make.
+#
+# manual  The environment provides dependencies only; you compile out-of-tree
+#         into BEATNIK_BUILD_DIR and the gate is ctest in that directory.
+#         In this mode `spack install` is NOT the build command.
+#
+# Do not mix the two in one checkout.
+: "${BEATNIK_BUILD_MODE:=spack}"
+
+# --- Environments this checkout targets ----------------------------------
+# Override only if this checkout is developed into something other than the
+# machine default. Keep the path absolute or ${HOME}-relative.
+#: "${BEATNIK_SPACK_ENV:=${HOME}/spack_envs/my_beatnik_dev}"
+#: "${BEATNIK_SPACK_PROD_ENV:=${HOME}/spack_envs/my_beatnik_prod}"
+
+# --- Build directory (manual mode only) ----------------------------------
+# Defaults to ${BEATNIK_REPO}/build-<system>, which is already unique per
+# clone. Override only to move it off a slow or small filesystem.
+#: "${BEATNIK_BUILD_DIR:=/p/lustre5/${USER}/beatnik-build}"
+
+# --- Notes for whoever picks up this checkout ----------------------------
+# Free-form. Since this file is not committed, it is the right place for
+# anything true of this checkout alone — which branch it tracks, which
+# experiment it is pinned to, why it deviates from the machine default.
+#
+# e.g. "spack develop'd into tuolumne_beatnik; do not hand-build."

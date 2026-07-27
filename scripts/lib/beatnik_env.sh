@@ -21,8 +21,17 @@
 #   3. How is work being done?     -> BEATNIK_BUILD_MODE / BEATNIK_BIN_MODE
 #                                     BEATNIK_SPACK_ENV / BEATNIK_BUILD_DIR
 #
+# Note the scopes of (2) and (3). The system is a fact about the *machine*; the
+# build mode, the environment a checkout is developed into, and the build
+# directory are facts about *this instance of the repository* — two clones on one
+# machine can legitimately differ. Instance facts live in the gitignored
+# scripts/<system>/profile.local.sh; the committed profile.defaults.sh holds only
+# machine-wide fallbacks so a fresh clone runs with zero configuration.
+#
 # Precedence for every knob is: environment > profile.local.sh > profile.defaults.sh
 # (implemented with ${VAR:=default}, so an already-exported value always wins).
+# BEATNIK_PROFILE_SOURCE reports which of the three actually supplied the build
+# mode, so callers can tell a recorded choice from an unconfirmed fallback.
 #
 # Knobs
 # -----
@@ -42,6 +51,10 @@
 # --------
 #   beatnik_exe <relpath|name>   Resolve a binary for the active bin mode.
 #   beatnik_env_summary          Print the resolved profile.
+#   BEATNIK_PROFILE_SOURCE       "environment" | "profile.local.sh" |
+#                                "profile.defaults.sh" — where the build mode
+#                                came from. A value of profile.defaults.sh means
+#                                this checkout never recorded a choice.
 #
 ############################################################################
 
@@ -90,18 +103,30 @@ _beatnik_sysdir="${BEATNIK_REPO}/scripts/${BEATNIK_SYSTEM}"
 # desired precedence — environment > local > defaults — is produced by visiting
 # the sources in exactly that order. Sourcing defaults first would silently
 # reduce profile.local.sh to a no-op.
+#
+# Provenance is tracked in BEATNIK_PROFILE_SOURCE and reported by
+# beatnik_env_summary, because "which build mode am I in, and who decided that"
+# is exactly the question that goes wrong silently. `defaults` means this
+# checkout has never recorded a choice and is running on the system fallback.
+if [ -n "${BEATNIK_BUILD_MODE}" ]; then
+    BEATNIK_PROFILE_SOURCE=environment
+fi
+
 if [ -f "${_beatnik_sysdir}/profile.local.sh" ]; then
     # shellcheck source=/dev/null
     source "${_beatnik_sysdir}/profile.local.sh"
+    : "${BEATNIK_PROFILE_SOURCE:=profile.local.sh}"
 fi
 
 if [ -f "${_beatnik_sysdir}/profile.defaults.sh" ]; then
     # shellcheck source=/dev/null
     source "${_beatnik_sysdir}/profile.defaults.sh"
+    : "${BEATNIK_PROFILE_SOURCE:=profile.defaults.sh}"
 else
     echo "beatnik_env.sh: missing ${_beatnik_sysdir}/profile.defaults.sh" >&2
     return 1 2>/dev/null || exit 1
 fi
+export BEATNIK_PROFILE_SOURCE
 
 ##--------------------------------------------------------------------------##
 ## 4. Derive the bin mode from the build mode
@@ -137,7 +162,8 @@ export BEATNIK_ACTIVE_SPACK_ENV
 beatnik_env_summary() {
     echo "[beatnik_env] repo       = ${BEATNIK_REPO}"
     echo "[beatnik_env] system     = ${BEATNIK_SYSTEM}"
-    echo "[beatnik_env] build_mode = ${BEATNIK_BUILD_MODE}"
+    echo "[beatnik_env] build_mode = ${BEATNIK_BUILD_MODE}" \
+         "(from ${BEATNIK_PROFILE_SOURCE})"
     echo "[beatnik_env] bin_mode   = ${BEATNIK_BIN_MODE}"
     echo "[beatnik_env] spack_env  = ${BEATNIK_ACTIVE_SPACK_ENV}" \
          "$([ "${BEATNIK_USE_PROD}" = "1" ] && echo '(PRODUCTION)' || echo '(dev)')"
