@@ -8,5 +8,17 @@
 #                                                                          #
 # SPDX-License-Identifier: BSD-3-Clause                                    #
 ############################################################################
+#
+# Example aggregator. One example per ordered `NN_name/` subdirectory, each
+# with its own CMakeLists.txt and a single driver source; shared helpers go in
+# examples/common/. Add every new subdirectory here.
+#
+# Reached only when Beatnik_ENABLE_EXAMPLES=ON (spack: `+examples`), so
+# examples never bloat a default build. They must build in both build modes
+# (manual out-of-tree and spack-installed).
+#
+# Each example's accepted arguments are documented in README.md and must be
+# kept in sync with the code in the same change.
+############################################################################
 
-add_subdirectory(01_rocketrig)
+add_subdirectory(01_rising_bubble)

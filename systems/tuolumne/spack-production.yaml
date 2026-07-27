@@ -1,0 +1,18 @@
+# LLNL Toulumne Spack Environment
+spack:
+  specs:
+  - kokkos@4 +rocm +openmp +serial amdgpu_target=gfx942
+  - cabana@master +grid +mpi +arborx +rocm amdgpu_target=gfx942
+  - trilinos +zoltan2 +openmp +rocm amdgpu_target=gfx942 ~muelu ~ml ~ifpack2 ~ifpack ~fortran ~epetraext ~epetra ~belos ~aztec ~anasazi ~amesos2 ~amesos ldflags="-L/opt/cray/pe/mpich/9.0.1/gtl/lib" ldlibs="-lmpi_gtl_hsa"  ^kokkos +rocm +openmp +serial amdgpu_target=gfx942 %cce
+  - googletest
+  - canopy@develop amdgpu_target=gfx942 ldflags="-L/opt/cray/pe/mpich/9.0.1/gtl/lib" ldlibs="-lmpi_gtl_hsa" %cce
+  - beatnik@develop +testing +canopy +examples +profiling profiling_level=1 +rocm amdgpu_target=gfx942 build_type=RelWithDebInfo %cce
+  # mi300 has gpu arch gfx942 and 4 GPUs per node
+  # Switch from crayCC to amdclang
+  develop:
+    beatnik:
+      spec: beatnik@=develop
+    cabana:
+      spec: cabana@=master
+    canopy:
+      spec: canopy@=develop

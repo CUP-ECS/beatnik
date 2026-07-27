@@ -4,3 +4,6 @@ spack-env
 data
 .DS_Store
 *.log
+
+# Per-checkout build/run profile overrides. profile.defaults.sh IS committed.
+scripts/**/profile.local.sh
