@@ -1,4 +1,0 @@
-# LLNL Tioga Spack Environment
-spack:
-  specs:
-  - beatnik@develop +rocm amdgpu_target=gfx90a build_type=RelWithDebInfo %cce

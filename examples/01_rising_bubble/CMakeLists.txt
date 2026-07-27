@@ -9,6 +9,8 @@
 # SPDX-License-Identifier: BSD-3-Clause                                    #
 ############################################################################
 
+#TODO: Update for rising bubble - rocketrig not longer exists!
+
 # the next for lines are just, so that we can use this as
 # a standalone CMakeLists.txt for testing of the Target export
 cmake_minimum_required(VERSION 3.16)
