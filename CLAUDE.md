@@ -54,7 +54,7 @@ The strategy, the phases, and the key decisions/constraints.
 
 | Task log | Topic |
 | --- | --- |
-| _(none active)_ | — |
+| [tasks/framework.md](tasks/framework.md) | Porting `zmodel3d-amr` (Python) to C++/Kokkos/MPI: the stub framework that landed, the ordered task sequence, and the risk register. **Read before touching `src/Beatnik_*.hpp` or `examples/02_adaptive_mesh_bubble/`.** |
 
 The three pre-redesign logs (`integrate_canopy.md`, `fmm_premature_nan.md`,
 `fmm_fullrollup_crash.md`) were removed in `89ec015` with the solver they

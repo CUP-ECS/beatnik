@@ -146,6 +146,97 @@ variants in `89ec015`; the decks are recoverable from
 accelerator. Its scaling rules are documented under
 [Scaling to large meshes](#design-limitation-scaling-to-large-meshes) below.
 
+#### `02_adaptive_mesh_bubble` — the adaptive-triangle z-model bubble
+
+> **Builds and runs, but every solver body is a stub.** `--help` prints the full
+> schema and a real invocation parses its arguments, echoes the resolved
+> configuration, and then exits with a `std::logic_error` naming the first
+> unimplemented routine. That is the intended state of the framework — see
+> [tasks/framework.md](tasks/framework.md) and
+> [Known Issues](#known-issues).
+
+A C++/Kokkos/MPI port of `zmodel3d-amr`'s `examples/run_adaptive_mesh_bubble.py`.
+It evolves a closed triangulated interface under the higher-order 3D z-model with
+adaptive remeshing.
+
+```
+adaptive_mesh_bubble [OPTIONS]     # run
+adaptive_mesh_bubble --help        # print the full option schema
+mpirun -n 4 adaptive_mesh_bubble --steps 20 --checkpoint-dir out
+```
+
+Or, on tuolumne, using the system's launcher (see
+`systems/tuolumne/claude.md` §4):
+
+```
+flux run --ntasks=4 --nodes=1 --exclusive --gpus-per-task=1 --cores-per-task=24 \
+    "$(beatnik_exe adaptive_mesh_bubble)" --steps 20 --checkpoint-dir out
+```
+
+**The option names and defaults match the Python script exactly**, so one command
+line drives both the Python gold-file run and this one — which is what makes the
+gold-file comparison in `tests/regression_tests/` possible. The full list is in
+`adaptive_mesh_bubble --help`; the groups are:
+
+| Group | Representative options |
+| --- | --- |
+| Base mesh | `--mesh-kind` (`icosphere`/`latlon`), `--icosphere-subdivisions`, `--n-theta`, `--n-phi`, `--radius`, `--center-z` |
+| Initial shape | `--initial-shape` (`sphere`/`oblate`/`mushroom-seed`/`skirt-seed`), `--horizontal-scale`, `--vertical-scale`, `--rim-*`, `--skirt-*`, `--azimuthal-*`, `--polar-mode`, `--polar-amp` |
+| Initial vorticity | `--initial-potential-strength`, `--initial-vorticity-mode`, `--initial-vorticity-center/-width/-radial-power` |
+| Time stepping | `--steps`, `--t-end`, `--dt`, `--adaptive-dt`/`--no-adaptive-dt`, `--min-dt`, `--dt-edge-power`, `--dt-switch-time`, `--dt-after-switch`, `--max-sheet-dt-product` |
+| Physics | `--A`, `--g`, `--eps`, `--mu`, `--sigma`, `--sigma-radius`, `--sigma-center`, `--viscosity-mode`, `--kernel-blob-mode`, `--forcing-sign`, `--br-sign` |
+| Birkhoff-Rott | `--br-approximation`, `--source-quadrature`, `--velocity-mode`, `--bernoulli-scalar-mode`, `--br-treecode-theta/-order/-ncrit`, `--no-preserve-volume` |
+| Indicator AMR (only with `--no-dynamic-remesh`) | `--area-threshold`, `--curvature-change-threshold`, `--curvature-resolution-threshold`, `--max-faces`, `--max-refine-fraction`, `--refine-neighbor-rings`, `--refine-every`, `--transition-quality-*`, `--min-refine-edge`, `--no-balance-refinement` |
+| Dynamic remeshing | `--dynamic-remesh`/`--no-dynamic-remesh`, `--remesh-every`, `--remesh-passes`, `--remesh-sagitta-tolerance`, `--remesh-h-min/-h-max`, `--remesh-split-factor`, `--remesh-collapse-factor`, `--remesh-min-quality`, `--remesh-max-splits/-collapses`, `--remesh-target-gradation-*` |
+| Nonlocal proximity | `--remesh-proximity`, `--remesh-proximity-fraction`, `--remesh-proximity-activation-*`, `--remesh-proximity-exclusion-rings`, `--remesh-proximity-material-exclusion-*`, `--remesh-surgical-proximity*` |
+| Tight remeshing | `--remesh-tight-after`, and `--remesh-tight-*` counterparts of the remesh options |
+| Isotropic cleanup | `--isotropic-cleanup`/`--no-isotropic-cleanup`, `--isotropic-cleanup-flips/-relax/-weight` |
+| State and filtering | `--state-model` (`potential`/`sheet-vector`), `--smooth-iters`, `--smooth-relaxation`, `--redistribute-every`, `--field-filter-*`, `--flip-passes` |
+| Checkpoint / restart | `--checkpoint-dir`, `--checkpoint-prefix`, `--checkpoint-every-steps`, `--checkpoint-every-time`, `--restart-from` |
+| Diagnostics | `--progress-time-interval`, `--exact-gap-diagnostics` |
+
+Options may also be supplied in a `key = value` deck (same names with `-`
+replaced by `_`), parsed through the same setter table.
+
+**Accepted and ignored.** Video and plotting options — `--output`, `--no-video`,
+`--fps`, `--stride`, `--surface-alpha`, `--wire-width`, `--wire-alpha`,
+`--plot-half`, `--plot-half-origin`, `--view-elev`, `--view-azim`,
+`--section-axis`, `--section-origin`, `--section-panel` — are **accepted and
+ignored**, each emitting one `warning:` line to stderr. They are not rejected,
+because the same command line has to work for both codes. The same applies to
+`--br-cluster-count`, `--br-near-radius` and `--br-near-factor`, which tune the
+Python's `local`/`clustered` approximations that this port does not have.
+
+##### Source quadrature: only `vertex` is implemented
+
+`--source-quadrature` accepts all three of the Python's values — `face`
+(the Python default), `triangle3`, and `vertex` — so a Python command line
+parses. **Only `vertex` needs to be implemented in the C++ port**; `face` and
+`triangle3` are selectable and throw from
+[src/Beatnik_SourceQuadrature.hpp](src/Beatnik_SourceQuadrature.hpp) when
+generation is attempted.
+
+`vertex` places one source at each vertex, weighted by the lumped vertex area,
+with the strength built from the area-averaged per-vertex potential gradient. It
+is the cheapest of the three (\(N_v\) sources rather than \(3N_f \approx 6N_v\))
+and its sources coincide with the targets, which makes the direct \(O(N^2)\) sum
+a single symmetric kernel and simplifies validating the FMM against it.
+
+Note the three rules are **not** just different sampling of one field: under the
+potential state model `face` and `triangle3` use the exact per-face gradient
+while `vertex` uses the area-averaged per-vertex one, so they differ at \(O(h)\)
+on an irregular mesh. A gold file generated with the Python default (`face`) is
+therefore not directly comparable to a `vertex` run — generate gold files with
+`--source-quadrature vertex`.
+
+##### Birkhoff-Rott approximation
+
+The Python offers `direct | local | clustered | treecode` (default `treecode`).
+Beatnik offers **`direct`** and **`fmm`** (Canopy fast multipole), and maps
+`local`, `clustered` and `treecode` onto `fmm` with a warning so a Python command
+line runs. The first round of testing uses `direct` only: it is easier to
+implement and it isolates bugs in the rest of the code from the far-field solver.
+
 ## Dependencies and Build Notes
 
 Beatnik depends on the following packages in all configurations:
@@ -156,7 +247,23 @@ Beatnik depends on the following packages in all configurations:
   1. LLNL Silo 4.11.1 or newer, configured with MPI support
   1. A high-performance **GPU-aware** MPI implementation such as OpenMPI, MPICH, or MVAPICH
   1. GTest 1.10+ when `Beatnik_ENABLE_TESTING=ON`
-  1. Optionally **Canopy**, which provides the fast multipole far-field solver. `Beatnik_ENABLE_CANOPY` follows from whether it is found.
+  1. **Tessera**, which provides the unstructured triangle surface and its HDF5 mesh I/O. Required by the adaptive-mesh solver.
+  1. **Canopy**, which provides the fast multipole far-field solver. Optional: `Beatnik_ENABLE_CANOPY` follows from whether it is found, and without it `--br-approximation fmm` is refused at run time with a clear message while `direct` still works.
+  1. Python 3 with `numpy` and `h5py`, only for the gold-file regression comparison (`tests/regression_tests/compare_output.py`). Absent, those two ctest cases are skipped with a status message.
+
+### Tessera and Canopy
+
+The adaptive-mesh solver depends on two external libraries, and **no Beatnik code
+names a type from either one outside three thin adapter headers**:
+
+| Library | Provides | Adapter |
+| --- | --- | --- |
+| **Tessera** (`../tessera`) | the distributed unstructured triangle surface, its adjacency, and the topological edits refinement and remeshing perform | [src/Beatnik_MeshInterface.hpp](src/Beatnik_MeshInterface.hpp) |
+| **Tessera** (HDF5) | checkpoint read and write | [src/Beatnik_IOInterface.hpp](src/Beatnik_IOInterface.hpp) |
+| **Canopy** (`../canopy`) | fast-multipole summation of the regularized Birkhoff-Rott kernel | [src/Beatnik_FarFieldInterface.hpp](src/Beatnik_FarFieldInterface.hpp) |
+
+Swapping in a real library, or a different one, is meant to touch only those
+three files. Each carries its contract and its expected interface at the top.
 
 **Build with spack.** The beatnik spack package enforces these requirements, so
 use it for both installation (`spack install` / `spack env create`) and
@@ -308,6 +415,18 @@ subsections above, which are intended behavior.
   `scripts/tuolumne/run_regression_minset.flux` both pass trivially. **A green
   gate currently proves nothing.** Resolves when the new solver lands its first
   end-to-end test. See [CLAUDE.md](CLAUDE.md#minimum-test-set).
+
+- **The zmodel3d-amr port framework has never been compiled or run.**
+  *Introduced by the framework commits on `rising-bubble-redesign`, deliberately
+  and with the user's agreement.* Every `src/Beatnik_*.hpp` header and
+  `examples/02_adaptive_mesh_bubble/` were written and committed **without a
+  build**; verification was deferred to a following session. Reproduces by
+  building at all. Until someone runs `spack install` and fixes what falls out,
+  treat the framework as *designed* but not *validated*: the documentation and
+  the interface shapes are the deliverable, the compilability is not yet
+  established. The Python side of the harness (`compare_output.py` and its
+  fixtures) **was** run and does pass. First task in
+  [tasks/framework.md](tasks/framework.md).
 
 - **`examples/01_rising_bubble` does not build.** *Pre-existing as of the
   redesign.* `rocketrig.cpp` includes `Solver.hpp` and `BoundaryCondition.hpp`,
