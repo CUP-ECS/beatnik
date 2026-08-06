@@ -22,3 +22,4 @@
 ############################################################################
 
 add_subdirectory(01_rising_bubble)
+add_subdirectory(02_adaptive_mesh_bubble)
