@@ -1,0 +1,94 @@
+# Copyright (c) 2025 by the Beatnik authors
+# All rights reserved.
+#
+# This file is part of the Beatnik library. Beatnik is distributed under a
+# BSD 3-clause license. For the licensing terms see the LICENSE file in the
+# top-level directory.
+#
+# SPDX-License-Identifier: BSD-3-Clause
+#
+# ---------------------------------------------------------------------------
+# SCOPE, AND WHY IT IS THIS NARROW
+# ---------------------------------------------------------------------------
+# Beatnik has NO CI for the C++ build or the ship gate, deliberately: the
+# dependency stack (Kokkos, Cabana, HeFFTe, Tessera, Canopy, all via spack) plus
+# GPU-aware MPI and a flux scheduler is not reproducible in hosted CI in
+# reasonable time, and the target machines are behind a lab fence. The gate is
+# operator-run — see CLAUDE.md "Minimum test set" and "CI".
+#
+# This workflow is the one exception, and it is an exception precisely because
+# it shares none of those problems. `tests/regression_tests/compare_output.py`
+# is pure Python over numpy and h5py, it runs against COMMITTED fixtures, and it
+# is the piece of the harness most likely to be edited by someone who cannot run
+# the full stack. Catching a break in the comparator on a pull request is worth
+# a 30-second job.
+#
+# It runs the SAME command the ctest cases in tests/CMakeLists.txt run, against
+# the SAME fixtures, so the two cannot drift. If you change one, change both.
+#
+# WHAT THIS DOES NOT DO: build Beatnik, run any C++ test, or evaluate the ship
+# gate. A green check here says the comparator works. It says nothing whatsoever
+# about the solver.
+# ---------------------------------------------------------------------------
+
+name: regression-compare
+
+on:
+  push:
+    paths:
+      - 'tests/regression_tests/**'
+      - '.github/workflows/regression-compare.yml'
+  pull_request:
+    paths:
+      - 'tests/regression_tests/**'
+      - '.github/workflows/regression-compare.yml'
+  workflow_dispatch:
+
+jobs:
+  compare-output:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip numpy h5py
+
+      - name: Positive fixture must MATCH
+        # The same surface written in a different row order. This is the case
+        # that exercises the comparator's actual job.
+        run: |
+          python tests/regression_tests/compare_output.py \
+            tests/regression_tests/fixtures/synthetic_match.h5 \
+            tests/regression_tests/fixtures/synthetic_gold.npz \
+            --rtol 1e-10 --atol 1e-12
+
+      - name: Negative fixture must FAIL
+        # A comparator that has only ever seen matching data has not been
+        # tested. `!` inverts the exit status, so this step fails if
+        # compare_output.py *succeeds* on the perturbed file.
+        run: |
+          ! python tests/regression_tests/compare_output.py \
+            tests/regression_tests/fixtures/synthetic_perturbed.h5 \
+            tests/regression_tests/fixtures/synthetic_gold.npz \
+            --rtol 1e-10 --atol 1e-12
+
+      - name: Fixtures must be reproducible from make_fixtures.py
+        # The fixtures are committed, not generated at build time. This step
+        # checks that the committed bytes still correspond to what the
+        # generator produces — so an edit to make_fixtures.py that was never
+        # accompanied by regenerated fixtures is caught here rather than
+        # discovered months later.
+        #
+        # Compared through compare_output.py rather than by byte equality:
+        # HDF5 and npz containers carry timestamps and compression details that
+        # differ between writers, while the DATA is what matters.
+        run: |
+          python tests/regression_tests/make_fixtures.py --outdir /tmp/fresh
+          python tests/regression_tests/compare_output.py \
+            /tmp/fresh/synthetic_match.h5 \
+            tests/regression_tests/fixtures/synthetic_gold.npz \
+            --rtol 1e-14 --atol 1e-16

@@ -104,6 +104,73 @@ Beatnik_add_tests(MPI PACKAGE Beatnik LABEL regression
   NAMES ${REGRESSION_MPI_TESTS})
 
 ##--------------------------------------------------------------------------##
+## Regression-comparison harness (Python)
+##--------------------------------------------------------------------------##
+# tests/regression_tests/compare_output.py compares a Beatnik HDF5 checkpoint
+# against a zmodel3d-amr `.npz` gold file. It is a standalone CLI, so it is
+# registered directly rather than through the gtest harness — it has no Kokkos
+# backend and no rank sweep.
+#
+# The two cases below run it on the COMMITTED synthetic fixtures in
+# tests/regression_tests/fixtures/ and pass today, before any solver exists:
+#
+#   ..._python_compare           positive: the same surface in a different row
+#                                order, which must MATCH. This is the case that
+#                                actually exercises the comparator's job —
+#                                recovering a correspondence the files do not
+#                                record.
+#   ..._python_compare_negative  negative: one vertex displaced, which must
+#                                FAIL. A comparator that has only ever seen
+#                                matching data has not been tested, so this is
+#                                registered with WILL_FAIL.
+#
+# Tier `unit`: diagnostic, not gating. These test the HARNESS, not Beatnik, and
+# promoting anything into the `regression` tier changes the ship gate and needs
+# the user's confirmation (see the tier comment at the top of this file).
+#
+# Skipped, with a status message, when Python or its numpy/h5py dependencies are
+# missing — a missing interpreter must not fail the build on a machine where the
+# C++ tests are the point.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+
+set(_beatnik_compare_dir ${CMAKE_CURRENT_SOURCE_DIR}/regression_tests)
+set(_beatnik_compare_py ${_beatnik_compare_dir}/compare_output.py)
+set(_beatnik_fixture_dir ${_beatnik_compare_dir}/fixtures)
+
+if(NOT Python3_Interpreter_FOUND)
+  message(STATUS
+    "Beatnik: no Python 3 interpreter found; skipping the compare_output.py "
+    "regression-harness tests")
+else()
+  execute_process(
+    COMMAND ${Python3_EXECUTABLE} -c "import numpy, h5py"
+    RESULT_VARIABLE _beatnik_compare_deps
+    OUTPUT_QUIET ERROR_QUIET)
+
+  if(NOT _beatnik_compare_deps EQUAL 0)
+    message(STATUS
+      "Beatnik: ${Python3_EXECUTABLE} lacks numpy and/or h5py; skipping the "
+      "compare_output.py regression-harness tests")
+  else()
+    add_test(NAME Beatnik_Test_PythonCompare
+      COMMAND ${Python3_EXECUTABLE} ${_beatnik_compare_py}
+              ${_beatnik_fixture_dir}/synthetic_match.h5
+              ${_beatnik_fixture_dir}/synthetic_gold.npz
+              --rtol 1e-10 --atol 1e-12)
+    set_tests_properties(Beatnik_Test_PythonCompare PROPERTIES LABELS unit)
+
+    add_test(NAME Beatnik_Test_PythonCompare_Negative
+      COMMAND ${Python3_EXECUTABLE} ${_beatnik_compare_py}
+              ${_beatnik_fixture_dir}/synthetic_perturbed.h5
+              ${_beatnik_fixture_dir}/synthetic_gold.npz
+              --rtol 1e-10 --atol 1e-12)
+    set_tests_properties(Beatnik_Test_PythonCompare_Negative PROPERTIES
+      LABELS unit
+      WILL_FAIL TRUE)
+  endif()
+endif()
+
+##--------------------------------------------------------------------------##
 ## Gate manifest for the installed-binary path
 ##--------------------------------------------------------------------------##
 # In spack/installed mode there is no build tree and therefore no ctest, so the

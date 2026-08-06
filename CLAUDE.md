@@ -312,13 +312,32 @@ test must never be quietly removed from the lists to green the gate: label it
 
 ### CI
 
-There is deliberately **no CI**. Beatnik's dependency stack (Kokkos, Cabana,
-HeFFTe, Silo, optional Canopy, all via spack) plus GPU-aware MPI and a flux
-scheduler is not reproducible in hosted CI in reasonable time, and the target
-machines are behind a lab fence. The gate is **operator-run** via the
-`run_regression_minset.*` wrapper. Since there is no CI job there is no
-CI-vs-gate divergence to track; if CI is ever added it must invoke the same
-wrapper or the same `ctest` command, and any difference must be stated here.
+**The gate has no CI and is operator-run.** Beatnik's dependency stack (Kokkos,
+Cabana, HeFFTe, Tessera, optional Canopy, all via spack) plus GPU-aware MPI and
+a flux scheduler is not reproducible in hosted CI in reasonable time, and the
+target machines are behind a lab fence. Run it with the
+`run_regression_minset.*` wrapper.
+
+There is exactly **one** GitHub Actions workflow,
+[.github/workflows/regression-compare.yml](.github/workflows/regression-compare.yml),
+and it is deliberately narrower than the gate:
+
+| | CI workflow | The gate |
+| --- | --- | --- |
+| What runs | `tests/regression_tests/compare_output.py` on the committed fixtures | `ctest -L regression -R SERIAL` (+ `HIP`) at ranks 1-6 |
+| What it proves | the gold-file **comparator** works | **Beatnik** works |
+| Builds C++ | no | yes |
+
+The exception is justified by the comparator sharing none of the reasons the
+rest cannot be built in CI: it is pure Python over numpy and h5py, runs against
+committed fixtures, and is the piece most likely to be edited by someone who
+cannot run the full stack. It invokes the **same command on the same fixtures**
+as the `Beatnik_Test_PythonCompare[_Negative]` ctest cases in
+[tests/CMakeLists.txt](tests/CMakeLists.txt); change one and change the other.
+
+**A green check on that workflow says nothing about the solver.** Do not read it
+as gate coverage, and do not extend it to build Beatnik without revisiting this
+section.
 
 ## General guidelines
 
