@@ -6,50 +6,73 @@
 set(BEATNIK_ENABLE_CANOPY ${Beatnik_ENABLE_CANOPY})
 configure_file(Beatnik_Config.hpp.in Beatnik_Config.hpp)
 
+# Beatnik is HEADER-ONLY: every public header is `Beatnik_`-prefixed, lives in
+# this directory, and is installed as-is. There are no .cpp files and no
+# compiled library — `Beatnik` is a CMake INTERFACE target.
+#
+# The list below is the whole library. Keep it alphabetical within each group
+# and add new headers here in the same change that creates them; an installed
+# tree missing a header fails only at the consumer's compile, which is a long
+# way from the mistake.
 set(HEADERS_PUBLIC
-  # General problem/mesh/time integration files
-  SurfaceMesh.hpp
-  Operators.hpp
-  ProblemManager.hpp
-  Solver.hpp
-  SiloWriter.hpp
+  # Foundations: scalars, the stub macro, the CLI enums, parameter structs.
+  Beatnik_Types.hpp
+  Beatnik_Params.hpp
   Profiling.hpp
 
-  # Routines to support the general Z-Model Solution Approach
-  TimeIntegrator.hpp
-  BoundaryCondition.hpp
+  # Thin adapters for the external libraries. NOTHING else in Beatnik may name
+  # a Tessera or Canopy type — see the contract comment at the top of each.
+  Beatnik_MeshInterface.hpp      # Tessera: unstructured surface + topology
+  Beatnik_IOInterface.hpp        # Tessera HDF5: checkpoint read/write
+  Beatnik_FarFieldInterface.hpp  # Canopy: FMM far-field kernel sums
 
-  # ZModel details here.
-  ZModel.hpp
+  # Distributed-memory communication points.
+  Beatnik_Communication.hpp
 
-  # BR Solver base classes
-  BRSolverBase.hpp
-  CreateBRSolver.hpp
+  # Discrete differential geometry and the solution state.
+  Beatnik_MeshGeometry.hpp
+  Beatnik_SurfaceState.hpp
+  Beatnik_VolumeProjection.hpp
 
-  # Exact BR Solver
-  ExactBRSolver.hpp
+  # Birkhoff-Rott: quadrature, the solver interface, its implementations,
+  # and the factory.
+  Beatnik_SourceQuadrature.hpp
+  Beatnik_BRSolverBase.hpp
+  Beatnik_BRSolverDirect.hpp
+  Beatnik_BRSolverFMM.hpp
+  Beatnik_CreateBRSolver.hpp
 
-  # Cutoff BR Solver
-  CutoffBRSolver.hpp
-  SpatialMesh.hpp
-  HaloComm.hpp
+  # The z-model itself and its time integration.
+  Beatnik_ZModelSolver.hpp
+  Beatnik_TimeIntegrator.hpp
+
+  # Adaptivity.
+  Beatnik_AdaptiveMesh.hpp
+  Beatnik_DynamicRemesh.hpp
+  Beatnik_MeshQuality.hpp
+
+  # Setup, restart, diagnostics, and the top-level driver.
+  Beatnik_InitialCondition.hpp
+  Beatnik_Restart.hpp
+  Beatnik_Diagnostics.hpp
+  Beatnik_Solver.hpp
   )
 
-if(Beatnik_ENABLE_CANOPY)
-  list(APPEND HEADERS_PUBLIC FmmBRSolver.hpp)
-endif()
-
-#set(SOURCES
-#  Mesh.cpp
-#  ProblemManager.cpp
-#  )
+# Beatnik_BRSolverFMM.hpp is installed unconditionally: it names no Canopy type
+# (that is Beatnik_FarFieldInterface.hpp's job) and Beatnik_CreateBRSolver.hpp
+# guards the construction on BEATNIK_ENABLE_CANOPY, so a ~canopy build compiles
+# it fine and refuses `--br-approximation fmm` at run time with a clear message.
 
 set(DEPENDS_ON
   Cabana::Core
   Cabana::Grid
-  SILO::silo
   MPI::MPI_CXX
   )
+
+# Silo was the pre-redesign I/O path and is gone: checkpoint output is HDF5 via
+# Tessera (Beatnik_IOInterface.hpp). Re-add SILO::silo here only if a Silo
+# writer comes back, and restore the find_package(SILO) in the top-level
+# CMakeLists.txt in the same change.
 
 if(Beatnik_ENABLE_CANOPY)
   list(APPEND DEPENDS_ON Canopy::Canopy)
