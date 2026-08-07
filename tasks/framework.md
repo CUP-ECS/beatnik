@@ -219,8 +219,11 @@ comparable. (At 0 timesteps the quadrature is never evaluated, so this gold file
 would in fact be identical either way — but generating every gold file the same
 way avoids the trap at T2a, where it matters.)
 
-**Exit criterion:** a gold `.npz` is committed and `compare_output.py` loads it
-without a structural complaint when compared against itself.
+This is the exact python command run. The step 0 NPZ file is used as the gold file here:
+`python examples/run_adaptive_mesh_bubble.py --A 0.3 --g 1.0 --mu 0.002 --eps 0.025 --viscosity-mode laplace-beltrami --br-approximation direct --isotropic-cleanup --checkpoint-every-steps 1 --no-video --steps 0 --source-quadrature vertex`
+
+**Exit criterion:** a gold `.npz` is committed (DONE) TODO: Verify `compare_output.py` loads it
+without a structural complaint when compared against itself. 
 
 ### T1b — Icosphere generation and mesh geometry
 
