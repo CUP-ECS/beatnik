@@ -27,7 +27,7 @@ include(FeatureSummary)
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
 
 # find kokkos
-find_package(Kokkos 4 REQUIRED)
+find_package(Kokkos 5 REQUIRED)
 
 # set supported kokkos devices
 set(BEATNIK_SUPPORTED_DEVICES SERIAL THREADS OPENMP CUDA HIP SYCL OPENMPTARGET)
@@ -53,9 +53,6 @@ endif()
 if( NOT Cabana_ENABLE_GRID )
   message( FATAL_ERROR "Cabana must be compiled with Grid support" )
 endif()
-
-# find Silo
-find_package(SILO REQUIRED)
 
 # find MPI
 find_package(MPI COMPONENTS CXX )
