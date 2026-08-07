@@ -416,18 +416,6 @@ subsections above, which are intended behavior.
   gate currently proves nothing.** Resolves when the new solver lands its first
   end-to-end test. See [CLAUDE.md](CLAUDE.md#minimum-test-set).
 
-- **The zmodel3d-amr port framework has never been compiled or run.**
-  *Introduced by the framework commits on `rising-bubble-redesign`, deliberately
-  and with the user's agreement.* Every `src/Beatnik_*.hpp` header and
-  `examples/02_adaptive_mesh_bubble/` were written and committed **without a
-  build**; verification was deferred to a following session. Reproduces by
-  building at all. Until someone runs `spack install` and fixes what falls out,
-  treat the framework as *designed* but not *validated*: the documentation and
-  the interface shapes are the deliverable, the compilability is not yet
-  established. The Python side of the harness (`compare_output.py` and its
-  fixtures) **was** run and does pass. First task in
-  [tasks/framework.md](tasks/framework.md).
-
 - **`examples/01_rising_bubble` does not build.** *Pre-existing as of the
   redesign.* `rocketrig.cpp` includes `Solver.hpp` and `BoundaryCondition.hpp`,
   removed in `89ec015`; `InputFile.hpp` targets the old parameter struct.

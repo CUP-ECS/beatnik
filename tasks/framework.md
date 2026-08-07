@@ -578,7 +578,7 @@ below 1.2×, and the per-step time scales.
 
 ## Dependency-opening tasks
 
-### M1 — Open `../tessera`: mesh model
+### M1 — Open `../tessera`: mesh model — **DONE 2026-08-07**
 
 **First task permitted to read `../tessera`.** Reconcile
 `Beatnik_MeshInterface.hpp` against what Tessera actually provides: the storage
@@ -586,8 +586,193 @@ model, the owned/ghost partition, adjacency, the topological edit operations, an
 whether the `MeshEditResult` parent/weight scheme matches how Tessera reports
 field transfer. **Rewrite the adapter; do not spread Tessera types outward.**
 
-Record here: what Tessera provides, what it does not, and what Beatnik must
-implement itself.
+**Met 2026-08-07.** `src/Beatnik_MeshInterface.hpp` rewritten against the real
+API and building clean. Tessera is now a hard dependency
+(`find_package(Tessera REQUIRED)`, `Tessera::Tessera` on `DEPENDS_ON`, and
+`depends_on("tessera")` added to the out-of-repo spack package). Bodies remain
+`BEATNIK_NOT_IMPLEMENTED`.
+
+#### What Tessera provides
+
+Tessera is a distributed unstructured triangle-mesh library over Cabana +
+Kokkos. Everything below is public API, read from `README.md` and the headers it
+names.
+
+| Beatnik needs | Tessera call | Notes |
+| --- | --- | --- |
+| Entity storage | `Mesh<Scalar,Dim,VertexFields<>,EdgeFields<>,FaceFields<>,Mem,Exec,Mode>` | **Three** kinds — vertices, edges, faces — each a Cabana AoSoA, owned-first, with a compile-time **user field pack** the caller declares. |
+| Icosphere | `buildIcosphere( mesh, subdiv )` | Same golden-ratio table and normalized-midpoint rule as the Python. Unit sphere only. Replicated on every rank. |
+| Adopt a soup | `buildFromTriangleSoup( mesh, soup )` | Host, serial, **replicated** input. |
+| Partition | `facePartitionByAxis( mesh, axis )` | Deterministic geometric block partition; no communication. |
+| Distribute | `distribute( mesh, halo, faceOwner )` | Cuts to owned + 1-deep ghost, builds the three halo plans, rebuilds both CSRs. |
+| Halo exchange | `haloExchange( mesh, halo )` | Collective; syncs the **whole tuple of all three kinds** at once. |
+| Vertex one-ring | `buildVertexStencil( mesh, 1 )` | CSR, local indices, ascending. Also `mesh.vertexEdges()` / `mesh.vertexFaces()` directly. |
+| Edge list + edge→face | edge AoSoA `EdgeField::Verts` / `::Faces` | Maintained continuously; **nothing to build**. |
+| Geometry accessor | `buildMeshGeometry( mesh )` | Derives per-face/per-edge **local** vertex indices from the gid storage; device-capturable. Covers owned + ghost. |
+| Raw primitives | `faceArea`, `faceNormalRaw`, `edgeVector`, `cotangentAtCorner` | Unoriented, convention-free. |
+| Weighted stencil apply | `applyStencil( mesh, stencil, w, in, out )` | Caller builds `w`; owned rows only. |
+| Face→vertex reduce | `reduceVertexFromFaces( ... , op )` | Caller's op; one thread per owned vertex, no atomics. |
+| Conforming AMR | `refine( mesh, halo, mask )` | **Red-green conforming refinement is NATIVE** (answers T4a directly). 1→4 red split + cross-rank 2:1 balance + transient closure. |
+| Refinement field transfer | `RefinePolicy` | Pluggable per-field midpoint blend; default is the linear average. |
+| Migration | `migrate( mesh, halo, dest )` | External per-owned-face assignment. Moves whole tuples; **all user fields follow automatically**. Rebuilds ownership, ghosts and halo plans. |
+| Load balance | `loadBalance( mesh, halo )` / `computeLoadBalance` | Zoltan2 geometric MultiJagged (never RCB — broken on Tuolumne). |
+| External partition input | `ownedFaceCentroids/Gids/Weights( mesh )` | The documented Canopy contract; available to Beatnik unchanged (relevant at T3a). |
+| Global min | `globalMin( mesh, x )` | The only global reduction. |
+| Stale-handle safety | `generation()` + `GenerationHandle` | Every handle is stamped; copying a stale one **aborts**. `haloExchange` does not bump it. |
+| I/O | `writeMesh` / `readMesh` (+ XDMF) | M2's territory. |
+
+Two structural facts drive most of the adapter:
+
+1. **Connectivity is stored as global ids**, so a `Mesh` is not device-capturable
+   and `faces()` cannot return a `View<LocalIndex*[3]>` from storage. Kernels
+   index `MeshGeometry::faceVerts`, rebuilt per topology generation.
+2. **Field transfer is Tessera's job, not the caller's.** `refine()` interpolates
+   midpoints through the policy, `migrate()` ships whole tuples, `haloExchange()`
+   syncs whole tuples. A per-vertex field held in a `Kokkos::View` *outside* the
+   mesh is silently dropped by refinement and silently stale after migration.
+
+#### Does `MeshEditResult`'s parent/weight scheme match? **No.**
+
+Tessera reports no parent map and needs none — the default `RefinePolicy` blend
+*is* the `(0.5, 0.5)` weights the old struct encoded, applied inside `refine()`.
+`MeshEditResult` is therefore **deleted** (no other header named it) and replaced
+by `MeshEditReport`, which carries what `Tessera::RefineResult` actually gives:
+2:1 balance rounds, local split-edge count, post-edit owned counts.
+
+The consequence is the largest M1 change: **Beatnik's evolved per-vertex state
+must live inside the Tessera mesh as vertex user fields**, declared in the
+adapter as `VertexFields<Real, Real[3], Real[3]>` =
+`{Potential, SheetVector, MaterialPosition}` and named from outside via
+`Beatnik::VertexFieldId`. The linear average is the correct transfer rule for
+all three, so `DefaultRefinePolicy` is used unchanged.
+
+#### Gaps — what Tessera does NOT provide
+
+*Not worked around in Beatnik. Extending Tessera versus working around it is the
+user's call.*
+
+**G1 — No halo deeper than 1. *(blocker for R8, highest)*** The halo is 1-deep
+and not configurable. That covers a one-ring stencil exactly. The Beatnik RHS is
+a **two-ring** stencil (one surface gradient builds the sheet vector, a second is
+taken of the Bernoulli potential), and Tessera's own README records that
+`buildVertexStencil(mesh, 2)` is *silently incomplete* within one hop of a
+partition boundary — missing outer-ring neighbours are absent from the CSR row
+rather than reported as an error. **Two successive `haloExchange()` calls do not
+substitute**: the second refreshes the same 1-deep ghost set, it does not widen
+it. So the RHS cannot be evaluated correctly at >1 rank today, and the failure
+mode is exactly the plausible-looking seam R8 predicts.
+*Tessera-side addition:* a depth parameter on `distribute()`/`migrate()` — the
+ghost closure loop iterated `depth` times, the halo plans built over the widened
+set. Tessera's ownership rule and plan builder are already depth-agnostic; the
+1-deep assumption is in the local-set construction, not the machinery.
+*Beatnik workaround if ever sanctioned:* none that is not a halo implementation.
+
+**G2 — No ghost scatter-add.** `haloExchange()` is a pure gather (owner →
+ghost). There is no reverse accumulate (ghost → owner). `HaloExchangePlan`
+already holds both index lists, so the plan is symmetric and the missing piece is
+only the reverse pack/unpack with a `+=` on the unpack side.
+*Tessera-side addition:* `haloScatterAdd( mesh, halo )`, or a per-field variant,
+reusing the existing plan with send/recv swapped.
+*Consumer:* `Beatnik_Communication.hpp::haloScatterAdd`, needed wherever a
+per-vertex quantity is assembled by iterating faces.
+
+**G3 — Only `globalMin`; no sum, max, or all-finite.** Tessera's own invariant
+checks hand-roll `MPI_Allreduce(MPI_SUM)` over `numOwnedX()`. Beatnik's four
+`allReduce*` and both `global*Count()` therefore have no Tessera call to make.
+This is a missing convenience rather than a missing capability — a one-line
+collective, and Beatnik's version lives in `Beatnik_Communication.hpp` so it
+appears in one place — but it is Tessera's to single-source.
+*Tessera-side addition:* `globalSum` / `globalMax` / `globalAllFinite` beside
+`globalMin` in `Tessera_Reduction.hpp`.
+
+**G4 — No face→face adjacency through shared edges.** Needed to grow AMR marks
+by neighbour rings (T4a) and to build the proximity-exclusion rings (T4b). It
+**cannot be derived locally**: `EdgeField::Faces` holds gids of faces that may
+not be held locally and that migration carries verbatim without repair; and a
+vertex-incidence walk only finds an edge-neighbour that is co-resident, which the
+1-deep *vertex* halo does not guarantee. Tessera's own `refine()` says exactly
+this, which is why its 2:1 balance routes every cross-rank decision through an
+edge coordinator instead of through the halo.
+*Tessera-side addition:* `buildFaceAdjacency( mesh )` returning a CSR, built over
+the same edge-coordinator machinery `refine()` already runs.
+
+**G5 — No topological edit except the face-mask refine.** Tessera is
+split-based only; the README records this as a milestone-1 design limitation.
+Specifically missing:
+  - **G5a — caller-driven edge split.** The split-edge map is an *output* of
+    `refine()`, not an input. The closest expressible thing — mark every face
+    incident on a wanted edge — splits all three of that face's edges and pulls
+    in the 2:1 closure, a strictly larger and differently-shaped edit than
+    `split_selected_edges` performs.
+  - **G5b — edge collapse.** Does not exist at any level. The data model has no
+    coarsening path (`Level` only ever rises), so neither the link condition nor
+    a cross-rank owner-decides protocol has anywhere to attach.
+  - **G5c — edge flip.** Does not exist. Not merely a convenience: a flip needs
+    both incident faces, which the 1-deep vertex halo does not guarantee are
+    co-resident, so a correct one needs the edge-coordinator machinery.
+  - **G5d — compaction.** Consequential only: with no collapse nothing orphans a
+    vertex. If collapse is ever added, compaction must come with it.
+**This blocks T4b (dynamic remeshing) entirely** — `dynamic_remesh.py` is built
+out of split/collapse/flip — and blocks T4c's flips.
+
+**G6 — The coarse mesh is replicated on every rank before it is cut.**
+`buildFromTriangleSoup` is host-side and single-rank, so the full initial mesh is
+built and held everywhere, then `distribute()` cuts it. Irrelevant at the default
+subdivision 2 (162 vertices); a memory ceiling only if an initial mesh is ever
+generated at a resolution comparable to the refined running mesh. Scalability,
+not correctness.
+
+**G7 — No lat/lon sphere generator.** Icosphere is Tessera's only one. Beatnik
+builds the soup itself and hands it to `buildFromTriangleSoup`. This is
+*generation*, not haloing or partitioning, so it is not a workaround for a
+missing capability — but a `buildLatLonSphere` beside `buildIcosphere` is the
+natural Tessera-side home. Minor; `--mesh-kind latlon` is not on any regression
+path.
+
+**G8 — The load-balance solve is gathered to rank 0.** `computeLoadBalance`
+gathers every rank's owned-face centroids and weights to rank 0, solves there
+over a `Teuchos::SerialComm`, and scatters back. Deliberate (MultiJagged is not
+guaranteed deterministic across ranks) but it makes the partitioner rank-0-bound
+in the *global* face count. Fine at T5d's 16-rank exit criterion; a ceiling at
+production scale.
+*Tessera-side addition:* a distributed or sampled solve.
+
+#### What Beatnik must implement itself (and legitimately may)
+
+None of these is haloing or partitioning:
+
+- The **discretization conventions** Tessera deliberately refuses: outward normal
+  orientation, the vertex-area definition, the cotangent weight fill for
+  `applyStencil`, the curvature sign. This is `Beatnik_MeshGeometry.hpp`, exactly
+  as scoped.
+- **Scale and translate** the unit icosphere to `radius` / `center`, and verify
+  the winding is outward (positive enclosed volume) rather than assume it.
+- The **lat/lon triangle soup** (G7).
+- The four **global reductions** (G3), as thin `MPI_Allreduce` wrappers in
+  `Beatnik_Communication.hpp`.
+- **Owned-only iteration discipline** (risk R9): Tessera exposes `numOwnedX()`
+  and orders entities owned-first, but enforces nothing. Owned edges *do* form a
+  global partition, so the edge-length reduction has a correct answer available.
+
+#### Two contracts the adapter now encapsulates
+
+- **The mandatory post-refine sequence.** `Tessera::refine()` leaves each rank
+  holding only its refined owned entities and **clears the halo**. A
+  `haloExchange()` in between is a silent no-op on an empty plan, and a second
+  `refine()` without a re-halo *throws*. `SurfaceMesh::refine()` therefore
+  performs `refine` → identity `migrate` → `haloExchange` itself and never
+  returns with a cleared halo.
+- **Marks do not need reconciling.** Tessera runs the cross-rank 2:1
+  mark-propagation fixpoint internally (`MPI_Allreduce`-guarded, hard-capped,
+  round count reported). An arbitrary rank-local mask is a legal input, so
+  `Beatnik_Communication.hpp::reconcileRefinementMarks` has no work left to do.
+
+Two smaller shape changes, both recorded inline in the header: `adopt()` now
+requires its arrays replicated on **every** rank (not rank 0), because
+`buildFromTriangleSoup` has no communication and `distribute()` relies on
+replication; and `refine()`'s mask is a **host `std::vector<char>` sized
+`ownedFaceCount()`**, not a device view sized `Nf`, so a device-computed AMR
+indicator must round-trip to the host.
 
 ### M2 — Open `../tessera`: HDF5 I/O
 

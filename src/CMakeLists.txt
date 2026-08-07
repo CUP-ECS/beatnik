@@ -67,6 +67,7 @@ set(DEPENDS_ON
   Cabana::Core
   Cabana::Grid
   MPI::MPI_CXX
+  Tessera::Tessera
   )
 
 # Silo was the pre-redesign I/O path and is gone: checkpoint output is HDF5 via

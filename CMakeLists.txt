@@ -57,6 +57,11 @@ endif()
 # find MPI
 find_package(MPI COMPONENTS CXX )
 
+# find Tessera. REQUIRED, not optional: Tessera is the distributed unstructured
+# surface Beatnik is built on (Beatnik_MeshInterface.hpp / Beatnik_IOInterface.hpp),
+# not an accelerator that can be compiled out the way Canopy can.
+find_package(Tessera REQUIRED)
+
 # standard dependency macro
 macro(Beatnik_add_dependency)
   cmake_parse_arguments(BEATNIK_DEPENDENCY "" "PACKAGE;VERSION" "COMPONENTS" ${ARGN})
