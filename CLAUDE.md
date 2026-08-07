@@ -320,6 +320,15 @@ section.
   `spack install`, never a hand-rolled `cmake`/`make`; in `manual` mode it means
   `cmake --build`, never `spack install`. Check the mode first — see
   [Build & run profile](#build--run-profile).
+- **Never launch a job interactively from a login node — submit a batch script.**
+  On a login node there is no allocation to run in, so an interactive launch
+  (`flux run`, `srun`, …) does not fail: it **blocks forever** waiting for
+  resources that will never be granted, and the session hangs until it is killed.
+  This includes "quick" one-off invocations and `--help`-adjacent smoke tests.
+  Write the invocation into a batch script under `scripts/<system>/`, submit it
+  (`flux batch …` on tuolumne), and read the `.log` file it writes. The
+  interactive launch template in a system doc is only valid **inside** an
+  allocation you already hold.
 - **Checkpoint commits in tasks.** When planning a large change, put explicit
   checkpoints in the task log where progress should be committed, so a later
   failure can roll back to the nearest one instead of unwinding everything.
