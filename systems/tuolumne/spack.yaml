@@ -1,14 +1,33 @@
 # LLNL Toulumne Spack Environment
 spack:
   specs:
-  - kokkos@4 +rocm +openmp +serial amdgpu_target=gfx942
+  - kokkos@5 +rocm +openmp +serial amdgpu_target=gfx942
   - cabana@master +grid +mpi +arborx +rocm amdgpu_target=gfx942
-  - trilinos +zoltan2 +openmp +rocm amdgpu_target=gfx942 ~muelu ~ml ~ifpack2 ~ifpack ~fortran ~epetraext ~epetra ~belos ~aztec ~anasazi ~amesos2 ~amesos ldflags="-L/opt/cray/pe/mpich/9.0.1/gtl/lib" ldlibs="-lmpi_gtl_hsa"  ^kokkos +rocm +openmp +serial amdgpu_target=gfx942 %cce
+  # trilinos@17.1: the first release line that pins EXTERNAL kokkos@=5.1.1 (and
+  # kokkos-kernels@=5.1.1), so Trilinos shares this env's Kokkos instead of
+  # building its own. Trilinos only grew external-Kokkos support at @14.4:, and
+  # the ~ml/~ifpack/~epetra*/~aztec/~amesos variants this spec used to carry
+  # exist only @:16, which silently capped the DAG at trilinos@14.2.0 -- i.e. a
+  # second, bundled Kokkos linked beside kokkos@5.1.1. Those packages are off by
+  # default in 17.x, so nothing extra is built by not naming them.
+  - trilinos@17.1 +zoltan2 +openmp +rocm amdgpu_target=gfx942 ~muelu ~ifpack2 ~fortran ~belos ~anasazi ~amesos2 ldflags="-L/opt/cray/pe/mpich/9.0.1/gtl/lib" ldlibs="-lmpi_gtl_hsa"  ^kokkos +rocm +openmp +serial amdgpu_target=gfx942 %cce
   - googletest
+  - tessera@develop amdgpu_target=gfx942 ldflags="-L/opt/cray/pe/mpich/9.0.1/gtl/lib" ldlibs="-lmpi_gtl_hsa" %cce
   - canopy@develop amdgpu_target=gfx942 ldflags="-L/opt/cray/pe/mpich/9.0.1/gtl/lib" ldlibs="-lmpi_gtl_hsa" %cce
   - beatnik@develop +testing +canopy +examples +profiling profiling_level=2 +rocm amdgpu_target=gfx942 build_type=RelWithDebInfo %cce
   # mi300 has gpu arch gfx942 and 4 GPUs per node
   # Switch from crayCC to amdclang
+  packages:
+    # Standing guard, not currently exercised: nothing in the DAG pulls gsl now
+    # that trilinos@17.1 concretizes ~adios2. It is kept because the path back in
+    # (trilinos +adios2 -> sz3 -> gsl) is one variant flip away.
+    # cce@20.0.0's clang-20 hits an SLP-vectorizer assertion
+    # ("Reshuffling scalars not yet supported for nodes with padding") building
+    # gsl/matrix/minmax.c at -O2, aborting with exit 134. gsl is a pure-C host
+    # utility library, so nothing is lost by building it with gcc instead.
+    gsl:
+      require:
+      - '%c=gcc'
   develop:
     beatnik:
       spec: beatnik@=develop
@@ -16,3 +35,9 @@ spack:
       spec: cabana@=master
     canopy:
       spec: canopy@=develop
+    tessera:
+      spec: tessera@=develop
+  repos:
+    COMPASSRepo:
+      git: https://github.com/COMPASS-PSAAP/spack-packages.git
+      destination: /g/g20/stewartj/.spack/package_repos/COMPASS
