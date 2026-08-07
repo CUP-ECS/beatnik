@@ -37,32 +37,6 @@ progress log so a later session can resume. **At the start of a session that
 touches one of these topics, Read `tasks/<topic>.md` first**, and append progress
 to it as work lands — not at the end, when the reasoning has been forgotten.
 
-Use [tasks/TEMPLATE.md](tasks/TEMPLATE.md) as the skeleton so logs stay uniform:
-
-```markdown
-# <Topic>
-
-## Problem
-What is wrong / what we want, and why it matters.
-
-## Approach
-The strategy, the phases, and the key decisions/constraints.
-
-## Progress log
-- YYYY-MM-DD — <what was done, what was learned, what's next>
-```
-
-| Task log | Topic |
-| --- | --- |
-| [tasks/framework.md](tasks/framework.md) | Porting `zmodel3d-amr` (Python) to C++/Kokkos/MPI: the stub framework that landed, the ordered task sequence, and the risk register. **Read before touching `src/Beatnik_*.hpp` or `examples/02_adaptive_mesh_bubble/`.** |
-
-The three pre-redesign logs (`integrate_canopy.md`, `fmm_premature_nan.md`,
-`fmm_fullrollup_crash.md`) were removed in `89ec015` with the solver they
-tracked; they remain readable at `89ec015^:tasks/`. The durable outcome of the
-still-open one is in README [Known Issues](README.md#known-issues). Design and
-progress documents that used to live in `plans/` and `DESIGN.md` now belong in
-`tasks/` and [docs/design.md](docs/design.md) respectively.
-
 ## System detection
 
 Build and run commands differ by system. **Before building or running anything,
