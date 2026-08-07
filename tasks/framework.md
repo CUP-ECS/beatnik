@@ -1,6 +1,6 @@
 # zmodel3d-amr → Beatnik C++ port
 
-**Status:** IN PROGRESS — last updated 2026-08-06
+**Status:** IN PROGRESS — last updated 2026-08-07
 
 ## Problem
 
@@ -135,10 +135,10 @@ Each of these is a decision, not an omission:
 
 ### What is NOT yet true
 
-**The C++ has never been compiled or run.** No `spack install`, no `--help`
-invocation, no `ctest`. Verification was deliberately deferred to a following
-session at the user's direction. Treat every C++ file as *designed* but not
-*validated*.
+**The C++ compiles, links, and runs to a stub (V0, 2026-08-07)** — but nothing
+below V0 is implemented, so every solver body still throws. Treat the C++ as
+*buildable and structurally sound*, not *numerically validated*: no routine has
+been checked against the Python.
 
 The Python side **was** run and does pass: `compare_output.py` matches the
 positive fixture, fails the negative one, and the fixtures regenerate
@@ -151,6 +151,52 @@ reproducibly.
   port source (`solver.py`) is the wrong file and traced to the real sources
   instead; recorded above. Wrote and **ran** `compare_output.py` and its
   fixtures; the C++ was not built (see task V0). Next: V0.
+
+- 2026-08-07 — **V0 and T1a complete.** Next: T1b (which needs M1 first).
+
+  **V0.** `spack install` built the whole framework **with zero compile errors**
+  — the anticipated round of `typename`/include/Kokkos-5-alias fixes never
+  materialized, so no semantic decisions had to be made and none are recorded
+  here. `--help` exits 0; the T1a command line parses, echoes its configuration
+  (`execution space HIP`, `ranks 1`), and dies with
+  `error: Solver::setup not implemented` — a stub, as required, not a parse
+  error and not a signal. `Beatnik_Test_PythonCompare` passes and `_Negative`
+  fails as its `WILL_FAIL` expects; both were run as the bare
+  `compare_output.py` invocations `tests/CMakeLists.txt` registers, since spack
+  mode has no build tree to run `ctest` in. The `systems/tuolumne/spack.yaml`
+  drift noted in the task was already resolved by the working tree's uncommitted
+  edits, which are now correct against the live env.
+
+  **T1a.** `compare_output.py gold.npz gold.npz --rtol 1e-12 --atol 1e-14`
+  exits 0 and reports the expected structure: 162 vertices, 320 faces,
+  `state_model potential`, 162/162 unambiguous matches at the default
+  `--match-eps`, and the four carried scalars present
+  (`initial_volume 6.3235073124669514e-02`,
+  `initial_min_edge 6.8976121063816842e-02`). Those two are the values T1b's
+  exit criterion must reproduce to `1e-14` relative.
+
+  **Four framework bugs found and fixed by actually running things.** All were
+  latent — every one would have hit the first person to submit the ship gate,
+  and none is visible by reading:
+  1. `flux run` on a **login node** does not fail, it blocks forever waiting for
+     an allocation that never comes. Cost a hung session. Now recorded as a
+     project-wide guideline in CLAUDE.md and beside the launch template in
+     `systems/tuolumne/claude.md` §4.
+  2. `# flux: --time=N` is not a valid `flux batch` option (`-t Nm` is), so
+     `run_regression_minset.flux` **could not be submitted at all**.
+  3. `flux batch` copies the script into a `/var/tmp` spool, so the
+     `BASH_SOURCE`-based `BEATNIK_REPO` fallback resolved to `/var/tmp/scripts`
+     and the resolver source failed. The script's own comment predicted this;
+     the code did not implement it. Both flux scripts now walk up from `PWD`
+     (which flux does preserve) as the fallback.
+  4. `scripts/lib/beatnik_env.sh` was not `set -u` clean — it read
+     `BEATNIK_SYSTEM` and nine other caller-supplied knobs unguarded, aborting
+     any `set -u` batch script on the first read. Fixed once, at the top of the
+     resolver, with a `: "${KNOB:=}"` block rather than by patching each site.
+
+  New: `scripts/tuolumne/run_v0_smoke.flux`, the batch wrapper for V0 steps 3-4.
+  It carries the T1a command line, so it becomes the precursor to regression
+  test 1 as the stubs fill in.
 
 ---
 
@@ -166,7 +212,7 @@ first in **M1**; `../canopy` first in **F1**. No earlier task should open either
 
 ---
 
-## V0 — Make it build and run to a stub *(do this first)*
+## V0 — Make it build and run to a stub *(do this first)* — **DONE 2026-08-07**
 
 **Why first:** everything below assumes a compiling baseline. Roughly two dozen
 headers were written without a compiler; expect ordinary errors — missing
@@ -199,6 +245,14 @@ resync.
 **Exit criterion:** all five steps above succeed, and the README "Known Issues"
 entry about the framework never having been compiled is deleted.
 
+**Met 2026-08-07.** All five succeeded; step 2 was vacuous (zero compile
+errors). The spack.yaml resync above was already done by the working tree's
+uncommitted edits. Steps 3-4 run via the new
+`scripts/tuolumne/run_v0_smoke.flux` — **not** interactively, see the login-node
+rule in CLAUDE.md. Step 5 ran the two `compare_output.py` invocations directly,
+since spack mode has no build tree for `ctest`. Details and the four latent
+framework bugs fixed on the way are in the progress log.
+
 ---
 
 ## Phase 1 — Regression test 1: initial conditions, 0 timesteps
@@ -206,7 +260,7 @@ entry about the framework never having been compiled is deleted.
 Compare the Python driver's startup checkpoint against Beatnik with the same
 defaults. Validates mesh generation and problem setup with no dynamics at all.
 
-### T1a — Generate the gold file *(human step, no code)*
+### T1a — Generate the gold file *(human step, no code)* — **DONE 2026-08-07**
 
 Run the Python driver with default arguments plus `--steps 0
 --checkpoint-dir <dir> --source-quadrature vertex --br-approximation direct`,
@@ -222,8 +276,12 @@ way avoids the trap at T2a, where it matters.)
 This is the exact python command run. The step 0 NPZ file is used as the gold file here:
 `python examples/run_adaptive_mesh_bubble.py --A 0.3 --g 1.0 --mu 0.002 --eps 0.025 --viscosity-mode laplace-beltrami --br-approximation direct --isotropic-cleanup --checkpoint-every-steps 1 --no-video --steps 0 --source-quadrature vertex`
 
-**Exit criterion:** a gold `.npz` is committed (DONE) TODO: Verify `compare_output.py` loads it
-without a structural complaint when compared against itself. 
+**Exit criterion:** a gold `.npz` is committed, and `compare_output.py` loads it
+without a structural complaint when compared against itself. **Met 2026-08-07** —
+`tests/regression_tests/initial_conditions/gold.npz`, self-compare at
+`--rtol 1e-12 --atol 1e-14` exits 0 (162 vertices, 320 faces, `potential`,
+162/162 unambiguous). See the progress log for the two carried scalars T1b must
+reproduce.
 
 ### T1b — Icosphere generation and mesh geometry
 

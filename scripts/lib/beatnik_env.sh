@@ -59,6 +59,27 @@
 ############################################################################
 
 ##--------------------------------------------------------------------------##
+## 0. Make the caller-supplied knobs safe to read
+##--------------------------------------------------------------------------##
+# Batch scripts run under `set -u`, and this file is sourced INTO them, so an
+# unset knob would abort the job on first read rather than fall through to its
+# default. Default every input knob to empty here so the `[ -z ... ]` /
+# `[ "${...}" = 1 ]` tests below can be written plainly.
+#
+# Only INPUTS belong in this list. BEATNIK_PROFILE_SOURCE and
+# BEATNIK_ACTIVE_SPACK_ENV are outputs and are assigned unconditionally below.
+: "${BEATNIK_REPO:=}"
+: "${BEATNIK_SYSTEM:=}"
+: "${BEATNIK_BUILD_MODE:=}"
+: "${BEATNIK_BIN_MODE:=}"
+: "${BEATNIK_SPACK_ENV:=}"
+: "${BEATNIK_SPACK_PROD_ENV:=}"
+: "${BEATNIK_BUILD_DIR:=}"
+: "${BEATNIK_USE_PROD:=}"
+: "${BEATNIK_NO_SPACK_ACTIVATE:=}"
+: "${BEATNIK_ENV_DRY_RUN:=}"
+
+##--------------------------------------------------------------------------##
 ## 1. Repo root
 ##--------------------------------------------------------------------------##
 # Honor a pinned BEATNIK_REPO (batch scripts pin it, because a scheduler may

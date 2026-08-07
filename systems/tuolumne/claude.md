@@ -165,7 +165,11 @@ The launch-time environment (`MPICH_GPU_SUPPORT_ENABLED`, `GTL_*`, `FI_CXI_ATS`,
 [scripts/tuolumne/runtime_env.sh](../../scripts/tuolumne/runtime_env.sh), which
 the resolver sources automatically. **Do not re-export those inline.**
 
-Then launch:
+Then launch. **`flux run` is only valid inside an allocation you already hold.**
+On a login node there is nothing to run in, so it does not error — it blocks
+forever waiting for resources and hangs the session. From a login node, always go
+through section 5 and `flux batch` a script instead, even for a one-off smoke
+test.
 
 ```
 flux run \

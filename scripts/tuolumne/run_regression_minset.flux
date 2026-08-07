@@ -2,7 +2,7 @@
 # flux: --job-name=beatnik_regression_minset
 # flux: --nodes=2
 # flux: --exclusive
-# flux: --time=30
+# flux: -t 30m
 # flux: --output={{name}}.{{jobid}}.log
 # flux: -q pdebug
 ############################################################################
@@ -37,9 +37,30 @@ set -u
 # Any `module load` belongs HERE, before the resolver source, so the resolver
 # and the spack env see the final module state. Tuolumne needs none today.
 
-# Pin the repo root: a scheduler may launch this from a spool copy, so
-# BASH_SOURCE is not a reliable way back to the checkout.
-export BEATNIK_REPO="${BEATNIK_REPO:-$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)}"
+# Pin the repo root. `flux batch` copies the script into a per-job spool
+# directory before running it, so BASH_SOURCE points at /var/tmp/... and cannot
+# find the checkout. It does preserve the submitting working directory, so walk
+# up from PWD as the fallback; BASH_SOURCE still covers a direct `bash` run.
+beatnik_find_repo() {
+    local _d
+    for _d in "$(dirname "${BASH_SOURCE[0]}")/../.." "${PWD}"; do
+        _d="$(cd "${_d}" 2>/dev/null && pwd)" || continue
+        while [ -n "${_d}" ] && [ "${_d}" != "/" ]; do
+            if [ -f "${_d}/scripts/lib/beatnik_env.sh" ]; then
+                printf '%s\n' "${_d}"
+                return 0
+            fi
+            _d="$(dirname "${_d}")"
+        done
+    done
+    return 1
+}
+export BEATNIK_REPO="${BEATNIK_REPO:-$(beatnik_find_repo)}"
+if [ -z "${BEATNIK_REPO}" ]; then
+    echo "[gate] FAIL: cannot locate the Beatnik checkout." >&2
+    echo "  Submit from inside it, or export BEATNIK_REPO before flux batch." >&2
+    exit 1
+fi
 
 # shellcheck source=../lib/beatnik_env.sh
 source "${BEATNIK_REPO}/scripts/lib/beatnik_env.sh" || exit 1
