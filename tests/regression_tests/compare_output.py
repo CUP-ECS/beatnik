@@ -89,22 +89,45 @@ except ImportError:  # pragma: no cover - reported at run time, not import time
 # Edit this table when either writer changes a name. Nothing else in the script
 # knows a field name.
 #
+# UPDATED BY TASK M2. The mesh and field paths below are *Tessera's* layout, not
+# a Beatnik invention: `Tessera::writeMesh` owns the file and Beatnik only
+# appends the `/beatnik` scalar group afterwards. Two consequences that are not
+# obvious from the names:
+#
+#   * `/faces/verts` is uint64 and holds DENSE GLOBAL vertex indices, assigned
+#     by an MPI_Exscan over owned-only counts -- the same offsets at which
+#     `/vertices/position` is written. So it indexes rows of the vertex table
+#     directly, exactly like the `.npz` `faces`, and needs no translation here.
+#   * `/vertices/u<N>` is a POSITIONAL name. Tessera writes the N-th slot of the
+#     vertex user pack under that name and records nothing about its meaning;
+#     the meaning is Beatnik::VertexFieldId's declaration order. Reordering that
+#     enum silently relabels every checkpoint on disk, which is precisely the
+#     "passing comparison of the wrong data" this table exists to prevent -- so
+#     the writer also emits /beatnik/vertex_field_names and `load_h5` VERIFIES
+#     this table against it. That is a cross-check, not an inference: the table
+#     below stays the source of truth and a disagreement is a hard failure.
+#
 #   npz key -> HDF5 dataset path
 FIELD_MAP: Dict[str, str] = {
-    # scalars
-    "state_model": "/state_model",
-    "time": "/time",
-    "step": "/step",
-    "initial_volume": "/initial_volume",
-    "initial_min_edge": "/initial_min_edge",
-    # mesh
-    "vertices": "/mesh/vertices",
-    "faces": "/mesh/faces",
-    # per-vertex fields
-    "potential": "/fields/potential",
-    "sheet_vector": "/fields/sheet_vector",
-    "remesh_material_position": "/fields/remesh_material_position",
+    # scalars -- written by Beatnik after Tessera closes the file
+    "state_model": "/beatnik/state_model",
+    "time": "/beatnik/time",
+    "step": "/beatnik/step",
+    "initial_volume": "/beatnik/initial_volume",
+    "initial_min_edge": "/beatnik/initial_min_edge",
+    # mesh -- written by Tessera
+    "vertices": "/vertices/position",
+    "faces": "/faces/verts",
+    # per-vertex fields -- Tessera's vertex user pack, in VertexFieldId order
+    "potential": "/vertices/u0",
+    "sheet_vector": "/vertices/u1",
+    "remesh_material_position": "/vertices/u2",
 }
+
+# Where the writer declares what each `/vertices/u<N>` slot means, as the `.npz`
+# key of that slot in VertexFieldId order. Absent from a `.npz` and from a file
+# written before M2; checked only when present.
+VERTEX_FIELD_NAMES_PATH = "/beatnik/vertex_field_names"
 
 # Present in every checkpoint regardless of state model.
 REQUIRED_FIELDS = (
@@ -153,11 +176,46 @@ def load_npz(path: str) -> Dict[str, np.ndarray]:
         raise LoadError(f"cannot read npz {path!r}: {exc}") from exc
 
 
+def check_vertex_field_names(declared: np.ndarray) -> None:
+    """Verify `FIELD_MAP`'s `/vertices/u<N>` paths against the file's own map.
+
+    Tessera names vertex user fields positionally, so `/vertices/u0` carries no
+    evidence that it is the potential -- see the note above `FIELD_MAP`. The
+    writer declares the meaning of each slot; this checks that `FIELD_MAP` still
+    agrees with it, and raises if it does not.
+
+    Deliberately NOT an inference. Resolving the paths *from* the declaration
+    would make this script agree with whatever the writer did, including a
+    silent field reordering, which is the failure being guarded against.
+
+    :param declared: the `/beatnik/vertex_field_names` dataset: the `.npz` key
+        of slot ``N`` at index ``N``.
+    :raises LoadError: on any disagreement, naming both sides.
+    """
+    names = [
+        item.decode("utf-8") if isinstance(item, bytes) else str(item)
+        for item in np.asarray(declared).ravel().tolist()
+    ]
+    for slot, npz_key in enumerate(names):
+        expected = f"/vertices/u{slot}"
+        mapped = FIELD_MAP.get(npz_key)
+        if mapped != expected:
+            raise LoadError(
+                f"vertex field slot {slot} is declared to be {npz_key!r}, but "
+                f"FIELD_MAP sends {npz_key!r} to {mapped!r} rather than "
+                f"{expected!r}. Beatnik::VertexFieldId and FIELD_MAP have "
+                "drifted -- fix the table, do not widen the check."
+            )
+
+
 def load_h5(path: str) -> Dict[str, np.ndarray]:
     """Read the Beatnik `.h5`, returning a dict keyed by **npz** names.
 
     Datasets are looked up through `FIELD_MAP`, so this function returns the
-    same key space as `load_npz` and everything downstream is symmetric.
+    same key space as `load_npz` and everything downstream is symmetric. Every
+    other dataset in the file -- Tessera's gids, edges, levels, closure
+    bookkeeping and root attributes -- is ignored: the comparison is against a
+    Python `.npz` that has no analogue for any of it.
     """
     if h5py is None:
         raise LoadError(
@@ -166,6 +224,8 @@ def load_h5(path: str) -> Dict[str, np.ndarray]:
     out: Dict[str, np.ndarray] = {}
     try:
         with h5py.File(path, "r") as handle:
+            if VERTEX_FIELD_NAMES_PATH in handle:
+                check_vertex_field_names(handle[VERTEX_FIELD_NAMES_PATH][()])
             for npz_key, h5_path in FIELD_MAP.items():
                 if h5_path in handle:
                     out[npz_key] = np.asarray(handle[h5_path][()])
@@ -506,10 +566,28 @@ def compare(
         worst_n,
     )
 
+    # The state field the model does NOT select. The Python writes one or the
+    # other and never both; Beatnik always writes both, because they are two
+    # slots of one Cabana tuple and Tessera::writeMesh writes the whole vertex
+    # user pack unconditionally (see Beatnik_IOInterface.hpp, "BOTH STATE FIELDS
+    # ARE ALWAYS PRESENT"). Under `potential`, `sheet_vector` holds whatever
+    # updateSheetVector last cached there -- it is not an evolved unknown and
+    # has no gold counterpart, so it is skipped rather than reported as a
+    # one-sided presence. This is the ONLY field allowed to be one-sided.
+    inactive_state_field = next(
+        name for name in STATE_FIELD.values() if name != solution_field
+    )
+
     for key in PER_VERTEX_FIELDS:
         in_cpp = key in cpp
         in_gold = key in gold
         if not in_cpp and not in_gold:
+            continue
+        if key == inactive_state_field and in_cpp != in_gold:
+            report.info(
+                f"  {key:<26} skipped: not the active state field for "
+                f"state_model={cpp_model!r}"
+            )
             continue
         if in_cpp != in_gold:
             # The solution field is required (checked above); the material

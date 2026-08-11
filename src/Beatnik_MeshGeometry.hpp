@@ -33,6 +33,50 @@
  *   v} A_f\f$, not the Voronoi or mixed area. The Python uses barycentric
  *   throughout (`mesh_solver.py:223`), so the port must too or the cotangent
  *   Laplacian is normalized differently and the viscous term changes magnitude.
+ *
+ * DISTRIBUTED ASSEMBLY — PASS ALL LOCAL FACES, AND DO NOT SCATTER-ADD
+ * ------------------------------------------------------------------
+ * Every routine here that turns a per-face quantity into a per-vertex one does
+ * it by looping faces and accumulating onto their three corners. On a
+ * distributed surface that looks like it needs a ghost-to-owner scatter-add,
+ * and the pre-T1b version of this header said so on four routines. **It does
+ * not**, and the reason is a property of Tessera's local set:
+ *
+ *   Tessera's local face set is *the owned faces plus every face incident on an
+ *   owned vertex* (more at halo depth 2, which is what Beatnik builds).
+ *
+ * So a loop over **all locally held faces** — `[0, totalFaceCount())`, not
+ * `[0, ownedFaceCount())` — gives every *owned* vertex contributions from its
+ * complete incident-face set, with no communication and no double-counting of
+ * an owned vertex. Ghost vertices are left holding partial sums, which is
+ * exactly what a scatter-add would leave behind anyway and is harmless as long
+ * as consumers read owned rows.
+ *
+ * Two rules follow, and both are load-bearing:
+ *
+ *   1. **Pass the whole local face set** to `MeshGeometry::compute` and
+ *      `volumeGradient`. Passing only the owned faces makes every
+ *      partition-boundary vertex's area and normal too small — a seam of
+ *      spurious velocity that *moves* when the rank count changes, which is the
+ *      signature to look for.
+ *   2. **Do not follow them with `Comm::haloScatterAdd`.** That would
+ *      double-count. The scatter-add is for the *other* pattern (owned-face
+ *      loop into a mesh-resident field) and is documented as such in
+ *      `Beatnik_Communication.hpp`.
+ *
+ * The routines that reduce to a **global scalar** are the opposite case:
+ * `enclosedVolume` and `edgeLengths` must see **owned entities only**, because
+ * there each local entity contributes once to a global sum or minimum and a
+ * ghost is an owned entity somewhere else (risk R9). They take the range the
+ * caller hands them, so the caller passes an owned subrange — see each.
+ *
+ * DETERMINISM
+ * -----------
+ * The per-vertex accumulations use `Kokkos::atomic_add`, whose summation order
+ * is not reproducible run to run on a GPU. Vertex areas and normals are
+ * therefore not bitwise reproducible, at any rank count including one. That is
+ * the same class of non-determinism as risk R2 and is why no test compares an
+ * assembled per-vertex field bitwise.
  */
 
 #ifndef BEATNIK_MESHGEOMETRY_HPP
@@ -105,21 +149,121 @@ class MeshGeometry
      * uniformly. On a strongly graded adaptive mesh the three weightings differ
      * materially, and the area weighting is what the reference uses.
      *
-     * @param vertices `(Nv,3)` positions, ghosts included.
-     * @param faces    `(Nf,3)` connectivity, ghosts included.
+     * The normalization is applied in a **second** pass, after the whole face
+     * loop has finished, because the accumulator and the result share storage:
+     * `vertex_normal` holds \f$\sum A_f \hat n_f\f$ during pass 1. Normalizing
+     * inside the face loop would normalize a partial sum.
      *
-     * @note MPI. The vertex scatter deposits onto ghost vertices, so this must
-     *       be followed by `Comm::haloScatterAdd` on `vertex_area` and the
-     *       *unnormalized* weighted normal, and the normalization applied only
-     *       after that. Normalizing before the scatter-add gives boundary
-     *       vertices a normal built from a partial one-ring.
+     * @param vertices     `(Nv,3)` positions, ghosts included. Indexed
+     *                     `(i, d)`; may be a Kokkos view or a
+     *                     generation-guarded Cabana slice, which is why the
+     * count is separate.
+     * @param vertex_count `Nv` = `mesh.totalVertexCount()`. **Explicit because
+     *                     `SurfaceMesh::position_slice` deliberately exposes no
+     *                     extent** — it is a Cabana slice behind a generation
+     *                     guard that forwards `operator()` only. (Signature
+     *                     change from the pre-T1b header, forced by the M1
+     *                     storage model.)
+     * @param faces        `(Nf,3)` **local** vertex indices. Pass the WHOLE
+     *                     local set, `mesh.totalFaceCount()` rows — see
+     *                     DISTRIBUTED ASSEMBLY in the file header. A corner
+     *                     index of `-1` (a ghost face reaching off-rank) is
+     *                     skipped, and the whole face with it, so a partial
+     *                     triangle cannot contribute a wrong area.
+     *
+     * @note MPI. **None.** No exchange and no scatter-add: the local-face loop
+     *       already gives every owned vertex its complete one-ring, and a
+     *       scatter-add afterwards would double-count. The pre-T1b note here
+     *       required one; that was written before Tessera's local-set rule was
+     *       read, and it is wrong. Ghost rows hold partial sums; a consumer
+     *       that needs them consistent should recompute rather than
+     *       communicate, since these are derived scratch and not mesh fields.
      */
     template <class VertexView, class FaceView>
-    void compute( const VertexView& vertices, const FaceView& faces )
+    void compute( const VertexView& vertices, int vertex_count,
+                  const FaceView& faces )
     {
-        (void)vertices;
-        (void)faces;
-        BEATNIK_NOT_IMPLEMENTED( "MeshGeometry", "compute" );
+        const int nv = vertex_count;
+        const int nf = static_cast<int>( faces.extent( 0 ) );
+
+        face_area = scalar_view(
+            Kokkos::view_alloc( Kokkos::WithoutInitializing, "face_area" ),
+            nf );
+        face_normal = vector_view(
+            Kokkos::view_alloc( Kokkos::WithoutInitializing, "face_normal" ),
+            nf );
+        // Zero-initialized: both are accumulators in pass 1.
+        vertex_area = scalar_view( "vertex_area", nv );
+        vertex_normal = vector_view( "vertex_normal", nv );
+
+        auto pos = vertices;
+        auto fv = faces;
+        auto fa = face_area;
+        auto fn = face_normal;
+        auto va = vertex_area;
+        auto vn = vertex_normal;
+
+        Kokkos::parallel_for(
+            "beatnik_mesh_geometry_faces",
+            Kokkos::RangePolicy<execution_space>( 0, nf ),
+            KOKKOS_LAMBDA( const int f ) {
+                const int ia = fv( f, 0 );
+                const int ib = fv( f, 1 );
+                const int ic = fv( f, 2 );
+                if ( ia < 0 || ib < 0 || ic < 0 )
+                {
+                    fa( f ) = Real( 0 );
+                    for ( int d = 0; d < 3; ++d )
+                        fn( f, d ) = Real( 0 );
+                    return;
+                }
+                Real e1[3], e2[3];
+                for ( int d = 0; d < 3; ++d )
+                {
+                    e1[d] = pos( ib, d ) - pos( ia, d );
+                    e2[d] = pos( ic, d ) - pos( ia, d );
+                }
+                Real raw[3];
+                raw[0] = e1[1] * e2[2] - e1[2] * e2[1];
+                raw[1] = e1[2] * e2[0] - e1[0] * e2[2];
+                raw[2] = e1[0] * e2[1] - e1[1] * e2[0];
+                const Real len = Kokkos::sqrt(
+                    raw[0] * raw[0] + raw[1] * raw[1] + raw[2] * raw[2] );
+                const Real area = Real( 0.5 ) * len;
+                fa( f ) = area;
+                // np.divide(..., where=lengths > 0) -- a zero-length raw normal
+                // yields the zero vector, not a NaN.
+                for ( int d = 0; d < 3; ++d )
+                    fn( f, d ) = ( len > Real( 0 ) ) ? raw[d] / len : Real( 0 );
+
+                const Real third = area / Real( 3 );
+                const int corner[3] = { ia, ib, ic };
+                for ( int k = 0; k < 3; ++k )
+                {
+                    Kokkos::atomic_add( &va( corner[k] ), third );
+                    for ( int d = 0; d < 3; ++d )
+                        Kokkos::atomic_add( &vn( corner[k], d ),
+                                            area * fn( f, d ) );
+                }
+            } );
+        Kokkos::fence();
+
+        Kokkos::parallel_for(
+            "beatnik_mesh_geometry_vertices",
+            Kokkos::RangePolicy<execution_space>( 0, nv ),
+            KOKKOS_LAMBDA( const int i ) {
+                // np.maximum(vertex_area, 1e-300): floored, not branched, so a
+                // collapsed one-ring gives a huge finite value not a NaN.
+                if ( va( i ) < Real( 1.0e-300 ) )
+                    va( i ) = Real( 1.0e-300 );
+                const Real len = Kokkos::sqrt( vn( i, 0 ) * vn( i, 0 ) +
+                                               vn( i, 1 ) * vn( i, 1 ) +
+                                               vn( i, 2 ) * vn( i, 2 ) );
+                if ( len > Real( 0 ) )
+                    for ( int d = 0; d < 3; ++d )
+                        vn( i, d ) /= len;
+            } );
+        Kokkos::fence();
     }
 };
 
@@ -149,44 +293,127 @@ class SurfaceOperators
      * threshold across a mesh whose element sizes span two decades.
      *
      * @param vertices `(Nv,3)` positions.
-     * @param faces    `(Nf,3)` connectivity.
+     * @param faces    `(Nf,3)` local vertex indices. A face carrying a `-1`
+     *                 corner scores 0, the same as a collapsed triangle: it is
+     *                 not a valid triangle here, and 0 is the value a
+     *                 quality-based consumer already knows how to handle.
      * @param[out] quality `(Nf,)` result. Zero where the squared-length sum is
      *             zero (a fully collapsed triangle).
+     *
+     * @note The execution space is deduced from `quality` rather than being a
+     *       class template parameter: `SurfaceOperators` is stateless and its
+     *       callers are, so there is no natural place to carry one. Same for
+     *       every routine below.
      */
     template <class VertexView, class FaceView, class ScalarView>
     static void triangleQuality( const VertexView& vertices,
                                  const FaceView& faces, ScalarView& quality )
     {
-        (void)vertices;
-        (void)faces;
-        (void)quality;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceOperators", "triangleQuality" );
+        using exec = typename ScalarView::execution_space;
+        const int nf = static_cast<int>( faces.extent( 0 ) );
+        auto pos = vertices;
+        auto fv = faces;
+        auto q = quality;
+        Kokkos::parallel_for(
+            "beatnik_triangle_quality", Kokkos::RangePolicy<exec>( 0, nf ),
+            KOKKOS_LAMBDA( const int f ) {
+                const int ia = fv( f, 0 );
+                const int ib = fv( f, 1 );
+                const int ic = fv( f, 2 );
+                if ( ia < 0 || ib < 0 || ic < 0 )
+                {
+                    q( f ) = Real( 0 );
+                    return;
+                }
+                Real ab[3], bc[3], ca[3], ac[3];
+                for ( int d = 0; d < 3; ++d )
+                {
+                    ab[d] = pos( ib, d ) - pos( ia, d );
+                    bc[d] = pos( ic, d ) - pos( ib, d );
+                    ca[d] = pos( ia, d ) - pos( ic, d );
+                    ac[d] = pos( ic, d ) - pos( ia, d );
+                }
+                const Real nx = ab[1] * ac[2] - ab[2] * ac[1];
+                const Real ny = ab[2] * ac[0] - ab[0] * ac[2];
+                const Real nz = ab[0] * ac[1] - ab[1] * ac[0];
+                const Real area =
+                    Real( 0.5 ) * Kokkos::sqrt( nx * nx + ny * ny + nz * nz );
+                Real l2 = 0;
+                for ( int d = 0; d < 3; ++d )
+                    l2 += ab[d] * ab[d] + bc[d] * bc[d] + ca[d] * ca[d];
+                // 4*sqrt(3) normalizes an equilateral triangle to exactly 1.
+                q( f ) =
+                    ( l2 > Real( 0 ) )
+                        ? Real( 4.0 ) * Kokkos::sqrt( Real( 3.0 ) ) * area / l2
+                        : Real( 0 );
+            } );
+        Kokkos::fence();
     }
 
     /**
-     * @brief Length of every unique edge.
+     * @brief Length of every edge in the supplied edge list.
      *
      * Port of run_adaptive_mesh_bubble.py::mesh_edge_lengths (lines 545-555)
      *
-     * Edges are keyed by their sorted endpoint pair so each interior edge is
-     * measured once, not twice. Feeds the global minimum edge length, which is
-     * the adaptive-dt throttle and the unit in which the proximity activation
-     * and material-exclusion radii are expressed.
+     * Feeds the global minimum edge length, which is the adaptive-dt throttle
+     * and the unit in which the proximity activation and material-exclusion
+     * radii are expressed.
      *
-     * @note MPI. Only edges whose *lower-global-id* endpoint is owned may be
-     *       counted, or boundary edges appear on both ranks. The subsequent
-     *       minimum is an `MPI_Allreduce` with `MPI_MIN`
-     *       (`Comm::allReduceMin`), since every rank must throttle dt
-     *       identically.
+     * **M1-REWORK — this takes EDGES, not faces.** The Python builds a
+     * `set` of sorted endpoint pairs out of the face array, because a NumPy
+     * triangle soup has no edge list; deriving the unique edge set is the whole
+     * body of that function. Tessera maintains the unique edge set as a
+     * first-class entity kind, continuously, through every topology op, so
+     * rederiving it here would be reimplementing storage the mesh already has —
+     * and doing it on device, where a hash set is exactly what one does not
+     * want. `SurfaceMesh::edgeVertices()` is the list.
+     *
+     * @param vertices `(Nv,3)` positions.
+     * @param edges    `(Ne,2)` local vertex indices per edge — the unique-edge
+     *                 list. Pass the **OWNED** range,
+     *                 `subview(edgeVertices(), (0, ownedEdgeCount()), ALL)`:
+     *                 owned edges form a global partition, so this is what
+     *                 makes the subsequent reduction a partition and not a
+     *                 double count (risk R9). Passing the whole local range
+     *                 does not change a *minimum*, but it does change a sum or
+     *                 a histogram, so the owned range is the contract.
+     * @param[out] lengths `(Ne,)` Euclidean length of each edge. An edge with a
+     *                 `-1` endpoint yields `+inf`, so it cannot win a minimum;
+     *                 that is unreachable for an owned edge and is a guard
+     *                 against indexing at -1, not a modelled case.
+     *
+     * @note MPI. The subsequent minimum is `Comm::allReduceMin`, since every
+     *       rank must throttle dt identically. `MPI_MIN` is reproducible across
+     *       rank counts, unlike the volume sum.
      */
-    template <class VertexView, class FaceView, class ScalarView>
-    static void edgeLengths( const VertexView& vertices, const FaceView& faces,
+    template <class VertexView, class EdgeView, class ScalarView>
+    static void edgeLengths( const VertexView& vertices, const EdgeView& edges,
                              ScalarView& lengths )
     {
-        (void)vertices;
-        (void)faces;
-        (void)lengths;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceOperators", "edgeLengths" );
+        using exec = typename ScalarView::execution_space;
+        const int ne = static_cast<int>( edges.extent( 0 ) );
+        auto pos = vertices;
+        auto ev = edges;
+        auto out = lengths;
+        Kokkos::parallel_for(
+            "beatnik_edge_lengths", Kokkos::RangePolicy<exec>( 0, ne ),
+            KOKKOS_LAMBDA( const int e ) {
+                const int i0 = ev( e, 0 );
+                const int i1 = ev( e, 1 );
+                if ( i0 < 0 || i1 < 0 )
+                {
+                    out( e ) = Real( 1.0e300 );
+                    return;
+                }
+                Real s = 0;
+                for ( int d = 0; d < 3; ++d )
+                {
+                    const Real dx = pos( i1, d ) - pos( i0, d );
+                    s += dx * dx;
+                }
+                out( e ) = Kokkos::sqrt( s );
+            } );
+        Kokkos::fence();
     }
 
     /**
@@ -197,17 +424,56 @@ class SurfaceOperators
      *
      * `h_max` sets the sagitta estimate; `h_min` gates the `--min-refine-edge`
      * floor that stops refinement from chasing an already-resolved feature.
+     *
+     * These are the *face's own* three edges, so unlike `edgeLengths` there is
+     * no owned/ghost question and no double counting: the answer is per face.
+     *
+     * @param[out] h_min `(Nf,)` shortest edge of each face; `0` for a face with
+     *             a `-1` corner.
+     * @param[out] h_max `(Nf,)` longest edge of each face; `0` likewise.
      */
     template <class VertexView, class FaceView, class ScalarView>
     static void faceEdgeExtents( const VertexView& vertices,
                                  const FaceView& faces, ScalarView& h_min,
                                  ScalarView& h_max )
     {
-        (void)vertices;
-        (void)faces;
-        (void)h_min;
-        (void)h_max;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceOperators", "faceEdgeExtents" );
+        using exec = typename ScalarView::execution_space;
+        const int nf = static_cast<int>( faces.extent( 0 ) );
+        auto pos = vertices;
+        auto fv = faces;
+        auto lo = h_min;
+        auto hi = h_max;
+        Kokkos::parallel_for(
+            "beatnik_face_edge_extents", Kokkos::RangePolicy<exec>( 0, nf ),
+            KOKKOS_LAMBDA( const int f ) {
+                const int c[3] = { fv( f, 0 ), fv( f, 1 ), fv( f, 2 ) };
+                if ( c[0] < 0 || c[1] < 0 || c[2] < 0 )
+                {
+                    lo( f ) = Real( 0 );
+                    hi( f ) = Real( 0 );
+                    return;
+                }
+                Real mn = Real( 0 ), mx = Real( 0 );
+                for ( int k = 0; k < 3; ++k )
+                {
+                    const int i0 = c[k];
+                    const int i1 = c[( k + 1 ) % 3];
+                    Real s = 0;
+                    for ( int d = 0; d < 3; ++d )
+                    {
+                        const Real dx = pos( i1, d ) - pos( i0, d );
+                        s += dx * dx;
+                    }
+                    const Real l = Kokkos::sqrt( s );
+                    if ( k == 0 || l < mn )
+                        mn = l;
+                    if ( k == 0 || l > mx )
+                        mx = l;
+                }
+                lo( f ) = mn;
+                hi( f ) = mx;
+            } );
+        Kokkos::fence();
     }
 
     /**
@@ -229,15 +495,54 @@ class SurfaceOperators
      * independent of that choice **only** if the surface is genuinely closed,
      * which makes this a useful closure check in its own right.
      *
-     * @note MPI. Owned faces only, then `Comm::allReduceSum`.
+     * @param vertices `(Nv,3)` positions.
+     * @param faces    `(Nf,3)` local vertex indices. Pass the **OWNED** range —
+     *                 `subview(faceVertices(), (0, ownedFaceCount()), ALL)` —
+     *                 because a ghost face is an owned face on another rank and
+     *                 would be counted twice (risk R9). The routine sums
+     *                 whatever range it is handed; it cannot tell.
+     * @return This rank's **partial** sum, already divided by 6. The caller
+     *         reduces: `Comm::allReduceSum( comm, enclosedVolume( ... ) )`.
+     *         Returning the partial rather than reducing internally is what
+     *         lets a caller batch several reductions into one collective, which
+     *         `Beatnik_VolumeProjection.hpp` needs for its Rayleigh quotient.
+     *
+     * @note MPI. Owned faces only, then `Comm::allReduceSum`. That sum is
+     *       floating point, so it is **not** bitwise reproducible across rank
+     *       counts — risk R2, and this is one of the two quantities the whole
+     *       run keys off.
      */
     template <class VertexView, class FaceView>
     static Real enclosedVolume( const VertexView& vertices,
                                 const FaceView& faces )
     {
-        (void)vertices;
-        (void)faces;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceOperators", "enclosedVolume" );
+        using exec = typename FaceView::execution_space;
+        const int nf = static_cast<int>( faces.extent( 0 ) );
+        auto pos = vertices;
+        auto fv = faces;
+        Real total = 0;
+        Kokkos::parallel_reduce(
+            "beatnik_enclosed_volume", Kokkos::RangePolicy<exec>( 0, nf ),
+            KOKKOS_LAMBDA( const int f, Real& acc ) {
+                const int ia = fv( f, 0 );
+                const int ib = fv( f, 1 );
+                const int ic = fv( f, 2 );
+                if ( ia < 0 || ib < 0 || ic < 0 )
+                    return;
+                const Real ax = pos( ia, 0 );
+                const Real ay = pos( ia, 1 );
+                const Real az = pos( ia, 2 );
+                const Real bx = pos( ib, 0 );
+                const Real by = pos( ib, 1 );
+                const Real bz = pos( ib, 2 );
+                const Real cx = pos( ic, 0 );
+                const Real cy = pos( ic, 1 );
+                const Real cz = pos( ic, 2 );
+                acc += ax * ( by * cz - bz * cy ) + ay * ( bz * cx - bx * cz ) +
+                       az * ( bx * cy - by * cx );
+            },
+            total );
+        return total / Real( 6.0 );
     }
 
     /**
@@ -261,17 +566,54 @@ class SurfaceOperators
      * instantaneous flux removal (`Beatnik_VolumeProjection.hpp`) and the
      * iterative position projection are rank-one corrections along it.
      *
-     * @note MPI. Face-loop scatter onto vertices, so
-     *       `Comm::haloScatterAdd` afterwards.
+     * @param faces `(Nf,3)` local vertex indices. Pass the **WHOLE LOCAL** set
+     *        here, not the owned range — this is a per-vertex assembly, not a
+     *        global sum, and the opposite convention to `enclosedVolume` for
+     *        the reason set out under DISTRIBUTED ASSEMBLY in the file header.
+     *        The two are easy to transpose and the symptom of transposing them
+     *        is a rank-count-dependent seam, so they are stated on both.
+     * @param[in,out] gradient `(Nv,3)`. **Zeroed by this routine**, then
+     *        accumulated into, so a caller cannot accidentally add two frames
+     *        together.
+     *
+     * @note MPI. **None** — no scatter-add. The local-face loop already gives
+     *       every owned vertex its complete incident-face set; a scatter-add
+     *       would double-count. Ghost rows hold partial sums.
      */
     template <class VertexView, class FaceView, class VectorView>
     static void volumeGradient( const VertexView& vertices,
                                 const FaceView& faces, VectorView& gradient )
     {
-        (void)vertices;
-        (void)faces;
-        (void)gradient;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceOperators", "volumeGradient" );
+        using exec = typename VectorView::execution_space;
+        const int nf = static_cast<int>( faces.extent( 0 ) );
+        auto pos = vertices;
+        auto fv = faces;
+        auto g = gradient;
+        Kokkos::deep_copy( gradient, Real( 0 ) );
+        Kokkos::parallel_for(
+            "beatnik_volume_gradient", Kokkos::RangePolicy<exec>( 0, nf ),
+            KOKKOS_LAMBDA( const int f ) {
+                const int idx[3] = { fv( f, 0 ), fv( f, 1 ), fv( f, 2 ) };
+                if ( idx[0] < 0 || idx[1] < 0 || idx[2] < 0 )
+                    return;
+                Real p[3][3];
+                for ( int k = 0; k < 3; ++k )
+                    for ( int d = 0; d < 3; ++d )
+                        p[k][d] = pos( idx[k], d );
+                // dV/dp_k = (p_{k+1} x p_{k+2}) / 6, cyclically.
+                for ( int k = 0; k < 3; ++k )
+                {
+                    const Real* u = p[( k + 1 ) % 3];
+                    const Real* v = p[( k + 2 ) % 3];
+                    const Real cr[3] = { u[1] * v[2] - u[2] * v[1],
+                                         u[2] * v[0] - u[0] * v[2],
+                                         u[0] * v[1] - u[1] * v[0] };
+                    for ( int d = 0; d < 3; ++d )
+                        Kokkos::atomic_add( &g( idx[k], d ),
+                                            cr[d] / Real( 6.0 ) );
+                }
+            } );
+        Kokkos::fence();
     }
 
     /**
@@ -328,11 +670,16 @@ class SurfaceOperators
      *
      * This routine is called **twice per RHS evaluation** — once to build the
      * sheet vector from the potential, and once on the Bernoulli potential —
-     * so it is a two-ring stencil overall. See
-     * `Comm::haloExchangeField` for what that costs in ghost depth.
+     * so it is a two-ring stencil overall. That is served by building the mesh
+     * at `SurfaceMesh::halo_depth = 2` once at setup, **not** by exchanging
+     * twice — see the halo section of `Beatnik_MeshInterface.hpp` and risk R8.
      *
-     * @note MPI. Two face-loop scatters (weighted gradient and weight), so
-     *       `Comm::haloScatterAdd` on both before dividing.
+     * @note MPI (CORRECTED at the M1 rework; T2b implements this). Two
+     *       face-loop scatters (weighted gradient and weight), assembled from
+     *       the **whole local face set** and therefore already complete on
+     *       every owned vertex — see DISTRIBUTED ASSEMBLY in the file header.
+     *       **No scatter-add**, which would double-count. Only a `haloExchange`
+     *       of the *input* scalar is needed, so ghost values are current.
      */
     template <class VertexView, class FaceView, class ScalarView,
               class VectorView, class NormalView>
@@ -379,8 +726,12 @@ class SurfaceOperators
      *
      * Units: [scalar]/length^2.
      *
-     * @note MPI. Per-face scatter with `+=` onto both endpoints of each edge,
-     *       so `Comm::haloScatterAdd` before dividing by the vertex area.
+     * @note MPI (CORRECTED at the M1 rework; T2b implements this). Per-face
+     *       scatter with `+=` onto both endpoints of each edge, over the
+     *       **whole local face set**, and therefore already complete on every
+     *       owned vertex before the division by the vertex area — see
+     *       DISTRIBUTED ASSEMBLY in the file header. **No scatter-add.** Only
+     *       the input `values` need a preceding `haloExchange`.
      */
     template <class VertexView, class FaceView, class ScalarView,
               class AreaView>
@@ -524,16 +875,87 @@ class SurfaceOperators
      * without bound even though the physically meaningful gradient does not —
      * eventually losing precision in the differences that actually matter.
      *
-     * @note MPI. Two `Comm::allReduceSum` calls, numerator and denominator,
-     *       **both** before the division. See that function's note.
+     * @param scalar      `(N,)` per-vertex values.
+     * @param vertex_area `(N,)` per-vertex areas. Pass the **OWNED** range of
+     *        both: this reduces to a global scalar, so a ghost vertex would be
+     *        counted twice (risk R9).
+     *
+     * @note MPI. This overload divides **locally** and is correct only when the
+     *       two ranges it is handed cover the whole surface — i.e. at one rank,
+     *       or on a diagnostic that genuinely wants a per-rank mean. A
+     *       distributed caller must use `areaWeightedMeanPartials` and reduce
+     *       both sums before dividing; see below and `Comm::allReduceSum`.
      */
     template <class ScalarView, class AreaView>
     static Real areaWeightedMean( const ScalarView& scalar,
                                   const AreaView& vertex_area )
     {
-        (void)scalar;
-        (void)vertex_area;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceOperators", "areaWeightedMean" );
+        Real weighted = 0, area = 0;
+        areaWeightedMeanPartials( scalar, vertex_area, weighted, area );
+        if ( !( area > Real( 0 ) ) )
+        {
+            // The Python's fallback: the unweighted mean.
+            const int n = static_cast<int>( scalar.extent( 0 ) );
+            if ( n == 0 )
+                return Real( 0 );
+            using exec = typename AreaView::execution_space;
+            auto s = scalar;
+            Real sum = 0;
+            Kokkos::parallel_reduce(
+                "beatnik_unweighted_mean", Kokkos::RangePolicy<exec>( 0, n ),
+                KOKKOS_LAMBDA( const int i, Real& acc ) { acc += s( i ); },
+                sum );
+            return sum / static_cast<Real>( n );
+        }
+        return weighted / area;
+    }
+
+    /**
+     * @brief The two partial sums of the area-weighted mean, unreduced.
+     *
+     * Port of mesh_solver.py::_area_weighted_scalar_mean (lines 239-244)
+     *
+     * \f$\sum_v A_v\phi_v\f$ and \f$\sum_v A_v\f$ over whatever range is
+     * handed in, with **no division**. This exists because a mean is not a
+     * reducible quantity: `allReduceSum` of per-rank means is not the global
+     * mean, and the only correct order is *reduce both sums, then divide*.
+     * Returning a `Real` from `areaWeightedMean` cannot express that, which is
+     * why the distributed path calls this instead.
+     *
+     * If each rank instead subtracted its *local* mean from the potential, the
+     * potential would acquire a piecewise-constant jump across every partition
+     * boundary and its surface gradient — the sheet vector — would pick up a
+     * delta function there. That is the failure this signature exists to
+     * prevent, and it is invisible at one rank.
+     *
+     * @param scalar      `(N,)` per-vertex values, **owned** range.
+     * @param vertex_area `(N,)` per-vertex areas, **owned** range.
+     * @param[out] weighted_sum \f$\sum_v A_v\phi_v\f$ on this rank.
+     * @param[out] area_sum     \f$\sum_v A_v\f$ on this rank.
+     *
+     * @note MPI. Two `Comm::allReduceSum` calls, numerator and denominator,
+     *       **both** before the division. They may be batched into one
+     *       collective. See that function's note.
+     */
+    template <class ScalarView, class AreaView>
+    static void areaWeightedMeanPartials( const ScalarView& scalar,
+                                          const AreaView& vertex_area,
+                                          Real& weighted_sum, Real& area_sum )
+    {
+        using exec = typename AreaView::execution_space;
+        const int n = static_cast<int>( vertex_area.extent( 0 ) );
+        auto s = scalar;
+        auto a = vertex_area;
+        Real w = 0, t = 0;
+        Kokkos::parallel_reduce(
+            "beatnik_area_weighted_mean", Kokkos::RangePolicy<exec>( 0, n ),
+            KOKKOS_LAMBDA( const int i, Real& acc_w, Real& acc_t ) {
+                acc_w += a( i ) * s( i );
+                acc_t += a( i );
+            },
+            w, t );
+        weighted_sum = w;
+        area_sum = t;
     }
 };
 

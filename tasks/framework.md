@@ -135,10 +135,14 @@ Each of these is a decision, not an omission:
 
 ### What is NOT yet true
 
-**The C++ compiles, links, and runs to a stub (V0, 2026-08-07)** — but nothing
-below V0 is implemented, so every solver body still throws. Treat the C++ as
-*buildable and structurally sound*, not *numerically validated*: no routine has
-been checked against the Python.
+**The C++ compiles, links, and runs to a stub (V0, 2026-08-07), and T1b's mesh
+generation and geometry are now numerically validated against the Python
+(2026-08-11).** Everything below T1b is still a stub, so the solver as a whole
+throws: there is no driver path, no checkpoint, and no timestep. Treat the C++ as
+*buildable, structurally sound, and validated exactly as far as T1b's exit
+criterion reaches* — the icosphere, the enclosed volume, the minimum edge length,
+and the three adjacency relations. Nothing else has been checked against the
+Python.
 
 The Python side **was** run and does pass: `compare_output.py` matches the
 positive fixture, fails the negative one, and the fixtures regenerate
@@ -222,6 +226,195 @@ reproducibly.
 
   No Beatnik code changed in this session; the adapter still needs reworking
   against the above before T1b.
+
+- 2026-08-11 — **M2 complete.** `Beatnik_IOInterface.hpp` rewritten against
+  Tessera's real HDF5 I/O; the decision, the settled paths and the four
+  non-obvious consequences are in the M2 section below. `FIELD_MAP` and
+  `H5_PATH` updated and the two `.h5` fixtures regenerated in the same change.
+  `gatherForCheckpoint` deleted from `Beatnik_Communication.hpp`;
+  `Beatnik_Restart.hpp` and the `VertexFieldId` note in
+  `Beatnik_MeshInterface.hpp` corrected to match. `spack install` clean;
+  `Beatnik_Test_PythonCompare` passes and `_Negative` fails as its `WILL_FAIL`
+  expects, both run as the bare `compare_output.py` invocations
+  `tests/CMakeLists.txt` registers; the T1a gold self-compare still exits 0. The
+  new `FIELD_MAP`-vs-declaration guard was checked by hand-writing a file with a
+  permuted `/beatnik/vertex_field_names` — it exits 2 naming both sides.
+
+  Two things worth carrying forward:
+  1. **`clangformat.sh` is not safe to run repo-wide right now.** The tree is not
+     clang-format-clean at HEAD (26 pending replacements in this one header
+     before the edit), and the pass reflows doc comments — mangling the markdown
+     tables that *are* the deliverable — across a dozen files nobody touched. The
+     edits here were written to the format instead; the four files' replacement
+     counts went 26→3, 5→5, 27→27, 0→0, i.e. no new drift. Worth a decision later
+     on whether to format the whole tree once, deliberately, in its own commit.
+  2. **T1c's exit criterion is unaffected but its comparison is not free.**
+     `compare_output.py` now has two behaviours that only a real Beatnik file
+     exercises (the inactive state field, the field-name cross-check), so the
+     regenerated fixtures were shaped to look like one: Tessera paths, `uint64`
+     faces, a present-but-wrong `sheet_vector`, and the name declaration.
+
+- 2026-08-11 — **M1 adapter rework + T1b complete.** Next: T1c.
+
+  **The adapter rework.** `Beatnik_MeshInterface.hpp` and
+  `Beatnik_Communication.hpp` rewritten against Tessera as it actually now
+  stands. The previous revision's "M1 GAP" text described a Tessera that no
+  longer exists — eight of the eleven gaps had closed upstream — so most of it
+  was replaced by the real call rather than merely annotated. What drove each
+  change:
+
+  1. **R8 retired.** `distribute( mesh, halo, faceOwner, depth )` exists, so
+     `SurfaceMesh::halo_depth = 2` is a compile-time constant passed exactly once
+     from `distributeReplicated()`, and `refine()`/`splitEdges()`/`migrate()`
+     preserve it. All the old short-row and exchange-twice guidance is gone;
+     `buildVertexStencil` now **throws** on `k > haloDepth()`, so the two-ring
+     stencil is either correct or loud. `haloDepth()` is exposed so a test can
+     assert the depth rather than infer it from a stencil that happens not to be
+     short — and the new test does.
+  2. **The obsolete refinement contract dropped.** `Tessera::refine()` calls
+     `rebuildHalo()` itself now, so the documented `refine` → identity `migrate`
+     → `haloExchange` sequence is gone from `refine()`, from `redistribute()`
+     (which is no longer forced to serve as the re-halo), and from
+     `haloExchange()`'s precondition. The `@pre` there now says the plans are
+     *always* live, which is a stronger and simpler statement.
+  3. **The disjoint editing families.** Noted on all four affected declarations
+     (`refine`, `splitEdges`, `collapseEdges`, `flipEdges`), each stating that
+     the families are mutually exclusive per mesh and that violation is a throw
+     from inside Tessera and **not** a Beatnik-side check. Analysed — **not
+     resolved** — under "T4a/T4b — the disjoint editing families" above: four
+     options, what each costs Beatnik, what each assumes that was actually
+     verified in Tessera's README or task files, and what remains unknown. The
+     one measurement that would discriminate is named there. Nothing in T1b's
+     code is shaped around a presumed winner.
+
+  Beyond those three, the stale gap text for G3 (reductions), G4 (face
+  adjacency), G5a (`splitEdges`), G6 (distributed build), G7 (lat/lon) and G8
+  (load-balance modes) was replaced by the real calls and their real caveats;
+  `reconcileRefinementMarks` now documents that Tessera runs the fixpoint and is
+  left throwing deliberately, so a T4a caller cannot keep a reconciliation step
+  and believe it is doing something.
+
+  **Six signature changes, every one forced by Tessera's storage model rather
+  than by convenience.** Recorded here because the headers are the deliverable
+  and a silent reshape would be the wrong way to do this:
+
+  | Was | Now | Why it could not stay |
+  | --- | --- | --- |
+  | `Comm::haloExchangeField( mesh, field )` | **deleted** | Tessera's gather is whole-tuple; there is no per-field exchange and cannot cheaply be one. Kept as a shim it would have implied a cost model Beatnik does not have. M2 precedent (`gatherForCheckpoint`). Its two doc cross-references (T2b's `surfaceGradient`, `ZModelSolver`) were repointed rather than left dangling. |
+  | `Comm::haloScatterAdd( mesh, field )` | `haloScatterAdd<FieldId>( mesh )` | Tessera accumulates a field **inside** the mesh AoSoA, addressed by its compile-time Cabana member index. An external `Kokkos::View` has no such index, so the old signature is not implementable by anyone. |
+  | `MeshGeometry::compute( vertices, faces )` | `compute( vertices, vertex_count, faces )` | `position_slice` is a Cabana slice behind a generation guard that forwards `operator()` only — it exposes no extent, so `Nv` cannot be recovered from it. |
+  | `edgeLengths( vertices, faces, lengths )` | `edgeLengths( vertices, edges, lengths )` | The Python's body *is* the derivation of the unique edge set from faces, because NumPy has no edge list. Tessera maintains that set as a first-class entity kind, so rederiving it — on device, where a hash set is exactly what one does not want — would reimplement storage the mesh already has. |
+  | `areaWeightedMean` returning `Real` | kept, **plus** `areaWeightedMeanPartials` | A mean is not reducible: `allReduceSum` of per-rank means is not the global mean. The single-`Real` form cannot express reduce-both-then-divide, so the distributed path needs the partials. The original is kept and documented as whole-surface-only. |
+  | `edgeAdjacency()` → `void`, `faceAdjacency()` → `AdjacencyCsr` | `EdgeFaceIncidence`, `FaceAdjacencyCsr` | Both were throwing stubs whose return types could not carry the answer. Edge-to-face needs an incidence **count** (the closed-surface check must not be confused by a non-resident face); face-to-face has two halves and `numNonResident` is the precondition a geometric consumer must check rather than assume. |
+
+  **Two semantic decisions, both about distributed assembly.**
+
+  - **Beatnik needs no scatter-add for its geometry, and the four pre-T1b
+    `@note MPI` blocks that said it did were wrong.** Tessera's local face set is
+    *the owned faces plus every face incident on an owned vertex*, so a loop over
+    **all locally held faces** gives every owned vertex its complete
+    incident-face set with no communication and no double-counting. A
+    scatter-add after such a loop would **double-count**. The rule, its two
+    corollaries (pass the whole local set to `compute`/`volumeGradient`; pass the
+    **owned** range to `enclosedVolume`/`edgeLengths`) and the fact that the two
+    conventions are opposite are stated once in `Beatnik_MeshGeometry.hpp`'s
+    header and cross-referenced from the routines. `haloScatterAddVertexField`
+    is kept for the other pattern (owned-face loop into a mesh-resident field),
+    which nothing in T1b uses.
+  - **Orientation is verified, not repaired.** The Python re-winds each face
+    against the outward direction (`icosphere_mesh` 452-461). `generateIcosphere`
+    instead reduces the enclosed volume and **throws** unless it is positive: a
+    Tessera generator that needs repairing is a Tessera defect to report, and
+    silently absorbing it would hide the one failure mode that flips every normal
+    and curvature downstream with nothing else noticing.
+
+  **T1b's numbers, and how good they are.** `Beatnik_Test_MeshGeometry` at
+  1 rank on HIP: 15/15, and both T1a reference scalars matched to all 17 printed
+  digits, not merely to `1e-14`. That is better than expected and has a cause
+  worth recording: **Tessera's icosphere base table and its 20-face list are the
+  same literals as the Python's**, and its midpoint rule
+  `normalize3( 0.5*(a+b) )` differs from the Python's `(a+b)/‖a+b‖` only in
+  multiplying by a reciprocal where NumPy divides. So risk R1's worst case — a
+  generated mesh that disagrees with the gold mesh for reasons unrelated to the
+  solver — does **not** bite for the icosphere, and the T1b′ fallback task is not
+  needed. The `latlon` half of R1 stands: Tessera documents its lat/lon positions
+  as not bit-reproducible across libm implementations.
+
+  **Two things only running revealed.**
+  1. **A manifest-relative-path bug in `unit_tests.flux`, whose failure mode was
+     worse than a plain failure.** The installed manifest names its script *and
+     its data files* relative to the manifest's own directory; the first version
+     prefixed only the script and ran from the submitting cwd. The positive
+     comparator case then failed loudly on a missing fixture — but the
+     `py-fail` negative case **passed for the wrong reason**, because a missing
+     file also exits non-zero. The tally read 2/3 instead of 1/3. Fixed by
+     running the whole invocation from the manifest directory; the reasoning is
+     in a comment there because the class of bug (a WILL_FAIL case passing
+     vacuously) is invisible in a green log.
+  2. **No compile errors at all**, again, as at V0 — so no semantic decision was
+     forced by the compiler and none is recorded on that account.
+
+  **New and changed build/test wiring.**
+
+  - `tests/unit_tests/` **created as a tier**: `Beatnik_TestAssert.hpp` (a
+    header-only recorder: boolean / exact-integer / relative-tolerance checks,
+    failures accumulated not aborted, a greppable `[PASS|FAIL] <name> (p/n
+    checks)` tally, exit 0 only if every check passed *and at least one ran*),
+    `Beatnik_Test_MeshGeometry.cpp`, and a `CMakeLists.txt` registered from
+    `tests/CMakeLists.txt`. Deliberately **not** gtest and not through
+    `test_harness.cmake`: in spack mode there is no build tree and therefore no
+    ctest, so a unit test must be authoritative about its own verdict. That one
+    property serves both modes, since ctest's default success criterion *is* exit
+    code zero — so `add_test` needs no `PASS_REGULAR_EXPRESSION`.
+  - **Both tiers install under `+testing`, and the variant needed no packaging
+    change.** Verified by reading the spack package rather than assuming:
+    `+testing` already sets `Beatnik_ENABLE_TESTING` **and**
+    `Beatnik_INSTALL_TEST_EXECUTABLES`, and `setup_run_environment` already
+    prepends `share/Beatnik/tests` to `PATH` — the same pattern Tessera's
+    `package.py` uses for `Tessera_INSTALL_TEST_EXECUTABLES` /
+    `share/Tessera/tests`. So `package.py` is unchanged. What was missing was the
+    regression tier's *data*, which no target owns; `tests/CMakeLists.txt` now
+    installs it. **Structure is preserved rather than made
+    relocatable-by-lookup**: the installed tree mirrors the repo's `tests/`
+    layout under one root, so the same relative paths work against either, and
+    `compare_output.py` — which takes both files as explicit CLI arguments and
+    performs no lookup — needed no change. Verified by listing the prefix, not
+    inferred from a clean install:
+
+    | Installed path (under `$(spack location -i beatnik)`) | What |
+    | --- | --- |
+    | `share/Beatnik/tests/Beatnik_Test_MeshGeometry` | the unit binary, on `PATH` |
+    | `share/Beatnik/tests/beatnik_unit_manifest.txt` | unit tier, `exe` / `py-pass` / `py-fail` lines |
+    | `share/Beatnik/tests/beatnik_gate_manifest.txt` | regression tier (still empty) |
+    | `share/Beatnik/tests/regression_tests/compare_output.py` | the comparator |
+    | `share/Beatnik/tests/regression_tests/fixtures/synthetic_{gold.npz,match.h5,perturbed.h5}` | its fixtures |
+    | `share/Beatnik/tests/regression_tests/initial_conditions/gold.npz` | the T1a gold, for T1c |
+
+    `make_fixtures.py` is deliberately not installed: it regenerates the
+    fixtures and is a development tool, not something a run needs.
+  - `scripts/tuolumne/unit_tests.flux` **runs the whole tier and fails the job if
+    any test fails.** It discovers its tests rather than naming them, so T2b's
+    and T2c's land in it for free. `ctest -L unit` in tree mode, the manifest
+    otherwise. The manifest's three line kinds exist because the tier is not
+    homogeneous: `py-fail` is where ctest's `WILL_FAIL` has to live when there is
+    no ctest, and getting it wrong is how a green log hides a broken comparator
+    (see above). `BEATNIK_UNIT_TARGETS` is accumulated in
+    `test_harness.cmake` as well as in `tests/unit_tests/`, so one manifest
+    covers both registration styles.
+  - **`clangformat.sh` is still not safe to run repo-wide**, for the reason M2
+    recorded. The edits here were written to the format and then measured
+    per file: `Beatnik_MeshInterface.hpp` 27→**0**, `Beatnik_Communication.hpp`
+    5→**0**, `Beatnik_MeshGeometry.hpp` 23→**23**, `Beatnik_ZModelSolver.hpp`
+    0→0, and both new test files 0. No new drift anywhere, and two files are now
+    clean. One trap found: reflowing a comment paragraph is safe, reflowing a
+    `\f[ … \f]` display-math block or a markdown table is not — three math blocks
+    in T2b's untouched docs were briefly mangled and restored, and two tables had
+    to be *narrowed* rather than wrapped.
+
+  The ship gate is untouched: the new test is `unit`, the `regression` tier is
+  still empty, and `Beatnik_Test_PythonCompare` still passes with
+  `_Negative` still failing as its `WILL_FAIL` expects (both now run from the
+  install prefix as well as from ctest).
 
 ---
 
@@ -308,7 +501,7 @@ without a structural complaint when compared against itself. **Met 2026-08-07** 
 162/162 unambiguous). See the progress log for the two carried scalars T1b must
 reproduce.
 
-### T1b — Icosphere generation and mesh geometry
+### T1b — Icosphere generation and mesh geometry — **DONE 2026-08-11**
 
 **Fill in:**
 - `Beatnik_MeshInterface.hpp`: `SurfaceMesh::generateIcosphere`, `adopt`,
@@ -332,6 +525,28 @@ recorded distinctly.
 **Exit criterion:** a 1-rank run reproduces the Python's vertex and face counts
 (162 / 320 at the default subdivision 2) and its enclosed volume and minimum
 edge length to `1e-14` relative.
+
+**Met 2026-08-11**, by the new `unit`-tier test `Beatnik_Test_MeshGeometry`
+(`tests/unit_tests/Beatnik_Test_MeshGeometry.cpp`), run through
+`flux batch scripts/tuolumne/unit_tests.flux` at 1 rank on the **HIP** backend:
+**15/15 checks**, and both reference scalars matched the T1a values to all 17
+printed digits, not merely to `1e-14`:
+
+```
+enclosed volume 0.063235073124669514 vs T1a 0.063235073124669514
+min edge        0.068976121063816842 vs T1a 0.068976121063816842
+local V 162 (owned 162), owned E 480, local F 320 (owned 320)
+```
+
+The test checks more than the criterion: `V/E/F = 162/480/320`, Euler
+characteristic 2, halo depth 2, every edge having exactly two incident faces,
+vertex adjacency symmetric with `2E` entries and no self-loop, face adjacency of
+degree exactly 3 and reciprocal, and two whole-surface identities that pin
+`MeshGeometry::compute` and `volumeGradient`
+(\f$\sum_v A_v = \sum_f A_f\f$ and \f$\sum_v p_v\cdot\partial V/\partial p_v =
+3V\f$, the latter by Euler's homogeneous-function theorem). Details, the adapter
+rework that preceded it, and the signature changes it forced are in the progress
+log.
 
 ### T1c — Initial condition and checkpoint write
 
@@ -485,6 +700,154 @@ number here once known). Not against a Python `treecode` run; see R6.
 
 ## Phase 4 — Adaptivity
 
+### T4a/T4b — the disjoint editing families *(OPEN DESIGN QUESTION — read before either)*
+
+**Recorded 2026-08-11 by the M1 adapter rework. Not resolved, deliberately.**
+
+Tessera has **two disjoint families of topological edit and a mesh belongs to
+exactly one of them**:
+
+| Family | Operations | Invariant maintained | `Level` |
+| --- | --- | --- | --- |
+| **Hierarchical** | `refine()`, `refineLocal()` | 2:1 level balance + conforming closure | authoritative |
+| **Remesh** | `splitEdges()`, and `collapseEdges()`/`flipEdges()`/`compact()` when they land | conformity and manifoldness only | advisory |
+
+**Verified, not inferred** (`../tessera/src/Tessera_EditFamily.hpp`, README
+*Editing families*): a mesh carries an `EditFamily` tag, `None` until its first
+topological edit and **fixed thereafter**; every entry point calls
+`requireEditFamily()` and **throws `std::runtime_error`** naming both families
+when the tag disagrees. Beatnik cannot make this a Beatnik-side check, cannot
+order its calls around it, and cannot catch-and-continue. Tessera's reason is
+that `refine()`'s 2:1 invariant is stated in *level differences* and is coherent
+only because `refine()` performs the uniform 1→4 red split: bisecting one edge
+of a triangle produces children whose edges have mixed levels, so a
+`splitEdges()` child merely inherits its parent's level.
+
+**Beatnik's default configuration runs both**: T4a is `refine()`, T4b is
+split/collapse/flip, and `run_adaptive_mesh_bubble.py::main` interleaves them
+inside the step loop (refine every `--refine-every` steps, dynamic remesh every
+step unless `--no-dynamic-remesh`). So this must be settled before either task
+is implemented. The four candidates below are what Tessera's API actually
+admits. **No resolution is presumed, and nothing in T1b's code is shaped around
+one.**
+
+#### Option 1 — Two mesh objects, one per family, transferring state between them
+
+*What is verified:* a mesh can be built from a triangle soup
+(`buildFromTriangleSoup` + `distribute`, replicated input) or from per-rank
+patches plus canonical keys (`buildFromTriangleSoupDistributed`), and
+`writeMesh`/`readMesh` round-trips a mesh **together with its whole vertex user
+pack** across a change of rank count. So a transfer is expressible.
+
+*What it costs Beatnik:* the soup builders carry **positions and connectivity
+only** — not the user pack — so the three vertex fields would have to be moved
+separately, keyed by gid, and **the new build renumbers gids**. That is where
+provenance is lost, and it is not incidental: `buildFromTriangleSoupDistributed`
+requires a *canonical key per local vertex* whose contract is "rank-independent,
+equal iff the same vertex, collisions throw", and `makeVertexKey` is structured
+(a base index, or the sorted pair of a midpoint's two parents). A vertex that
+arrived by several rounds of remeshing has no such provenance available to
+Beatnik, so Beatnik would have to invent a key scheme — which is exactly the
+kind of topology bookkeeping the adapter exists to avoid. The one path that
+*does* carry the pack is an HDF5 round trip per phase switch: a collective
+MPI-IO write plus a read, every time the two phases alternate, i.e. potentially
+every step. Correct, and far too expensive.
+
+*Unknown:* whether an in-memory "clone into a fresh mesh on the same partition,
+carrying the pack" is feasible Tessera-side. It does not exist in the README and
+would be a new capability.
+
+#### Option 2 — Drop one family from the default configuration
+
+**Dropping the remesh family** (i.e. `--no-dynamic-remesh` becomes the only
+supported mode) is expressible *today* and T4a's exit criterion already runs
+that configuration. But dynamic remeshing is the Python's default and is what
+holds triangle quality through the roll-up; T4c exists because a run without it
+dies on the "curvature sliver". This trades a correctness-adjacent capability
+for a scheduling convenience and is the weakest of the four.
+
+**Dropping the hierarchical family** is the interesting direction, and Tessera
+says so itself: README *Future Optimizations* records that "the driving
+consumer, Beatnik's z-model remesher, is entirely edge-addressed and never calls
+`refine()`". `dynamic_remesh.py` is indeed entirely edge-addressed. And the AMR
+indicators, which mark **faces**, translate: marking a face means splitting its
+three edges, which is precisely a red split, and `splitEdges()` performs exactly
+the marked bisections **conforming on exit with no closure layer and no 2:1
+pass**.
+
+*What it costs Beatnik:* T4a's exit criterion compares face counts against a
+Python `refine_marked_faces` run, and a split-based refinement will produce a
+*different* face count wherever the closure pattern differs — `splitEdges` gives
+2/3/4-child patterns where red-green gives a transient closure layer. That
+criterion would need restating; risks R4 and R7 already accept this class of
+divergence, so the precedent exists. `Level` also becomes advisory, so nothing
+bounds the level jump across a refinement front.
+
+*What is verified:* `splitEdges( mesh, halo, edgeMask )` takes a host
+`std::vector<char>` sized `numOwnedEdges()`, the **edge owner** decides, the
+decision is propagated to every rank holding an incident face, the result is
+conforming, and `rebuildHalo()` is called on the way out at the recorded depth.
+It is `split_selected_edges` directly. Conformity — not 2:1 balance — is what the
+surface operators need.
+
+*Unknown:* whether the face-mark → edge-mask translation reproduces the Python's
+`projected_red_green_face_count` closely enough for `--max-faces` accounting; and
+whether repeated non-uniform bisection degrades triangle quality faster than
+red-green does. Tessera measured red-green's worst radius ratio saturating by
+round 11 and flat through round 16; it publishes **no equivalent measurement for
+`splitEdges`**, so this is a real gap in the evidence rather than a formality.
+
+**This is the leading candidate on cost**: no copy, no lost provenance, no new
+Tessera capability, and one editing family for the whole run. It is *not* free of
+prerequisites — a remesh-only Beatnik still needs coarsening, so it blocks on
+G5b (collapse) and G5c (flip), which block T4b anyway.
+
+#### Option 3 — Rebuild the mesh between the AMR phase and the remesh phase
+
+One logical surface, re-created as a fresh `Mesh` (hence `EditFamily::None`)
+whenever the phase changes.
+
+*What is verified:* only that a fresh mesh is untagged. Everything else is
+option 1's transfer problem, unchanged — the pack does not come along with a
+soup rebuild.
+
+*What it costs Beatnik:* option 1's cost, **per phase change**, plus the loss of
+the partition (a fresh `distribute`/`loadBalance`) and of gid continuity. Since
+`main` interleaves the two phases inside the step loop, that is paid every step.
+Strictly worse than option 1 with no compensating benefit.
+
+#### Option 4 — Push a change upstream into Tessera
+
+Tessera has already scoped the full version: README *Future Optimizations*,
+"Unify the two editing families by extending the level model to **anisotropic
+bisection**", pointing at `../tessera/tasks/edge-split.md` Decision 1's
+alternative. It needs per-edge levels plus a compatible balance rule, maintained
+by the mark-propagation fixpoint, the closure patterns **and the HDF5 format**
+alike. Tessera calls it "a much larger design than the guard it would replace,
+and one no known consumer needs" — naming Beatnik as the consumer that does not
+need it *because* its remesher is edge-addressed. It is not started.
+
+*What it costs Beatnik:* no implementation, but it blocks on an upstream design
+task that Tessera has explicitly deprioritized on the grounds that option 2 is
+available.
+
+**The narrower upstream ask is the part worth remembering:** options 1 and 3 both
+want the same much smaller thing — *an in-memory clone of a mesh into a fresh
+`Mesh` on the same partition, carrying the vertex user pack and needing no
+canonical keys*. That is a fraction of the anisotropic-bisection design and would
+make either option practical. Whether Tessera would take it is unknown and has
+not been asked.
+
+#### What a later session should do first
+
+Not pick from this list on paper. The one measurement that discriminates is the
+unknown under option 2: **does a `splitEdges`-only refinement hold triangle
+quality comparably to red-green over many rounds?** If it does, option 2 is
+clearly right and the question closes. If it does not, the choice is between
+option 4's narrow ask and living with `--no-dynamic-remesh`. That measurement is
+a Tessera-side experiment, not a Beatnik one, and it does not need any of T4a or
+T4b written first.
+
 ### T4a — Indicator-driven red-green AMR
 
 **Fill in:** all of `Beatnik_AdaptiveMesh.hpp`;
@@ -569,9 +932,16 @@ three-term recurrence, not the explicit polynomial.
 
 ### T5b — Restart
 
-**Fill in:** `Beatnik_IOInterface.hpp::read`; `Beatnik_Restart.hpp::load`;
-`Beatnik_Communication.hpp::broadcastFromRoot`.
+**Fill in:** `Beatnik_IOInterface.hpp::read`; `Beatnik_Restart.hpp::load`.
 ← *Python:* `::load_state_checkpoint` (993-1033), `::main` (1199-1214)
+
+**M2 CHANGE — `Comm::broadcastFromRoot` is no longer on this path.** `read` is
+`Tessera::readMesh`, which reconstructs the mesh and all three vertex fields
+collectively with no rank holding the global mesh. Two traps M2 found and both
+recorded on `CheckpointIO::read`: the halo comes back **1-deep** and must be
+widened with `rebuildHalo( mesh, halo, 2 )` before any RHS evaluation (R8), and
+a structural mismatch with the build is an **`MPI_Abort` inside Tessera**, not a
+catchable exception — so this task's cheap checks must run *before* the call.
 
 **Exit criterion:** a run checkpointed at step 5 and restarted reaches step 10
 and matches a Python restart of the same checkpoint. **It will not match an
@@ -674,7 +1044,31 @@ path (T4a, `refine()`) and its dynamic-remesh path (T4b, split/collapse/flip)
 therefore **cannot run on the same mesh**, and the default configuration runs
 both. Deciding which family Beatnik lives in — or how the two are staged — is a
 design question that must be settled at T4a/T4b and cannot be deferred to the
-implementation.
+implementation. **The four candidate resolutions, what each costs Beatnik, what
+each assumes that has actually been verified, and what remains unknown are laid
+out under "T4a/T4b — the disjoint editing families" in the task sequence above.**
+It is noted on the `refine`, `splitEdges`, `collapseEdges` and `flipEdges`
+declarations in `Beatnik_MeshInterface.hpp` so it cannot be met for the first
+time as a runtime throw.
+
+**Calls the M1 adapter rework and T1b introduced** (2026-08-11). The two tables
+above say what Tessera *offers*; this one says what Beatnik now actually calls,
+so a reader can see the adapter's whole Tessera surface in one place.
+
+| Beatnik entry point | Tessera calls it makes |
+| --- | --- |
+| `SurfaceMesh::generateIcosphere` | `buildIcosphere` → in-place scale/translate on `vertexSlice<Position>` → `facePartitionByAxis(mesh, 2)` → `distribute( mesh, halo, faceOwner, 2 )` → `haloExchange` → `globalSum` (the orientation check) |
+| `SurfaceMesh::adopt` | `TriangleSoup` fill → `buildFromTriangleSoup` → the same partition/distribute/exchange |
+| `faceVertices()` / `edgeVertices()` | `buildMeshGeometry( mesh )`, cached on `generation()`; returns its `faceVerts` / `edgeVerts` |
+| `vertexOneRing()` | `buildVertexStencil( mesh, 1 )`, cached on `generation()` |
+| `edgeAdjacency()` | host read of `edgeSlice<EdgeField::Faces>` + `faceSlice<FaceField::Gid>`, resolved to local indices; cached on `generation()` |
+| `faceAdjacency()` | `buildFaceAdjacency( mesh )` (**collective**), cached on `generation()`; exposes `nbrGid`/`nbrOwner`/`numNonResident` as well as the CSR |
+| `globalVertexCount` / `globalEdgeCount` / `globalFaceCount` / `globalEulerCharacteristic` | `globalOwnedVertices` / `Edges` / `Faces` / `Euler` |
+| `haloDepth()` | `mesh.haloDepth()` |
+| `haloExchange()` | `haloExchange( mesh, halo )` |
+| `haloScatterAddVertexField<FieldId>()` | `haloScatterAddVertices<userVertexField<FieldId>()>( mesh, halo )` |
+| `setVertices()` | writes `vertexSlice<Position>` over the owned range |
+| `Comm::allReduceSum/Min/Max/AllFinite` | one `MPI_Allreduce` each on the caller's `MPI_Comm`, identical datatype and op to `Tessera::globalSum/Min/Max/AllFinite` (see the note in that header on why they take a comm rather than a mesh) |
 
 Two structural facts drive most of the adapter:
 
@@ -810,13 +1204,101 @@ replication; and `refine()`'s mask is a **host `std::vector<char>` sized
 `ownedFaceCount()`**, not a device view sized `Nf`, so a device-computed AMR
 indicator must round-trip to the host.
 
-### M2 — Open `../tessera`: HDF5 I/O
+### M2 — Open `../tessera`: HDF5 I/O — **DONE 2026-08-11**
 
 Reconcile `Beatnik_IOInterface.hpp`. The checkpoint **schema** is fixed by the
 gold files (see the table in that header) and is not negotiable; what is
 negotiable is whether Tessera writes it directly, or Beatnik gathers and writes.
 Also settle the dataset paths, and update `FIELD_MAP` at the top of
 `compare_output.py` in the same change.
+
+**Met 2026-08-11.** `src/Beatnik_IOInterface.hpp` rewritten against
+`Tessera_HDF5Writer.hpp` / `Tessera_HDF5Reader.hpp` / `Tessera_IoCommon.hpp`,
+building clean. Bodies remain `BEATNIK_NOT_IMPLEMENTED`; T1c implements `write`
+and T5b `read`.
+
+#### The open question, decided: **Tessera writes it.**
+
+`Tessera::writeMesh( mesh, stem )` is a collective MPI-IO write of every rank's
+**owned** entities, exactly once, into a clean partition of `<stem>.h5`. Dense
+global vertex/edge indices come from an `MPI_Exscan` over owned-only counts, and
+connectivity is translated into them *before* the write — which is precisely the
+local-to-global renumbering the pre-M2 header identified as the gather path's
+one genuinely error-prone step. It also carries the whole vertex user pack, so
+all three Beatnik fields are written for free.
+
+So the gather is not merely unnecessary, it is worse on every axis: O(global)
+memory on rank 0, a serialized write, and a hand-rolled reimplementation of the
+hard part. **`Beatnik_Communication.hpp::gatherForCheckpoint` is deleted** (the
+M1 precedent: delete rather than keep a shim no caller could correctly consume).
+
+What Tessera does *not* write is the scalar metadata — its only root-attribute
+types are `int` and `uint64`, and the checkpoint needs a `double` time, two
+`double` scalars and a string. Beatnik appends a `/beatnik` group from rank 0
+after `writeMesh` closes the file, between barriers.
+
+#### The dataset paths, settled
+
+`FIELD_MAP` in `compare_output.py` and `H5_PATH` in `make_fixtures.py` were both
+updated to match, and the two committed `.h5` fixtures regenerated.
+
+| `.npz` key | HDF5 dataset | Written by |
+| --- | --- | --- |
+| `vertices` | `/vertices/position` | Tessera |
+| `faces` | `/faces/verts` (u64) | Tessera |
+| `potential` | `/vertices/u0` | Tessera |
+| `sheet_vector` | `/vertices/u1` | Tessera |
+| `remesh_material_position` | `/vertices/u2` | Tessera |
+| the five scalars | `/beatnik/<name>` | Beatnik |
+
+`/faces/verts` holds **dense global vertex indices** written at the same exscan
+offsets as `/vertices/position`, so it indexes that table's rows directly — the
+`.npz` `faces` convention exactly, needing only a dtype widening.
+
+#### Four consequences that are not obvious from the paths
+
+1. **`/vertices/u<N>` is a POSITIONAL name**, and the mapping to a meaning is
+   `Beatnik::VertexFieldId`'s declaration order. Nothing in the file says `u0`
+   is the potential, so **reordering that enum silently relabels every
+   checkpoint on disk** — which is the one failure mode `FIELD_MAP` exists to
+   prevent, now reachable through a file that does not mention any Beatnik name.
+   Mitigation: the writer also emits `/beatnik/vertex_field_names`, and
+   `compare_output.py` **verifies** `FIELD_MAP` against it (`LoadError` on
+   disagreement). Deliberately a cross-check and not an inference — resolving
+   paths *from* the declaration would make the script agree with whatever the
+   writer did, including a silent reordering. The stale pre-M2 note in
+   `Beatnik_MeshInterface.hpp` claiming the schema is "keyed by name, not by
+   this index" is corrected.
+2. **A Beatnik checkpoint always carries BOTH state fields.** `u0` and `u1` are
+   slots in one Cabana tuple and `writeMesh` writes the pack unconditionally,
+   while the Python writes `potential` *or* `sheet_vector` and never both.
+   Left alone this fails every comparison on `sheet_vector: present in cpp
+   only`. `compare_output.py` now compares only the field `state_model` selects
+   and skips the inactive one; `remesh_material_position` keeps the strict
+   both-or-neither rule, because there a one-sided presence is a real signal.
+3. **Reading is `readMesh`, not `adopt`.** `Tessera::readMesh` rebuilds the whole
+   distributed mesh *and every vertex user field* with a fresh block partition
+   and a `migrate()`, so a checkpoint round-trips **across a change of rank
+   count** and no rank ever holds the global mesh. The pre-M2 read path (rank 0
+   reads, `broadcastFromRoot`, `adopt`) is gone, and with it the `state` /
+   `material` out-parameters of both `read` and `write` — under the M1 field
+   pack the solution *is* in the mesh. `broadcastFromRoot` survives for its other
+   caller only: the R1 read-the-gold-file mitigation, whose input is a `.npz`.
+4. **Two traps in `readMesh` for T5b.** (a) The halo it leaves is **1-deep** — it
+   hands a freshly-constructed halo, whose `depth == 0` reads as the historical
+   1, to `migrate()` — so `read` must follow with `rebuildHalo( mesh, halo, 2 )`
+   or the two-ring RHS is wrong at partition boundaries (R8). (b) A structural
+   mismatch (precision, dim, refinement mode, the vertex field pack) is an
+   **`MPI_Abort` inside Tessera, not an exception**, so it cannot become the
+   `std::runtime_error` `Beatnik_Restart.hpp` promises; the checks Beatnik *can*
+   make must happen before the call, not after.
+
+#### One deviation from the Python, recorded
+
+`_latest` is a **rank-0 symlink**, not a second full write. A byte copy is not
+equivalent either — the `<stem>.xmf` sidecar names its `.h5` by stem, so a copied
+`_latest.xmf` would point at the wrong file, while a symlinked one resolves
+correctly in the same directory.
 
 ### F1 — Open `../canopy`
 

@@ -104,6 +104,20 @@ Beatnik_add_tests(MPI PACKAGE Beatnik LABEL regression
   NAMES ${REGRESSION_MPI_TESTS})
 
 ##--------------------------------------------------------------------------##
+## unit tier -- standalone self-validating tests
+##--------------------------------------------------------------------------##
+# tests/unit_tests/ holds `unit`-tier tests that are NOT gtest tests: each is a
+# single binary on Kokkos::DefaultExecutionSpace that decides its own pass/fail
+# and returns non-zero on failure. That is what makes the tier runnable in spack
+# mode, where there is no build tree and therefore no ctest. See that
+# directory's CMakeLists.txt for the full reasoning, and
+# tests/unit_tests/Beatnik_TestAssert.hpp for the assertion helper.
+#
+# Both styles land in the same tier and the same manifest, so
+# `ctest -L unit` and scripts/<system>/unit_tests.* both see everything.
+add_subdirectory(unit_tests)
+
+##--------------------------------------------------------------------------##
 ## Regression-comparison harness (Python)
 ##--------------------------------------------------------------------------##
 # tests/regression_tests/compare_output.py compares a Beatnik HDF5 checkpoint
@@ -137,6 +151,13 @@ set(_beatnik_compare_dir ${CMAKE_CURRENT_SOURCE_DIR}/regression_tests)
 set(_beatnik_compare_py ${_beatnik_compare_dir}/compare_output.py)
 set(_beatnik_fixture_dir ${_beatnik_compare_dir}/fixtures)
 
+# Paths RELATIVE TO THE INSTALLED share/Beatnik/tests directory, used both by
+# the install rules below and by the manifest the installed-binary path reads.
+# Keeping the repo's own directory layout under one install root is what lets
+# the same relative arguments work in both places -- see the install section.
+set(_beatnik_rel_compare_py regression_tests/compare_output.py)
+set(_beatnik_rel_fixtures regression_tests/fixtures)
+
 if(NOT Python3_Interpreter_FOUND)
   message(STATUS
     "Beatnik: no Python 3 interpreter found; skipping the compare_output.py "
@@ -152,32 +173,97 @@ else()
       "Beatnik: ${Python3_EXECUTABLE} lacks numpy and/or h5py; skipping the "
       "compare_output.py regression-harness tests")
   else()
+    set(_beatnik_compare_args --rtol 1e-10 --atol 1e-12)
+
     add_test(NAME Beatnik_Test_PythonCompare
       COMMAND ${Python3_EXECUTABLE} ${_beatnik_compare_py}
               ${_beatnik_fixture_dir}/synthetic_match.h5
               ${_beatnik_fixture_dir}/synthetic_gold.npz
-              --rtol 1e-10 --atol 1e-12)
+              ${_beatnik_compare_args})
     set_tests_properties(Beatnik_Test_PythonCompare PROPERTIES LABELS unit)
 
     add_test(NAME Beatnik_Test_PythonCompare_Negative
       COMMAND ${Python3_EXECUTABLE} ${_beatnik_compare_py}
               ${_beatnik_fixture_dir}/synthetic_perturbed.h5
               ${_beatnik_fixture_dir}/synthetic_gold.npz
-              --rtol 1e-10 --atol 1e-12)
+              ${_beatnik_compare_args})
     set_tests_properties(Beatnik_Test_PythonCompare_Negative PROPERTIES
       LABELS unit
       WILL_FAIL TRUE)
+
+    # The same two invocations, for the installed-binary path. `py-pass` /
+    # `py-fail` encode the expected exit status, which is where ctest's
+    # WILL_FAIL property has to go when there is no ctest -- a runner that
+    # treated the negative case as an ordinary test would report the suite red
+    # exactly when the comparator is working.
+    string(REPLACE ";" " " _beatnik_compare_args_str "${_beatnik_compare_args}")
+    list(APPEND _beatnik_unit_manifest_lines
+      "py-pass Beatnik_Test_PythonCompare ${_beatnik_rel_compare_py} ${_beatnik_rel_fixtures}/synthetic_match.h5 ${_beatnik_rel_fixtures}/synthetic_gold.npz ${_beatnik_compare_args_str}")
+    list(APPEND _beatnik_unit_manifest_lines
+      "py-fail Beatnik_Test_PythonCompare_Negative ${_beatnik_rel_compare_py} ${_beatnik_rel_fixtures}/synthetic_perturbed.h5 ${_beatnik_rel_fixtures}/synthetic_gold.npz ${_beatnik_compare_args_str}")
   endif()
 endif()
 
 ##--------------------------------------------------------------------------##
-## Gate manifest for the installed-binary path
+## Installing the two test tiers under +testing
 ##--------------------------------------------------------------------------##
-# In spack/installed mode there is no build tree and therefore no ctest, so the
-# gate wrapper cannot ask ctest which tests carry the `regression` label. Emit
-# the regression-tier target names here instead, from the same registration
-# that applied the labels, so the two cannot drift. The wrapper finds this file
-# by scanning PATH (the spack package prepends share/Beatnik/tests).
+# WHY THIS EXISTS. Beatnik is built via spack with `+testing`, which sets
+# Beatnik_ENABLE_TESTING and Beatnik_INSTALL_TEST_EXECUTABLES (see the spack
+# package's cmake_args) and prepends share/Beatnik/tests to PATH (see its
+# setup_run_environment). A test binary or data file that exists only in the
+# discarded build tree therefore cannot be run in spack mode AT ALL -- that is
+# the root of the no-ctest wrinkle the manifests below work around, not a side
+# effect of it.
+#
+# The C++ test executables of both tiers are installed by the loops that build
+# them (cmake/test_harness/test_harness.cmake and tests/unit_tests/
+# CMakeLists.txt). What is left is the regression tier's Python script and its
+# data, which no target owns.
+#
+# STRUCTURE IS PRESERVED, NOT MADE RELOCATABLE-BY-LOOKUP. The installed tree
+# mirrors the repo's tests/ layout under share/Beatnik/tests, so
+# `regression_tests/fixtures/synthetic_gold.npz` names the same thing relative
+# to either root. That is the cheaper of the two options the task offered and it
+# is the one that keeps compare_output.py unchanged: the script takes both files
+# as explicit CLI arguments and performs no lookup of its own, so there is
+# nothing to make relocatable -- only a caller's relative paths, which one
+# shared root already handles. Adding a search path inside the script would be
+# inventing a lookup in order to relocate it.
+#
+# make_fixtures.py is deliberately NOT installed: it regenerates the fixtures
+# from scratch and is a development tool, not something a test run needs.
+if(Beatnik_INSTALL_TEST_EXECUTABLES)
+  set(_beatnik_test_install ${CMAKE_INSTALL_DATADIR}/Beatnik/tests)
+
+  # The comparator itself. PROGRAMS, not FILES, so it keeps its exec bit.
+  install(PROGRAMS ${_beatnik_compare_dir}/compare_output.py
+          DESTINATION ${_beatnik_test_install}/regression_tests)
+
+  # The committed synthetic fixtures the two comparator cases load. A
+  # regression test installed without its gold file is not installed.
+  install(FILES
+            ${_beatnik_fixture_dir}/synthetic_gold.npz
+            ${_beatnik_fixture_dir}/synthetic_match.h5
+            ${_beatnik_fixture_dir}/synthetic_perturbed.h5
+          DESTINATION ${_beatnik_test_install}/regression_tests/fixtures)
+
+  # The T1a gold checkpoint, which regression test 1 (T1c) compares against.
+  install(FILES
+            ${_beatnik_compare_dir}/initial_conditions/gold.npz
+            ${_beatnik_compare_dir}/initial_conditions/README.md
+          DESTINATION ${_beatnik_test_install}/regression_tests/initial_conditions)
+endif()
+
+##--------------------------------------------------------------------------##
+## Manifests for the installed-binary path
+##--------------------------------------------------------------------------##
+# In spack/installed mode there is no build tree and therefore no ctest, so a
+# wrapper script cannot ask ctest which tests carry a given label. Emit the
+# target names here instead, from the same registrations that applied the
+# labels, so the two cannot drift. A wrapper finds these files by scanning PATH
+# (the spack package prepends share/Beatnik/tests).
+
+# -- regression tier: the ship gate --------------------------------------------
 get_property(_beatnik_gate_targets GLOBAL PROPERTY BEATNIK_GATE_TARGETS)
 if(NOT _beatnik_gate_targets)
   set(_beatnik_gate_targets "")
@@ -190,7 +276,36 @@ file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/beatnik_gate_manifest.txt
 ${_beatnik_gate_manifest}
 ")
 
+# -- unit tier -----------------------------------------------------------------
+# Three line kinds, because the tier is not homogeneous:
+#
+#   exe     <target>                      a binary; run it, expect exit 0
+#   py-pass <name> <script> <args...>     python; expect exit 0
+#   py-fail <name> <script> <args...>     python; expect NON-ZERO (ctest
+#                                         WILL_FAIL, which has no ctest here)
+#
+# Script paths are relative to the directory holding this manifest, so the file
+# and the data it names move together.
+get_property(_beatnik_unit_targets GLOBAL PROPERTY BEATNIK_UNIT_TARGETS)
+foreach(_t ${_beatnik_unit_targets})
+  list(APPEND _beatnik_unit_manifest_lines "exe ${_t}")
+endforeach()
+if(NOT _beatnik_unit_manifest_lines)
+  set(_beatnik_unit_manifest_lines "")
+endif()
+string(REPLACE ";" "\n" _beatnik_unit_manifest "${_beatnik_unit_manifest_lines}")
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/beatnik_unit_manifest.txt
+"# Beatnik unit-tier manifest — GENERATED by tests/CMakeLists.txt, do not edit.
+# Line kinds:  exe <target> | py-pass <name> <script> <args...>
+#              py-fail <name> <script> <args...>   (expects a NON-ZERO exit)
+# Script paths are relative to this file's directory.
+# The unit tier is DIAGNOSTIC: it does not gate a change. See CLAUDE.md.
+${_beatnik_unit_manifest}
+")
+
 if(Beatnik_INSTALL_TEST_EXECUTABLES)
-  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/beatnik_gate_manifest.txt
+  install(FILES
+            ${CMAKE_CURRENT_BINARY_DIR}/beatnik_gate_manifest.txt
+            ${CMAKE_CURRENT_BINARY_DIR}/beatnik_unit_manifest.txt
           DESTINATION ${CMAKE_INSTALL_DATADIR}/Beatnik/tests)
 endif()

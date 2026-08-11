@@ -213,7 +213,20 @@ Inside a batch script, pick `--ntasks` (a multiple of 4) and set
 `--nodes = ntasks / 4` in **both** the flux header and the `flux run` line.
 
 The ship gate on this system is
-[scripts/tuolumne/run_regression_minset.flux](../../scripts/tuolumne/run_regression_minset.flux).
+[scripts/tuolumne/run_regression_minset.flux](../../scripts/tuolumne/run_regression_minset.flux),
+and the diagnostic `unit` tier is
+[scripts/tuolumne/unit_tests.flux](../../scripts/tuolumne/unit_tests.flux). Both
+are permanent and both **discover** their tests rather than naming them, so a new
+test lands in them for free; neither should grow a hard-coded binary name. Each
+exits non-zero if any test failed, so the job's own status is the answer.
+
+Three traps these two scripts already pay for — copy them, do not re-derive:
+
+1. `# flux: --time=N` is **not** a valid `flux batch` option. Use `-t Nm`.
+2. `flux batch` copies the script into a `/var/tmp` spool, so a
+   `BASH_SOURCE`-based `BEATNIK_REPO` fallback resolves to the spool. Walk up
+   from `PWD`, which flux does preserve.
+3. Be `set -u` clean, and source `scripts/lib/beatnik_env.sh` **first**.
 
 ## 6. Running non-test binaries
 

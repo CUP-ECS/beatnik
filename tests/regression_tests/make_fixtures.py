@@ -27,8 +27,11 @@ WHAT IS GENERATED
     ``run_adaptive_mesh_bubble.py::save_state_checkpoint`` (lines 955-990).
 
 ``synthetic_match.h5``
-    **The same data, in a different row order.** Vertices are permuted by a
-    fixed pseudo-random permutation and the connectivity is renumbered to
+    **The same data, in a different row order**, laid out the way a real
+    Beatnik checkpoint is (see ``as_beatnik_h5``: Tessera's dataset paths, a
+    ``uint64`` face table, the always-present inactive ``sheet_vector`` slot,
+    and the ``/beatnik/vertex_field_names`` declaration). Vertices are permuted
+    by a fixed pseudo-random permutation and the connectivity is renumbered to
     match, so the surface is identical and only the storage order differs.
     This is the positive fixture: it exercises exactly the thing
     ``compare_output.py`` exists to do -- recover a correspondence that the
@@ -73,17 +76,28 @@ PERTURB_DELTA = np.array([1.0e-6, 0.0, 0.0])
 # FIELD_MAP. Deliberately duplicated rather than imported: if the two ever
 # disagree, the fixture test fails, which is the point. An import would make
 # the test pass no matter what the mapping said.
+#
+# UPDATED BY TASK M2 to Tessera's real layout -- `Tessera::writeMesh` owns the
+# file and Beatnik appends only the `/beatnik` group. See the note above
+# compare_output.py's FIELD_MAP for why `/vertices/u<N>` is a positional name
+# and what guards it.
 H5_PATH = {
-    "state_model": "/state_model",
-    "time": "/time",
-    "step": "/step",
-    "initial_volume": "/initial_volume",
-    "initial_min_edge": "/initial_min_edge",
-    "vertices": "/mesh/vertices",
-    "faces": "/mesh/faces",
-    "potential": "/fields/potential",
-    "remesh_material_position": "/fields/remesh_material_position",
+    "state_model": "/beatnik/state_model",
+    "time": "/beatnik/time",
+    "step": "/beatnik/step",
+    "initial_volume": "/beatnik/initial_volume",
+    "initial_min_edge": "/beatnik/initial_min_edge",
+    "vertices": "/vertices/position",
+    "faces": "/faces/verts",
+    "potential": "/vertices/u0",
+    "sheet_vector": "/vertices/u1",
+    "remesh_material_position": "/vertices/u2",
 }
+
+# Beatnik::VertexFieldId order, as the writer declares it in
+# /beatnik/vertex_field_names. compare_output.py checks H5_PATH's `u<N>` paths
+# against this, so a fixture carrying it exercises that check.
+VERTEX_FIELD_NAMES = ("potential", "sheet_vector", "remesh_material_position")
 
 
 def icosahedron(radius: float, center: np.ndarray):
@@ -214,17 +228,53 @@ def permute(payload, perm):
     return out
 
 
+def as_beatnik_h5(payload):
+    """Shape a gold payload the way a real Beatnik checkpoint is shaped.
+
+    Two M2 differences from the `.npz`, both of which the comparator has
+    specific handling for, so a fixture that omitted them would leave that
+    handling untested:
+
+    ``sheet_vector`` is always present.
+        It is `/vertices/u1`, a slot in the same Cabana tuple as the potential,
+        and `Tessera::writeMesh` writes the whole vertex user pack. Under the
+        `potential` state model it is a stale cache with no gold counterpart,
+        and `compare_output.py` must skip it rather than fail on the one-sided
+        presence. Filled with values that are *wrong on purpose* -- if the
+        comparator ever starts comparing it, the fixture must fail loudly rather
+        than pass by luck.
+
+    ``faces`` is uint64.
+        Tessera writes dense global vertex indices as `H5T_NATIVE_UINT64`.
+    """
+    out = dict(payload)
+    out["faces"] = np.asarray(payload["faces"], dtype=np.uint64)
+    out["sheet_vector"] = np.full(
+        (payload["vertices"].shape[0], 3), -7.0, dtype=float
+    )
+    return out
+
+
 def write_h5(path, payload):
     """Write the payload at the HDF5 paths compare_output.py expects."""
+    string_dt = h5py.string_dtype(encoding="utf-8")
     with h5py.File(path, "w") as handle:
         for key, value in payload.items():
             arr = np.asarray(value)
             dataset_path = H5_PATH[key]
             if arr.dtype.kind in ("U", "S", "O"):
-                dt = h5py.string_dtype(encoding="utf-8")
-                handle.create_dataset(dataset_path, data=str(arr), dtype=dt)
+                handle.create_dataset(
+                    dataset_path, data=str(arr), dtype=string_dt
+                )
             else:
                 handle.create_dataset(dataset_path, data=arr)
+        # The slot -> meaning declaration compare_output.py cross-checks
+        # H5_PATH against. See VERTEX_FIELD_NAMES.
+        handle.create_dataset(
+            "/beatnik/vertex_field_names",
+            data=list(VERTEX_FIELD_NAMES),
+            dtype=string_dt,
+        )
 
 
 def main():
@@ -248,13 +298,13 @@ def main():
     permuted = permute(payload, perm)
 
     match_path = os.path.join(args.outdir, "synthetic_match.h5")
-    write_h5(match_path, permuted)
+    write_h5(match_path, as_beatnik_h5(permuted))
 
     perturbed = dict(permuted)
     perturbed["vertices"] = permuted["vertices"].copy()
     perturbed["vertices"][PERTURB_INDEX] += PERTURB_DELTA
     bad_path = os.path.join(args.outdir, "synthetic_perturbed.h5")
-    write_h5(bad_path, perturbed)
+    write_h5(bad_path, as_beatnik_h5(perturbed))
 
     print(f"wrote {gold_path}")
     print(f"wrote {match_path}   (same surface, permuted -- must PASS)")

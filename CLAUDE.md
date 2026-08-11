@@ -266,7 +266,37 @@ The tiers:
 - **`regression`** — full end-to-end runs composing the whole pipeline. **This is
   the gate.** Everything here must pass before a code change ships.
 - **`unit`** — utilities, kernels, single-component and single-phase tests.
-  Diagnostic: it tells you *where* a fault is, but does not gate.
+  Diagnostic: it tells you *where* a fault is, but does not gate. Run the whole
+  tier with `ctest -L unit`, or through the wrapper
+  `scripts/<system>/unit_tests.<scheduler>` — on tuolumne
+  [scripts/tuolumne/unit_tests.flux](scripts/tuolumne/unit_tests.flux).
+
+### Running tests in `spack` mode: there is no build tree, so there is no ctest
+
+Both wrappers exist because of one fact worth stating separately from the gate
+definition: **in `spack` mode the build tree is discarded, so `ctest` cannot be
+run at all.** A test that exists only in that tree cannot be run either. Two
+consequences, and both are load-bearing:
+
+- **Test artifacts must install.** Under `+testing` the package sets
+  `Beatnik_ENABLE_TESTING` *and* `Beatnik_INSTALL_TEST_EXECUTABLES` and prepends
+  `share/Beatnik/tests` to `PATH`, and `tests/CMakeLists.txt` installs the
+  regression tier's script and gold fixtures alongside the binaries, mirroring
+  the repo's `tests/` layout. A regression test installed without its gold file
+  is not installed.
+- **Every test must return non-zero on failure**, because a directly-launched
+  binary is judged by its exit code and nothing else. That is also all ctest
+  needs, so it costs nothing in tree mode — see
+  [tests/unit_tests/Beatnik_TestAssert.hpp](tests/unit_tests/Beatnik_TestAssert.hpp).
+
+The two wrappers find their work through generated manifests
+(`beatnik_gate_manifest.txt`, `beatnik_unit_manifest.txt`) emitted by the same
+registrations that apply the tier labels, so the installed path and `ctest`
+cannot drift. **A `WILL_FAIL` test needs explicit handling on the installed
+path** — the unit manifest spells it `py-fail` — because a runner that treated
+the comparator's negative case as an ordinary test would report the tier red
+exactly when the comparator is working, and a *missing* fixture would make it
+pass for the wrong reason.
 
 Registration and the tier lists are in [tests/CMakeLists.txt](tests/CMakeLists.txt),
 which carries the same definition as a comment block. Run it via

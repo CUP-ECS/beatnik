@@ -165,7 +165,10 @@ class ZModelSolver
      *       reductions of the volume projection, and the area-weighted mean of
      *       \f$\dot\phi\f$. Also requires a ghost exchange of \f$\phi\f$ before
      *       step 2 and of \f$V\f$ before its gradient in step 8 — see
-     *       `Comm::haloExchangeField`.
+     *       `Comm::haloExchangeVertices`, which is whole-tuple: there is no
+     *       per-field gather, so refreshing \f$\phi\f$ costs the same as
+     *       refreshing everything (M1 rework; the per-field
+     *       `Comm::haloExchangeField` this used to name is deleted).
      */
     void computeRightHandSidePotential( const mesh_type& mesh,
                                         const state_type& state,

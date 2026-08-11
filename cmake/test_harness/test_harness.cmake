@@ -39,12 +39,22 @@ set(BEATNIK_TEST_MPI_RANKS "1;2;3;4;5;6" CACHE STRING
 # can emit a manifest for the installed-binary gate path, which has no build
 # tree and therefore no ctest. Keeps the gate single-sourced.
 #
+# BEATNIK_UNIT_TARGETS does the same for the `unit` tier, which needs it for the
+# same reason: scripts/<system>/unit_tests.* runs the whole tier from an install
+# prefix and must discover the binaries rather than hard-code them.
+# tests/unit_tests/CMakeLists.txt appends to it too, so one manifest covers both
+# registration styles.
+#
 # Deliberately left UNSET rather than initialized to "": APPEND on a property
 # already set to the empty string yields a leading empty list element, which
 # would become a blank first line in the manifest.
 get_property(_beatnik_gate_init GLOBAL PROPERTY BEATNIK_GATE_TARGETS SET)
 if(_beatnik_gate_init)
   set_property(GLOBAL PROPERTY BEATNIK_GATE_TARGETS)
+endif()
+get_property(_beatnik_unit_init GLOBAL PROPERTY BEATNIK_UNIT_TARGETS SET)
+if(_beatnik_unit_init)
+  set_property(GLOBAL PROPERTY BEATNIK_UNIT_TARGETS)
 endif()
 
 include(FindPackageHandleStandardArgs)
@@ -78,6 +88,8 @@ macro(Beatnik_add_tests_nobackend)
     endif()
     if(BEATNIK_UNIT_TEST_LABEL STREQUAL regression)
       set_property(GLOBAL APPEND PROPERTY BEATNIK_GATE_TARGETS ${_target})
+    elseif(BEATNIK_UNIT_TEST_LABEL STREQUAL unit)
+      set_property(GLOBAL APPEND PROPERTY BEATNIK_UNIT_TARGETS ${_target})
     endif()
     if(Beatnik_INSTALL_TEST_EXECUTABLES)
       install(TARGETS ${_target}
@@ -185,6 +197,8 @@ macro(Beatnik_add_tests)
       endif()
       if(BEATNIK_UNIT_TEST_LABEL STREQUAL regression)
         set_property(GLOBAL APPEND PROPERTY BEATNIK_GATE_TARGETS ${_target})
+      elseif(BEATNIK_UNIT_TEST_LABEL STREQUAL unit)
+        set_property(GLOBAL APPEND PROPERTY BEATNIK_UNIT_TARGETS ${_target})
       endif()
       if(Beatnik_INSTALL_TEST_EXECUTABLES)
         install(TARGETS ${_target}

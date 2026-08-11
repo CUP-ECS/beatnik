@@ -127,10 +127,20 @@ class RestartReader
      *
      * Port of run_adaptive_mesh_bubble.py::main (lines 1199-1214)
      *
-     * Reads the file, adopts the mesh, installs the fields, and applies the
-     * fallbacks documented on `CheckpointIO::read`. If the file carried no
-     * `remesh_material_position`, the material coordinate is seeded from the
-     * loaded vertex positions (line 1208-1209) — which means the material
+     * **M2 CHANGE — this no longer "reads and adopts".** `CheckpointIO::read`
+     * is `Tessera::readMesh`, which rebuilds the distributed mesh *and every
+     * per-vertex field* in one collective call, across a change of rank count,
+     * without any rank holding the global mesh. There is no rank-0 read, no
+     * `Comm::broadcastFromRoot` and no `SurfaceMesh::adopt` on this path, and
+     * the fields arrive **inside** the mesh (the M1 vertex user pack) rather
+     * than in `state`. What is left for this function is the part Tessera has
+     * no opinion about: the `/beatnik` scalars, and the consequences below.
+     *
+     * The Python's missing-field fallbacks are documented on
+     * `CheckpointIO::read` but are unreachable on a Beatnik-written file — the
+     * material coordinate is a slot in the vertex user pack, so it is always
+     * present. On a hand-written file that lacks it, it is seeded from the
+     * loaded vertex positions (line 1208-1209), which means the material
      * exclusion measures "distance since the *restart*", not since t=0, another
      * small behavioral difference from an uninterrupted run.
      *
@@ -150,6 +160,15 @@ class RestartReader
      *         configuration error, so it aborts rather than silently cold
      *         starting — a silent cold start would produce a plausible-looking
      *         run of the wrong thing.
+     *
+     * @warning **M2 — the other half of "unreadable" is not an exception.** A
+     *          file whose precision, dimension, refinement mode or vertex field
+     *          pack disagrees with this build is an `MPI_Abort` raised inside
+     *          Tessera's `readMesh`, which cannot be caught. The checks this
+     *          function *can* make — the file exists, `/beatnik` is present,
+     *          `state_model` is recognized — must therefore happen **before**
+     *          `CheckpointIO::read` is called, not after, or the diagnosable
+     *          errors get reported as an abort too.
      */
     static RestartState load( io_type& io, const std::string& path,
                               mesh_type& mesh, state_type& state )
