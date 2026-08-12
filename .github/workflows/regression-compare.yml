@@ -14,7 +14,7 @@
 # dependency stack (Kokkos, Cabana, HeFFTe, Tessera, Canopy, all via spack) plus
 # GPU-aware MPI and a flux scheduler is not reproducible in hosted CI in
 # reasonable time, and the target machines are behind a lab fence. The gate is
-# operator-run — see CLAUDE.md "Minimum test set" and "CI".
+# operator-run — see CLAUDE.md "Minimum test set" and docs/testing.md "CI".
 #
 # This workflow is the one exception, and it is an exception precisely because
 # it shares none of those problems. `tests/regression_tests/compare_output.py`

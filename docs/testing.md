@@ -1,0 +1,96 @@
+# Testing reference
+
+Read this when running, adding, or changing tests. The gate definition itself is
+single-sourced in [CLAUDE.md](../CLAUDE.md#minimum-test-set) — this document
+explains the tiers, how the installed path runs them, and what the gate does and
+does not cover.
+
+## The tiers
+
+- **`regression`** — full end-to-end runs composing the whole pipeline. **This is
+  the gate.** Everything here must pass before a code change ships.
+- **`unit`** — utilities, kernels, single-component and single-phase tests.
+  Diagnostic: it tells you *where* a fault is, but does not gate. Run the whole
+  tier with `ctest -L unit`, or through the wrapper
+  `scripts/<system>/unit_tests.<scheduler>` — on tuolumne
+  [scripts/tuolumne/unit_tests.flux](../scripts/tuolumne/unit_tests.flux).
+
+Ranks come from the `BEATNIK_TEST_MPI_RANKS` cache variable (default
+`1;2;3;4;5;6`), which registers one ctest case per rank count, so a single
+`ctest -L <tier> -R <backend>` covers the whole sweep.
+
+Registration and the tier lists are in
+[tests/CMakeLists.txt](../tests/CMakeLists.txt), which carries the same gate
+definition as a comment block.
+
+**Promoting a test into the `regression` tier changes what must pass before
+anything ships — confirm with the user first.** Conversely, a failing or flaky
+test must never be quietly removed from the lists to green the gate: label it
+`unit`, record it in README "Known Issues", and tell the user.
+
+## Running tests in `spack` mode: there is no build tree, so there is no ctest
+
+Both wrappers exist because of one fact worth stating separately from the gate
+definition: **in `spack` mode the build tree is discarded, so `ctest` cannot be
+run at all.** A test that exists only in that tree cannot be run either. Two
+consequences, and both are load-bearing:
+
+- **Test artifacts must install.** Under `+testing` the package sets
+  `Beatnik_ENABLE_TESTING` *and* `Beatnik_INSTALL_TEST_EXECUTABLES` and prepends
+  `share/Beatnik/tests` to `PATH`, and `tests/CMakeLists.txt` installs the
+  regression tier's script and gold fixtures alongside the binaries, mirroring
+  the repo's `tests/` layout. A regression test installed without its gold file
+  is not installed.
+- **Every test must return non-zero on failure**, because a directly-launched
+  binary is judged by its exit code and nothing else. That is also all ctest
+  needs, so it costs nothing in tree mode — see
+  [tests/unit_tests/Beatnik_TestAssert.hpp](../tests/unit_tests/Beatnik_TestAssert.hpp).
+
+The two wrappers find their work through generated manifests
+(`beatnik_gate_manifest.txt`, `beatnik_unit_manifest.txt`) emitted by the same
+registrations that apply the tier labels, so the installed path and `ctest`
+cannot drift. **A `WILL_FAIL` test needs explicit handling on the installed
+path** — the unit manifest spells it `py-fail` — because a runner that treated
+the comparator's negative case as an ordinary test would report the tier red
+exactly when the comparator is working, and a *missing* fixture would make it
+pass for the wrong reason.
+
+## What the gate currently covers
+
+> **The `regression` tier has ONE member** as of 2026-08-12 (task T1c):
+> `Beatnik_Test_InitialConditions`, regression test 1 — the whole driver path at
+> 0 timesteps against a Python gold checkpoint. The tier was empty from `89ec015`
+> (which removed the pre-redesign solver and its only end-to-end test) until then,
+> and the gate was vacuous; it is not any more. **But it covers only what
+> exists** — mesh generation, the initial condition and the checkpoint write.
+> There is no timestep and no adaptivity yet, so a green gate does not say the
+> solver integrates anything. See `tasks/framework.md`.
+
+## CI
+
+**The gate has no CI and is operator-run.** Beatnik's dependency stack (Kokkos,
+Cabana, HeFFTe, Tessera, optional Canopy, all via spack) plus GPU-aware MPI and
+a flux scheduler is not reproducible in hosted CI in reasonable time, and the
+target machines are behind a lab fence. Run it with the
+`run_regression_minset.*` wrapper.
+
+There is exactly **one** GitHub Actions workflow,
+[.github/workflows/regression-compare.yml](../.github/workflows/regression-compare.yml),
+and it is deliberately narrower than the gate:
+
+| | CI workflow | The gate |
+| --- | --- | --- |
+| What runs | `tests/regression_tests/compare_output.py` on the committed fixtures | `ctest -L regression -R SERIAL` (+ `HIP`) at ranks 1-6 |
+| What it proves | the gold-file **comparator** works | **Beatnik** works |
+| Builds C++ | no | yes |
+
+The exception is justified by the comparator sharing none of the reasons the
+rest cannot be built in CI: it is pure Python over numpy and h5py, runs against
+committed fixtures, and is the piece most likely to be edited by someone who
+cannot run the full stack. It invokes the **same command on the same fixtures**
+as the `Beatnik_Test_PythonCompare[_Negative]` ctest cases in
+[tests/CMakeLists.txt](../tests/CMakeLists.txt); change one and change the other.
+
+**A green check on that workflow says nothing about the solver.** Do not read it
+as gate coverage, and do not extend it to build Beatnik without revisiting this
+section.

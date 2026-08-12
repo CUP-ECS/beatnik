@@ -1,8 +1,8 @@
 # <Topic>
 
 <!--
-Canonical skeleton for a task log. Copy to tasks/<topic>.md, fill it in, and
-add a row to the "Background / task logs" table in CLAUDE.md.
+Canonical skeleton for a task log. Copy to tasks/<topic>.md and fill it in; the
+convention it follows is docs/framework-maintenance.md "Task logs".
 
 A task log exists so a *later session* can resume work without re-deriving what
 was already learned. That means recording the reasoning and the dead ends, not

@@ -275,8 +275,9 @@ On systems with a site spack install, upstreaming to it is advisable.
 Per-system environments, build commands and their gotchas are **not** in this
 file. Run `hostname` and read the matching `systems/<system>/claude.md`; the
 committed spack environment snapshots live beside it. The build/run profile
-mechanism (build modes, the resolver, and the gate) is documented in
-[CLAUDE.md](CLAUDE.md). The pre-redesign `configs/` directory that used to hold
+mechanism (build modes and the resolver) is documented in
+[docs/environment-and-build.md](docs/environment-and-build.md), and the gate in
+[CLAUDE.md](CLAUDE.md#minimum-test-set). The pre-redesign `configs/` directory that used to hold
 per-system spack files for UNM Hopper and LLNL Tioga was removed in `89ec015`;
 those files are at `89ec015^:configs/` if either machine is revived.
 

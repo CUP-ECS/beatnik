@@ -19,7 +19,7 @@
 # THE WHOLE `unit` TIER on tuolumne.
 #
 # The unit tier is DIAGNOSTIC, not the ship gate -- it tells you *where* a fault
-# is and does not gate a change (CLAUDE.md "Minimum test set"). The gate is
+# is and does not gate a change (docs/testing.md "The tiers"). The gate is
 # scripts/tuolumne/run_regression_minset.flux and is a different script on
 # purpose.
 #

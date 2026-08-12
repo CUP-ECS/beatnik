@@ -44,7 +44,7 @@
 #
 #     label `regression`  x  backend SERIAL (+ HIP on tuolumne)  x  ranks 1-6
 #
-# There is deliberately no CI; the gate is operator-run. See CLAUDE.md.
+# There is deliberately no CI; the gate is operator-run. See docs/testing.md.
 ############################################################################
 
 include(${TEST_HARNESS_DIR}/test_harness.cmake)
@@ -454,7 +454,7 @@ file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/beatnik_unit_manifest.txt
 # Line kinds:  exe <target> | py-pass <name> <script> <args...>
 #              py-fail <name> <script> <args...>   (expects a NON-ZERO exit)
 # Script paths are relative to this file's directory.
-# The unit tier is DIAGNOSTIC: it does not gate a change. See CLAUDE.md.
+# The unit tier is DIAGNOSTIC: it does not gate a change. See docs/testing.md.
 ${_beatnik_unit_manifest}
 ")
 
