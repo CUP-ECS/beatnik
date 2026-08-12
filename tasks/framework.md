@@ -206,10 +206,9 @@ reproducibly.
   `initial_min_edge 6.8976121063816842e-02`). Those two are the values T1b's
   exit criterion must reproduce to `1e-14` relative.
 
-  **CORRECTED 2026-08-12 by T1c: "the four carried scalars" above said four; it
-  is FIVE.** The authoritative set is not prose anywhere — it is the gold
-  `.npz`'s own 0-d keys and `compare_output.py`'s `REQUIRED_FIELDS`, and both
-  were read directly rather than inferred:
+  **The five carried scalars.** The authoritative set is not prose anywhere — it
+  is the gold `.npz`'s own 0-d keys and `compare_output.py`'s `REQUIRED_FIELDS`,
+  and both were read directly rather than inferred:
 
   | `.npz` key | dtype | compared |
   | --- | --- | --- |
@@ -219,11 +218,8 @@ reproducibly.
   | `initial_volume` | `float64` | rtol/atol |
   | `initial_min_edge` | `float64` | rtol/atol |
 
-  `step` is the one the count of four dropped. M2's dataset table already said
-  "the five scalars" and was right; M2's *prose* said "a `double` time, two
-  `double` scalars and a string", which is four and was also wrong — corrected in
-  `Beatnik_IOInterface.hpp` in the same change. `CheckpointIO::write` emits
-  exactly these five under `/beatnik/`, plus `/beatnik/vertex_field_names`.
+  `CheckpointIO::write` emits exactly these five under `/beatnik/`, plus
+  `/beatnik/vertex_field_names`.
 
   **Four framework bugs found and fixed by actually running things.** All were
   latent — every one would have hit the first person to submit the ship gate,
@@ -286,19 +282,12 @@ reproducibly.
   new `FIELD_MAP`-vs-declaration guard was checked by hand-writing a file with a
   permuted `/beatnik/vertex_field_names` — it exits 2 naming both sides.
 
-  Two things worth carrying forward:
-  1. **`clangformat.sh` is not safe to run repo-wide right now.** The tree is not
-     clang-format-clean at HEAD (26 pending replacements in this one header
-     before the edit), and the pass reflows doc comments — mangling the markdown
-     tables that *are* the deliverable — across a dozen files nobody touched. The
-     edits here were written to the format instead; the four files' replacement
-     counts went 26→3, 5→5, 27→27, 0→0, i.e. no new drift. Worth a decision later
-     on whether to format the whole tree once, deliberately, in its own commit.
-  2. **T1c's exit criterion is unaffected but its comparison is not free.**
-     `compare_output.py` now has two behaviours that only a real Beatnik file
-     exercises (the inactive state field, the field-name cross-check), so the
-     regenerated fixtures were shaped to look like one: Tessera paths, `uint64`
-     faces, a present-but-wrong `sheet_vector`, and the name declaration.
+  Worth carrying forward: **T1c's exit criterion is unaffected but its
+  comparison is not free.** `compare_output.py` now has two behaviours that only
+  a real Beatnik file exercises (the inactive state field, the field-name
+  cross-check), so the regenerated fixtures were shaped to look like one:
+  Tessera paths, `uint64` faces, a present-but-wrong `sheet_vector`, and the
+  name declaration.
 
 - 2026-08-11 — **M1 adapter rework + T1b complete.** Next: T1c.
 
@@ -447,15 +436,6 @@ reproducibly.
     (see above). `BEATNIK_UNIT_TARGETS` is accumulated in
     `test_harness.cmake` as well as in `tests/unit_tests/`, so one manifest
     covers both registration styles.
-  - **`clangformat.sh` is still not safe to run repo-wide**, for the reason M2
-    recorded. The edits here were written to the format and then measured
-    per file: `Beatnik_MeshInterface.hpp` 27→**0**, `Beatnik_Communication.hpp`
-    5→**0**, `Beatnik_MeshGeometry.hpp` 23→**23**, `Beatnik_ZModelSolver.hpp`
-    0→0, and both new test files 0. No new drift anywhere, and two files are now
-    clean. One trap found: reflowing a comment paragraph is safe, reflowing a
-    `\f[ … \f]` display-math block or a markdown table is not — three math blocks
-    in T2b's untouched docs were briefly mangled and restored, and two tables had
-    to be *narrowed* rather than wrapped.
 
   The ship gate is untouched: the new test is `unit`, the `regression` tier is
   still empty, and `Beatnik_Test_PythonCompare` still passes with
@@ -487,15 +467,7 @@ reproducibly.
   hits the T1a value bitwise in 9 of 12 configurations; the comparator's worst
   vertex error is `5.551115e-17`. No tolerance was changed anywhere.
 
-  **The scalar-count contradiction, resolved.** The document said "four carried
-  scalars" (T1a) and "the five scalars" (M2's table) and described four in M2's
-  prose. It is **five**, and the authority is not prose: the gold `.npz`'s 0-d
-  keys and `compare_output.py`'s `REQUIRED_FIELDS`, both read directly. `step`
-  (`int64`) is what the count of four dropped. Corrected in T1a's note above and
-  in `Beatnik_IOInterface.hpp`'s prose; M2's table was already right.
-
-  **Five signature changes. Four forced, ONE for convenience — labelled as
-  such.**
+  **Six signature changes, every one forced by Tessera's storage model.**
 
   | Was | Now | Why it could not stay |
   | --- | --- | --- |
@@ -529,7 +501,7 @@ reproducibly.
      markdown schema table (`| By |` split across two lines) and
      `Beatnik_InitialCondition.hpp`'s three-way ASCII branch diagram. Reverted;
      the code regions were formatted by explicit `--lines=` ranges and the prose
-     was narrowed by hand, as M2 and T1b did. Measured per file: **no new drift
+     was narrowed by hand. Measured per file: **no new drift
      anywhere, and three files improved** — `Beatnik_Solver.hpp` 10→**1**,
      `Beatnik_IOInterface.hpp` 3→**1**, `Beatnik_SurfaceState.hpp` 0→0,
      `Beatnik_MeshInterface.hpp` 0→0, `Beatnik_Restart.hpp` 0→0,
@@ -601,8 +573,8 @@ reproducibly.
   `find_package(CLANG_FORMAT 14)` call and the `cabana-format` target are all
   untouched — but CLAUDE.md no longer asks a session to conform to the formatter
   and now forbids running it: the user formats by hand when they choose to. The
-  entries below calling `clangformat.sh` "not safe to run repo-wide" are part of
-  why. Gate re-verified at ranks 1-6 on SERIAL and HIP.
+  entry above recording what clang-format mangles is part of why. Gate
+  re-verified at ranks 1-6 on SERIAL and HIP.
 
 ---
 
@@ -1276,22 +1248,12 @@ API section.
 | Load-balance mode | `loadBalance( mesh, halo, tol, LoadBalanceMode::…, &stats )` / `computeLoadBalance(...)` | Default is **`Sampled`** — the only mode measured run-to-run reproducible; nothing is gathered to rank 0 in `Sampled` (`O(nparts)`) or `Distributed` (zero). `LoadBalanceStats::rootSolveFaces` reports it. |
 
 **One new constraint that did not exist at M1: the two editing families are
-disjoint and enforced.** `refine()`/`refineLocal()` are the *hierarchical* family
-(`Level` authoritative, 2:1 balance, conforming closure); `splitEdges()` — and
-`collapseEdges()`/`flipEdges()`/`compact()` when they land — are the *remesh*
-family (`Level` advisory). A mesh is tagged on its first topological edit and
-**each entry point throws** if the other family is then used on it. Beatnik's AMR
-path (T4a, `refine()`) and its dynamic-remesh path (T4b, split/collapse/flip)
-therefore **cannot run on the same mesh**, and the default configuration runs
-both. Deciding which family Beatnik lives in — or how the two are staged — is a
-design question that must be settled at T4a/T4b and cannot be deferred to the
-implementation. **The four candidate resolutions, what each costs Beatnik, what
-each assumes that has actually been verified, and what remains unknown are laid
-out under "T4a/T4b — the disjoint editing families" in the task sequence above.**
-It is noted on the `refine`, `splitEdges`, `collapseEdges` and `flipEdges`
-declarations in `Beatnik_MeshInterface.hpp` so it cannot be met for the first
-time as a runtime throw.
-
+disjoint and enforced by a throw**, so `refine()` (T4a) and
+`splitEdges()`/`collapseEdges()`/`flipEdges()` (T4b) cannot run on the same
+mesh. Laid out in full, with the four candidate resolutions, under
+"T4a/T4b — the disjoint editing families" in the task sequence above. Noted on
+all four declarations in `Beatnik_MeshInterface.hpp` so it cannot be met for
+the first time as a runtime throw.
 **Calls the M1 adapter rework and T1b introduced** (2026-08-11). The two tables
 above say what Tessera *offers*; this one says what Beatnik now actually calls,
 so a reader can see the adapter's whole Tessera surface in one place.
@@ -1338,33 +1300,10 @@ all three, so `DefaultRefinePolicy` is used unchanged.
 
 #### Gaps — what Tessera does NOT provide
 
-*As recorded at M1 (2026-08-07). **Eight of the eleven have since been closed
-Tessera-side** (2026-08-09/10, branch `conforming-refinement`) — G1, G2, G3, G4,
-G5a, G6, G7, G8. Only G5b, G5c and G5d remain open, and they are what still
-blocks T4b/T4c. The calls that close the eight are in the "Added since M1"
-table above.*
-
-**G1 — No halo deeper than 1. — DONE.** Was the blocker for R8: the Beatnik RHS
-is a **two-ring** stencil, and `buildVertexStencil(mesh, 2)` was *silently
-incomplete* within one hop of a partition boundary. `distribute()` and
-`rebuildHalo()` now take a `depth`; `refine()` and `migrate()` preserve it;
-`buildVertexStencil` **throws** when `k > mesh.haloDepth()` instead of returning
-short rows. Beatnik passes `depth = 2` once at setup.
-
-**G2 — No ghost scatter-add. — DONE.** `haloScatterAdd` and the three kind-named
-wrappers now exist, one named field per call. `Beatnik_Communication.hpp::
-haloScatterAdd` forwards to it rather than implementing one.
-
-**G3 — Only `globalMin`; no sum, max, or all-finite. — DONE.** `globalSum`,
-`globalMax`, `globalAllFinite` and `globalOwnedVertices/Edges/Faces/Euler` are
-now library calls. Beatnik's four `allReduce*` and both `global*Count()` forward
-to them instead of hand-rolling `MPI_Allreduce`.
-
-**G4 — No face→face adjacency through shared edges. — DONE.**
-`buildFaceAdjacency( mesh )` is collective, built on `refine()`'s edge
-coordinator, and returns both a local-index CSR and always-valid
-`nbrGid`/`nbrOwner`. Serves T4a's mark growth (topological half, no precondition)
-and T4b's proximity-exclusion rings.
+*Of the eleven recorded at M1 (2026-08-07), **eight closed Tessera-side**
+(2026-08-09/10, branch `conforming-refinement`) — G1, G2, G3, G4, G5a, G6, G7,
+G8 — via the calls in the "Added since M1" table above. Only G5b, G5c and G5d
+remain open, and they are what still blocks T4b/T4c.*
 
 **G5 — No topological edit except the face-mask refine. — PARTIALLY CLOSED.**
   - **G5a — caller-driven edge split. — DONE.** `splitEdges( mesh, halo,
@@ -1386,25 +1325,6 @@ and T4b's proximity-exclusion rings.
 **T4b (dynamic remeshing) and T4c's flips are still blocked** — the split third
 of `dynamic_remesh.py` is now expressible, the collapse and flip thirds are not.
 
-**G6 — The coarse mesh is replicated on every rank before it is cut. — DONE.**
-`buildIcosphereDistributed` and `buildFromTriangleSoupDistributed` build without
-any rank holding the global mesh, and produce bitwise-identical geometry to the
-replicated path. Irrelevant at the default subdivision 2 (162 vertices), so
-Beatnik keeps `buildIcosphere` + `distribute` there and switches only for a large
-initial mesh.
-
-**G7 — No lat/lon sphere generator. — DONE.** `generateLatLonSphere` /
-`buildLatLonSphere` now live beside the icosphere, with the exact-pole,
-no-seam-duplicate and fixed-diagonal details pinned. `--mesh-kind latlon` is
-still not on any regression path, and the libm reproducibility caveat Tessera
-documents is the same one R1 raises.
-
-**G8 — The load-balance solve is gathered to rank 0. — DONE.**
-`LoadBalanceMode` now offers `GatherRoot` (the old path, kept as reference),
-`Distributed` (rank 0 receives **zero** faces) and `Sampled` (`O(nparts)`), with
-**`Sampled` the default** because it is the only one measured run-to-run
-reproducible. T5d uses the default and reports `LoadBalanceStats::rootSolveFaces`.
-
 #### What Beatnik must implement itself (and legitimately may)
 
 None of these is haloing or partitioning:
@@ -1415,25 +1335,12 @@ None of these is haloing or partitioning:
   as scoped.
 - **Scale and translate** the unit icosphere to `radius` / `center`, and verify
   the winding is outward (positive enclosed volume) rather than assume it.
-- ~~The **lat/lon triangle soup** (G7).~~ Now Tessera's
-  (`generateLatLonSphere`).
-- ~~The four **global reductions** (G3).~~ Now Tessera's; Beatnik's
-  `Beatnik_Communication.hpp` wrappers forward rather than call `MPI_Allreduce`.
 - **Owned-only iteration discipline** (risk R9): Tessera exposes `numOwnedX()`
   and orders entities owned-first, but enforces nothing. Owned edges *do* form a
   global partition, so the edge-length reduction has a correct answer available.
 
-#### Two contracts the adapter now encapsulates
+#### One contract the adapter encapsulates
 
-- **The mandatory post-refine sequence.** `Tessera::refine()` leaves each rank
-  holding only its refined owned entities and **clears the halo**. A
-  `haloExchange()` in between is a silent no-op on an empty plan, and a second
-  `refine()` without a re-halo *throws*. `SurfaceMesh::refine()` therefore
-  performs `refine` → identity `migrate` → `haloExchange` itself and never
-  returns with a cleared halo. **Superseded:** `refine()` now calls
-  `rebuildHalo()` itself, at the recorded depth, so the identity-`migrate`
-  workaround is gone and the halo is valid on return. Drop it from the adapter.
-- **Marks do not need reconciling.** Tessera runs the cross-rank 2:1
   mark-propagation fixpoint internally (`MPI_Allreduce`-guarded, hard-capped,
   round count reported). An arbitrary rank-local mask is a legal input, so
   `Beatnik_Communication.hpp::reconcileRefinementMarks` has no work left to do.
