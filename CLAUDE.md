@@ -365,10 +365,10 @@ section.
 - **Checkpoint commits in tasks.** When planning a large change, put explicit
   checkpoints in the task log where progress should be committed, so a later
   failure can roll back to the nearest one instead of unwinding everything.
-- **Follow the formatter config.** [.clang-format](.clang-format) governs all
-  C/C++ written or edited here. Fast helper: [clangformat.sh](clangformat.sh)
-  (formats every `.cpp`/`.hpp` outside build dirs); the CMake target
-  `cabana-format` does the same via `CLANG_FORMAT_EXECUTABLE`.
+- **There is no formatter requirement.** Beatnik carries no clang-format config
+  and no format target; match the style of the surrounding code instead. Do not
+  reintroduce an automated formatter without asking — running one repo-wide has
+  mangled files here before (see `tasks/framework.md`).
 - **Match the license/header convention.** Every new source and script file
   carries the project's BSD-3-Clause header block with
   `SPDX-License-Identifier: BSD-3-Clause`, in the comment style of that file
