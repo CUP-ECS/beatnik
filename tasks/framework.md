@@ -417,7 +417,7 @@ case** requiring the comparator to exit exactly `1` and not `2`.
 A direct BR solve is straightforward, so a failure here is unambiguously a bug in
 the surrounding mathematics rather than in the far field.
 
-### T2a — Generate the gold file *(human step)*
+### T2a — Generate the gold file *(human step)* — **DONE**
 
 Rerun the Python with `python examples/run_adaptive_mesh_bubble.py --steps 10 --source-quadrature vertex --br-approximation direct --no-dynamic-remesh --refine-every 0 --checkpoint-every-steps 1 --no-video --checkpoint-dir results`, and commit the resulting `.npz` files.
 
@@ -426,7 +426,40 @@ and remeshing introduce their own ordering and tie-breaking differences (risks R
 and R7) which would confound the comparison. Test 2 must not be the first place
 adaptivity is exercised.
 
-**Exit criterion:** gold files for steps 1-5 committed.
+**Exit criterion:** gold files for every step of the run committed.
+
+**Met.** Eleven `.npz` files — **steps 0 through 10**, one per step — are committed
+under `tests/regression_tests/direct-solve-10-steps/gold/`, with the generating
+command recorded in that directory's `README.md`. The whole 10-step run is
+covered, not the steps 1-5 the criterion originally asked for, which is why T2d's
+exit criterion now reads "all 10 timesteps at ranks 1-5".
+
+Four properties of the set were checked rather than assumed, because each is
+something a later comparison would otherwise silently depend on:
+
+- **Same schema as the T1a gold**, key for key: `vertices`, `faces`,
+  `potential`, `remesh_material_position`, `state_model`, `step`, `time`,
+  `initial_volume`, `initial_min_edge`. So `compare_output.py` needs no change;
+  self-compares of steps 0, 5 and 10 at `--rtol 1e-12 --atol 1e-14` exit 0 with
+  `162/162` unambiguous and `320/320` faces identical after remap.
+- **Step 0 is bitwise identical to `initial_conditions/gold.npz`** in all four
+  arrays. The two gold sets therefore describe the same problem despite T1a's
+  command listing `--A 0.3 --g 1.0 --mu 0.002 --eps 0.025 --viscosity-mode
+  laplace-beltrami` explicitly and T2a's not: those are the Python's defaults.
+  This also means test 2 at step 0 re-tests exactly what regression test 1 does.
+- **`state_model` is `potential`** in every file, so the sheet-vector path (T5c)
+  is not implicated and `/vertices/u1` stays the present-but-meaningless field
+  M2 documented.
+- **The mesh never changes: 162 vertices / 320 faces at every step**, confirming
+  `--no-dynamic-remesh --refine-every 0` did what the "adaptivity is off
+  deliberately" note above requires. The carried scalars are constant across all
+  eleven files and bit-identical to T1a's, so nothing re-based them mid-run.
+
+`time` is **not** a uniform `0.003` per step — it is `0.003` exactly at step 1
+and then drifts (`0.0059999881751648708` at step 2, `0.029996631612342662` at
+step 10). The adaptive dt is live in this configuration, so T2d must reproduce
+`choose_step_dt`, not step at a fixed dt; comparing against these files with a
+hardcoded dt will fail on `time` first and on the fields second.
 
 ### T2b — Surface differential operators
 
