@@ -54,13 +54,13 @@ include(${TEST_HARNESS_DIR}/test_harness.cmake)
 ##--------------------------------------------------------------------------##
 # End-to-end tests that exercise the whole solver pipeline.
 #
-# EMPTY BY DESIGN, FOR NOW. The pre-redesign solver and its only end-to-end
-# test (tstFmmVsExact.hpp, an FMM-vs-Exact BR comparison) were removed in
-# 89ec015 to build a new solver from scratch. Until the new solver lands its
-# first end-to-end test the gate is structurally correct but vacuous — a green
-# gate proves nothing. Tracked in README "Known Issues".
+# The gtest-harness lists below are still empty; regression test 1 (T1c) is
+# registered further down, in the "regression tier -- standalone end-to-end
+# tests" section, for the same reason tests/unit_tests/ exists: in spack mode
+# there is no build tree and therefore no ctest, so a gate test must be
+# authoritative about its own exit code. See that section.
 set(REGRESSION_MPI_TESTS
-  # None yet — see the note above.
+  # None registered through the gtest harness. See the standalone section below.
   )
 
 set(REGRESSION_SERIAL_TESTS
@@ -118,6 +118,158 @@ Beatnik_add_tests(MPI PACKAGE Beatnik LABEL regression
 add_subdirectory(unit_tests)
 
 ##--------------------------------------------------------------------------##
+## Shared paths for the regression tier and the comparator harness
+##--------------------------------------------------------------------------##
+# Defined once, above BOTH consumers: the standalone gate tests below and the
+# Python comparator cases further down name the same script and the same
+# fixtures, and a second copy of either path is a way for the two to drift.
+set(_beatnik_compare_dir ${CMAKE_CURRENT_SOURCE_DIR}/regression_tests)
+set(_beatnik_compare_py ${_beatnik_compare_dir}/compare_output.py)
+set(_beatnik_fixture_dir ${_beatnik_compare_dir}/fixtures)
+
+# Paths RELATIVE TO THE INSTALLED share/Beatnik/tests directory, used both by
+# the install rules below and by the manifest the installed-binary path reads.
+# Keeping the repo's own directory layout under one install root is what lets
+# the same relative arguments work in both places -- see the install section.
+set(_beatnik_rel_compare_py regression_tests/compare_output.py)
+set(_beatnik_rel_fixtures regression_tests/fixtures)
+
+##--------------------------------------------------------------------------##
+## regression tier -- standalone end-to-end tests. THE SHIP GATE.
+##--------------------------------------------------------------------------##
+# ADDED BY TASK T1c, WITH THE USER'S EXPLICIT AUTHORIZATION. Before this the
+# `regression` tier was EMPTY and a green gate proved nothing (see the note on
+# REGRESSION_MPI_TESTS above and README "Known Issues"). It now has exactly one
+# member:
+#
+#   Beatnik_Test_InitialConditions   regression test 1 -- the whole driver path
+#                                    at 0 timesteps, compared against the T1a
+#                                    Python gold checkpoint by
+#                                    compare_output.py.
+#
+# HOW A MULTI-RANK REGRESSION ENTRY IS REPRESENTED, AND WHY THIS SHAPE
+# --------------------------------------------------------------------
+# T1c's exit criterion names ranks 1, 2 and 4; the GATE is defined at ranks
+# 1-6. Those are not in tension and the difference is not encoded here:
+#
+#   **The rank set is a property of the gate, not of the test.** So the test is
+#   registered once per backend and the rank sweep stays where it already lives
+#   -- BEATNIK_TEST_MPI_RANKS for ctest, BEATNIK_GATE_RANKS in
+#   scripts/<system>/run_regression_minset.*. The test reads its own comm size
+#   and adapts. T1c's three rank counts are therefore a verified SUBSET of what
+#   the gate runs, and the gate definition (label x backend x ranks 1-6) is
+#   unchanged and still single-sourced.
+#
+# The alternative -- a per-test rank list on the manifest line -- was rejected
+# because it would let one test quietly gate at fewer ranks than the gate
+# claims, which is precisely the "gate silently shrinks" failure CLAUDE.md
+# forbids.
+#
+# What DID have to change is that a gate manifest line now carries ARGUMENTS
+# after the target name (the gold file, the comparator, the mismatched fixture),
+# resolved relative to the manifest's own directory. The line format is
+#
+#     <target> [args...]
+#
+# and the runner splits on whitespace, filters the BACKEND SUFFIX ON FIELD 1,
+# and runs from the manifest directory. A bare target name -- every line the
+# manifest could previously hold -- is still valid, so this widens the format
+# rather than replacing it. This is the same convention the unit manifest's
+# `py-pass` / `py-fail` lines already use, and it exists for the same reason:
+# a test's data must travel with the manifest that names it.
+#
+# ONE BINARY PER BACKEND, NOT ONE ON THE DEFAULT SPACE
+# ---------------------------------------------------
+# tests/unit_tests/ builds one binary on Kokkos::DefaultExecutionSpace with no
+# backend suffix, which is right for a diagnostic. It is WRONG here, and the
+# reason is mechanical: the gate selects a backend with `-R <backend>` (ctest)
+# or by matching the target's `_<BACKEND>` suffix (the manifest runner), so a
+# target without a suffix is skipped by the installed gate path ENTIRELY -- a
+# silent zero-test pass. And on tuolumne the default space is HIP, so a single
+# binary could not honestly answer for SERIAL. Each enabled backend therefore
+# gets its own translation unit, generated below, that pins
+# BEATNIK_TEST_EXEC_SPACE.
+set(BEATNIK_REGRESSION_TEST_SOURCES
+  # T1c: regression test 1 -- initial conditions at 0 timesteps.
+  Beatnik_Test_InitialConditions.cpp
+  )
+
+# Kokkos execution-space class per BEATNIK_SUPPORTED_DEVICES name. Spelled out
+# rather than derived, so an unsupported spelling is a configure-time error and
+# not a name that silently fails to compile.
+set(_beatnik_space_SERIAL        Kokkos::Serial)
+set(_beatnik_space_THREADS       Kokkos::Threads)
+set(_beatnik_space_OPENMP        Kokkos::OpenMP)
+set(_beatnik_space_CUDA          Kokkos::Cuda)
+set(_beatnik_space_CUDA_UVM      Kokkos::Cuda)
+set(_beatnik_space_HIP           Kokkos::HIP)
+set(_beatnik_space_SYCL          Kokkos::Experimental::SYCL)
+set(_beatnik_space_OPENMPTARGET  Kokkos::Experimental::OpenMPTarget)
+
+# Arguments every regression test takes, twice over: absolute for ctest (which
+# runs from the build tree), manifest-relative for the installed path. The two
+# lists must name the same three files -- that is what keeps `ctest -L
+# regression` and the manifest testing the same thing.
+set(_beatnik_regression_args_abs
+  ${_beatnik_compare_dir}/initial_conditions/gold.npz
+  ${_beatnik_compare_dir}/compare_output.py
+  ${_beatnik_fixture_dir}/synthetic_gold.npz)
+set(_beatnik_regression_args_rel
+  regression_tests/initial_conditions/gold.npz
+  ${_beatnik_rel_compare_py}
+  ${_beatnik_rel_fixtures}/synthetic_gold.npz)
+
+foreach(_src ${BEATNIK_REGRESSION_TEST_SOURCES})
+  get_filename_component(_stem ${_src} NAME_WE)
+  foreach(_device ${BEATNIK_TEST_DEVICES})
+    if(NOT DEFINED _beatnik_space_${_device})
+      message(FATAL_ERROR
+        "tests/CMakeLists.txt: no Kokkos execution space recorded for backend "
+        "'${_device}'. Add it to the _beatnik_space_* table above in the same "
+        "change that added the backend.")
+    endif()
+
+    set(_target ${_stem}_MPI_${_device})
+    set(_gendir ${CMAKE_CURRENT_BINARY_DIR}/regression_${_device})
+    file(MAKE_DIRECTORY ${_gendir})
+    set(_genfile ${_gendir}/${_stem}_${_device}.cpp)
+    file(WRITE ${_genfile}
+      "// GENERATED by tests/CMakeLists.txt -- do not edit.\n"
+      "#include <Kokkos_Core.hpp>\n"
+      "#define BEATNIK_TEST_EXEC_SPACE ${_beatnik_space_${_device}}\n"
+      "#include \"${_beatnik_compare_dir}/${_src}\"\n")
+
+    add_executable(${_target} ${_genfile})
+    target_link_libraries(${_target} PRIVATE Beatnik MPI::MPI_CXX)
+    target_include_directories(${_target} PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/unit_tests)
+
+    # One ctest case per gate rank count, exactly as the gtest harness does, so
+    # `ctest -L regression -R ${_device}` covers the whole sweep.
+    foreach(_np ${BEATNIK_TEST_MPI_RANKS})
+      add_test(NAME ${_target}_np_${_np} COMMAND
+        ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${_np}
+        ${MPIEXEC_PREFLAGS} $<TARGET_FILE:${_target}> ${MPIEXEC_POSTFLAGS}
+        ${_beatnik_regression_args_abs})
+      set_tests_properties(${_target}_np_${_np} PROPERTIES
+        LABELS regression
+        PROCESSORS ${_np}
+        ENVIRONMENT OMP_NUM_THREADS=1)
+    endforeach()
+
+    # The gate manifest line, from the same loop that applied the label.
+    string(REPLACE ";" " " _args_str "${_beatnik_regression_args_rel}")
+    set_property(GLOBAL APPEND PROPERTY BEATNIK_GATE_TARGETS
+      "${_target} ${_args_str}")
+
+    if(Beatnik_INSTALL_TEST_EXECUTABLES)
+      install(TARGETS ${_target}
+              RUNTIME DESTINATION ${CMAKE_INSTALL_DATADIR}/Beatnik/tests)
+    endif()
+  endforeach()
+endforeach()
+
+##--------------------------------------------------------------------------##
 ## Regression-comparison harness (Python)
 ##--------------------------------------------------------------------------##
 # tests/regression_tests/compare_output.py compares a Beatnik HDF5 checkpoint
@@ -146,17 +298,6 @@ add_subdirectory(unit_tests)
 # missing — a missing interpreter must not fail the build on a machine where the
 # C++ tests are the point.
 find_package(Python3 COMPONENTS Interpreter QUIET)
-
-set(_beatnik_compare_dir ${CMAKE_CURRENT_SOURCE_DIR}/regression_tests)
-set(_beatnik_compare_py ${_beatnik_compare_dir}/compare_output.py)
-set(_beatnik_fixture_dir ${_beatnik_compare_dir}/fixtures)
-
-# Paths RELATIVE TO THE INSTALLED share/Beatnik/tests directory, used both by
-# the install rules below and by the manifest the installed-binary path reads.
-# Keeping the repo's own directory layout under one install root is what lets
-# the same relative arguments work in both places -- see the install section.
-set(_beatnik_rel_compare_py regression_tests/compare_output.py)
-set(_beatnik_rel_fixtures regression_tests/fixtures)
 
 if(NOT Python3_Interpreter_FOUND)
   message(STATUS
@@ -271,7 +412,21 @@ endif()
 string(REPLACE ";" "\n" _beatnik_gate_manifest "${_beatnik_gate_targets}")
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/beatnik_gate_manifest.txt
 "# Beatnik ship-gate manifest — GENERATED by tests/CMakeLists.txt, do not edit.
-# One regression-tier test target per line. Backend is the name suffix.
+#
+# One regression-tier test per line:
+#
+#     <target> [args...]
+#
+# Field 1 is the target; the backend is its name suffix and is what the runner
+# filters on. Remaining fields are arguments passed to the binary, and any path
+# among them is relative to THIS FILE'S DIRECTORY, so the manifest and the data
+# it names move together. (Same convention as the unit manifest's py-pass /
+# py-fail lines, and the same reason.)
+#
+# THE RANK SWEEP IS NOT IN THIS FILE. It is a property of the gate, not of a
+# test: the runner applies BEATNIK_GATE_RANKS to every line. A per-test rank
+# list here would let one test gate at fewer ranks than the gate claims.
+#
 # Gate ranks: ${BEATNIK_TEST_MPI_RANKS}
 ${_beatnik_gate_manifest}
 ")

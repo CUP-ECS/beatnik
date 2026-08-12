@@ -407,14 +407,20 @@ from current work or pre-existing. Distinct from
 [Future Optimizations](#future-optimizations) and from the design-limitation
 subsections above, which are intended behavior.
 
-- **The `regression` test tier is empty, so the ship gate is vacuous.**
-  *Pre-existing as of the redesign, not a regression from a code change.*
-  `89ec015` removed the pre-redesign solver and `tests/tstFmmVsExact.hpp`, its
-  only end-to-end test. `tests/CMakeLists.txt` registers zero regression-tier
-  tests, so `ctest -L regression -R SERIAL` and
-  `scripts/tuolumne/run_regression_minset.flux` both pass trivially. **A green
-  gate currently proves nothing.** Resolves when the new solver lands its first
-  end-to-end test. See [CLAUDE.md](CLAUDE.md#minimum-test-set).
+- **The ship gate covers initial conditions only — there is no timestep in it
+  yet.** *Not a defect in the gate's construction; a statement of how far the
+  solver has been rebuilt.* The tier was **empty** from `89ec015` (which removed
+  the pre-redesign solver and `tests/tstFmmVsExact.hpp`, its only end-to-end test)
+  until 2026-08-12, when task T1c registered
+  `tests/regression_tests/Beatnik_Test_InitialConditions.cpp` — a `--steps 0` run
+  compared against a Python gold checkpoint, passing at ranks 1-6 on SERIAL and
+  HIP. So `ctest -L regression -R SERIAL` and
+  `scripts/tuolumne/run_regression_minset.flux` no longer pass trivially. **A
+  green gate now proves that mesh generation, the initial condition and the
+  checkpoint write reproduce the reference — and nothing about time integration
+  or adaptivity**, which are still stubs. Resolves progressively as T2d and T4
+  land their own regression tests. See [CLAUDE.md](CLAUDE.md#minimum-test-set)
+  and `tasks/framework.md`.
 
 - **`examples/01_rising_bubble` does not build.** *Pre-existing as of the
   redesign.* `rocketrig.cpp` includes `Solver.hpp` and `BoundaryCondition.hpp`,

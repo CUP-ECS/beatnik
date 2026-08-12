@@ -66,20 +66,89 @@ class InitialCondition
     /**
      * @brief Generate the base sphere, deform it, and seed the fields.
      *
-     * Port of run_adaptive_mesh_bubble.py::main (lines 1215-1240)
+     * Port of run_adaptive_mesh_bubble.py::main (lines 1215-1240) and
+     * ::apply_initial_geometry (lines 714-717)
      *
      * Sequence: generate (`icosphere` or `latlon`), apply the geometry
      * deformation, zero the potential (or sheet vector), seed the vorticity,
      * then seed the material position from the resulting positions.
      *
+     * **T1c implements THE FAST PATH ONLY** — `--initial-shape sphere`,
+     * `--initial-potential-strength 0`, `--polar-amp 0`, i.e. the defaults and
+     * the configuration regression test 1 compares. Anything else reaches
+     * `applyShapeDeformation` / `applyPolarMode` / `seedInitialVorticity`,
+     * which are T5a and throw. The dispatch below mirrors the Python's, which
+     * is a three-way branch and not two independent conditions:
+     *
+     *   sphere && strength == 0 && amp == 0  ->  nothing (the fast path)
+     *   sphere && strength == 0 && amp != 0  ->  applyPolarMode ONLY
+     *   otherwise                            ->  deformation + vorticity
+     *
+     * The middle case is *instead of*, not in addition to, the deformation
+     * (`apply_initial_geometry` returns early at line 716), which is why this
+     * is written as one branch rather than three `if`s.
+     *
+     * ORDER, and why it is this order. The Python's dataclass constructor
+     * re-centres the potential inside `__post_init__`, and
+     * `apply_initial_geometry` returns a *new* state — so the centring happens
+     * after the geometry is final. Transcribed here as an explicit step, after
+     * the deformation and before the material seed. The centring is a no-op on
+     * the fast path (the potential is identically zero, so its area-weighted
+     * mean is zero), and it is called anyway rather than skipped, because it is
+     * the *only* collective in the cold-start field path and a run that skipped
+     * it here would first exercise it at T2d with the RHS in flight.
+     *
      * @param[out] mesh  Surface to build.
      * @param[out] state Fields to initialize.
+     *
+     * @note MPI. Collective throughout: `generateIcosphere` distributes and
+     *       exchanges, and `centerPotential` reduces. Every rank must call it.
      */
     void build( mesh_type& mesh, state_type& state ) const
     {
-        (void)mesh;
-        (void)state;
-        BEATNIK_NOT_IMPLEMENTED( "InitialCondition", "build" );
+        const Real center[3] = { 0.0, 0.0, _params.center_z };
+
+        switch ( _params.mesh_kind )
+        {
+        case MeshKind::Icosphere:
+            mesh.generateIcosphere( _params.icosphere_subdivisions,
+                                    _params.radius, center );
+            break;
+        case MeshKind::LatLon:
+            // Tessera has the generator (M1 gap G7 closed); the adapter body is
+            // T5a-era, so this throws rather than silently building an
+            // icosphere. `--mesh-kind latlon` is on no regression path.
+            mesh.generateLatLonSphere( _params.n_theta, _params.n_phi,
+                                       _params.radius, center );
+            break;
+        }
+
+        // The fields must be defined before anything reads them: Tessera's
+        // vertex user pack is uninitialized storage on a freshly built mesh.
+        state.initializeFields( mesh );
+
+        const bool fast_path =
+            ( _params.shape == InitialShape::Sphere ) &&
+            ( _params.initial_potential_strength == Real( 0 ) );
+        if ( !fast_path )
+        {
+            applyShapeDeformation( mesh );
+            seedInitialVorticity( mesh, state );
+        }
+        else if ( _params.polar_amp != Real( 0 ) )
+        {
+            applyPolarMode( mesh );
+        }
+
+        // Both deformation paths move vertices, so the geometry the centring
+        // weights by must be computed after them, not before.
+        MeshGeometry<ExecutionSpace, MemorySpace> geometry;
+        geometry.compute( mesh.positions(), mesh.totalVertexCount(),
+                          mesh.faceVertices() );
+        state.centerPotential( mesh, geometry );
+
+        // Last, so the material coordinate records the FINAL initial geometry.
+        state.seedMaterialPosition( mesh );
     }
 
     /**

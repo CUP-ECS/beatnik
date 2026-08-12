@@ -1,6 +1,6 @@
 # zmodel3d-amr → Beatnik C++ port
 
-**Status:** IN PROGRESS — last updated 2026-08-11
+**Status:** IN PROGRESS — last updated 2026-08-12
 
 ## Problem
 
@@ -135,14 +135,41 @@ Each of these is a decision, not an omission:
 
 ### What is NOT yet true
 
-**The C++ compiles, links, and runs to a stub (V0, 2026-08-07), and T1b's mesh
-generation and geometry are now numerically validated against the Python
-(2026-08-11).** Everything below T1b is still a stub, so the solver as a whole
-throws: there is no driver path, no checkpoint, and no timestep. Treat the C++ as
-*buildable, structurally sound, and validated exactly as far as T1b's exit
-criterion reaches* — the icosphere, the enclosed volume, the minimum edge length,
-and the three adjacency relations. Nothing else has been checked against the
-Python.
+**As of T1c (2026-08-12) there IS a driver path and a checkpoint, and regression
+test 1 passes.** A `--steps 0` run generates the icosphere, initializes and
+re-centres the fields, seeds the material coordinate, computes the two carried
+scalars, and writes an HDF5 checkpoint that matches the Python gold file at
+`--rtol 1e-12 --atol 1e-14` at ranks 1-6 on SERIAL and HIP.
+
+**There is still no timestep.** `Solver::solve` implements a `steps == 0` guard
+and nothing else; at `steps > 0` it throws. So the whole of the mathematics
+below T1b remains a stub, and in particular:
+
+- **No RHS, no integrator, no volume projection, no BR evaluation.** T2b, T2c and
+  T2d. The BR solver and the quadrature are *constructed* by `Solver::setup` and
+  never called.
+- **No adaptivity.** T4a/T4b/T4c, still blocked on the disjoint-editing-families
+  design question and on Tessera's G5b/G5c/G5d.
+- **`SurfaceState::updateSheetVector` still throws**, deferred to T2b on a stated
+  dependency (it *is* `surfaceGradient`, which is T2b's). Consequence in the
+  checkpoint: `/vertices/u1` is written unconditionally by `Tessera::writeMesh`
+  and is present-but-meaningless — `initializeFields` left it zero, which is a
+  *defined* value and not a correct one. `compare_output.py` skips the field
+  `state_model` does not select, so nothing depends on it yet.
+- **`CheckpointIO::read` and `RestartReader::load` still throw** — T5b. Writing is
+  validated; reading is not, in either direction.
+- **`InitialCondition` implements the fast path only.** `applyShapeDeformation`,
+  `applyPolarMode` and `seedInitialVorticity` throw (T5a), so any non-default
+  `--initial-shape`, `--polar-amp` or `--initial-potential-strength` aborts rather
+  than silently producing a sphere. `--mesh-kind latlon` likewise.
+- **`finalize()`'s "last finite state" is not yet distinct from "current".** The
+  last-finite bookkeeping lives in the step loop, which is T2d's, so at 0
+  timesteps the two coincide and a passing gate says nothing about that path.
+
+Treat the C++ as *buildable, structurally sound, and validated exactly as far as
+T1c's exit criterion reaches* — mesh generation, the initial condition, the two
+carried scalars, and the checkpoint write. Nothing that evolves in time has been
+checked against the Python.
 
 The Python side **was** run and does pass: `compare_output.py` matches the
 positive fixture, fails the negative one, and the fixtures regenerate
@@ -174,10 +201,29 @@ reproducibly.
   **T1a.** `compare_output.py gold.npz gold.npz --rtol 1e-12 --atol 1e-14`
   exits 0 and reports the expected structure: 162 vertices, 320 faces,
   `state_model potential`, 162/162 unambiguous matches at the default
-  `--match-eps`, and the four carried scalars present
+  `--match-eps`, and the **five** carried scalars present
   (`initial_volume 6.3235073124669514e-02`,
   `initial_min_edge 6.8976121063816842e-02`). Those two are the values T1b's
   exit criterion must reproduce to `1e-14` relative.
+
+  **CORRECTED 2026-08-12 by T1c: "the four carried scalars" above said four; it
+  is FIVE.** The authoritative set is not prose anywhere — it is the gold
+  `.npz`'s own 0-d keys and `compare_output.py`'s `REQUIRED_FIELDS`, and both
+  were read directly rather than inferred:
+
+  | `.npz` key | dtype | compared |
+  | --- | --- | --- |
+  | `state_model` | `<U9` | exactly |
+  | `time` | `float64` | rtol/atol |
+  | `step` | `int64` | exactly |
+  | `initial_volume` | `float64` | rtol/atol |
+  | `initial_min_edge` | `float64` | rtol/atol |
+
+  `step` is the one the count of four dropped. M2's dataset table already said
+  "the five scalars" and was right; M2's *prose* said "a `double` time, two
+  `double` scalars and a string", which is four and was also wrong — corrected in
+  `Beatnik_IOInterface.hpp` in the same change. `CheckpointIO::write` emits
+  exactly these five under `/beatnik/`, plus `/beatnik/vertex_field_names`.
 
   **Four framework bugs found and fixed by actually running things.** All were
   latent — every one would have hit the first person to submit the ship gate,
@@ -416,6 +462,139 @@ reproducibly.
   `_Negative` still failing as its `WILL_FAIL` expects (both now run from the
   install prefix as well as from ctest).
 
+- 2026-08-12 — **T1c complete. THE SHIP GATE NOW HAS A MEMBER.** Next: T2a
+  (generate the 5-step gold files), then T2b.
+
+  **The gate change.** `Beatnik_Test_InitialConditions` is registered in the
+  `regression` tier — regression test 1, the whole driver path at 0 timesteps
+  against the T1a Python gold checkpoint. Before this the tier was empty and
+  `run_regression_minset.flux` reported PASS having launched nothing; that note
+  is now gone from the wrapper, from `tests/CMakeLists.txt` and from README
+  "Known Issues". **What must pass before anything ships has changed**, which was
+  pre-authorized for this task. What the gate covers is still only what exists:
+  mesh generation, the initial condition, and the checkpoint write. There is no
+  timestep and no adaptivity, so a green gate does not say the solver integrates
+  anything.
+
+  The gate ran **twelve launches** — SERIAL and HIP at ranks 1-6 — and all
+  twelve passed. The unit tier is unchanged and still green: 3/3, with
+  `Beatnik_Test_MeshGeometry` 15/15, `Beatnik_Test_PythonCompare` passing and
+  `_Negative` failing as its `WILL_FAIL` expects.
+
+  **The measured numbers** are in T1c's completion note above and under R2. The
+  short version: `initial_min_edge` is bit-identical to the Python at every rank
+  count on both backends; `initial_volume` spans 2 ulp (`4.4e-16` relative) and
+  hits the T1a value bitwise in 9 of 12 configurations; the comparator's worst
+  vertex error is `5.551115e-17`. No tolerance was changed anywhere.
+
+  **The scalar-count contradiction, resolved.** The document said "four carried
+  scalars" (T1a) and "the five scalars" (M2's table) and described four in M2's
+  prose. It is **five**, and the authority is not prose: the gold `.npz`'s 0-d
+  keys and `compare_output.py`'s `REQUIRED_FIELDS`, both read directly. `step`
+  (`int64`) is what the count of four dropped. Corrected in T1a's note above and
+  in `Beatnik_IOInterface.hpp`'s prose; M2's table was already right.
+
+  **Five signature changes. Four forced, ONE for convenience — labelled as
+  such.**
+
+  | Was | Now | Why it could not stay |
+  | --- | --- | --- |
+  | `SurfaceState` owning three `Kokkos::View`s | **no storage**; every method takes the mesh | M1 booked this and deferred it here. Under the vertex user field pack the three fields *are* slots in Tessera's AoSoA, and a Beatnik-side copy is silently dropped by `refine()` and silently stale after `migrate()`. The views were also **never allocated**, so every accessor returned an empty view — see "only running revealed" below. |
+  | `SurfaceState::resize( vertex_count )` | `initializeFields( mesh )` | Tessera owns the allocation, so there is nothing a vertex count is for. What is left is *initialization*, and its contract **inverted**: the old doc said "called after every mesh edit", which is now actively wrong — `refine()` interpolates the pack, so zeroing afterwards would destroy the solution. A rename was the only way to stop that doc-comment being followed. |
+  | `SurfaceState::remap( edit )` | **deleted** | It was written against `MeshEditResult`, which M1 deleted. Tessera transfers the pack itself, so there is no parent map to consume and no work to do. Same precedent as `gatherForCheckpoint` (M2) and `haloExchangeField` (M1): delete rather than keep a shim no caller could correctly use. |
+  | `RestartReader::coldStart( const mesh_type& )` | `coldStart( mesh_type& )` | `faceVertices()`/`edgeVertices()` build and cache `Tessera::MeshGeometry` against `generation()` on first call, so they cannot be `const` and neither can any caller. Forced by the M1 storage model (connectivity is gids; the local-index views are derived). |
+  | the four proximity distance/factor fields in the example's `ClArgs` | in `RemeshParams` | **Forced, though it looks like tidying.** `Solver::setup`'s documented step 3 is the resolution against `initial_min_edge`, and the solver is handed only a `SolverParams` — so a factor living in the driver's own struct was unreachable at the one place able to use it, and step 3 could not have been written at all. CLI names and defaults unchanged. |
+  | `SurfaceMesh` exposing no Tessera mesh | `tesseraMesh()` / `tesseraHalo()` | `Tessera::writeMesh`/`readMesh` are whole-mesh operations over storage, connectivity, ownership and the user pack at once; no subset of the facade can stand in. Scoped to the sibling adapters, which the contract already permits ("no **other** Beatnik header"), and documented as a deliberate hole with a named caller. |
+
+  **Three things only running revealed**, and one of them was the framework's
+  fault:
+
+  1. **`SurfaceState`'s three views were unbacked, and nothing had ever noticed.**
+     M1 recorded it as a follow-up and T1c was the first code to *use* the state,
+     so this is the first task that could have hit it. Had the views been left
+     alone and merely allocated, the result would have been a checkpoint whose
+     `/vertices/u<N>` datasets were Tessera's uninitialized storage while
+     Beatnik's own arrays held the real values — a plausible-looking file that
+     fails the comparison for a reason no field name points at.
+  2. **A read-only working directory in the installed gate path.** The gate
+     wrapper runs each test *from the manifest's directory* so manifest-relative
+     data paths resolve (the fix `unit_tests.flux` already carries), and that
+     directory is inside a spack install prefix. A test that writes output
+     therefore cannot default to `.`, and would fail **only** on the installed
+     path and never under `ctest`. The wrapper now exports an absolute
+     `BEATNIK_TEST_SCRATCH` under the submitting directory and the test resolves
+     `BEATNIK_TEST_SCRATCH` → `TMPDIR` → `.`.
+  3. **`clangformat.sh` is still not safe repo-wide, and this run has the receipt.**
+     Running clang-format over the touched files mangled `Beatnik_IOInterface.hpp`'s
+     markdown schema table (`| By |` split across two lines) and
+     `Beatnik_InitialCondition.hpp`'s three-way ASCII branch diagram. Reverted;
+     the code regions were formatted by explicit `--lines=` ranges and the prose
+     was narrowed by hand, as M2 and T1b did. Measured per file: **no new drift
+     anywhere, and three files improved** — `Beatnik_Solver.hpp` 10→**1**,
+     `Beatnik_IOInterface.hpp` 3→**1**, `Beatnik_SurfaceState.hpp` 0→0,
+     `Beatnik_MeshInterface.hpp` 0→0, `Beatnik_Restart.hpp` 0→0,
+     `Beatnik_InitialCondition.hpp` 2→2, `Beatnik_Params.hpp` 1→1,
+     `InputFile.hpp` 351→351, `adaptive_mesh_bubble.cpp` 23→23,
+     `Beatnik_TestAssert.hpp` 0→0, and the new test file 0. (Counted with
+     clang-format 21, not the 14 the CMake `find_package` asks for, so these are
+     comparable to each other and to HEAD but not to M2's and T1b's numbers.)
+
+  **No compile errors that forced a semantic decision** — the third time running
+  in a row (V0, T1b, T1c). The two build failures were both mine and neither was
+  ambiguous: a generated shim `#include`d the test source relative to `tests/`
+  instead of `tests/regression_tests/`, and the shared `_beatnik_compare_dir`
+  path variables were defined below their new first consumer. Recorded because
+  "no compile errors" keeps being true and is worth knowing about this framework,
+  not because these were interesting.
+
+  **New and changed build/test wiring.**
+
+  - `tests/regression_tests/Beatnik_Test_InitialConditions.cpp`, **one binary per
+    enabled backend** — `Beatnik_Test_InitialConditions_MPI_{SERIAL,OPENMP,HIP}`,
+    generated from one source by a per-backend shim that pins
+    `BEATNIK_TEST_EXEC_SPACE`. Not one binary on `DefaultExecutionSpace` the way
+    the `unit` tier does it, and the reason is mechanical rather than stylistic:
+    the gate selects a backend by the target's `_<BACKEND>` suffix, so a
+    suffix-less target is **skipped entirely** by the installed path — a silent
+    zero-test pass — and on tuolumne the default space is HIP, so one binary
+    could not honestly answer for SERIAL.
+  - **How a multi-rank `regression` entry is represented** (the tier's first, so
+    this sets the convention): **the rank set is a property of the gate, not of
+    the test.** The test is registered once per backend and the sweep stays where
+    it already lives — `BEATNIK_TEST_MPI_RANKS` for ctest, `BEATNIK_GATE_RANKS`
+    in the wrapper — with the test reading its own comm size and adapting. So
+    T1c's ranks 1/2/4 are a verified *subset* of the gate's 1-6, and the gate
+    definition is unchanged and still single-sourced. The rejected alternative
+    was a per-test rank list on the manifest line: it would let one test gate at
+    fewer ranks than the gate claims, which is the "gate silently shrinks"
+    failure CLAUDE.md forbids.
+  - **The gate manifest format widened to `<target> [args...]`**, paths relative
+    to the manifest's own directory — the same convention the unit manifest's
+    `py-pass`/`py-fail` lines already use, and needed for the same reason (a
+    test's data must travel with the manifest that names it). A bare target name
+    is still valid, so this is a widening and not a replacement. The wrapper
+    splits the line, filters the backend suffix **on field 1**, and runs from the
+    manifest directory.
+  - **The wrapper now fails when the manifest names nothing runnable.** It
+    previously reported PASS after zero launches, which was correct while the tier
+    was empty by design and is a false green now that it is not.
+  - **The multi-rank verdict question, settled** —
+    `Beatnik_TestAssert.hpp` deferred it to "the task that first needs one". Every
+    rank calls `report()`, so the log names which rank failed, and the returned
+    exit codes are reduced with `MPI_Allreduce(MPI_MAX)` at the call site. The
+    reduction is deliberately **not** inside `Recorder`: a collective there would
+    deadlock in exactly the case that matters most, one rank taking an exception
+    path and never reaching `report()` while its peers block in the reduce.
+  - **A real negative case, and the T1b trap closed by construction.** The test
+    runs the comparator a second time against the deliberately mismatched
+    `synthetic_gold.npz` and requires exit status **exactly 1**, not merely
+    non-zero — because `compare_output.py` returns 1 for "compared and disagreed"
+    and 2 for a `LoadError`. That distinction is what stops a mis-plumbed path
+    passing as a detected mismatch, which is precisely how T1b's `py-fail` case
+    passed vacuously. Every input path is also checked for existence first.
+    Verified by reading the log, not by trusting the exit code: the negative run
+    reports `vertex count: cpp=162 gold=12`.
+
 ---
 
 # Task sequence
@@ -548,7 +727,7 @@ degree exactly 3 and reciprocal, and two whole-surface identities that pin
 rework that preceded it, and the signature changes it forced are in the progress
 log.
 
-### T1c — Initial condition and checkpoint write
+### T1c — Initial condition and checkpoint write — **DONE 2026-08-12**
 
 **Fill in:**
 - `Beatnik_InitialCondition.hpp`: `build`, and the fast path (default sphere, no
@@ -560,6 +739,17 @@ log.
   `updateSheetVector`, `centerPotential`, `allFinite`.
   ← *Python:* `mesh_solver.py::potential_sheet_vector` (364-367),
   `::_area_weighted_scalar_mean` (239-244)
+
+  **As built:** `resize` became `initializeFields( mesh )` and
+  `seedMaterialPosition` / `centerPotential` / `allFinite` now take the mesh,
+  because T1c also discharged M1's deferred follow-up — the three evolved fields
+  live in the Tessera vertex user pack, so `SurfaceState` holds no storage at
+  all. `remap` was deleted. **`updateSheetVector` is the one method of the five
+  still throwing**, deferred to T2b on a stated dependency: its body *is*
+  `SurfaceOperators::surfaceGradient`, which is T2b's and is itself a stub, and
+  at 0 timesteps under the `potential` model the sheet vector is never read. The
+  reason is written on the declaration so the next reader does not have to
+  re-derive it. See the signature table in the 2026-08-12 progress-log entry.
 - `Beatnik_IOInterface.hpp`: `timeKey`, `write`.
   ← *Python:* `::checkpoint_time_key` (951-952), `::save_state_checkpoint`
   (955-990)
@@ -573,6 +763,48 @@ log.
 `compare_output.py beatnik.h5 gold.npz --rtol 1e-12 --atol 1e-14` exits 0, at
 ranks 1, 2 and 4. Register it in the `regression` tier — **which changes the
 ship gate, so confirm with the user first** (CLAUDE.md "Minimum test set").
+
+**Met 2026-08-12**, by the new `regression`-tier test
+`Beatnik_Test_InitialConditions`
+(`tests/regression_tests/Beatnik_Test_InitialConditions.cpp`), run through
+`flux batch scripts/tuolumne/run_regression_minset.flux`. The gate was
+pre-authorized for this change, so it now has **exactly one member** and is no
+longer vacuous.
+
+The criterion asked for ranks 1, 2 and 4; the **whole gate** was run — SERIAL and
+HIP at ranks 1, 2, 3, 4, 5, 6, twelve launches — and every one passed:
+`[gate] PASS (label=regression)`. The criterion's three rank counts are a
+verified subset, not the extent of what was checked.
+
+```
+initial_volume    all 12 configurations within 1 ulp of the T1a value
+initial_min_edge  0.068976121063816842 at every rank count, both backends,
+                  rel 0 -- bit-identical to T1a everywhere
+comparator        vertices max|e| 5.551115e-17 (max rel 2.92e-15), potential
+                  max|e| 0, remesh_material_position max|e| 5.551115e-17,
+                  faces 320/320 identical after remap, 162/162 unambiguous
+```
+
+The measured `initial_volume` takes exactly **three** distinct values across all
+twelve configurations, spanning **2 ulp**:
+
+| value | where |
+| --- | --- |
+| `6.32350731246694997e-02` | SERIAL np1, HIP np5 |
+| `6.32350731246695136e-02` | SERIAL np2/3/4/6, HIP np1/2/3/4/6 — the T1a value, bitwise |
+| `6.32350731246695275e-02` | SERIAL np5 |
+
+i.e. a total spread of `2.78e-17` absolute, `4.4e-16` relative — four orders
+inside the `1e-12` tolerance. **No tolerance was touched.** The discrimination
+that establishes this is summation order and not R9 is recorded under R2 and R9
+below and is built into the test, so it is re-measured on every gate run.
+
+The test checks more than the criterion: the entity counts and Euler
+characteristic, the halo depth, the **owned-set partition** (the per-rank
+`ownedX` counts summed with a plain `MPI_Allreduce` must equal 162/480/320 —
+R9's precondition, checked rather than assumed), both carried scalars against
+the T1a literals at 17 digits, the volume-to-`4πR³/3` ratio, and a **negative
+case** requiring the comparator to exit exactly `1` and not `2`.
 
 ---
 
@@ -1354,6 +1586,41 @@ Compare each rank count against the *same* gold file at a tolerance that
 accommodates the trajectory difference, and expect that tolerance to grow with
 step count. Regression tests 1 and 2 are short precisely to keep it small.
 
+### Measured at T1c (2026-08-12): the cross-rank spread of the two scalars
+
+Both carried scalars, at ranks 1-6 on SERIAL and HIP — twelve configurations,
+from `Beatnik_Test_InitialConditions`, which reports them on every gate run:
+
+- **`initial_min_edge` — spread ZERO.** `0.068976121063816842` at every rank
+  count on both backends, bit-identical to the T1a Python value. Expected:
+  `MPI_MIN` on a fixed set of values is order-independent, so this is
+  reproducible *by construction* and not by luck. It is the reduction the
+  adaptive dt and both proximity radii key off, which is the good half of the
+  news.
+- **`initial_volume` — spread 2 ulp**, `2.78e-17` absolute / `4.4e-16` relative,
+  taking three distinct values (table in T1c's completion note). The T1a value
+  is hit bitwise in 9 of the 12 configurations.
+
+**What this means for a tolerance:** nothing needs one. `4.4e-16` is four orders
+inside `1e-12`, and the two `1e-14`-relative comparisons T1b and T1c both make
+still pass. Do not read the spread as a budget to spend — it is the *observed*
+noise floor of one `globalSum` over 320 faces, and R2's warning is about
+*trajectories*, where the spread compounds over steps. T2d is where it starts to
+matter.
+
+**Two things the numbers say that the risk statement did not.**
+
+1. **The spread is NOT primarily cross-rank.** np1 (where `MPI_SUM` has nothing
+   to add) already differs between SERIAL and HIP, and np5 lands 1 ulp *high* on
+   SERIAL and 1 ulp *low* on HIP. So most of it is the on-node
+   `Kokkos::parallel_reduce` tree order, not `MPI_Allreduce` — which
+   `Beatnik_MeshGeometry.hpp`'s DETERMINISM note already predicted for the
+   assembled fields, and which R2 attributed to the collective.
+2. **It does not trend with rank count.** np6, which has the largest ghost
+   fraction of the six (owned F 53-54 against local F 91-184), reproduces the
+   T1a value exactly on both backends. That is the observation that discriminates
+   R2 from R9 — see R9.
+
 ## R3 — A restart does not reproduce an uninterrupted run
 
 Checkpoints do not carry `reference_face_area` or `reference_face_curvature`, so
@@ -1454,6 +1721,42 @@ changes with the rank count and the partition shape.
 warning. The cheap detector: the enclosed volume of the initial sphere has a
 closed form; check it against `4πR³/3` (minus the known polyhedral deficit) at
 several rank counts.
+
+### Checked at T1c (2026-08-12), and NOT biting — with the reasoning, not just the verdict
+
+R9 and R2 present *identically* in a failure report: both make `initial_volume`
+disagree with the gold value by an amount that varies with the rank count. T1c
+ran the rank sweep and told them apart on three independent grounds, all three
+now mechanized inside `Beatnik_Test_InitialConditions` so they are re-checked on
+every gate run rather than being a one-off measurement:
+
+1. **The owned sets partition the global sets exactly.** Summing each rank's
+   `ownedVertexCount/ownedEdgeCount/ownedFaceCount` with a plain
+   `MPI_Allreduce(MPI_SUM)` gives **162 / 480 / 320** at every rank count on both
+   backends — the serial totals, once each. Deliberately summed independently of
+   Tessera's own `globalOwnedX`, because owned-versus-local is exactly the
+   distinction R9 turns on and two agreeing paths are worth more than one. This
+   is the precondition the volume and edge-length reductions need, and R9 says to
+   check it rather than assume it.
+2. **The deviation does not scale with the ghost fraction.** It is ±1 ulp and it
+   does not trend: np1 (no ghosts at all) deviates, np6 (ghosts outnumbering owned
+   entities roughly 2:1) is exact, and np5 deviates in *opposite directions* on
+   the two backends. A ghost-inclusion bug is monotone in the ghost fraction and
+   orders of magnitude larger — it would put np6 furthest out, not exactly on the
+   reference.
+3. **The closed form is unmoved.** `volume / (4πR³/3) = 0.96616074859858714` at
+   every rank count — the polyhedral deficit of the subdivision-2 icosphere,
+   a property of the triangulation and not of the partition. Double-counting even
+   a handful of ghost faces would move this in the second or third digit.
+
+**Verdict: summation order (R2), not double-counting (R9).** So the tolerance was
+left alone, which is what the discrimination was for.
+
+The same three checks are the template for T2d, which faces the harder version of
+this ambiguity: R8's seam-versus-noise question. Note grounds 1 and 3 are
+*structural* and stay decisive there, while ground 2 (the no-trend argument) gets
+weaker once positions evolve, because a real seam bug also moves with the
+partition.
 
 ## R10 — Ambiguity in `compare_output.py`'s quantized matching
 

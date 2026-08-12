@@ -74,10 +74,22 @@ namespace Test
 /**
  * @brief Accumulates check results and prints the verdict.
  *
- * Not thread-safe and not MPI-aware: the `unit` tier runs at one rank (see
- * `tests/unit_tests/CMakeLists.txt`), and a multi-rank unit test would need to
- * reduce the failure count before reporting, which is a decision for the task
- * that first needs one.
+ * Not thread-safe and **not MPI-aware**, deliberately: it records what happened
+ * on *this* rank.
+ *
+ * **The multi-rank question, settled at T1c** (which needed it first, for the
+ * `regression` tier's rank sweep). The reduction stays **outside** this class:
+ * a multi-rank test calls `report()` on every rank — so the log names which
+ * rank failed, which a rank-0-only tally would hide — and then reduces the
+ * returned exit codes with `MPI_Allreduce(..., MPI_MAX, comm)` to reach one
+ * verdict. See `tests/regression_tests/Beatnik_Test_InitialConditions.cpp`,
+ * which does exactly that in four lines.
+ *
+ * The reduction is not put in here because it would have to be collective, and
+ * a collective inside the reporter would deadlock precisely in the case that
+ * matters most: one rank taking an early exception path and never reaching
+ * `report()` while its peers block in the reduce. Keeping it at the call site
+ * makes that visible.
  */
 class Recorder
 {

@@ -134,10 +134,11 @@ void printConfiguration( std::ostream& os,
            << p.remesh_tight_every << "\n";
     os << "  proximity          "
        << ( p.remesh.use_proximity ? "on" : "off" )
-       << ", activation " << cl.proximity_activation_distance << " or "
-       << cl.proximity_activation_factor << " x h0_min"
-       << ", material exclusion " << cl.proximity_material_exclusion_radius
-       << " or " << cl.proximity_material_exclusion_factor << " x h0_min\n";
+       << ", activation " << p.remesh.proximity_activation_distance << " or "
+       << p.remesh.proximity_activation_factor << " x h0_min"
+       << ", material exclusion "
+       << p.remesh.proximity_material_exclusion_radius << " or "
+       << p.remesh.proximity_material_exclusion_factor << " x h0_min\n";
     if ( p.checkpoint.writing() )
         os << "  checkpoints        " << p.checkpoint.directory << "/"
            << p.checkpoint.prefix << "_*, every " << p.checkpoint.every_steps

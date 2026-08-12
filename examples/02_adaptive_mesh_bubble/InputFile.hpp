@@ -162,14 +162,11 @@ struct ClArgs
     // does the resolution in `setup()`; see
     // run_adaptive_mesh_bubble.py:1272-1286.
 
-    /// `--remesh-proximity-activation-distance`, default 0.0.
-    double proximity_activation_distance = 0.0;
-    /// `--remesh-proximity-activation-factor`, default 6.0.
-    double proximity_activation_factor = 6.0;
-    /// `--remesh-proximity-material-exclusion-radius`, default 0.0.
-    double proximity_material_exclusion_radius = 0.0;
-    /// `--remesh-proximity-material-exclusion-factor`, default 4.0.
-    double proximity_material_exclusion_factor = 4.0;
+    // T1c CHANGE: the four proximity distance/factor fields that used to live
+    // here now live in `RemeshParams`, because `Solver::setup` is what resolves
+    // them against `initial_min_edge` and it is handed only a `SolverParams`.
+    // The CLI option names and defaults are unchanged; see
+    // `Beatnik_Params.hpp::RemeshParams::proximity_activation_factor`.
 
     /// `--remesh-tight-proximity`, default false. ORed with
     /// `--remesh-proximity` to set the tight set's `use_proximity`
@@ -606,13 +603,13 @@ inline OptionTable buildOptionTable( ClArgs& cl )
     F( "remesh-proximity", rm.use_proximity );
     D( "remesh-proximity-fraction", rm.proximity_fraction );
     D( "remesh-proximity-activation-distance",
-       cl.proximity_activation_distance );
-    D( "remesh-proximity-activation-factor", cl.proximity_activation_factor );
+       rm.proximity_activation_distance );
+    D( "remesh-proximity-activation-factor", rm.proximity_activation_factor );
     I( "remesh-proximity-exclusion-rings", rm.proximity_exclusion_rings );
     D( "remesh-proximity-material-exclusion-radius",
-       cl.proximity_material_exclusion_radius );
+       rm.proximity_material_exclusion_radius );
     D( "remesh-proximity-material-exclusion-factor",
-       cl.proximity_material_exclusion_factor );
+       rm.proximity_material_exclusion_factor );
     t["remesh-proximity-max-faces"] = {
         OptionArity::Value,
         [&rm]( const std::vector<std::string>& v ) {
@@ -736,6 +733,19 @@ inline void reconcileDerivedParams( ClArgs& cl )
                                 : rm.proximity_fraction;
     rt.proximity_exclusion_rings = rm.proximity_exclusion_rings;
     rt.proximity_max_faces = rm.proximity_max_faces;
+
+    // The activation distance and the material-exclusion radius are resolved
+    // against initial_min_edge by `Solver::setup`, which resolves BOTH
+    // parameter sets from the same CLI values
+    // (run_adaptive_mesh_bubble.py:1272-1286 resolves once and hands the
+    // result to both). So the raw values and their factors are copied across
+    // here and the resolution is not duplicated.
+    rt.proximity_activation_distance = rm.proximity_activation_distance;
+    rt.proximity_activation_factor = rm.proximity_activation_factor;
+    rt.proximity_material_exclusion_radius =
+        rm.proximity_material_exclusion_radius;
+    rt.proximity_material_exclusion_factor =
+        rm.proximity_material_exclusion_factor;
 
     rt.target_gradation_factor = rm.target_gradation_factor;
     rt.target_gradation_iterations = rm.target_gradation_iterations;

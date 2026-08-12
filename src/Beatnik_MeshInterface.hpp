@@ -116,10 +116,12 @@
  * assembly rule that makes that correct without a scatter-add is stated under
  * DISTRIBUTED ASSEMBLY below.
  *
- * **Follow-up, not M1:** `Beatnik_SurfaceState.hpp` still declares its own
- * `Kokkos::View`s for the three *evolved* fields. T1c must re-point it at the
- * accessors below; until then those views are unbacked. Recorded in
- * `tasks/framework.md`.
+ * **DONE at T1c.** `Beatnik_SurfaceState.hpp` used to declare its own
+ * `Kokkos::View`s for the three *evolved* fields, and they were never
+ * allocated. It now holds no storage at all and every method takes the mesh,
+ * reading the `potential()` / `sheetVector()` / `materialPosition()` accessors
+ * below. See that header's "THE FIELDS LIVE IN THE MESH" section for the table
+ * of what changed.
  *
  * MPI DECOMPOSITION AND THE HALO
  * ------------------------------
@@ -549,6 +551,34 @@ class SurfaceMesh
 
     /// Number of ranks in `comm()`.
     int commSize() const { return _mesh.commSize(); }
+
+    /**
+     * @brief The underlying Tessera mesh. **For the sibling adapters only.**
+     *
+     * **T1c CHANGE, and the narrowest one that made `CheckpointIO::write`
+     * possible.** `Tessera::writeMesh` / `readMesh` take the Tessera `Mesh`
+     * itself — they are whole-mesh operations over storage, connectivity,
+     * ownership and the user pack at once, so there is no subset of this facade
+     * that could stand in for it, and re-exposing each piece would be a worse
+     * leak than one accessor.
+     *
+     * The adapter contract is unbroken because it is scoped to *"no **other**
+     * Beatnik header may name a Tessera type"* and
+     * `Beatnik_IOInterface.hpp` is **adapter 2 of 3**. Nothing outside the
+     * three adapter headers may call this. It is a deliberate hole with a
+     * named caller, not a general escape hatch: if a fourth caller ever wants
+     * it, the right move is to add the operation here rather than to widen the
+     * hole.
+     */
+    tessera_mesh_type& tesseraMesh() { return _mesh; }
+
+    /// Const overload of `tesseraMesh()`; `Tessera::writeMesh` takes its mesh
+    /// by const reference, so the write path needs only this one.
+    const tessera_mesh_type& tesseraMesh() const { return _mesh; }
+
+    /// The three halo plans, for the same two callers and the same reason:
+    /// `Tessera::readMesh` and `rebuildHalo` need the halo, not the mesh alone.
+    tessera_halo_type& tesseraHalo() { return _halo; }
 
     /**
      * @brief Tessera's topology generation counter.

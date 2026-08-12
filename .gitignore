@@ -7,3 +7,9 @@ data
 
 # Per-checkout build/run profile overrides. profile.defaults.sh IS committed.
 scripts/**/profile.local.sh
+
+# Test-run output. `run_regression_minset.flux` points BEATNIK_TEST_SCRATCH here
+# by default so a gate run's artifacts land beside its .log rather than in a temp
+# directory nobody looks at -- see that script.
+beatnik_gate_scratch/
+beatnik_regression_t1c/

@@ -44,26 +44,63 @@
  * ---------------------------------
  * The Python has two dataclasses with heavy duplication, and the driver
  * duck-types over `hasattr(state, "potential")` at a dozen call sites. Here the
- * model is a runtime tag and both storage arrays exist, with only the active
- * one allocated. That keeps the RHS and the integrator from being templated on
+ * model is a runtime tag, so the RHS and the integrator are not templated on
  * the model — which would double the instantiations of every Kokkos kernel for
  * no benefit, since the model is fixed for the whole run.
+ *
+ * THE FIELDS LIVE IN THE MESH — THIS CLASS HOLDS NO STORAGE
+ * --------------------------------------------------------
+ * **T1c CHANGE, and it is the one M1 booked and deferred to here.** The pre-T1c
+ * revision declared three `Kokkos::View`s of its own for the potential, the
+ * sheet vector and the material position. Under the M1 vertex user field pack
+ * those three *are* slots in Tessera's vertex AoSoA
+ * (`Beatnik::VertexFieldId`), and M1 recorded why a Beatnik-side copy cannot
+ * work: `refine()` interpolates only fields it owns, `migrate()` ships only
+ * tuples it owns, and `haloExchange()` syncs only the pack. A per-vertex field
+ * held outside the mesh is therefore **silently dropped by refinement and
+ * silently stale after migration** — and, before T1c, those three views were
+ * simply never allocated at all.
+ *
+ * So every accessor is gone and every method below takes the mesh:
+ *
+ * | Was | Now |
+ * | --- | --- |
+ * | `potential()` | `mesh.potential()` |
+ * | `sheetVector()` | `mesh.sheetVector()` |
+ * | `materialPosition()` | `mesh.materialPosition()` |
+ * | `resize( vertex_count )` | `initializeFields( mesh )` |
+ * | `remap( edit )` | **deleted** |
+ *
+ * `resize` becomes `initializeFields` because Tessera allocates and only
+ * *initialization* is left to do; `remap` is deleted because Tessera transfers
+ * the pack itself.
+ *
+ * What remains here is the state *model* and the operations that are specific
+ * to it. The class is deliberately still a class rather than a free-function
+ * namespace: `Solver` holds one and hands it around, and a later task may want
+ * per-model scratch that genuinely is Beatnik's.
  */
 
 #ifndef BEATNIK_SURFACESTATE_HPP
 #define BEATNIK_SURFACESTATE_HPP
 
+#include <Beatnik_Communication.hpp>
 #include <Beatnik_MeshGeometry.hpp>
 #include <Beatnik_Types.hpp>
 
 #include <Kokkos_Core.hpp>
+
+#include <mpi.h>
+
+#include <utility>
 
 namespace Beatnik
 {
 
 //---------------------------------------------------------------------------//
 /**
- * @brief Per-vertex solution fields on the interface.
+ * @brief The state model, and the operations that depend on which one is in
+ *        force. **Holds no per-vertex storage** — see the file header.
  *
  * @tparam ExecutionSpace Kokkos execution space.
  * @tparam MemorySpace    Kokkos memory space.
@@ -76,13 +113,6 @@ class SurfaceState
     using memory_space = MemorySpace;
     using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
 
-    // TODO(types): templated pending Tessera/Canopy interface; collapse to a
-    // concrete type once known.
-    using scalar_view = Kokkos::View<Real*, device_type>;
-    // TODO(types): templated pending Tessera/Canopy interface; collapse to a
-    // concrete type once known.
-    using vector_view = Kokkos::View<Real* [3], device_type>;
-
     /// @param model Which unknown is evolved. Fixed for the run.
     explicit SurfaceState( StateModel model )
         : _model( model )
@@ -93,54 +123,68 @@ class SurfaceState
     StateModel model() const { return _model; }
 
     /**
-     * @brief `(Nv,)` velocity potential jump. Allocated only under
-     *        `StateModel::Potential`.
+     * @brief Which npz key each `VertexFieldId` slot carries, in slot order.
      *
-     * Units: velocity x length (a circulation per unit length of contour), so
-     * its surface gradient has units of velocity.
+     * The declaration `CheckpointIO::write` emits as
+     * `/beatnik/vertex_field_names` and `compare_output.py` cross-checks its
+     * `FIELD_MAP` against. It lives here rather than in the IO adapter because
+     * it is a statement about *the state*, and the whole point of the
+     * cross-check is that the writer and the comparator name the slots
+     * independently — see the `u0`/`u1`/`u2` hazard in
+     * `Beatnik_IOInterface.hpp`.
+     *
+     * Order must match `Beatnik::VertexFieldId` and the schema table in that
+     * header. `VertexFieldId::Count` is asserted against it at the use site.
      */
-    scalar_view potential() const { return _potential; }
+    static constexpr const char* vertex_field_names[3] = {
+        "potential", "sheet_vector", "remesh_material_position" };
 
     /**
-     * @brief `(Nv,3)` tangential sheet vector.
+     * @brief Zero the three mesh-resident vertex fields.
      *
-     * Under `SheetVector` this is the evolved unknown; under `Potential` it is
-     * a **cache** refreshed by `updateSheetVector` and must not be written
-     * directly. Units: velocity.
+     * Port of mesh_solver.py::sphere_potential_mesh_state (lines 355-361) —
+     * `potential=np.zeros(surface.vertex_count)`
+     *
+     * **T1c CHANGE — this replaces `resize( vertex_count )`.** Under the M1
+     * field pack Tessera owns the allocation (the vertex AoSoA is sized by
+     * `buildIcosphere` / `distribute` / `refine`), so there is nothing left for
+     * Beatnik to allocate and nothing that a vertex count would be used for.
+     * What *is* left is initialization: a freshly built mesh's user fields are
+     * uninitialized storage, so reading one before it is written is a genuine
+     * bug that would show up as a plausible-looking non-zero potential.
+     *
+     * Written over the **whole local range** (owned + ghost), not just the
+     * owned one, so the ghost rows are defined before the first
+     * `haloExchange()` rather than holding garbage that a kernel might read.
+     *
+     * @warning **Cold start only. Do NOT call this after a mesh edit.** The
+     *          pre-T1c `resize` was documented as "called after every mesh
+     *          edit", which was correct when Beatnik owned the storage and
+     *          reallocation was Beatnik's job. It is now actively wrong:
+     *          `refine()` and `splitEdges()` interpolate the pack through the
+     *          `RefinePolicy` and `migrate()` ships it, so zeroing afterwards
+     *          would **destroy the solution**. Nothing needs calling after an
+     *          edit; that is the whole benefit of the fields being in the mesh.
      */
-    vector_view sheetVector() const { return _sheet_vector; }
-
-    /**
-     * @brief `(Nv,3)` carried Lagrangian ("material") coordinate.
-     *
-     * Port of run_adaptive_mesh_bubble.py::main (lines 1227, 1240) and
-     * ::dynamic_remesh_state_with_material (lines 1080-1110)
-     *
-     * Initialized to the vertex positions at t=0 and advected as an ordinary
-     * per-vertex field through every remesh — interpolated at edge midpoints on
-     * a split, carried on a collapse — but **never** integrated in time. So it
-     * records, for each current vertex, roughly which piece of the *initial*
-     * sheet it came from.
-     *
-     * Its only consumer is the nonlocal-proximity material exclusion: two faces
-     * that are geometrically close but close in material coordinate too are the
-     * same piece of sheet folded over on itself at the mesh scale, not two
-     * approaching sheets, and must not trigger proximity refinement. Without
-     * it, a tightly rolled spiral refines against its own immediate
-     * neighborhood forever.
-     */
-    vector_view materialPosition() const { return _material_position; }
-
-    /**
-     * @brief Allocate the fields for a given vertex count.
-     *
-     * Called after every mesh edit. Only the array selected by `model()` is
-     * allocated, plus the sheet-vector cache and the material position.
-     */
-    void resize( int vertex_count )
+    template <class MeshType>
+    void initializeFields( MeshType& mesh ) const
     {
-        (void)vertex_count;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceState", "resize" );
+        auto phi = mesh.potential();
+        auto sheet = mesh.sheetVector();
+        auto material = mesh.materialPosition();
+        const int n = mesh.totalVertexCount();
+        Kokkos::parallel_for(
+            "beatnik_state_initialize_fields",
+            Kokkos::RangePolicy<execution_space>( 0, n ),
+            KOKKOS_LAMBDA( const int i ) {
+                phi( i ) = Real( 0 );
+                for ( int d = 0; d < 3; ++d )
+                {
+                    sheet( i, d ) = Real( 0 );
+                    material( i, d ) = Real( 0 );
+                }
+            } );
+        Kokkos::fence();
     }
 
     /**
@@ -163,9 +207,26 @@ class SurfaceState
      * turns out inverted; it is not a substitute for getting this sign right.
      *
      * A no-op under `StateModel::SheetVector`.
+     *
+     * **STILL A STUB AFTER T1c — DEFERRED TO T2b ON A STATED DEPENDENCY, not
+     * overlooked.** T1c implemented the other four methods named in its task
+     * entry and left this one throwing for two reasons, both checkable:
+     *
+     *   1. Its body *is* `SurfaceOperators::surfaceGradient`, which is T2b's
+     *      and is itself still `BEATNIK_NOT_IMPLEMENTED`. Nothing to call.
+     *   2. At T1c's 0 timesteps under `StateModel::Potential` the sheet vector
+     *      is never **read**: the only consumers are the BR source (T2c) and
+     *      `maxSheetStrength`'s dt throttle (T2d), and neither runs. So the
+     *      checkpoint's `/vertices/u1` is present-but-meaningless — see
+     *      `Beatnik_IOInterface.hpp` "BOTH STATE FIELDS ARE ALWAYS PRESENT" —
+     *      and `compare_output.py` skips the field `state_model` does not
+     *      select. `initializeFields` leaves it zero rather than garbage, which
+     *      is a defined value and not a correct one.
+     *
+     * Implement it in T2b, immediately after `surfaceGradient`.
      */
     template <class MeshType, class GeometryType>
-    void updateSheetVector( const MeshType& mesh, const GeometryType& geometry )
+    void updateSheetVector( MeshType& mesh, const GeometryType& geometry )
     {
         (void)mesh;
         (void)geometry;
@@ -210,13 +271,91 @@ class SurfaceState
      * construction; the RHS separately re-centres `potential_dot`. A no-op
      * under `SheetVector`.
      *
-     * @note MPI. Collective — see `SurfaceOperators::areaWeightedMean`.
+     * **T1c CHANGE — it takes the mesh as well as the geometry**, because the
+     * potential it re-centres now lives in the mesh (see the file header) and
+     * because the owned/ghost split it must respect is the mesh's.
+     *
+     * @note MPI. Collective, and **reduce-both-then-divide**. The two partial
+     *       sums come from `areaWeightedMeanPartials` over the **owned** vertex
+     *       range only (risk R9 — a ghost vertex is owned somewhere else), and
+     *       both are reduced before the division. `areaWeightedMean`'s
+     *       single-`Real` form is deliberately *not* used: an `allReduceSum` of
+     *       per-rank means is not the global mean, and subtracting a per-rank
+     *       mean would give the potential a piecewise-constant jump across
+     *       every partition boundary — whose surface gradient, the sheet
+     *       vector, would carry a delta function there. Invisible at one
+     *       rank; see that function's note. The two sums are batched into one
+     *       `MPI_Allreduce`.
      */
-    template <class GeometryType>
-    void centerPotential( const GeometryType& geometry )
+    template <class MeshType, class GeometryType>
+    void centerPotential( MeshType& mesh, const GeometryType& geometry ) const
     {
-        (void)geometry;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceState", "centerPotential" );
+        if ( _model != StateModel::Potential )
+            return;
+
+        auto phi = mesh.potential();
+        const int n_owned = mesh.ownedVertexCount();
+        const int n_local = mesh.totalVertexCount();
+
+        // The owned range of both arrays. `phi` is a Cabana slice with no
+        // extent, so the partials helper is handed plain owned-range views.
+        Kokkos::View<Real*, memory_space> phi_owned(
+            Kokkos::view_alloc( Kokkos::WithoutInitializing,
+                                "beatnik_center_phi_owned" ),
+            n_owned );
+        Kokkos::parallel_for(
+            "beatnik_center_gather",
+            Kokkos::RangePolicy<execution_space>( 0, n_owned ),
+            KOKKOS_LAMBDA( const int i ) { phi_owned( i ) = phi( i ); } );
+        Kokkos::fence();
+
+        auto area_owned = Kokkos::subview( geometry.vertex_area,
+                                           std::make_pair( 0, n_owned ) );
+
+        Real weighted = 0, area = 0;
+        SurfaceOperators::areaWeightedMeanPartials( phi_owned, area_owned,
+                                                    weighted, area );
+
+        // One collective for the numerator and the denominator together.
+        Real pair[2] = { weighted, area };
+        Real reduced[2] = { 0, 0 };
+        MPI_Allreduce( pair, reduced, 2, MPI_DOUBLE, MPI_SUM, mesh.comm() );
+
+        // The Python's fallback when the total area is non-positive is the
+        // UNWEIGHTED mean (`_area_weighted_scalar_mean`, lines 241-243). Vertex
+        // areas are floored at 1e-300, so a non-positive total means an empty
+        // surface; reduce that path too rather than letting ranks disagree.
+        Real mean = 0;
+        if ( reduced[1] > Real( 0 ) )
+        {
+            mean = reduced[0] / reduced[1];
+        }
+        else
+        {
+            Real local_sum = 0;
+            Kokkos::parallel_reduce(
+                "beatnik_center_unweighted",
+                Kokkos::RangePolicy<execution_space>( 0, n_owned ),
+                KOKKOS_LAMBDA( const int i, Real& acc ) {
+                    acc += phi_owned( i );
+                },
+                local_sum );
+            const Real total_sum = Comm::allReduceSum( mesh.comm(), local_sum );
+            const long long total_n = mesh.globalVertexCount();
+            mean = ( total_n > 0 ) ? total_sum / static_cast<Real>( total_n )
+                                   : Real( 0 );
+        }
+
+        // Subtracted over the WHOLE local range, ghosts included: the shift is
+        // one globally agreed constant, so applying it to ghosts keeps the mesh
+        // halo-consistent and saves an exchange. Every rank computed the same
+        // `mean` from the same collective, so the ghost and owner copies stay
+        // bitwise equal.
+        Kokkos::parallel_for(
+            "beatnik_center_potential",
+            Kokkos::RangePolicy<execution_space>( 0, n_local ),
+            KOKKOS_LAMBDA( const int i ) { phi( i ) -= mean; } );
+        Kokkos::fence();
     }
 
     /**
@@ -264,56 +403,83 @@ class SurfaceState
      * that under the potential model `state.sheet_vector` is a *property* that
      * recomputes the surface gradient, so the check implicitly covers the
      * potential too. This port checks the stored fields directly and the
-     * vertices separately.
+     * vertices separately, which is stricter and does not depend on a stub.
+     *
+     * Scanned over the **owned** range only. A ghost is an owned vertex on
+     * another rank, so its owner reports it; including ghosts here would make
+     * one rank's NaN counted twice, which changes nothing for a logical OR but
+     * would report the failure on a rank that did not cause it.
      *
      * @note MPI. `Comm::allReduceAllFinite`. Must be unanimous or the run
-     *       deadlocks — see that function.
+     *       deadlocks — see that function. Note Tessera's `globalAllFinite`
+     *       takes a **verdict, not data**, which is why the `isfinite` sweep is
+     *       Beatnik's and only the bool is reduced.
      */
     template <class MeshType>
-    bool allFinite( const MeshType& mesh ) const
+    bool allFinite( MeshType& mesh ) const
     {
-        (void)mesh;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceState", "allFinite" );
-    }
+        auto pos = mesh.positions();
+        auto phi = mesh.potential();
+        auto sheet = mesh.sheetVector();
+        auto material = mesh.materialPosition();
+        const int n = mesh.ownedVertexCount();
+        const bool check_scalar = ( _model == StateModel::Potential );
 
-    /**
-     * @brief Transfer all fields through a mesh edit's parent/weight map.
-     *
-     * Uses `MeshEditResult` from `Beatnik_MeshInterface.hpp`:
-     * \f$f_{\text{new}}[i] = w_a[i]\,f_{\text{old}}[p_a[i]] +
-     * w_b[i]\,f_{\text{old}}[p_b[i]]\f$.
-     *
-     * Applies to the potential (or sheet vector) **and** the material position;
-     * forgetting the latter silently disables the proximity material exclusion,
-     * which shows up much later as runaway refinement in the roll-up.
-     */
-    template <class EditResult>
-    void remap( const EditResult& edit )
-    {
-        (void)edit;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceState", "remap" );
+        int bad = 0;
+        Kokkos::parallel_reduce(
+            "beatnik_state_all_finite",
+            Kokkos::RangePolicy<execution_space>( 0, n ),
+            KOKKOS_LAMBDA( const int i, int& acc ) {
+                for ( int d = 0; d < 3; ++d )
+                {
+                    if ( !Kokkos::isfinite( pos( i, d ) ) )
+                        ++acc;
+                    if ( !Kokkos::isfinite( material( i, d ) ) )
+                        ++acc;
+                    if ( !check_scalar && !Kokkos::isfinite( sheet( i, d ) ) )
+                        ++acc;
+                }
+                if ( check_scalar && !Kokkos::isfinite( phi( i ) ) )
+                    ++acc;
+            },
+            bad );
+
+        return Comm::allReduceAllFinite( mesh.comm(), bad == 0 );
     }
 
     /**
      * @brief Seed the material position from the current vertex positions.
      *
      * Port of run_adaptive_mesh_bubble.py::main (lines 1227, 1240, 1208-1209)
+     * — `remesh_material_position = np.asarray(state.vertices).copy()`
      *
      * Done once at t=0, and on a restart from a checkpoint that predates the
      * material-position field.
+     *
+     * Copied over the **whole local range** so ghost rows are seeded too and
+     * the mesh is halo-consistent for this field without an exchange — the
+     * ghost positions are already current when this is called (every
+     * construction entry point ends in a `haloExchange`), so the copy is exact
+     * rather than approximately right.
      */
     template <class MeshType>
-    void seedMaterialPosition( const MeshType& mesh )
+    void seedMaterialPosition( MeshType& mesh ) const
     {
-        (void)mesh;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceState", "seedMaterialPosition" );
+        auto pos = mesh.positions();
+        auto material = mesh.materialPosition();
+        const int n = mesh.totalVertexCount();
+        Kokkos::parallel_for(
+            "beatnik_seed_material_position",
+            Kokkos::RangePolicy<execution_space>( 0, n ),
+            KOKKOS_LAMBDA( const int i ) {
+                for ( int d = 0; d < 3; ++d )
+                    material( i, d ) = pos( i, d );
+            } );
+        Kokkos::fence();
     }
 
   private:
     StateModel _model;
-    scalar_view _potential;
-    vector_view _sheet_vector;
-    vector_view _material_position;
 };
 
 } // namespace Beatnik

@@ -115,6 +115,7 @@
 #include <mpi.h>
 
 #include <memory>
+#include <string>
 
 namespace Beatnik
 {
@@ -212,10 +213,69 @@ class Solver
      *
      * Step 3 before step 5 matters only for legibility, but step 1 before
      * step 3 is required: the radii depend on a quantity the restart carries.
+     *
+     * @note MPI. Collective throughout — `InitialCondition::build` distributes
+     *       and exchanges, `coldStart` reduces twice, and `CheckpointIO::write`
+     *       is a collective MPI-IO write. Every rank must call it.
      */
     void setup()
     {
-        BEATNIK_NOT_IMPLEMENTED( "Solver", "setup" );
+        // 1. Restart or cold start. Nothing after this point branches on which.
+        RestartState start;
+        if ( _params.checkpoint.restarting() )
+        {
+            // T5b. `RestartReader::load` still throws; reached only with
+            // --restart-from, which no regression test uses.
+            ensureCheckpointIO();
+            start = RestartReader<ExecutionSpace, MemorySpace>::load(
+                *_io, _params.checkpoint.restart_from, _mesh, _state );
+        }
+        else
+        {
+            InitialCondition<ExecutionSpace, MemorySpace> initial(
+                _params.initial );
+            initial.build( _mesh, _state );
+            start =
+                RestartReader<ExecutionSpace, MemorySpace>::coldStart( _mesh );
+        }
+
+        _time = start.time;
+        _step = start.step;
+        _initial_volume = start.initial_volume;
+        _initial_min_edge = start.initial_min_edge;
+        _last_checkpoint_time = _time;
+        _last_progress_time = _time;
+
+        // 2. Construct the components through their factories, so the solver
+        //    never names a concrete BR subclass or quadrature.
+        _br_solver = createBRSolver<ExecutionSpace, MemorySpace>(
+            _comm, _params.zmodel, _params.fmm );
+        _quadrature = createSourceQuadrature<ExecutionSpace, MemorySpace>(
+            _params.zmodel.source_quadrature );
+        _zmodel.reset(
+            new zmodel_type( _params.zmodel, *_br_solver, *_quadrature ) );
+        _integrator.reset( new integrator_type( *_zmodel ) );
+        _amr.reset( new amr_type( _params.amr ) );
+        _remesh.reset( new remesh_type( _params.remesh ) );
+        _quality.reset( new quality_type( _params.cleanup ) );
+
+        // 3. Resolve the proximity radii, which are given as either an absolute
+        //    distance or a factor times h0_min and cannot be resolved earlier
+        //    because h0_min is only known now. BOTH parameter sets get the same
+        //    resolved values (run_adaptive_mesh_bubble.py:1272-1286 resolves
+        //    once and hands the result to both).
+        resolveProximityRadii( _params.remesh );
+        resolveProximityRadii( _params.remesh_tight );
+
+        // 4. Seed the material position. Already done by
+        //    `InitialCondition::build` on a cold start; on a restart it comes
+        //    out of the checkpoint's `/vertices/u2`, and only a hand-written
+        //    file lacking it needs the fallback.
+        if ( start.from_checkpoint )
+            _state.seedMaterialPosition( _mesh );
+
+        // 5. The startup checkpoint, at the loaded or zero step and time.
+        writeCheckpoint();
     }
 
     /**
@@ -230,9 +290,26 @@ class Solver
      * @return False if the run stopped early (non-finite or interrupted), true
      *         if it completed its budget. The example driver uses this for its
      *         exit status.
+     *
+     * **T1c implements the `steps == 0` GUARD AND NOTHING ELSE.** The loop is
+     * T2d's, and it is deliberately not begun here: `main` (1398-1636) makes
+     * control-flow decisions — where the last-finite state is recorded,
+     * where dt is clamped, in what order the post-step passes run — that
+     * only make sense with the RHS in hand, and a half-transcribed loop would
+     * commit to them early while looking finished.
+     *
+     * The guard is not a special case bolted on. `--steps 0` is a legitimate
+     * configuration (it is exactly the one T1a generated the gold file with),
+     * the Python's loop is `while local_step < steps` and so runs zero times,
+     * and `setup()` has already written the startup checkpoint while
+     * `finalize()` will write the final one. So returning `true` here is the
+     * *correct* behaviour and not a stub: the run completed its budget.
      */
     bool solve()
     {
+        if ( _params.time.steps <= 0 )
+            return true;
+
         BEATNIK_NOT_IMPLEMENTED( "Solver", "solve" );
     }
 
@@ -244,11 +321,18 @@ class Solver
      * Runs unconditionally after the loop, **including** after a non-finite
      * abort and after an interrupt, and writes the recorded last-finite state
      * rather than the current one. A no-op when `--checkpoint-dir` is empty.
+     *
+     * **T1c CAVEAT — "last finite" is not yet distinct from "current".** The
+     * last-finite state is recorded inside the step loop, which is T2d's, so at
+     * 0 timesteps the two coincide by construction and this writes the current
+     * state. At `--steps 0` that means the same `(time, step)` and therefore
+     * the same filename as `setup`'s startup checkpoint, so the file is written
+     * twice — which is exactly what the Python does (`main` lines 1313-1324 and
+     * 1641-1652 both fire at t=0/step=0) and is harmless because `writeMesh`
+     * truncates. T2d must make the distinction real; until it does, do not read
+     * a passing 0-step comparison as evidence that the last-finite path works.
      */
-    void finalize()
-    {
-        BEATNIK_NOT_IMPLEMENTED( "Solver", "finalize" );
-    }
+    void finalize() { writeCheckpoint(); }
 
     /**
      * @brief Advance one accepted step, with all its post-step passes.
@@ -314,10 +398,79 @@ class Solver
     Real time() const { return _time; }
     /// Current accepted-step counter.
     long long step() const { return _step; }
-    /// Run configuration.
+    /// Run configuration, including the proximity radii `setup()` resolved.
     const SolverParams& params() const { return _params; }
 
+    /// \f$V_0\f$, the target the volume projection drives toward all run.
+    Real initialVolume() const { return _initial_volume; }
+
+    /// \f$h^0_{\min}\f$, the scale dt and the proximity radii are expressed in.
+    Real initialMinEdge() const { return _initial_min_edge; }
+
+    /// Path of the last checkpoint written, empty if none. Exposed so a test
+    /// can find the file to compare without reconstructing the naming rule —
+    /// which would be a second implementation of `CheckpointIO::timeKey`, and
+    /// the two would drift.
+    const std::string& lastCheckpointPath() const
+    {
+        return _last_checkpoint_path;
+    }
+
   private:
+    /// Construct the checkpoint IO lazily, so a run with no `--checkpoint-dir`
+    /// never creates one and `writeCheckpoint()` stays a single guard.
+    void ensureCheckpointIO()
+    {
+        if ( !_io )
+            _io.reset( new io_type( _comm, _params.checkpoint.directory,
+                                    _params.checkpoint.prefix ) );
+    }
+
+    /// Assemble the header from the current state and write one checkpoint.
+    /// A no-op without `--checkpoint-dir`, matching the Python's
+    /// `if checkpoint_dir is not None` guard on both write sites.
+    void writeCheckpoint()
+    {
+        if ( !_params.checkpoint.writing() )
+            return;
+        ensureCheckpointIO();
+
+        CheckpointHeader header;
+        header.state_model = _state.model();
+        header.time = _time;
+        header.step = _step;
+        header.initial_volume = _initial_volume;
+        header.initial_min_edge = _initial_min_edge;
+        // Always true for a Beatnik-written file: it is `/vertices/u2`, a slot
+        // in the vertex user pack `writeMesh` writes unconditionally.
+        header.has_material_position = true;
+
+        _last_checkpoint_path = _io->write( header, _mesh );
+        _last_checkpoint_time = _time;
+    }
+
+    /// Resolve one parameter set's two proximity radii against
+    /// \f$h^0_{\min}\f$.
+    ///
+    /// Port of run_adaptive_mesh_bubble.py::main (lines 1272-1286)
+    ///
+    /// An absolute value wins; a non-positive one falls back to
+    /// `factor * initial_min_edge`, and **only if the factor is itself
+    /// positive** — a zero factor leaves the radius zero, which is how the
+    /// Python disables the term rather than a case it forgot.
+    void resolveProximityRadii( RemeshParams& remesh ) const
+    {
+        if ( remesh.proximity_activation_distance <= Real( 0 ) &&
+             remesh.proximity_activation_factor > Real( 0 ) )
+            remesh.proximity_activation_distance =
+                remesh.proximity_activation_factor * _initial_min_edge;
+
+        if ( remesh.proximity_material_exclusion_radius <= Real( 0 ) &&
+             remesh.proximity_material_exclusion_factor > Real( 0 ) )
+            remesh.proximity_material_exclusion_radius =
+                remesh.proximity_material_exclusion_factor * _initial_min_edge;
+    }
+
     MPI_Comm _comm;
     SolverParams _params;
 
@@ -339,6 +492,9 @@ class Solver
     Real _initial_min_edge = 0.0;
     Real _last_checkpoint_time = 0.0;
     Real _last_progress_time = 0.0;
+
+    /// Path of the most recent checkpoint, for `lastCheckpointPath()`.
+    std::string _last_checkpoint_path;
 
     /// Running totals reported on the progress line.
     long long _refine_events = 0;

@@ -283,10 +283,24 @@ struct RemeshParams
     Real proximity_fraction = 0.25;
 
     /// Only apply proximity sizing where the gap is below this distance.
-    /// Resolved by the driver from `--remesh-proximity-activation-distance`,
-    /// or `--remesh-proximity-activation-factor * initial_min_edge` when that
-    /// is <= 0 (run_adaptive_mesh_bubble.py:1272-1276). Default factor 6.0.
+    /// **Resolved by `Solver::setup`**, not by the driver: it is either this
+    /// absolute value, or `proximity_activation_factor * initial_min_edge` when
+    /// this is <= 0 (run_adaptive_mesh_bubble.py:1272-1276), and
+    /// `initial_min_edge` does not exist until the mesh does.
+    /// CLI `--remesh-proximity-activation-distance`, default 0.0.
     Real proximity_activation_distance = 0.0;
+
+    /// Multiplier on \f$h^0_{\min}\f$ used for
+    /// `proximity_activation_distance` when the absolute value above is <= 0.
+    /// CLI `--remesh-proximity-activation-factor`, default 6.0.
+    ///
+    /// **T1c CHANGE — this lived in the example's `ClArgs` and had to move
+    /// here.** `Solver::setup`'s documented step 3 is the resolution against
+    /// `initial_min_edge`, and the solver is handed a `SolverParams`; a factor
+    /// held only in the driver's own struct was therefore unreachable at the
+    /// one place able to use it, so the resolution could not have been written
+    /// at all. The CLI option name and default are unchanged.
+    Real proximity_activation_factor = 6.0;
 
     /// Same-surface face rings excluded from the proximity search, so a smooth
     /// coarse surface does not refine against its own neighbors.
@@ -294,12 +308,19 @@ struct RemeshParams
     int proximity_exclusion_rings = 3;
 
     /// Faces closer than this in *carried material coordinates* are treated as
-    /// the same piece of sheet and excluded. Resolved by the driver from
-    /// `--remesh-proximity-material-exclusion-radius`, or
-    /// `--remesh-proximity-material-exclusion-factor * initial_min_edge` when
-    /// that is <= 0 (run_adaptive_mesh_bubble.py:1277-1286). Default factor
-    /// 4.0.
+    /// the same piece of sheet and excluded. **Resolved by `Solver::setup`**
+    /// from this absolute value, or from
+    /// `proximity_material_exclusion_factor * initial_min_edge` when this is
+    /// <= 0 (run_adaptive_mesh_bubble.py:1277-1286).
+    /// CLI `--remesh-proximity-material-exclusion-radius`, default 0.0.
     Real proximity_material_exclusion_radius = 0.0;
+
+    /// Multiplier on \f$h^0_{\min}\f$ used for
+    /// `proximity_material_exclusion_radius` when the absolute value above is
+    /// <= 0. CLI `--remesh-proximity-material-exclusion-factor`, default 4.0.
+    /// Moved here from the example's `ClArgs` at T1c, for the reason recorded
+    /// on `proximity_activation_factor`.
+    Real proximity_material_exclusion_factor = 4.0;
 
     /// Skip proximity sizing above this face count; <= 0 at the CLI maps to
     /// effectively unlimited. CLI `--remesh-proximity-max-faces`,

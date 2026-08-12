@@ -60,13 +60,18 @@
 #ifndef BEATNIK_RESTART_HPP
 #define BEATNIK_RESTART_HPP
 
+#include <Beatnik_Communication.hpp>
 #include <Beatnik_IOInterface.hpp>
+#include <Beatnik_MeshGeometry.hpp>
 #include <Beatnik_MeshInterface.hpp>
 #include <Beatnik_Params.hpp>
 #include <Beatnik_SurfaceState.hpp>
 #include <Beatnik_Types.hpp>
 
+#include <Kokkos_Core.hpp>
+
 #include <string>
+#include <utility>
 
 namespace Beatnik
 {
@@ -188,17 +193,76 @@ class RestartReader
      * Computes `initial_volume` and `initial_min_edge` from the freshly built
      * surface and sets the time and step to zero.
      *
+     * **OWNED RANGES, both of them (risk R9).** The volume sums over
+     * `[0, ownedFaceCount())` and the edge length minimizes over
+     * `[0, ownedEdgeCount())`, because each reduces to a *global scalar* and a
+     * ghost entity is an owned entity on another rank. That is the opposite
+     * convention to `MeshGeometry::compute`, which wants the whole local set;
+     * the two are stated together in `Beatnik_MeshGeometry.hpp`'s header. The
+     * minimum is insensitive to the choice, so passing the whole local range
+     * there would be *silently* right — but the sum is not, and getting the sum
+     * wrong looks exactly like a summation-order difference, which is why both
+     * follow the same rule here rather than only the one that needs it.
+     *
+     * **T1c CHANGE — the mesh is taken by NON-const reference.** It was
+     * `const mesh_type&`. `faceVertices()` / `edgeVertices()` build and cache
+     * `Tessera::MeshGeometry` against `generation()` on first call after an
+     * edit, so they cannot be `const`, and neither can any caller of them.
+     * Forced by the M1 storage model (connectivity is stored as gids and the
+     * local-index views are derived), not a convenience.
+     *
      * @note MPI. Both quantities are global reductions —
      *       `Comm::allReduceSum` and `Comm::allReduceMin` — so on a run with a
      *       different rank count they differ in the last bits from a
      *       single-rank run. Since every subsequent dt and every proximity
      *       radius scales off them, trajectories are not bit-identical across
-     *       rank counts. See risk R2 in `tasks/framework.md`.
+     *       rank counts. See risk R2 in `tasks/framework.md`, which records the
+     *       measured cross-rank spread of both.
      */
-    static RestartState coldStart( const mesh_type& mesh )
+    static RestartState coldStart( mesh_type& mesh )
     {
-        (void)mesh;
-        BEATNIK_NOT_IMPLEMENTED( "RestartReader", "coldStart" );
+        using exec = ExecutionSpace;
+
+        auto pos = mesh.positions();
+        const int nf_owned = mesh.ownedFaceCount();
+        const int ne_owned = mesh.ownedEdgeCount();
+
+        auto owned_faces = Kokkos::subview(
+            mesh.faceVertices(), std::make_pair( 0, nf_owned ), Kokkos::ALL() );
+        auto owned_edges = Kokkos::subview(
+            mesh.edgeVertices(), std::make_pair( 0, ne_owned ), Kokkos::ALL() );
+
+        RestartState out;
+        out.time = 0.0;
+        out.step = 0;
+        out.from_checkpoint = false;
+        out.amr_reference_rebased = false;
+
+        out.initial_volume = Comm::allReduceSum(
+            mesh.comm(), SurfaceOperators::enclosedVolume( pos, owned_faces ) );
+
+        Kokkos::View<Real*, MemorySpace> lengths(
+            Kokkos::view_alloc( Kokkos::WithoutInitializing,
+                                "beatnik_cold_start_edge_lengths" ),
+            ne_owned );
+        SurfaceOperators::edgeLengths( pos, owned_edges, lengths );
+
+        // Kokkos::Min's identity is +max, so a rank owning zero edges
+        // contributes the identity rather than a spurious 0 -- which matters at
+        // 6 ranks on a 480-edge mesh far less than it will at scale, but is
+        // free to get right and is not free to debug later.
+        Real min_local = Kokkos::reduction_identity<Real>::min();
+        Kokkos::parallel_reduce(
+            "beatnik_cold_start_min_edge",
+            Kokkos::RangePolicy<exec>( 0, ne_owned ),
+            KOKKOS_LAMBDA( const int e, Real& m ) {
+                if ( lengths( e ) < m )
+                    m = lengths( e );
+            },
+            Kokkos::Min<Real>( min_local ) );
+        out.initial_min_edge = Comm::allReduceMin( mesh.comm(), min_local );
+
+        return out;
     }
 };
 

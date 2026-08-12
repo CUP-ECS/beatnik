@@ -308,11 +308,14 @@ anything ships — confirm with the user first.** Conversely, a failing or flaky
 test must never be quietly removed from the lists to green the gate: label it
 `unit`, record it in README "Known Issues", and tell the user.
 
-> **The `regression` tier is currently EMPTY.** `89ec015` removed the
-> pre-redesign solver and its only end-to-end test to build a new solver from
-> scratch. The gate is structurally correct but vacuous until the new solver
-> lands its first end-to-end test — **a green gate right now proves nothing.**
-> Recorded in README "Known Issues".
+> **The `regression` tier has ONE member** as of 2026-08-12 (task T1c):
+> `Beatnik_Test_InitialConditions`, regression test 1 — the whole driver path at
+> 0 timesteps against a Python gold checkpoint. The tier was empty from `89ec015`
+> (which removed the pre-redesign solver and its only end-to-end test) until then,
+> and the gate was vacuous; it is not any more. **But it covers only what
+> exists** — mesh generation, the initial condition and the checkpoint write.
+> There is no timestep and no adaptivity yet, so a green gate does not say the
+> solver integrates anything. See `tasks/framework.md`.
 
 ### CI
 

@@ -46,12 +46,22 @@
  *
  * What Tessera does *not* write is the run's scalar metadata. Its only
  * root-attribute types are `int` and `uint64` (`Tessera_IoCommon.hpp`:
- * `writeIntAttr` / `writeU64Attr`), and the checkpoint needs a `double` time,
- * two `double` scalars and a *string*. Beatnik therefore appends a small
+ * `writeIntAttr` / `writeU64Attr`), and the checkpoint needs a *string*
+ * `state_model`, a `double` `time`, an `int64` `step`, and two more `double`s
+ * (`initial_volume`, `initial_min_edge`) — **five** in total, none of them
+ * expressible as a Tessera root attribute. Beatnik therefore appends a small
  * `/beatnik` group after `writeMesh` returns. The division of labour is:
  *
  *   Tessera writes the mesh and the fields, collectively, in parallel.
  *   Beatnik appends five scalars from rank 0.
+ *
+ * **The five are fixed by the gold files, not chosen here.** They are exactly
+ * `compare_output.py`'s `REQUIRED_FIELDS` minus the two mesh arrays, which are
+ * exactly the five 0-d keys
+ * `run_adaptive_mesh_bubble.py::save_state_checkpoint` puts in its `payload`
+ * (lines 966-972). The schema table below is the authority; `CheckpointHeader`
+ * carries one field per scalar plus one (`has_material_position`) that is
+ * derived on read and never written.
  *
  * THE CHECKPOINT SCHEMA
  * ---------------------
@@ -224,14 +234,142 @@
 #ifndef BEATNIK_IOINTERFACE_HPP
 #define BEATNIK_IOINTERFACE_HPP
 
+#include <Beatnik_MeshInterface.hpp>
+#include <Beatnik_SurfaceState.hpp>
 #include <Beatnik_Types.hpp>
 
+#include <Tessera.hpp>
+
+#include <hdf5.h>
 #include <mpi.h>
 
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <cerrno>
+#include <cstdint>
+#include <cstdio>
+#include <cstring>
+#include <stdexcept>
 #include <string>
+#include <vector>
 
 namespace Beatnik
 {
+
+namespace IoDetail
+{
+
+//---------------------------------------------------------------------------//
+/// `mkdir -p`, for the checkpoint directory. Rank 0 only; see `write`.
+///
+/// The Python does `directory.mkdir(parents=True, exist_ok=True)`
+/// (`save_state_checkpoint`, line 966). MPI-IO will not create a directory, so
+/// this must happen before any rank opens the file — which is what the first
+/// barrier in `write` is for.
+inline void makeDirectories( const std::string& path )
+{
+    if ( path.empty() )
+        return;
+    std::string partial;
+    partial.reserve( path.size() );
+    std::size_t i = 0;
+    if ( path[0] == '/' )
+    {
+        partial += '/';
+        i = 1;
+    }
+    while ( i <= path.size() )
+    {
+        if ( i == path.size() || path[i] == '/' )
+        {
+            if ( !partial.empty() && partial != "/" )
+            {
+                // EEXIST is the expected case, not an error: `exist_ok=True`.
+                if ( ::mkdir( partial.c_str(), 0755 ) != 0 && errno != EEXIST )
+                    throw std::runtime_error(
+                        "Beatnik::CheckpointIO: cannot create checkpoint "
+                        "directory '" +
+                        partial + "'" );
+            }
+            if ( i == path.size() )
+                break;
+            partial += '/';
+        }
+        else
+        {
+            partial += path[i];
+        }
+        ++i;
+    }
+}
+
+//---------------------------------------------------------------------------//
+/// Write one scalar dataset of type `type` at `path`, rank 0, serial driver.
+///
+/// A 0-d (`H5S_SCALAR`) dataset, which is what `compare_output.py` reads with
+/// `handle[path][()]` and then `np.asarray(...).reshape(())` — the same shape
+/// `np.savez` gives a 0-d array, so the two sides are symmetric. `make_fixtures
+/// .py` writes the fixtures the same way.
+inline void writeScalar( hid_t loc, const char* name, hid_t type,
+                         const void* value )
+{
+    const hid_t space = H5Screate( H5S_SCALAR );
+    const hid_t dset = H5Dcreate2( loc, name, type, space, H5P_DEFAULT,
+                                   H5P_DEFAULT, H5P_DEFAULT );
+    H5Dwrite( dset, type, H5S_ALL, H5S_ALL, H5P_DEFAULT, value );
+    H5Dclose( dset );
+    H5Sclose( space );
+}
+
+/// Write a scalar variable-length UTF-8 string dataset. `h5py` reads this back
+/// as `bytes`, which `compare_output.py::scalar_str` decodes.
+inline void writeString( hid_t loc, const char* name, const std::string& value )
+{
+    const hid_t type = H5Tcopy( H5T_C_S1 );
+    H5Tset_size( type, H5T_VARIABLE );
+    H5Tset_cset( type, H5T_CSET_UTF8 );
+    const char* raw = value.c_str();
+    writeScalar( loc, name, type, &raw );
+    H5Tclose( type );
+}
+
+/// Write a rank-1 array of variable-length UTF-8 strings.
+inline void writeStringArray( hid_t loc, const char* name,
+                              const std::vector<const char*>& values )
+{
+    const hid_t type = H5Tcopy( H5T_C_S1 );
+    H5Tset_size( type, H5T_VARIABLE );
+    H5Tset_cset( type, H5T_CSET_UTF8 );
+    const hsize_t dims[1] = { static_cast<hsize_t>( values.size() ) };
+    const hid_t space = H5Screate_simple( 1, dims, nullptr );
+    const hid_t dset = H5Dcreate2( loc, name, type, space, H5P_DEFAULT,
+                                   H5P_DEFAULT, H5P_DEFAULT );
+    H5Dwrite( dset, type, H5S_ALL, H5S_ALL, H5P_DEFAULT, values.data() );
+    H5Dclose( dset );
+    H5Sclose( space );
+    H5Tclose( type );
+}
+
+/// Replace `link` with a symlink to `target`. Rank 0 only.
+///
+/// `unlink` first, because `symlink` fails with EEXIST rather than replacing.
+/// A missing link is the normal first-checkpoint case, so ENOENT is ignored.
+/// Failure to relink is NOT fatal: the timestamped file — the one this call
+/// returns and the one a test reads — is already safely on disk, and losing a
+/// convenience alias must not lose a checkpoint.
+inline void relink( const std::string& link, const std::string& target )
+{
+    ::unlink( link.c_str() );
+    if ( ::symlink( target.c_str(), link.c_str() ) != 0 )
+        std::fprintf( stderr,
+                      "Beatnik::CheckpointIO: warning: cannot link %s -> %s "
+                      "(the timestamped checkpoint was written; only the "
+                      "_latest alias is missing)\n",
+                      link.c_str(), target.c_str() );
+}
+
+} // namespace IoDetail
 
 //---------------------------------------------------------------------------//
 /**
@@ -324,8 +462,23 @@ class CheckpointIO
      */
     static std::string timeKey( Real time )
     {
-        (void)time;
-        BEATNIK_NOT_IMPLEMENTED( "CheckpointIO", "timeKey" );
+        // `f"{time:012.6f}"`. C's "%012.6f" is the same specification: width 12
+        // including the sign and the point, zero-padded, six fractional digits.
+        // 32 bytes covers any double the formatter can produce for a width-12
+        // request that overflows its width (a large |t| widens the integer part
+        // rather than truncating), and `snprintf` cannot overrun it.
+        char buffer[32];
+        std::snprintf( buffer, sizeof( buffer ), "%012.6f",
+                       static_cast<double>( time ) );
+        std::string key( buffer );
+        for ( char& c : key )
+        {
+            if ( c == '-' )
+                c = 'm';
+            else if ( c == '.' )
+                c = 'p';
+        }
+        return key;
     }
 
     /**
@@ -347,11 +500,11 @@ class CheckpointIO
      *   3. barrier — `writeMesh` closes the file but does not barrier after the
      *      sidecar, and step 4 reopens it.
      *   4. rank 0 reopens `<stem>.h5` read-write with the **default (serial)**
-     *      file-access property list and creates the `/beatnik` group: the five
-     *      scalars of `CheckpointHeader` plus `vertex_field_names`. An HDF5 file
-     *      is format-identical whichever driver wrote it, so a serial reopen of
-     *      an MPI-IO-written file is well defined; the barriers are what keep
-     *      it from racing the other ranks.
+     *      file-access property list and creates the `/beatnik` group: the
+     *      five scalars of `CheckpointHeader` plus `vertex_field_names`. An
+     *      HDF5 file is format-identical whichever driver wrote it, so a serial
+     *      reopen of an MPI-IO-written file is well defined; the barriers are
+     *      what keep it from racing the other ranks.
      *   5. rank 0 relinks `<prefix>_latest.h5` / `.xmf`; barrier.
      *
      * @param header Scalar metadata. `state_model` is recorded, not used to
@@ -376,9 +529,55 @@ class CheckpointIO
     template <class MeshType>
     std::string write( const CheckpointHeader& header, const MeshType& mesh )
     {
-        (void)header;
-        (void)mesh;
-        BEATNIK_NOT_IMPLEMENTED( "CheckpointIO", "write" );
+        int rank = 0;
+        MPI_Comm_rank( _comm, &rank );
+
+        const std::string stem = checkpointStem( header.time, header.step );
+
+        // 1. Rank 0 creates the directory. MPI-IO will not, so this must
+        //    complete before any rank opens the file -- hence the barrier.
+        if ( rank == 0 )
+            IoDetail::makeDirectories( _directory );
+        MPI_Barrier( _comm );
+
+        // 2. Tessera writes the mesh, the connectivity and the whole vertex
+        //    user pack, collectively, owned entities only, dense-renumbered.
+        //    Note it takes the STEM and appends `.h5` / `.xmf` itself.
+        Tessera::writeMesh( mesh.tesseraMesh(), stem );
+
+        // 3. `writeMesh` closes the file and barriers before rank 0 writes the
+        //    XDMF sidecar, but does not barrier after it. Step 4 reopens the
+        //    `.h5`, so barrier here rather than relying on that.
+        MPI_Barrier( _comm );
+
+        // 4. Rank 0 appends the `/beatnik` group with the DEFAULT (serial)
+        //    file-access property list. An HDF5 file is format-identical
+        //    whichever driver wrote it, so a serial reopen of an
+        //    MPI-IO-written file is well defined; the barriers are what keep it
+        //    from racing the other ranks.
+        if ( rank == 0 )
+            appendBeatnikGroup( stem, header );
+        MPI_Barrier( _comm );
+
+        const std::string path = stem + ".h5";
+
+        // 5. Relink `_latest`. A SYMLINK, not a second write -- see FILE NAMING
+        //    in the file header for why a byte copy is not equivalent either.
+        if ( rank == 0 )
+        {
+            const std::string base = baseName( stem );
+            const std::string latest =
+                _directory.empty() ? _prefix + "_latest"
+                                   : _directory + "/" + _prefix + "_latest";
+            // Relative targets, so the pair still resolves if the directory is
+            // moved, and so the `.xmf` sidecar's own relative reference to its
+            // `.h5` (which Tessera writes by basename) stays correct.
+            IoDetail::relink( latest + ".h5", base + ".h5" );
+            IoDetail::relink( latest + ".xmf", base + ".xmf" );
+        }
+        MPI_Barrier( _comm );
+
+        return path;
     }
 
     /**
@@ -448,6 +647,98 @@ class CheckpointIO
     const std::string& prefix() const { return _prefix; }
 
   private:
+    /// `<directory>/<prefix>_t<timekey>_step<step:07d>`, no extension: Tessera
+    /// appends `.h5` and `.xmf` itself.
+    std::string checkpointStem( Real time, long long step ) const
+    {
+        char step_field[24];
+        std::snprintf( step_field, sizeof( step_field ), "%07lld", step );
+        const std::string base =
+            _prefix + "_t" + timeKey( time ) + "_step" + step_field;
+        return _directory.empty() ? base : _directory + "/" + base;
+    }
+
+    /// The trailing path component of a stem, for the relative symlink target.
+    static std::string baseName( const std::string& path )
+    {
+        const std::size_t slash = path.find_last_of( '/' );
+        return ( slash == std::string::npos ) ? path : path.substr( slash + 1 );
+    }
+
+    /**
+     * @brief Append the `/beatnik` group to an already-written `<stem>.h5`.
+     *
+     * Rank 0 only, serial driver, between the barriers in `write`. Writes
+     * exactly the five scalars `compare_output.py` requires
+     * (`REQUIRED_FIELDS`), plus the `vertex_field_names` declaration.
+     *
+     * **The set is FIVE, and it is not a matter of taste.** It is fixed by the
+     * gold `.npz`'s own keys and by `compare_output.py`'s `REQUIRED_FIELDS` /
+     * `EXACT_SCALARS` / `FLOAT_SCALARS` tables: `state_model` (string),
+     * `time` (f8), `step` (i8), `initial_volume` (f8), `initial_min_edge` (f8).
+     * Writing four fails the comparison structurally on the missing one;
+     * writing six is ignored but drifts the schema table above out of date.
+     *
+     * `step` is written as `H5T_NATIVE_INT64` rather than as one of Tessera's
+     * `int`/`uint64` root attributes, because `compare_output.py` compares it
+     * **exactly** against the gold's `int64` and a run can exceed `int`.
+     */
+    void appendBeatnikGroup( const std::string& stem,
+                             const CheckpointHeader& header ) const
+    {
+        const std::string filename = stem + ".h5";
+        const hid_t file =
+            H5Fopen( filename.c_str(), H5F_ACC_RDWR, H5P_DEFAULT );
+        if ( file < 0 )
+            throw std::runtime_error(
+                "Beatnik::CheckpointIO::write: cannot reopen '" + filename +
+                "' to append the /beatnik scalar group. Tessera::writeMesh "
+                "reported no error, so the file should exist." );
+
+        const hid_t group = H5Gcreate2( file, "/beatnik", H5P_DEFAULT,
+                                        H5P_DEFAULT, H5P_DEFAULT );
+
+        IoDetail::writeString( group, "state_model",
+                               toString( header.state_model ) );
+
+        const double time = static_cast<double>( header.time );
+        IoDetail::writeScalar( group, "time", H5T_NATIVE_DOUBLE, &time );
+
+        const std::int64_t step = static_cast<std::int64_t>( header.step );
+        IoDetail::writeScalar( group, "step", H5T_NATIVE_INT64, &step );
+
+        const double volume = static_cast<double>( header.initial_volume );
+        IoDetail::writeScalar( group, "initial_volume", H5T_NATIVE_DOUBLE,
+                               &volume );
+
+        const double min_edge = static_cast<double>( header.initial_min_edge );
+        IoDetail::writeScalar( group, "initial_min_edge", H5T_NATIVE_DOUBLE,
+                               &min_edge );
+
+        // The slot -> meaning declaration. Taken from `SurfaceState`, whose
+        // table is checked against `VertexFieldId::Count` here so adding a
+        // vertex field cannot silently under-declare.
+        using state_type = SurfaceState<ExecutionSpace, MemorySpace>;
+        static_assert(
+            VertexFieldId::Count ==
+                static_cast<int>( sizeof( state_type::vertex_field_names ) /
+                                  sizeof( const char* ) ),
+            "SurfaceState::vertex_field_names must have one entry per "
+            "VertexFieldId slot: it is what /beatnik/vertex_field_names "
+            "declares and what compare_output.py cross-checks FIELD_MAP "
+            "against. Adding a vertex field means updating VertexFieldId, that "
+            "table, the schema table in this header, and FIELD_MAP and H5_PATH "
+            "under tests/regression_tests/, in one change." );
+        std::vector<const char*> names;
+        names.reserve( VertexFieldId::Count );
+        for ( int i = 0; i < VertexFieldId::Count; ++i )
+            names.push_back( state_type::vertex_field_names[i] );
+        IoDetail::writeStringArray( group, "vertex_field_names", names );
+
+        H5Gclose( group );
+        H5Fclose( file );
+    }
+
     MPI_Comm _comm;
     std::string _directory;
     std::string _prefix;
