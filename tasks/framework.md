@@ -595,14 +595,14 @@ reproducibly.
     Verified by reading the log, not by trusting the exit code: the negative run
     reports `vertex count: cpp=162 gold=12`.
 
-- 2026-08-12 — **The clang-format requirement is removed**, at the user's
-  request. `.clang-format`, `clangformat.sh` and `cmake/FindCLANG_FORMAT.cmake`
-  are deleted, and the `find_package(CLANG_FORMAT 14)` call and the
-  `cabana-format` target are gone from the top-level `CMakeLists.txt`; CLAUDE.md
-  now says there is no formatter requirement. The three entries below that call
-  `clangformat.sh` "not safe to run repo-wide" are left as written — they are
-  dated findings, and they are also *why* reintroducing a formatter is now
-  something to ask about rather than assume. Gate re-verified after the change.
+- 2026-08-12 — **Formatting is now the user's job, not a session step.** The
+  clang-format *tooling* stays exactly as it was — `.clang-format`,
+  `clangformat.sh`, `cmake/FindCLANG_FORMAT.cmake`, the
+  `find_package(CLANG_FORMAT 14)` call and the `cabana-format` target are all
+  untouched — but CLAUDE.md no longer asks a session to conform to the formatter
+  and now forbids running it: the user formats by hand when they choose to. The
+  entries below calling `clangformat.sh` "not safe to run repo-wide" are part of
+  why. Gate re-verified at ranks 1-6 on SERIAL and HIP.
 
 ---
 

@@ -83,6 +83,9 @@ set_package_properties(Canopy PROPERTIES
   PURPOSE "Fast multipole solver for far-field forces"
 )
 
+# find Clang Format
+find_package( CLANG_FORMAT 14 )
+
 #------------------------------------------------------------------------------#
 # Architecture
 #------------------------------------------------------------------------------#
@@ -259,5 +262,15 @@ configure_file(${CMAKE_CURRENT_SOURCE_DIR}/cmake/BeatnikConfig.cmakein
 
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/BeatnikConfig.cmake" "${CMAKE_CURRENT_BINARY_DIR}/BeatnikConfigVersion.cmake"
   DESTINATION ${Beatnik_INSTALL_PACKAGEDIR})
+
+##---------------------------------------------------------------------------##
+## Clang Format
+##---------------------------------------------------------------------------##
+if(CLANG_FORMAT_FOUND)
+  file(GLOB_RECURSE FORMAT_SOURCES src/*.cpp src/*.hpp examples/*cpp examples/*hpp cmake/*cpp cmake/*hpp)
+  add_custom_target(cabana-format
+    COMMAND ${CLANG_FORMAT_EXECUTABLE} -i -style=file ${FORMAT_SOURCES}
+    DEPENDS ${FORMAT_SOURCES})
+endif()
 
 feature_summary(INCLUDE_QUIET_PACKAGES WHAT ALL)
