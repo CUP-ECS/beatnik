@@ -419,9 +419,7 @@ the surrounding mathematics rather than in the far field.
 
 ### T2a — Generate the gold file *(human step)*
 
-Rerun the Python with `--steps 5 --source-quadrature vertex
---br-approximation direct --no-dynamic-remesh --refine-every 0
---checkpoint-every-steps 1`, and commit the resulting `.npz` files.
+Rerun the Python with `python examples/run_adaptive_mesh_bubble.py --steps 10 --source-quadrature vertex --br-approximation direct --no-dynamic-remesh --refine-every 0 --checkpoint-every-steps 1 --no-video --checkpoint-dir results`, and commit the resulting `.npz` files.
 
 **Adaptivity is off deliberately.** Test 2 isolates the *evolution*; refinement
 and remeshing introduce their own ordering and tie-breaking differences (risks R4
