@@ -486,8 +486,8 @@ Python does when they are unavailable).
 viscous term (lines 1264-1268). Both are documented in the headers; both change
 the answer if reordered.
 
-**Exit criterion:** **regression test 2 passes at 5 timesteps**, `--rtol 1e-10`,
-at ranks 1, 2 and 4. Volume drift stays below `1e-12` relative.
+**Exit criterion:** **regression test 2 (direct-solve-10-steps) passes at all 10 timesteps**, `--rtol 1e-10`,
+at ranks 1, 2, 3, 4, and 5. Volume drift stays below `1e-12` relative.
 
 ---
 
