@@ -110,7 +110,7 @@ class BRSolverFMM : public BRSolverBase<ExecutionSpace, MemorySpace>
      *       bounding-box `MPI_Allreduce` and a source redistribution — see
      *       `FarFieldSolver::setSources`.
      */
-    void computeInterfaceVelocity( const mesh_type& mesh,
+    void computeInterfaceVelocity( mesh_type& mesh,
                                    const geometry_type& geometry,
                                    const state_type& state,
                                    const quadrature_type& quadrature,
@@ -137,7 +137,7 @@ class BRSolverFMM : public BRSolverBase<ExecutionSpace, MemorySpace>
      * (`mesh_solver.py:605` raises for `treecode`), so there is no gold file
      * for it — see `BRSolverBase::computeSurfaceRieszScalar`.
      */
-    void computeSurfaceRieszScalar( const mesh_type& mesh,
+    void computeSurfaceRieszScalar( mesh_type& mesh,
                                     const geometry_type& geometry,
                                     const state_type& state,
                                     const quadrature_type& quadrature,

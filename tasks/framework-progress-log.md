@@ -701,3 +701,227 @@ the discrepancy is reported as a number rather than absorbed into a tolerance.**
   `sum 1.9593746256423525` on the initial sphere.
 - **Anyone adding a `unit` or `regression` test** — the tier wrappers now read
   their manifests on fd 3. Do not move that back to stdin.
+
+## T2c
+
+**T2c complete — the vertex source quadrature and the direct O(N^2)
+Birkhoff-Rott solver are implemented and validated against the read-only Python
+reference. THE SHIP GATE NOW HAS TWO MEMBERS.** Next: T2d.
+
+**The gate change.** `Beatnik_Test_BirkhoffRott` is registered in the
+`regression` tier alongside `Beatnik_Test_InitialConditions`, pre-authorized in
+T2c's exit criterion. What must pass before anything ships has changed again,
+and it now covers something the solver actually computes rather than only the
+setup: the gate ran **24 launches** (2 members x SERIAL and HIP x ranks 1-6) and
+all 24 passed, `[gate] PASS (label=regression)`. Regression test 1 is unchanged
+and still green at every configuration.
+
+**Four decisions taken as given by the task, recorded so a later reader does not
+reopen them.**
+
+1. **The cross-rank source exchange is a ring of `MPI_Sendrecv`, not an
+   `MPI_Allgatherv`.** P steps, each rank accumulating into its *own* targets as
+   each block passes, `O(N_s/P)` storage rather than `O(N_s)`. This is the
+   structure `Beatnik_BRSolverDirect.hpp`'s `@note MPI` already named; both are
+   correct and the ring is what scales.
+2. **The ring is factored once, not written twice.** `BRSolverDirect::
+   ringAccumulate` is a private member template taking the per-block kernel as a
+   callable; the velocity and the Riesz scalar differ only in the contraction
+   (cross versus dot) and the prefactor. The argument for factoring is not
+   brevity — two copies of a collective loop are two places for a deadlock to be
+   introduced independently, and the loop's invariant is that *every* rank
+   executes exactly P kernel invocations and P-1 `Sendrecv` pairs regardless of
+   how many sources it owns, including zero.
+3. **The test's source state is a synthetic linear potential, not the initial
+   condition.** After `initializeFields` the potential is identically zero, so
+   the sheet vector and the induced velocity are identically zero — which every
+   implementation of this kernel reproduces, including a wrong one. It uses
+   T2b's field, `phi = a.p` with `a = (0.3, -0.7, 1.1)` on the same mesh, which
+   makes T2b's published `max|S|` and `sum|S|` an already-validated cross-check
+   on the *source* before the kernel is compared at all.
+4. **`generateGradient` and `computeSurfaceRieszScalar` are in scope**, even
+   though nothing calls them until `--bernoulli-scalar-mode surface-riesz`. Both
+   state-model branches are implemented **as the reference writes them and not
+   as one expression**: under `Potential` the surface gradient is taken directly
+   (`potential_surface_riesz_scalar` 897-901), under `SheetVector` it is
+   recovered as `n x S` (`surface_riesz_scalar_from_sheet` 850-853). They agree
+   to roundoff on a tangential gradient — the reference itself measures
+   `5.6e-17` between them on this mesh — but they are not the same expression.
+
+**Twelve signature widenings, all one change, and it could not be deferred.**
+
+| Was | Now | Why it could not stay |
+| --- | --- | --- |
+| `SourceQuadratureBase::generate` / `::generateGradient` and all six `Vertex`/`Face`/`Triangle3` overrides — `const mesh_type&` | `mesh_type&` | Every accessor a quadrature or a BR kernel needs is **non-const**: `positions()`, `potential()`, `sheetVector()` return Cabana slices of a non-const member, and `faceVertices()` calls `ensureGeometry()`, which builds and caches `Tessera::MeshGeometry` against `generation()`. A `const mesh_type&` parameter cannot read the positions, let alone the fields. Same constraint that forced `RestartReader::coldStart( const mesh_type& )` at T1c. |
+| `BRSolverBase::computeInterfaceVelocity` / `::computeSurfaceRieszScalar`, and the `BRSolverDirect` and `BRSolverFMM` overrides — `const mesh_type&` | `mesh_type&` | Same, transitively: the BR solver's first act is to call `quadrature.generate( mesh, ... )`. |
+
+`state` stays `const`, and that is a real statement rather than an omission: the
+vertex rule reads `mesh.sheetVector()`, which T2d's RHS refreshes through
+`SurfaceState::updateSheetVector` before each evaluation, so the quadrature never
+writes the state. **Callers updated: none** — `Solver::setup` constructs both and
+nothing invokes either yet, which is exactly why the widening was free here and
+would not have been at T2d. `BRSolverFMM`'s two signatures were widened with the
+rest and its bodies left throwing (T3a).
+
+**One internal shape worth knowing, not a signature change.** `generateGradient`
+under `Potential` allocates its `surfaceGradient` scratch over the **whole local
+vertex range**, not the owned one, even though only owned rows are emitted. The
+assembly is a face loop that scatters into ghost rows, and `surfaceGradient`
+takes `Nv` from the *output* view — so an owned-sized scratch would index out of
+bounds. The owned-only discipline (R9) applies to what is *emitted*, not to what
+is assembled; those are the two opposite conventions
+`Beatnik_MeshGeometry.hpp`'s DISTRIBUTED ASSEMBLY note states.
+
+**No compile errors that forced a semantic decision** — the fifth task running
+(V0, T1b, T1c, T2b, T2c). The one build failure was mine and was not ambiguous:
+the test declared its output views as `Kokkos::View<Real*, MemSpace>` while the
+solver's out-parameters are `View<Real*, Kokkos::Device<ExecSpace, MemSpace>>`,
+which are unrelated types that do not bind. Fixed by having the test use the
+solver's own `vector_view` / `scalar_view` typedefs, which is what it should have
+done anyway.
+
+**One bug that only running revealed, and it was in this task's own negative
+case rather than in the solver.**
+
+The `--br-sign -1` negative case asserts two things: the velocity must be negated
+**exactly**, and the Riesz scalar must be **unchanged**, the second being what
+catches a `br_sign` applied inside the shared kernel instead of on the velocity
+path only. Both were written as bitwise equalities, because `br_sign` multiplies
+a completed sum and negating it is a sign-bit flip and nothing else.
+
+The velocity half is bitwise, and measured so: **0 differing components at every
+rank count on both backends**. `generate` reads a sheet vector assembled once and
+does no reduction of its own, so both calls sum the same source list in the same
+ring order.
+
+**The Riesz half is not, on HIP, and the first gate run failed on it at all six
+rank counts while passing on SERIAL at all six** — 15, 33, 42, 45, 53 and 60 of
+162 values differing. That pattern is the finding: the cause is that
+`generateGradient` re-runs `surfaceGradient`, whose face-loop assembly uses
+`Kokkos::atomic_add` and is documented as not bitwise reproducible under
+DETERMINISM in `Beatnik_MeshGeometry.hpp`. Two identical calls therefore produce
+last-bit-different gradients. SERIAL has a deterministic scatter order, which is
+why it passed and why the split is per-backend and not per-rank-count.
+
+The check was **not** deleted and **not** loosened to "close enough". What
+discriminates the two explanations is the *size* of the difference: a `br_sign`
+leak into the Riesz path makes it exactly `2|psi|`, i.e. `2.0` relative, while an
+atomic reordering makes it `~1e-16`. So the claim is now `max|dpsi| / max|psi| <=
+1e-13` — thirteen decades below what the bug it exists to catch would produce —
+and the measured number is reported on every gate run either way. Measured
+**`2.4e-16`**, worst over all twelve configurations.
+
+**What was measured.** `tests/regression_tests/Beatnik_Test_BirkhoffRott.cpp`,
+**29/29 checks** in each of its twelve configurations. Every `kPy*` literal was
+computed by calling the read-only reference on
+`mesh.icosphere_mesh( subdivisions=2, radius=0.25, center=(0,0,0.25) )` through
+`potential_mesh_birkhoff_rott_velocity` and `potential_surface_riesz_scalar` at
+`source_quadrature="vertex"`, `br_approximation="direct"`, `eps=0.025`,
+`use_matlab_blob=False`, `br_sign=1` — so the kernel offset is `eps^2 =
+6.25e-4`, both codes' `length` default. Every one is an **order-invariant
+summary scalar**, so no vertex-order matching is needed and the same literals
+hold at every rank count. The table of worst relative errors is in
+`framework.md` under T2c's completion note; the headline is that the worst
+disagreement anywhere in the sweep is **`1.30e-15`** (velocity `min|u|`), two
+decades inside the criterion's `1e-13`. **No tolerance was touched and no
+reference number was adjusted.**
+
+**The signed quantities, because they are the half a magnitude comparison cannot
+see.** `sum u = (-13.809091739775855, 32.221214059476992, -50.633336379178147)`,
+matched to `2.8e-16` or better in every component. Reversing the cross product to
+`S x delta` negates all three and leaves `max|u|`, `min|u|` and `sum|u|`
+identical, which is the single most likely error in this kernel and the reason
+the criterion's "compare summary scalars" was not read as "compare magnitudes".
+The Riesz scalar's `min` is likewise negative and pinned, which is what fixes the
+sign of its `-1/(4 pi^2)` prefactor.
+
+**R9 was checked, not assumed, and it is not biting.** Two mechanized
+discriminators, re-measured on every gate run:
+
+1. **The owned sets partition the global sets** — `162 / 480 / 320` at every rank
+   count on both backends, summed with a plain `MPI_Allreduce(MPI_SUM)` over
+   `ownedXCount()` rather than read from Tessera's `globalOwnedX`, for the same
+   reason T1c gave: owned-versus-local is exactly what R9 turns on and two
+   agreeing paths beat one.
+2. **The global source count is exactly 162** at every rank count. This is the
+   *direct* detector and it is stronger than anything T1c had available: the
+   ghost fraction here runs from 0 at one rank to 0.40 at two and higher at six,
+   so a rule emitting the whole local vertex set would make this 200-400 and the
+   assertion fails immediately — while every velocity number would have moved
+   smoothly and plausibly. It is asserted, not merely reported.
+
+**The R2 caveat on these numbers, which T3a inherits.** The ring fixes the *rank
+order* of the block sums (each rank starts with its own block and walks the ring
+in a fixed direction), so the summation order is deterministic given a rank
+count — but it **differs between rank counts**, and the on-node
+`Kokkos::parallel_reduce` tree differs between backends. The measured spread is
+what that costs: each compared scalar takes 2-5 distinct values across the twelve
+configurations, all within `1.3e-15` relative of the Python. That is the noise
+floor of this operator at this problem size, not a budget to spend.
+
+**New and changed build/test wiring.**
+
+- `tests/regression_tests/Beatnik_Test_BirkhoffRott.cpp`, **one binary per
+  enabled backend** — `Beatnik_Test_BirkhoffRott_MPI_{SERIAL,OPENMP,HIP}`,
+  generated from one source by the per-backend shim T1c added. Not one
+  suffix-less binary: the installed gate path selects on the `_<BACKEND>` suffix
+  and would skip it entirely, a silent zero-test pass. The rank set stays a
+  property of the gate (`BEATNIK_GATE_RANKS` / `BEATNIK_TEST_MPI_RANKS`) and is
+  not on the manifest line, per T1c's convention — the test reads its own comm
+  size and adapts.
+- **Regression-test arguments are now keyed by source stem, not shared across
+  the tier.** T1c's single `_beatnik_regression_args_{abs,rel}` pair was correct
+  while the tier had one member; T2c's test takes **no** arguments, and handing
+  it three paths it ignores would make its manifest line claim a dependency that
+  does not exist. `tests/CMakeLists.txt` now looks up
+  `_beatnik_args_<stem>_{abs,rel}` and **`message(FATAL_ERROR)`s at configure
+  time if either is undefined** — so a future test added without its argument
+  lists is a build failure and not a test launched silently without its data. An
+  empty list emits a bare target name, which is the manifest format that already
+  existed before T1c widened it.
+- The test writes nothing, so it needs no scratch directory; the
+  `BEATNIK_TEST_SCRATCH` -> `TMPDIR` -> `.` resolution T1c added is untouched and
+  still required by regression test 1. The tier wrappers still read their
+  manifests on **fd 3**.
+
+**Formatting: `clang-format` was NOT run**, per CLAUDE.md's formatting rule and
+the standing user instruction. No file was reformatted as part of this change;
+the new and edited code is written in the style of its surroundings by hand.
+
+**Affects:**
+
+- **T2d** — five things. (a) `BRSolverDirect::computeInterfaceVelocity` is ready
+  to call and its output convention is fixed: `(N_owned, 3)` over the **owned**
+  vertices, **overwritten**, with `1/4pi` and `br_sign` already applied — the RHS
+  must not re-apply either. (b) The out-parameter is reallocated if its extent
+  does not match, so the RHS may hold one view across stages without resizing it.
+  (c) The **ordering** the RHS owes the quadrature is
+  `haloExchange()` -> `updateSheetVector` -> BR evaluation, and this test
+  performs and checks exactly that sequence; getting it wrong is wrong only near
+  partition boundaries, which is R8's seam. (d) The BR call is **collective** and
+  every rank must reach it the same number of times per step — the ring
+  deadlocks otherwise, including for a rank that owns zero sources. (e) The
+  `mesh_type&` widening means the RHS cannot hold the mesh by const reference on
+  any path that reaches the BR solver.
+- **T3a** — three things. (a) `BRSolverDirect` is the baseline the FMM is
+  validated against, and the eleven reference scalars above (with the Python
+  values they were checked against) are its numbers on the default icosphere. (b)
+  **The ring's summation order bounds how tight a cross-solver claim can be**:
+  the direct solver itself spans up to `1.3e-15` relative across rank counts and
+  backends, so an FMM-versus-direct comparison cannot be asserted below that even
+  in principle, and its real tolerance will be the FMM's own accuracy, orders
+  above. Compare at a fixed rank count where possible. (c) `BRSolverFMM`'s two
+  signatures are already widened to `mesh_type&`, so T3a implements bodies only.
+- **T5c** — `VertexQuadrature::generateGradient` has a `SheetVector` branch
+  (`G = n x S`) that no test exercises, because the sheet-vector state model has
+  no gold file until T5c. Only the `Potential` branch is validated; the other is
+  implemented from the reference and unverified, and T5c is where it first runs.
+- **R5** — unchanged and worth restating now that the code exists:
+  `surface-riesz` + `fmm` still has no gold file. What T2c adds is that
+  `surface-riesz` + `direct` now *does* have a validated reference, so R5's
+  suggested mitigation (a Python `direct` + `surface-riesz` run compared against
+  Beatnik `fmm` + `surface-riesz` at loosened tolerance) has a validated middle
+  term.
+- **Anyone adding a `regression` test** — `tests/CMakeLists.txt` now requires
+  `_beatnik_args_<stem>_abs` and `_beatnik_args_<stem>_rel` to be defined (empty
+  is fine) or the configure fails.

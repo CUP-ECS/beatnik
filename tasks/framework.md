@@ -148,11 +148,15 @@ differential operators are no longer stubs** —
 cotangentLaplacianScalar, graphLaplacianScalar, graphLaplacianVector,
 meanCurvatureNormal, projectTangent}` and `SurfaceState::updateSheetVector` are
 implemented and validated against the Python reference (see T2b's completion
-note). Everything built *on* them is still a stub:
+note). **T2c has landed too**, so the vertex source quadrature and the direct BR
+evaluation are implemented and validated as well. What is still a stub:
 
-- **No RHS, no integrator, no volume projection, no BR evaluation.** T2c and
-  T2d. The BR solver and the quadrature are *constructed* by `Solver::setup` and
-  never called.
+- **No RHS, no integrator, no volume projection.** T2d. **The BR evaluation now
+  exists and is validated on the vertex rule** (T2c): `VertexQuadrature` and
+  `BRSolverDirect` are implemented and checked against the Python reference. What
+  is still missing is the *calling* of them — the BR solver and the quadrature
+  are constructed by `Solver::setup` and no production path invokes them yet,
+  which is T2d's.
 - **No adaptivity.** T4a/T4b/T4c, still blocked on the disjoint-editing-families
   design question and on Tessera's G5b/G5c/G5d.
 - **`/vertices/u1` in a `--steps 0` checkpoint is still present-but-meaningless**,
@@ -564,7 +568,7 @@ skipping the new test, and the **gate** wrapper had the same bug and would have
 silently run only one member per backend once T2d registered regression test 2.
 All in the progress log, under *T2b*.
 
-### T2c — Vertex quadrature and the direct BR solver
+### T2c — Vertex quadrature and the direct BR solver — **DONE**
 
 **Fill in:** `Beatnik_SourceQuadrature.hpp`:
 `VertexQuadrature::{generate, generateGradient}`;
@@ -614,6 +618,61 @@ pre-authorized, so it does not need re-confirming, but it does mean registering
 one binary per backend with the `_<BACKEND>` suffix the gate selects on, never
 one suffix-less binary (which the installed path skips entirely, a silent
 zero-test pass).
+
+**Met**, by the new `regression`-tier test `Beatnik_Test_BirkhoffRott`
+(`tests/regression_tests/Beatnik_Test_BirkhoffRott.cpp`), run through
+`flux batch scripts/tuolumne/run_regression_minset.flux`. **The ship gate now
+has two members** — pre-authorized above — so it ran **24 launches**
+(2 members x SERIAL and HIP x ranks 1, 2, 3, 4, 5, 6) and every one passed:
+`[gate] PASS (label=regression)`, with `Beatnik_Test_BirkhoffRott` reporting
+**29/29 checks** in all twelve of its configurations. The criterion's ranks 1
+and 4 are a verified subset, not the extent of what was checked.
+
+Agreement with the reference is at **`1e-15` or better on every compared
+quantity** — two decades inside the criterion's `1e-13`, and the worst
+disagreement seen anywhere in the sweep is `1.30e-15`. **No tolerance was
+touched and no reference number was adjusted.** Worst relative error over all
+twelve configurations, against literals computed from the read-only Python on
+`mesh.icosphere_mesh( subdivisions=2, radius=0.25, center=(0,0,0.25) )` with
+\f$\phi = a\cdot p\f$, `a = (0.3, -0.7, 1.1)`:
+
+| Quantity | Python | worst rel over 12 configs |
+| --- | --- | --- |
+| source `max\|S\|` | `1.3193451648051979` | `1.7e-16` |
+| source `sum\|S\|` | `167.62467266803066` | `3.4e-16` |
+| velocity `max\|u\|` | `0.71412231153219252` | `3.1e-16` |
+| velocity `min\|u\|` | `0.21419090124870638` | `1.3e-15` |
+| velocity `sum\|u\|` | `68.015172526189744` | `6.3e-16` |
+| velocity `sum u_x` | `-13.809091739775855` | `1.3e-16` |
+| velocity `sum u_y` | `32.221214059476992` | `2.2e-16` |
+| velocity `sum u_z` | `-50.633336379178147` | `2.8e-16` |
+| riesz `max` | `0.22717497673577594` | `6.1e-16` |
+| riesz `min` | `-0.22717497673577597` | `1.2e-16` |
+| riesz `sum\|psi\|` | `18.452052083854369` | `3.9e-16` |
+
+The two source scalars are T2b's published values, reproduced bit for bit from
+the same reference call — so the sheet strength feeding the kernel is pinned
+before the kernel is compared, and a disagreement localizes to the BR sum.
+
+The test checks more than the criterion: the entity counts and halo depth, the
+**owned-set partition** (R9's precondition, summed with a plain
+`MPI_Allreduce` rather than read from Tessera), the **global source count**
+(exactly 162 at every rank count — the direct R9 detector, since a
+ghost-inclusive list would make it 200-400 here while every velocity number
+moved smoothly and plausibly), the potential's ghost rows after the explicit
+`haloExchange()` the sheet-vector update requires, three **signed** velocity
+components (which a reversed \f$\delta\times S\f$ fails and the magnitudes do
+not), the Riesz scalar's negative `min` (which pins the \f$-1/4\pi^2\f$ sign),
+and a **negative case** requiring `--br-sign -1` to negate the velocity
+*bitwise* while leaving the Riesz scalar alone.
+
+That negative case is where running found something. `br_sign` independence of
+the Riesz path is **not** bitwise on HIP, because `generateGradient` re-runs
+`surfaceGradient`, whose atomic face scatter is not bitwise reproducible — the
+first version of the check demanded equality and failed on HIP at all six rank
+counts while passing on SERIAL at all six. It is asserted at `1e-13` relative
+instead, measured at `2.4e-16`, with the discriminator recorded: a `br_sign`
+leak would make that number `2.0`. Details in the progress log, under *T2c*.
 
 ### T2d — The RHS, volume projection, and the integrator
 

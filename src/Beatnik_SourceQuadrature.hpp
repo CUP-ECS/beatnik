@@ -136,7 +136,7 @@ class SourceQuadratureBase
      *       sum, which shows up as a velocity field that changes magnitude with
      *       the rank count — a distinctive and easily missed failure.
      */
-    virtual void generate( const mesh_type& mesh,
+    virtual void generate( mesh_type& mesh,
                            const geometry_type& geometry,
                            const state_type& state, point_view& points,
                            strength_view& strengths ) const = 0;
@@ -155,7 +155,7 @@ class SourceQuadratureBase
      *
      * Only needed under `--bernoulli-scalar-mode surface-riesz`.
      */
-    virtual void generateGradient( const mesh_type& mesh,
+    virtual void generateGradient( mesh_type& mesh,
                                    const geometry_type& geometry,
                                    const state_type& state, point_view& points,
                                    strength_view& gradients ) const = 0;
@@ -182,6 +182,7 @@ class VertexQuadrature : public SourceQuadratureBase<ExecutionSpace, MemorySpace
 {
   public:
     using base_type = SourceQuadratureBase<ExecutionSpace, MemorySpace>;
+    using device_type = typename base_type::device_type;
     using point_view = typename base_type::point_view;
     using strength_view = typename base_type::strength_view;
     using mesh_type = typename base_type::mesh_type;
@@ -196,28 +197,147 @@ class VertexQuadrature : public SourceQuadratureBase<ExecutionSpace, MemorySpace
         return vertex_count;
     }
 
-    void generate( const mesh_type& mesh, const geometry_type& geometry,
+    /**
+     * @brief Emit one source per **owned** vertex.
+     *
+     * Port of mesh_solver.py::_mesh_birkhoff_rott_velocity_from_sheet
+     * (lines 775-777) — `source_points = vertices`,
+     * `source_strength = vertex_area[:, None] * sheet_vector`
+     *
+     * `state` is unused, and deliberately so: under both state models the
+     * vertex sheet vector lives in the mesh (`mesh.sheetVector()`, an M1 vertex
+     * user field). Under `Potential` it is derived, and the caller refreshes it
+     * with `SurfaceState::updateSheetVector` before each evaluation; under
+     * `SheetVector` it is the evolved unknown. Either way this rule reads the
+     * same slice, so there is nothing model-dependent to branch on here — the
+     * `Face` and `Triangle3` rules are where the models diverge (see the file
+     * header).
+     *
+     * **Risk R9.** The range is `[0, ownedVertexCount())`, never the local
+     * range. A ghost vertex is an owned vertex on another rank and is already
+     * in that rank's source list; emitting it here as well double-counts it in
+     * the global sum, which shows up as a velocity field that changes magnitude
+     * with the rank count and the partition shape.
+     *
+     * `points` and `strengths` are reallocated to the owned count if they do
+     * not already have it, so a caller may pass default-constructed views.
+     */
+    void generate( mesh_type& mesh, const geometry_type& geometry,
                    const state_type& state, point_view& points,
                    strength_view& strengths ) const override
     {
-        (void)mesh;
-        (void)geometry;
         (void)state;
-        (void)points;
-        (void)strengths;
-        BEATNIK_NOT_IMPLEMENTED( "VertexQuadrature", "generate" );
+
+        const int n = mesh.ownedVertexCount();
+        if ( static_cast<int>( points.extent( 0 ) ) != n )
+            Kokkos::realloc( points, n );
+        if ( static_cast<int>( strengths.extent( 0 ) ) != n )
+            Kokkos::realloc( strengths, n );
+
+        auto pos = mesh.positions();
+        auto sheet = mesh.sheetVector();
+        auto va = geometry.vertex_area;
+        auto p = points;
+        auto w = strengths;
+
+        Kokkos::parallel_for(
+            "beatnik_vertex_quadrature_generate",
+            Kokkos::RangePolicy<ExecutionSpace>( 0, n ),
+            KOKKOS_LAMBDA( const int i ) {
+                for ( int d = 0; d < 3; ++d )
+                {
+                    p( i, d ) = pos( i, d );
+                    // The weight is the lumped vertex area; the 1/4pi is the
+                    // kernel's and is not applied here.
+                    w( i, d ) = va( i ) * sheet( i, d );
+                }
+            } );
+        Kokkos::fence();
     }
 
-    void generateGradient( const mesh_type& mesh, const geometry_type& geometry,
+    /**
+     * @brief Emit one gradient source per **owned** vertex.
+     *
+     * Port of mesh_solver.py::potential_surface_riesz_scalar (lines 897-901,
+     * the `vertex` branch) and ::surface_riesz_scalar_from_sheet
+     * (lines 850-853, the `vertex` branch)
+     *
+     * **The two state models build \f$G\f$ by different expressions, and this
+     * is faithful rather than tidy.** Under `Potential` the reference takes the
+     * per-vertex surface gradient **directly** — `surface_gradient(state,
+     * state.potential)`, line 900 — while under `SheetVector` the gradient is
+     * recovered from the sheet vector by the inverse rotation
+     * \f$G = \hat n_v \times S\f$ (line 852). On a tangential gradient the two
+     * agree to roundoff (the read-only reference measures `5.6e-17` between
+     * them on the default icosphere), but they are not the same expression and
+     * are not written as one here.
+     *
+     * Same R9 discipline and same realloc contract as `generate`.
+     */
+    void generateGradient( mesh_type& mesh, const geometry_type& geometry,
                            const state_type& state, point_view& points,
                            strength_view& gradients ) const override
     {
-        (void)mesh;
-        (void)geometry;
-        (void)state;
-        (void)points;
-        (void)gradients;
-        BEATNIK_NOT_IMPLEMENTED( "VertexQuadrature", "generateGradient" );
+        const int n = mesh.ownedVertexCount();
+        if ( static_cast<int>( points.extent( 0 ) ) != n )
+            Kokkos::realloc( points, n );
+        if ( static_cast<int>( gradients.extent( 0 ) ) != n )
+            Kokkos::realloc( gradients, n );
+
+        auto pos = mesh.positions();
+        auto va = geometry.vertex_area;
+        auto vn = geometry.vertex_normal;
+        auto p = points;
+        auto w = gradients;
+
+        if ( state.model() == StateModel::Potential )
+        {
+            // The gradient is assembled from the WHOLE LOCAL face set, which
+            // scatters into ghost rows, so the scratch view must span the whole
+            // local range even though only the owned rows are emitted. (Nv comes
+            // from the output view; see `surfaceGradient`.)
+            const int n_local = mesh.totalVertexCount();
+            Kokkos::View<Real* [3], device_type> gradient(
+                Kokkos::view_alloc( Kokkos::WithoutInitializing,
+                                    "beatnik_vertex_quadrature_gradient" ),
+                n_local );
+            auto faces = mesh.faceVertices();
+            auto phi = mesh.potential();
+            SurfaceOperators::surfaceGradient( pos, faces, phi, vn, gradient );
+
+            Kokkos::parallel_for(
+                "beatnik_vertex_quadrature_gradient_potential",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, n ),
+                KOKKOS_LAMBDA( const int i ) {
+                    for ( int d = 0; d < 3; ++d )
+                    {
+                        p( i, d ) = pos( i, d );
+                        w( i, d ) = va( i ) * gradient( i, d );
+                    }
+                } );
+            Kokkos::fence();
+        }
+        else
+        {
+            auto sheet = mesh.sheetVector();
+            Kokkos::parallel_for(
+                "beatnik_vertex_quadrature_gradient_sheet",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, n ),
+                KOKKOS_LAMBDA( const int i ) {
+                    // G = n x S, the inverse of S = -n x G within the tangent
+                    // plane. Written out so the component order is inspectable.
+                    const Real g[3] = {
+                        vn( i, 1 ) * sheet( i, 2 ) - vn( i, 2 ) * sheet( i, 1 ),
+                        vn( i, 2 ) * sheet( i, 0 ) - vn( i, 0 ) * sheet( i, 2 ),
+                        vn( i, 0 ) * sheet( i, 1 ) - vn( i, 1 ) * sheet( i, 0 ) };
+                    for ( int d = 0; d < 3; ++d )
+                    {
+                        p( i, d ) = pos( i, d );
+                        w( i, d ) = va( i ) * g[d];
+                    }
+                } );
+            Kokkos::fence();
+        }
     }
 };
 
@@ -254,7 +374,7 @@ class FaceQuadrature : public SourceQuadratureBase<ExecutionSpace, MemorySpace>
         return face_count;
     }
 
-    void generate( const mesh_type& mesh, const geometry_type& geometry,
+    void generate( mesh_type& mesh, const geometry_type& geometry,
                    const state_type& state, point_view& points,
                    strength_view& strengths ) const override
     {
@@ -266,7 +386,7 @@ class FaceQuadrature : public SourceQuadratureBase<ExecutionSpace, MemorySpace>
         BEATNIK_NOT_IMPLEMENTED( "FaceQuadrature", "generate" );
     }
 
-    void generateGradient( const mesh_type& mesh, const geometry_type& geometry,
+    void generateGradient( mesh_type& mesh, const geometry_type& geometry,
                            const state_type& state, point_view& points,
                            strength_view& gradients ) const override
     {
@@ -329,7 +449,7 @@ class Triangle3Quadrature
         return 3 * face_count;
     }
 
-    void generate( const mesh_type& mesh, const geometry_type& geometry,
+    void generate( mesh_type& mesh, const geometry_type& geometry,
                    const state_type& state, point_view& points,
                    strength_view& strengths ) const override
     {
@@ -341,7 +461,7 @@ class Triangle3Quadrature
         BEATNIK_NOT_IMPLEMENTED( "Triangle3Quadrature", "generate" );
     }
 
-    void generateGradient( const mesh_type& mesh, const geometry_type& geometry,
+    void generateGradient( mesh_type& mesh, const geometry_type& geometry,
                            const state_type& state, point_view& points,
                            strength_view& gradients ) const override
     {

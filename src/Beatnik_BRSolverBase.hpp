@@ -145,7 +145,7 @@ class BRSolverBase
      *       call it the same number of times per step — which is why the
      *       finiteness abort is a reduction rather than a local branch.
      */
-    virtual void computeInterfaceVelocity( const mesh_type& mesh,
+    virtual void computeInterfaceVelocity( mesh_type& mesh,
                                            const geometry_type& geometry,
                                            const state_type& state,
                                            const quadrature_type& quadrature,
@@ -166,7 +166,7 @@ class BRSolverBase
      *       means there is no gold file to validate that combination against —
      *       recorded as risk R5 in `tasks/framework.md`.
      */
-    virtual void computeSurfaceRieszScalar( const mesh_type& mesh,
+    virtual void computeSurfaceRieszScalar( mesh_type& mesh,
                                             const geometry_type& geometry,
                                             const state_type& state,
                                             const quadrature_type& quadrature,

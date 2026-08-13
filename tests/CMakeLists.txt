@@ -147,6 +147,14 @@ set(_beatnik_rel_fixtures regression_tests/fixtures)
 #                                    Python gold checkpoint by
 #                                    compare_output.py.
 #
+# GREW TO TWO MEMBERS AT TASK T2c, pre-authorized in that task's exit criterion:
+#
+#   Beatnik_Test_BirkhoffRott        T2c -- the vertex source quadrature and the
+#                                    direct O(N^2) Birkhoff-Rott sum, against
+#                                    hard-coded reference numbers computed from
+#                                    the read-only Python. Takes NO arguments;
+#                                    everything it needs it computes.
+#
 # HOW A MULTI-RANK REGRESSION ENTRY IS REPRESENTED, AND WHY THIS SHAPE
 # --------------------------------------------------------------------
 # T1c's exit criterion names ranks 1, 2 and 4; the GATE is defined at ranks
@@ -192,6 +200,8 @@ set(_beatnik_rel_fixtures regression_tests/fixtures)
 set(BEATNIK_REGRESSION_TEST_SOURCES
   # T1c: regression test 1 -- initial conditions at 0 timesteps.
   Beatnik_Test_InitialConditions.cpp
+  # T2c: the vertex quadrature and the direct Birkhoff-Rott sum.
+  Beatnik_Test_BirkhoffRott.cpp
   )
 
 # Kokkos execution-space class per BEATNIK_SUPPORTED_DEVICES name. Spelled out
@@ -206,21 +216,41 @@ set(_beatnik_space_HIP           Kokkos::HIP)
 set(_beatnik_space_SYCL          Kokkos::Experimental::SYCL)
 set(_beatnik_space_OPENMPTARGET  Kokkos::Experimental::OpenMPTarget)
 
-# Arguments every regression test takes, twice over: absolute for ctest (which
-# runs from the build tree), manifest-relative for the installed path. The two
-# lists must name the same three files -- that is what keeps `ctest -L
-# regression` and the manifest testing the same thing.
-set(_beatnik_regression_args_abs
+# Arguments PER TEST, twice over: absolute for ctest (which runs from the build
+# tree), manifest-relative for the installed path. Each pair must name the same
+# files -- that is what keeps `ctest -L regression` and the manifest testing the
+# same thing.
+#
+# Keyed by the source stem rather than shared across the tier: T2c's test takes
+# none, and handing it three paths it ignores would make the manifest line claim
+# a dependency that does not exist. An entry is REQUIRED for every source in
+# BEATNIK_REGRESSION_TEST_SOURCES -- a missing one is a configure-time error
+# below, not a test silently launched without its data.
+set(_beatnik_args_Beatnik_Test_InitialConditions_abs
   ${_beatnik_compare_dir}/initial_conditions/gold.npz
   ${_beatnik_compare_dir}/compare_output.py
   ${_beatnik_fixture_dir}/synthetic_gold.npz)
-set(_beatnik_regression_args_rel
+set(_beatnik_args_Beatnik_Test_InitialConditions_rel
   regression_tests/initial_conditions/gold.npz
   ${_beatnik_rel_compare_py}
   ${_beatnik_rel_fixtures}/synthetic_gold.npz)
 
+# T2c takes no arguments. Declared explicitly (and as DEFINED, which an empty
+# list still is) so the "did the author forget?" check below stays meaningful.
+set(_beatnik_args_Beatnik_Test_BirkhoffRott_abs "")
+set(_beatnik_args_Beatnik_Test_BirkhoffRott_rel "")
+
 foreach(_src ${BEATNIK_REGRESSION_TEST_SOURCES})
   get_filename_component(_stem ${_src} NAME_WE)
+
+  if(NOT DEFINED _beatnik_args_${_stem}_abs
+     OR NOT DEFINED _beatnik_args_${_stem}_rel)
+    message(FATAL_ERROR
+      "tests/CMakeLists.txt: no argument lists recorded for regression test "
+      "'${_stem}'. Set _beatnik_args_${_stem}_abs and _beatnik_args_${_stem}_rel "
+      "above (to \"\" if the test takes none) in the same change that added it.")
+  endif()
+
   foreach(_device ${BEATNIK_TEST_DEVICES})
     if(NOT DEFINED _beatnik_space_${_device})
       message(FATAL_ERROR
@@ -250,17 +280,23 @@ foreach(_src ${BEATNIK_REGRESSION_TEST_SOURCES})
       add_test(NAME ${_target}_np_${_np} COMMAND
         ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${_np}
         ${MPIEXEC_PREFLAGS} $<TARGET_FILE:${_target}> ${MPIEXEC_POSTFLAGS}
-        ${_beatnik_regression_args_abs})
+        ${_beatnik_args_${_stem}_abs})
       set_tests_properties(${_target}_np_${_np} PROPERTIES
         LABELS regression
         PROCESSORS ${_np}
         ENVIRONMENT OMP_NUM_THREADS=1)
     endforeach()
 
-    # The gate manifest line, from the same loop that applied the label.
-    string(REPLACE ";" " " _args_str "${_beatnik_regression_args_rel}")
+    # The gate manifest line, from the same loop that applied the label. A test
+    # with no arguments contributes a bare target name, which is the format the
+    # manifest already accepted before T1c widened it.
+    set(_manifest_line "${_target}")
+    if(_beatnik_args_${_stem}_rel)
+      string(REPLACE ";" " " _args_str "${_beatnik_args_${_stem}_rel}")
+      set(_manifest_line "${_target} ${_args_str}")
+    endif()
     set_property(GLOBAL APPEND PROPERTY BEATNIK_GATE_TARGETS
-      "${_target} ${_args_str}")
+      "${_manifest_line}")
 
     if(Beatnik_INSTALL_TEST_EXECUTABLES)
       install(TARGETS ${_target}
