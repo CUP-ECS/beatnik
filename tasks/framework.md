@@ -577,9 +577,43 @@ the `vertex` branch), `::_source_velocity_direct_unsigned` (437-454),
 Do **not** port the NumPy target-chunking (line 445): it exists to bound a
 temporary array that the Kokkos formulation never allocates.
 
-**Exit criterion:** a `unit` test comparing the induced velocity on the default
-icosphere against a hard-coded reference computed from the Python, to `1e-13`
-relative, at ranks 1 and 4.
+**Four `const mesh_type&` parameters must widen to `mesh_type&`**, and this task
+is where it happens because it is the first to write a body that touches the
+mesh. Every accessor a quadrature or a BR kernel needs is **non-const**:
+`SurfaceMesh::positions()` (`src/Beatnik_MeshInterface.hpp:821`), `potential()`
+(`:834`), `sheetVector()` (`:846`) and `faceVertices()` (`:877`). The first
+three return Cabana slices of a non-const member; the fourth calls
+`ensureGeometry()`, which builds and caches `Tessera::MeshGeometry` against
+`generation()` on first call after a topology edit. So a `const mesh_type&`
+parameter cannot read the positions, let alone the fields — the same constraint
+that forced `RestartReader::coldStart( const mesh_type& )` →
+`coldStart( mesh_type& )` at T1c, and the same reason
+`MeshGeometry::compute` takes an explicit `vertex_count`.
+
+| Declaration | File |
+| --- | --- |
+| `SourceQuadratureBase::generate` / `::generateGradient` | `Beatnik_SourceQuadrature.hpp:139`, `:158` |
+| `VertexQuadrature`, `FaceQuadrature`, `Triangle3Quadrature` overrides of both | `Beatnik_SourceQuadrature.hpp:199`, `:211`, `:257`, `:269`, `:332`, `:344` |
+| `BRSolverBase::computeInterfaceVelocity` / `::computeSurfaceRieszScalar` | `Beatnik_BRSolverBase.hpp:148`, `:169` |
+| `BRSolverDirect` overrides of both | `Beatnik_BRSolverDirect.hpp:98`, `:130` |
+| `BRSolverFMM` overrides of both | `Beatnik_BRSolverFMM.hpp:113`, `:140` |
+
+**Callers to update: none.** `Solver::setup` constructs the quadrature and the
+BR solver and nothing calls either yet (the only other mention in the tree is a
+comment, `src/Profiling.hpp:17`), so the widening is free here and will not be
+at T2d. `state` stays `const`: the vertex rule reads `mesh.sheetVector()`, which
+T2d's RHS refreshes through `SurfaceState::updateSheetVector` before each
+evaluation, so the quadrature never needs to write the state.
+
+**Exit criterion:** **a `regression`-tier test** comparing the induced velocity
+on the default icosphere against a hard-coded reference computed from the
+Python, to `1e-13` relative. The tier, not the test, supplies the rank sweep
+(the convention T1c set), so the criterion's ranks 1 and 4 are a subset of the
+gate's 1-6 on SERIAL and HIP. **This grows the ship gate to two members** —
+pre-authorized, so it does not need re-confirming, but it does mean registering
+one binary per backend with the `_<BACKEND>` suffix the gate selects on, never
+one suffix-less binary (which the installed path skips entirely, a silent
+zero-test pass).
 
 ### T2d — The RHS, volume projection, and the integrator
 
