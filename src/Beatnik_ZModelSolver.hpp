@@ -69,14 +69,21 @@
 #define BEATNIK_ZMODELSOLVER_HPP
 
 #include <Beatnik_BRSolverBase.hpp>
+#include <Beatnik_Communication.hpp>
 #include <Beatnik_MeshGeometry.hpp>
 #include <Beatnik_MeshInterface.hpp>
 #include <Beatnik_Params.hpp>
 #include <Beatnik_SourceQuadrature.hpp>
 #include <Beatnik_SurfaceState.hpp>
 #include <Beatnik_Types.hpp>
+#include <Beatnik_VolumeProjection.hpp>
 
 #include <Kokkos_Core.hpp>
+
+#include <mpi.h>
+
+#include <string>
+#include <utility>
 
 namespace Beatnik
 {
@@ -156,31 +163,144 @@ class ZModelSolver
      * Step 9 is what keeps \f$\phi\f$ from drifting; see
      * `SurfaceOperators::areaWeightedMean`.
      *
-     * @param mesh     Surface at the current stage geometry.
+     * @param mesh     Surface at the current stage geometry. **T2d — no longer
+     *                 `const`**: every accessor this needs (`positions()`,
+     *                 `potential()`, `sheetVector()`, `faceVertices()`) is
+     *                 non-const, and the BR solver's own parameter was widened
+     *                 at T2c for the same reason.
      * @param state    Current \f$\phi\f$ (and the derived sheet vector).
-     * @param[out] vertex_dot `(Nv,3)` \f$\dot x\f$, units velocity.
-     * @param[out] potential_dot `(Nv,)` \f$\dot\phi\f$, units velocity^2.
+     * @param[out] vertex_dot `(N_owned,3)` \f$\dot x\f$, units velocity.
+     *                 Reallocated on an extent mismatch, so one view serves all
+     *                 three RK3 stages.
+     * @param[out] potential_dot `(N_owned,)` \f$\dot\phi\f$, units velocity^2.
+     *
+     * **T2d — the output range is the OWNED vertices, not the local range.**
+     * `BRSolverDirect::computeInterfaceVelocity` writes `(N_owned, 3)` (T2c),
+     * every reduction below is over owned rows (risk R9), and the integrator
+     * updates owned rows and then exchanges. Intermediate *assemblies* are still
+     * allocated over the whole local range — the two opposite conventions stated
+     * under DISTRIBUTED ASSEMBLY in `Beatnik_MeshGeometry.hpp`.
      *
      * @note MPI. Collective at four points: the BR evaluation, the two
      *       reductions of the volume projection, and the area-weighted mean of
-     *       \f$\dot\phi\f$. Also requires a ghost exchange of \f$\phi\f$ before
-     *       step 2 and of \f$V\f$ before its gradient in step 8 — see
-     *       `Comm::haloExchangeVertices`, which is whole-tuple: there is no
-     *       per-field gather, so refreshing \f$\phi\f$ costs the same as
-     *       refreshing everything (M1 rework; the per-field
-     *       `Comm::haloExchangeField` this used to name is deleted).
+     *       \f$\dot\phi\f$. It also opens with **one whole-tuple
+     *       `mesh.haloExchange()`**, which is what makes the ghost potential
+     *       current for step 2's one-ring gradient and the ghost positions
+     *       current for step 1's geometry. One exchange, not two: the depth-2
+     *       halo built once in `SurfaceMesh` is what covers the two-ring
+     *       stencil, not a second exchange (risk R8). The ordering
+     *       `haloExchange()` -> `updateSheetVector` -> BR evaluation is the one
+     *       T2c's regression test performs and checks; getting it wrong is wrong
+     *       only near partition boundaries.
      */
-    void computeRightHandSidePotential( const mesh_type& mesh,
+    void computeRightHandSidePotential( mesh_type& mesh,
                                         const state_type& state,
                                         vector_view& vertex_dot,
                                         scalar_view& potential_dot )
     {
-        (void)mesh;
-        (void)state;
-        (void)vertex_dot;
-        (void)potential_dot;
-        BEATNIK_NOT_IMPLEMENTED( "ZModelSolver",
-                                 "computeRightHandSidePotential" );
+        const int n_owned = mesh.ownedVertexCount();
+        const int n_local = mesh.totalVertexCount();
+
+        // 0. Ghosts. See the @note above for why this is one exchange and why
+        //    it is here rather than in the integrator: the RHS is what has the
+        //    precondition, so it is the RHS that establishes it.
+        mesh.haloExchange();
+
+        // 1. Geometry at the CURRENT stage positions. Recomputed every stage --
+        //    stale geometry silently degrades RK3 to first order.
+        geometry_type geometry;
+        geometry.compute( mesh.positions(), n_local, mesh.faceVertices() );
+
+        // 2. The sheet vector, S = -n x grad_s(phi). Owned rows are complete;
+        //    ghost rows hold partial sums, which is why the quadrature reads
+        //    owned rows only.
+        state.updateSheetVector( mesh, geometry );
+
+        // 3. The Birkhoff-Rott velocity. Overwritten, with 1/4pi and br_sign
+        //    ALREADY APPLIED (T2c) -- do not re-apply either here.
+        if ( static_cast<int>( vertex_dot.extent( 0 ) ) != n_owned )
+            Kokkos::realloc( vertex_dot, n_owned );
+        _br_solver->computeInterfaceVelocity( mesh, geometry, state,
+                                              *_quadrature, _params,
+                                              vertex_dot );
+
+        // 4. u . n from the RAW BR velocity, BEFORE the velocity mode is
+        //    applied (mesh_solver.py:1243-1244 takes it in that order, and
+        //    under `normal` the two are not the same number).
+        resizeScalar( _normal_speed, "beatnik_rhs_normal_speed", n_owned );
+        {
+            auto u = vertex_dot;
+            auto vn = geometry.vertex_normal;
+            auto ns = _normal_speed;
+            Kokkos::parallel_for(
+                "beatnik_rhs_normal_speed",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, n_owned ),
+                KOKKOS_LAMBDA( const int i ) {
+                    ns( i ) = u( i, 0 ) * vn( i, 0 ) + u( i, 1 ) * vn( i, 1 ) +
+                              u( i, 2 ) * vn( i, 2 );
+                } );
+            Kokkos::fence();
+        }
+
+        // The Bernoulli scalar's INPUT. Under `surface-riesz` it is a second BR
+        // evaluation, which is collective -- so it is driven by a parameter that
+        // is the same on every rank, and every rank reaches it the same number
+        // of times per step. Resolved before the velocity mode for the same
+        // reason step 4 is.
+        const bool riesz =
+            ( _params.bernoulli_scalar_mode == BernoulliScalarMode::SurfaceRiesz );
+        if ( riesz )
+        {
+            resizeScalar( _bernoulli_input, "beatnik_rhs_riesz", n_owned );
+            _br_solver->computeSurfaceRieszScalar( mesh, geometry, state,
+                                                   *_quadrature, _params,
+                                                   _bernoulli_input );
+        }
+
+        applyVelocityMode( geometry, vertex_dot );
+
+        // 5. Surface tension, BEFORE the volume projection (see the declaration
+        //    of computeSurfaceTension for why the order is load-bearing).
+        if ( _params.sigma != Real( 0 ) )
+            computeSurfaceTension( mesh, geometry, vertex_dot );
+
+        // 6. The volume projection.
+        if ( _params.preserve_volume )
+            VolumeProjection<ExecutionSpace, MemorySpace>::removeVolumeFlux(
+                mesh, vertex_dot );
+
+        // 7. The Bernoulli potential.
+        resizeScalar( potential_dot, "beatnik_rhs_potential_dot", n_owned );
+        computeBernoulliPotential( mesh, state,
+                                   riesz ? _bernoulli_input : _normal_speed,
+                                   potential_dot );
+
+        // 8. phi_dot = forcing_sign * A * V + mu * Laplacian(phi).
+        {
+            const Real gain = _params.forcing_sign * _params.A;
+            auto pd = potential_dot;
+            Kokkos::parallel_for(
+                "beatnik_rhs_forcing",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, n_owned ),
+                KOKKOS_LAMBDA( const int i ) { pd( i ) *= gain; } );
+            Kokkos::fence();
+        }
+        if ( _params.mu != Real( 0 ) )
+        {
+            resizeScalar( _viscosity, "beatnik_rhs_viscosity", n_owned );
+            computeScalarViscosity( mesh, geometry, state, _viscosity );
+            auto pd = potential_dot;
+            auto vis = _viscosity;
+            Kokkos::parallel_for(
+                "beatnik_rhs_add_viscosity",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, n_owned ),
+                KOKKOS_LAMBDA( const int i ) { pd( i ) += vis( i ); } );
+            Kokkos::fence();
+        }
+
+        // 9. Re-centre phi_dot, AFTER the viscous term (mesh_solver.py:1264-1268
+        //    subtracts the mean of the sum, not of the forcing alone).
+        subtractAreaWeightedMean( mesh, geometry, potential_dot );
     }
 
     /**
@@ -200,8 +320,11 @@ class ZModelSolver
      *
      * @param[out] vertex_dot `(Nv,3)` \f$\dot x\f$, units velocity.
      * @param[out] sheet_dot  `(Nv,3)` \f$\dot S\f$, units velocity/time.
+     *
+     * **Still T5c's, and still throwing.** Its `mesh` parameter was widened to
+     * `mesh_type&` at T2d with the rest of them, so T5c implements a body only.
      */
-    void computeRightHandSideSheet( const mesh_type& mesh,
+    void computeRightHandSideSheet( mesh_type& mesh,
                                     const state_type& state,
                                     vector_view& vertex_dot,
                                     vector_view& sheet_dot )
@@ -231,19 +354,45 @@ class ZModelSolver
      * \f$\Psi^2\f$ and \f$|S|^2\f$ obviously, and \f$g z_3\f$ because
      * \f$[g]=\f$ length/time^2.
      *
-     * @param normal_speed `(Nv,)` \f$u\!\cdot\!\hat n\f$, or the Riesz scalar.
-     * @param[out] bernoulli `(Nv,)` \f$V\f$.
+     * @param normal_speed `(N_owned,)` \f$u\!\cdot\!\hat n\f$, or the Riesz
+     *        scalar under `surface-riesz` — the caller resolves which, because
+     *        the Riesz path is a second collective BR evaluation and does not
+     *        belong inside a per-vertex kernel.
+     * @param[out] bernoulli `(N_owned,)` \f$V\f$.
+     *
+     * The `normal-proxy` factor of \f$\tfrac12\f$ is applied **here**, on the
+     * scalar, before squaring (`mesh_solver.py:922-923`) — it changes the
+     * quantity being squared, not the exponent.
      */
-    void computeBernoulliPotential( const mesh_type& mesh,
-                                    const state_type& state,
+    void computeBernoulliPotential( mesh_type& mesh, const state_type& state,
                                     const scalar_view& normal_speed,
                                     scalar_view& bernoulli )
     {
-        (void)mesh;
         (void)state;
-        (void)normal_speed;
-        (void)bernoulli;
-        BEATNIK_NOT_IMPLEMENTED( "ZModelSolver", "computeBernoulliPotential" );
+        const int n = static_cast<int>( bernoulli.extent( 0 ) );
+        auto pos = mesh.positions();
+        auto sheet = mesh.sheetVector();
+        auto psi = normal_speed;
+        auto out = bernoulli;
+        const Real g = _params.g;
+        const Real scale =
+            ( _params.bernoulli_scalar_mode == BernoulliScalarMode::NormalProxy )
+                ? Real( 0.5 )
+                : Real( 1 );
+        Kokkos::parallel_for(
+            "beatnik_bernoulli_potential",
+            Kokkos::RangePolicy<ExecutionSpace>( 0, n ),
+            KOKKOS_LAMBDA( const int i ) {
+                const Real s = scale * psi( i );
+                const Real s2 = sheet( i, 0 ) * sheet( i, 0 ) +
+                                sheet( i, 1 ) * sheet( i, 1 ) +
+                                sheet( i, 2 ) * sheet( i, 2 );
+                // V = Psi^2 - 1/4 |S|^2 - 2 g z. Every coefficient is
+                // load-bearing; see the file header.
+                out( i ) = s * s - Real( 0.25 ) * s2 -
+                           Real( 2 ) * g * pos( i, 2 );
+            } );
+        Kokkos::fence();
     }
 
     /**
@@ -264,9 +413,22 @@ class ZModelSolver
     void applyVelocityMode( const geometry_type& geometry,
                             vector_view& velocity )
     {
-        (void)geometry;
-        (void)velocity;
-        BEATNIK_NOT_IMPLEMENTED( "ZModelSolver", "applyVelocityMode" );
+        if ( _params.velocity_mode == VelocityMode::Full )
+            return; // `velocity` unchanged -- the reference returns it as is.
+
+        const int n = static_cast<int>( velocity.extent( 0 ) );
+        auto u = velocity;
+        auto vn = geometry.vertex_normal;
+        Kokkos::parallel_for(
+            "beatnik_velocity_mode_normal",
+            Kokkos::RangePolicy<ExecutionSpace>( 0, n ),
+            KOKKOS_LAMBDA( const int i ) {
+                const Real s = u( i, 0 ) * vn( i, 0 ) + u( i, 1 ) * vn( i, 1 ) +
+                               u( i, 2 ) * vn( i, 2 );
+                for ( int d = 0; d < 3; ++d )
+                    u( i, d ) = s * vn( i, d );
+            } );
+        Kokkos::fence();
     }
 
     /**
@@ -293,15 +455,61 @@ class ZModelSolver
      * same ball. Confining it would cancel the pinch itself, because the neck
      * carries the largest localization weight — the reference is explicit about
      * this (`mesh_solver.py:1134-1138`).
+     *
+     * **T2d — this ADDS into `velocity` rather than returning a field.** The
+     * reference returns `None` when \f$\sigma=0\f$ and the caller adds it
+     * (`mesh_solver.py:1245-1247`); accumulating in place is the same
+     * arithmetic without an `(Nv,3)` temporary, and the \f$\sigma=0\f$ branch
+     * is the caller's guard. **No sign flip**: `meanCurvatureNormal` returns
+     * \f$-2H\hat n_{\text{out}}\f$, verified inward at every vertex at T2b, and
+     * that is already the area-decreasing direction.
      */
-    void computeSurfaceTension( const mesh_type& mesh,
+    void computeSurfaceTension( mesh_type& mesh,
                                 const geometry_type& geometry,
                                 vector_view& velocity )
     {
-        (void)mesh;
-        (void)geometry;
-        (void)velocity;
-        BEATNIK_NOT_IMPLEMENTED( "ZModelSolver", "computeSurfaceTension" );
+        const int n_owned = static_cast<int>( velocity.extent( 0 ) );
+        const int n_local = mesh.totalVertexCount();
+
+        // Local-sized: meanCurvatureNormal is a face-loop scatter and takes Nv
+        // from its OUTPUT view, so an owned-sized result would index out of
+        // bounds on a ghost corner. Only owned rows are read back.
+        resizeVector( _curvature_normal, "beatnik_surface_tension_curvature",
+                      n_local );
+        auto pos = mesh.positions();
+        SurfaceOperators::meanCurvatureNormal( pos, mesh.faceVertices(),
+                                               geometry.vertex_area,
+                                               _curvature_normal );
+
+        auto u = velocity;
+        auto h = _curvature_normal;
+        const Real sigma = _params.sigma;
+        const Real radius = _params.sigma_radius;
+        const Real cx = _params.sigma_center[0];
+        const Real cy = _params.sigma_center[1];
+        const Real cz = _params.sigma_center[2];
+        Kokkos::parallel_for(
+            "beatnik_surface_tension",
+            Kokkos::RangePolicy<ExecutionSpace>( 0, n_owned ),
+            KOKKOS_LAMBDA( const int i ) {
+                Real weight = Real( 1 );
+                if ( radius > Real( 0 ) )
+                {
+                    const Real dx = pos( i, 0 ) - cx;
+                    const Real dy = pos( i, 1 ) - cy;
+                    const Real dz = pos( i, 2 ) - cz;
+                    const Real dist =
+                        Kokkos::sqrt( dx * dx + dy * dy + dz * dz );
+                    Real t = ( radius - dist ) / ( Real( 0.4 ) * radius );
+                    t = ( t < Real( 0 ) ) ? Real( 0 )
+                                          : ( t > Real( 1 ) ? Real( 1 ) : t );
+                    // smoothstep: 1 inside 0.6 R, 0 at R, C^1 between.
+                    weight = t * t * ( Real( 3 ) - Real( 2 ) * t );
+                }
+                for ( int d = 0; d < 3; ++d )
+                    u( i, d ) += sigma * weight * h( i, d );
+            } );
+        Kokkos::fence();
     }
 
     /**
@@ -319,22 +527,151 @@ class ZModelSolver
      * \f$\Delta\f$ and dissipates hardest there. Switching modes without
      * rescaling \f$\mu\f$ changes the effective viscosity by orders of
      * magnitude on a graded mesh.
+     *
+     * **T2d — `result` is `mu * Laplacian(phi)`, not the bare Laplacian**, and
+     * it is written over the **owned** range (its own extent). The `mu` factor
+     * lives here rather than at the call site because the two modes are not
+     * interchangeable at the same `mu` and keeping the coefficient adjacent to
+     * the operator choice is what makes that visible.
+     *
+     * @pre \f$\phi\f$'s ghost values are current — the caller's
+     *      `mesh.haloExchange()`.
      */
-    void computeScalarViscosity( const mesh_type& mesh,
+    void computeScalarViscosity( mesh_type& mesh,
                                  const geometry_type& geometry,
                                  const state_type& state, scalar_view& result )
     {
-        (void)mesh;
-        (void)geometry;
         (void)state;
-        (void)result;
-        BEATNIK_NOT_IMPLEMENTED( "ZModelSolver", "computeScalarViscosity" );
+        const int n_owned = static_cast<int>( result.extent( 0 ) );
+        const Real mu = _params.mu;
+
+        if ( _params.viscosity_mode == ViscosityMode::Graph )
+        {
+            // A GATHER over the one-ring, so it writes only the rows it is
+            // given and an owned-sized output is correct. `mesh.potential()` is
+            // read at local indices, which the exchange above made current.
+            SurfaceOperators::graphLaplacianScalar(
+                mesh.vertexOneRing(), mesh.potential(), result );
+        }
+        else
+        {
+            // A face-loop SCATTER, so its output must span the whole local
+            // range (T2b: Nv comes from the output view). This is exactly the
+            // call the `OutScalarView` template split at T2b exists for --
+            // `values` is `mesh.potential()`, a Cabana slice, and the result is
+            // a Beatnik-owned view.
+            const int n_local = mesh.totalVertexCount();
+            resizeScalar( _laplacian, "beatnik_viscosity_laplacian", n_local );
+            SurfaceOperators::cotangentLaplacianScalar(
+                mesh.positions(), mesh.faceVertices(), mesh.potential(),
+                geometry.vertex_area, _laplacian );
+            auto lap = _laplacian;
+            auto out = result;
+            Kokkos::parallel_for(
+                "beatnik_viscosity_gather",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, n_owned ),
+                KOKKOS_LAMBDA( const int i ) { out( i ) = lap( i ); } );
+            Kokkos::fence();
+        }
+
+        auto out = result;
+        Kokkos::parallel_for(
+            "beatnik_viscosity_scale",
+            Kokkos::RangePolicy<ExecutionSpace>( 0, n_owned ),
+            KOKKOS_LAMBDA( const int i ) { out( i ) *= mu; } );
+        Kokkos::fence();
     }
 
   private:
+    /// Reallocate only on a size change, so the three RK3 stages reuse one
+    /// allocation. `WithoutInitializing` because every consumer below either
+    /// overwrites the whole range or is documented to zero it first.
+    ///
+    /// The label is a `std::string` and NOT a `const char*`: `Kokkos::view_alloc`
+    /// treats a *decayed* `const char*` as a **pointer to memory**, not as a
+    /// label, and the resulting `static_assert` ("Cannot give pointer-to-memory
+    /// for view allocation") is several screens from the call site. A string
+    /// literal passed directly works because it is still an array type there.
+    static void resizeScalar( scalar_view& v, const std::string& label, int n )
+    {
+        if ( static_cast<int>( v.extent( 0 ) ) != n )
+            v = scalar_view(
+                Kokkos::view_alloc( Kokkos::WithoutInitializing, label ), n );
+    }
+
+    static void resizeVector( vector_view& v, const std::string& label, int n )
+    {
+        if ( static_cast<int>( v.extent( 0 ) ) != n )
+            v = vector_view(
+                Kokkos::view_alloc( Kokkos::WithoutInitializing, label ), n );
+    }
+
+    /// Subtract the global area-weighted mean of an owned-range per-vertex
+    /// scalar from itself.
+    ///
+    /// Port of mesh_solver.py::_area_weighted_scalar_mean (lines 239-244), as
+    /// applied at ::potential_mesh_rhs (lines 1264-1268)
+    ///
+    /// REDUCE BOTH SUMS, THEN DIVIDE -- the same contract, and the same reason,
+    /// as `SurfaceState::centerPotential`: an `allReduceSum` of per-rank means
+    /// is not the global mean, and subtracting a per-rank mean would give
+    /// `phi_dot` a piecewise-constant jump across every partition boundary.
+    /// Invisible at one rank.
+    static void subtractAreaWeightedMean( mesh_type& mesh,
+                                          const geometry_type& geometry,
+                                          scalar_view& values )
+    {
+        const int n_owned = static_cast<int>( values.extent( 0 ) );
+        auto area_owned = Kokkos::subview( geometry.vertex_area,
+                                           std::make_pair( 0, n_owned ) );
+
+        Real weighted = 0, area = 0;
+        SurfaceOperators::areaWeightedMeanPartials( values, area_owned,
+                                                    weighted, area );
+
+        Real pair[2] = { weighted, area };
+        Real reduced[2] = { 0, 0 };
+        MPI_Allreduce( pair, reduced, 2, MPI_DOUBLE, MPI_SUM, mesh.comm() );
+
+        Real mean = 0;
+        if ( reduced[1] > Real( 0 ) )
+        {
+            mean = reduced[0] / reduced[1];
+        }
+        else
+        {
+            // The Python's fallback is the UNWEIGHTED mean (lines 242-243).
+            // Reduced too, so ranks cannot disagree about the shift.
+            auto v = values;
+            Real local_sum = 0;
+            Kokkos::parallel_reduce(
+                "beatnik_rhs_unweighted_mean",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, n_owned ),
+                KOKKOS_LAMBDA( const int i, Real& acc ) { acc += v( i ); },
+                local_sum );
+            const Real total = Comm::allReduceSum( mesh.comm(), local_sum );
+            const long long count = mesh.globalVertexCount();
+            mean = ( count > 0 ) ? total / static_cast<Real>( count ) : Real( 0 );
+        }
+
+        auto v = values;
+        Kokkos::parallel_for(
+            "beatnik_rhs_subtract_mean",
+            Kokkos::RangePolicy<ExecutionSpace>( 0, n_owned ),
+            KOKKOS_LAMBDA( const int i ) { v( i ) -= mean; } );
+        Kokkos::fence();
+    }
+
     ZModelParams _params;
     br_solver_type* _br_solver = nullptr;
     const quadrature_type* _quadrature = nullptr;
+
+    /// Scratch, allocated on first use and reused across stages and steps.
+    scalar_view _normal_speed;
+    scalar_view _bernoulli_input;
+    scalar_view _viscosity;
+    scalar_view _laplacian;
+    vector_view _curvature_normal;
 };
 
 } // namespace Beatnik

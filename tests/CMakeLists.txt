@@ -155,6 +155,15 @@ set(_beatnik_rel_fixtures regression_tests/fixtures)
 #                                    the read-only Python. Takes NO arguments;
 #                                    everything it needs it computes.
 #
+# GREW TO THREE MEMBERS AT TASK T2d, authorized by the user for that task:
+#
+#   Beatnik_Test_DirectSolve10Steps  regression test 2 -- ten TVD-RK3 timesteps
+#                                    with the direct BR solver, compared against
+#                                    the T2a Python gold set at EVERY step by
+#                                    compare_output.py. This is the first gate
+#                                    member that says the solver integrates
+#                                    anything.
+#
 # HOW A MULTI-RANK REGRESSION ENTRY IS REPRESENTED, AND WHY THIS SHAPE
 # --------------------------------------------------------------------
 # T1c's exit criterion names ranks 1, 2 and 4; the GATE is defined at ranks
@@ -202,6 +211,8 @@ set(BEATNIK_REGRESSION_TEST_SOURCES
   Beatnik_Test_InitialConditions.cpp
   # T2c: the vertex quadrature and the direct Birkhoff-Rott sum.
   Beatnik_Test_BirkhoffRott.cpp
+  # T2d: regression test 2 -- ten timesteps against the T2a gold set.
+  Beatnik_Test_DirectSolve10Steps.cpp
   )
 
 # Kokkos execution-space class per BEATNIK_SUPPORTED_DEVICES name. Spelled out
@@ -239,6 +250,16 @@ set(_beatnik_args_Beatnik_Test_InitialConditions_rel
 # list still is) so the "did the author forget?" check below stays meaningful.
 set(_beatnik_args_Beatnik_Test_BirkhoffRott_abs "")
 set(_beatnik_args_Beatnik_Test_BirkhoffRott_rel "")
+
+# T2d takes the gold DIRECTORY (not a single file): it compares one checkpoint
+# per step, and finds each step's gold file by its `_step%07d.npz` suffix rather
+# than by rebuilding the name from a time -- the time is what is under test.
+set(_beatnik_args_Beatnik_Test_DirectSolve10Steps_abs
+  ${_beatnik_compare_dir}/direct-solve-10-steps/gold
+  ${_beatnik_compare_dir}/compare_output.py)
+set(_beatnik_args_Beatnik_Test_DirectSolve10Steps_rel
+  regression_tests/direct-solve-10-steps/gold
+  ${_beatnik_rel_compare_py})
 
 foreach(_src ${BEATNIK_REGRESSION_TEST_SOURCES})
   get_filename_component(_stem ${_src} NAME_WE)
@@ -429,6 +450,25 @@ if(Beatnik_INSTALL_TEST_EXECUTABLES)
             ${_beatnik_compare_dir}/initial_conditions/gold.npz
             ${_beatnik_compare_dir}/initial_conditions/README.md
           DESTINATION ${_beatnik_test_install}/regression_tests/initial_conditions)
+
+  # The T2a gold SET -- eleven files, steps 0-10 -- which regression test 2
+  # (T2d) compares against one step at a time. Globbed rather than enumerated
+  # because the filenames encode the simulation time and would have to be
+  # transcribed by hand otherwise; the glob runs at configure time, so a gold
+  # file added later needs a reconfigure, which regenerating a gold set implies
+  # anyway.
+  file(GLOB _beatnik_t2a_gold
+       ${_beatnik_compare_dir}/direct-solve-10-steps/gold/*.npz)
+  if(NOT _beatnik_t2a_gold)
+    message(FATAL_ERROR
+      "tests/CMakeLists.txt: no .npz gold files under "
+      "regression_tests/direct-solve-10-steps/gold. Regression test 2 installed "
+      "without its gold set is not installed.")
+  endif()
+  install(FILES ${_beatnik_t2a_gold}
+          DESTINATION ${_beatnik_test_install}/regression_tests/direct-solve-10-steps/gold)
+  install(FILES ${_beatnik_compare_dir}/direct-solve-10-steps/README.md
+          DESTINATION ${_beatnik_test_install}/regression_tests/direct-solve-10-steps)
 endif()
 
 ##--------------------------------------------------------------------------##

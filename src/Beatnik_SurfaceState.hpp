@@ -92,6 +92,7 @@
 
 #include <mpi.h>
 
+#include <limits>
 #include <utility>
 
 namespace Beatnik
@@ -226,9 +227,14 @@ class SurfaceState
      *      without a scatter-add (see DISTRIBUTED ASSEMBLY in
      *      `Beatnik_MeshGeometry.hpp`), and a second exchange does not widen the
      *      one-ring — the depth-2 halo built once in `SurfaceMesh` does (R8).
+     *
+     * **T2d — this is now a `const` member.** It writes the *mesh*, never the
+     * state (which holds no storage at all), and the RHS receives its state by
+     * `const&` because the source quadrature does. Every other method here was
+     * already `const` for the same reason; this one was the outlier.
      */
     template <class MeshType, class GeometryType>
-    void updateSheetVector( MeshType& mesh, const GeometryType& geometry )
+    void updateSheetVector( MeshType& mesh, const GeometryType& geometry ) const
     {
         if ( _model != StateModel::Potential )
             return;
@@ -281,15 +287,44 @@ class SurfaceState
      *      face-gradient value is the quantity that sees those spikes first"
      *      (`run_adaptive_mesh_bubble.py:904-910`). Using only the vertex value
      *      lets the dt throttle miss the blow-up it exists to catch.
+     *
+     * **T2d — implemented for use 2 only.** `max_sheet_strength` needs it, and
+     * `TimeIntegrator::chooseStepSize`'s `--max-sheet-dt-product` clamp needs
+     * that, so leaving it throwing would have left a documented clamp that
+     * aborts the run the moment it is enabled. Use 1 is the `Face` and
+     * `Triangle3` quadratures, which are still T5-era or later.
+     *
+     * @param face_sheet `(Nf,3)`; **its extent chooses the face range**. Pass
+     *        the OWNED range for anything that reduces to a global scalar
+     *        (risk R9); the whole local range is right only for a per-face
+     *        assembly, and there is none here.
+     *
+     * @pre \f$\phi\f$'s ghost values are current — the per-face gradient reads
+     *      all three corners of a face this rank may only partly own.
      */
     template <class MeshType, class GeometryType, class VectorView>
-    void faceSheetVector( const MeshType& mesh, const GeometryType& geometry,
+    void faceSheetVector( MeshType& mesh, const GeometryType& geometry,
                           VectorView& face_sheet ) const
     {
-        (void)mesh;
-        (void)geometry;
-        (void)face_sheet;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceState", "faceSheetVector" );
+        const int nf = static_cast<int>( face_sheet.extent( 0 ) );
+        auto pos = mesh.positions();
+        auto faces = mesh.faceVertices();
+        auto phi = mesh.potential();
+        auto fn = geometry.face_normal;
+        auto out = face_sheet;
+        Kokkos::parallel_for(
+            "beatnik_face_sheet_vector",
+            Kokkos::RangePolicy<execution_space>( 0, nf ),
+            KOKKOS_LAMBDA( const int f ) {
+                Real g[3];
+                SurfaceOperators::faceGradient( pos, faces, phi, f, g );
+                // S_f = -n_f x grad_f(phi). The same minus sign, and the same
+                // component order, as the vertex form above.
+                out( f, 0 ) = -( fn( f, 1 ) * g[2] - fn( f, 2 ) * g[1] );
+                out( f, 1 ) = -( fn( f, 2 ) * g[0] - fn( f, 0 ) * g[2] );
+                out( f, 2 ) = -( fn( f, 0 ) * g[1] - fn( f, 1 ) * g[0] );
+            } );
+        Kokkos::fence();
     }
 
     /**
@@ -396,12 +431,20 @@ class SurfaceState
      *
      * Applied on every state construction under `SheetVector`. See
      * `SurfaceOperators::projectTangent` for why this cannot be skipped.
+     *
+     * **T2d — it takes the mesh too**, for the reason recorded on
+     * `centerPotential`: the sheet vector it projects lives in the mesh. A no-op
+     * under `Potential`, where the sheet vector is derived and already
+     * tangential by construction.
      */
-    template <class GeometryType>
-    void projectSheetTangent( const GeometryType& geometry )
+    template <class MeshType, class GeometryType>
+    void projectSheetTangent( MeshType& mesh,
+                              const GeometryType& geometry ) const
     {
-        (void)geometry;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceState", "projectSheetTangent" );
+        if ( _model != StateModel::SheetVector )
+            return;
+        auto sheet = mesh.sheetVector();
+        SurfaceOperators::projectTangent( sheet, geometry.vertex_normal );
     }
 
     /**
@@ -415,14 +458,89 @@ class SurfaceState
      * and the filter threshold both handle by declining to act.
      *
      * @note MPI. `Comm::allReduceMax`. Must be global — see that function.
+     *
+     * **T2d — the "nothing is finite" rule is a GLOBAL statement.** The Python
+     * drops non-finite candidates and returns \f$+\infty\f$ only if the whole
+     * list is non-finite. Distributed, a rank whose owned range happens to be
+     * entirely non-finite must not report \f$+\infty\f$ on its own, so the count
+     * of finite candidates is reduced alongside the maximum and the verdict is
+     * taken after the reduction.
+     *
+     * Reduced over **owned** vertices and **owned** faces (risk R9): this is a
+     * global scalar, and although a max is idempotent under double counting,
+     * the owned range is the contract everywhere else here.
      */
     template <class MeshType, class GeometryType>
-    Real maxSheetStrength( const MeshType& mesh,
-                           const GeometryType& geometry ) const
+    Real maxSheetStrength( MeshType& mesh, const GeometryType& geometry ) const
     {
-        (void)mesh;
-        (void)geometry;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceState", "maxSheetStrength" );
+        auto sheet = mesh.sheetVector();
+        const int nv = mesh.ownedVertexCount();
+
+        Real local_max = 0;
+        long long local_finite = 0;
+        Kokkos::parallel_reduce(
+            "beatnik_max_sheet_vertex",
+            Kokkos::RangePolicy<execution_space>( 0, nv ),
+            KOKKOS_LAMBDA( const int i, Real& m, long long& c ) {
+                const Real mag = Kokkos::sqrt( sheet( i, 0 ) * sheet( i, 0 ) +
+                                               sheet( i, 1 ) * sheet( i, 1 ) +
+                                               sheet( i, 2 ) * sheet( i, 2 ) );
+                if ( Kokkos::isfinite( mag ) )
+                {
+                    ++c;
+                    if ( mag > m )
+                        m = mag;
+                }
+            },
+            Kokkos::Max<Real>( local_max ), local_finite );
+
+        if ( _model == StateModel::Potential )
+        {
+            // The FACE gradient too: "the vertex-gradient diagnostic can miss
+            // triangle-scale potential jumps on irregular adaptive meshes"
+            // (run_adaptive_mesh_bubble.py:904-910). Using only the vertex value
+            // lets the dt throttle miss the blow-up it exists to catch.
+            const int nf = mesh.ownedFaceCount();
+            Kokkos::View<Real* [3], memory_space> face_sheet(
+                Kokkos::view_alloc( Kokkos::WithoutInitializing,
+                                    "beatnik_max_sheet_face" ),
+                nf );
+            faceSheetVector( mesh, geometry, face_sheet );
+
+            Real face_max = 0;
+            long long face_finite = 0;
+            Kokkos::parallel_reduce(
+                "beatnik_max_sheet_face_reduce",
+                Kokkos::RangePolicy<execution_space>( 0, nf ),
+                KOKKOS_LAMBDA( const int f, Real& m, long long& c ) {
+                    const Real mag = Kokkos::sqrt(
+                        face_sheet( f, 0 ) * face_sheet( f, 0 ) +
+                        face_sheet( f, 1 ) * face_sheet( f, 1 ) +
+                        face_sheet( f, 2 ) * face_sheet( f, 2 ) );
+                    if ( Kokkos::isfinite( mag ) )
+                    {
+                        ++c;
+                        if ( mag > m )
+                            m = mag;
+                    }
+                },
+                Kokkos::Max<Real>( face_max ), face_finite );
+
+            if ( face_max > local_max )
+                local_max = face_max;
+            local_finite += face_finite;
+        }
+
+        long long global_finite = 0;
+        MPI_Allreduce( &local_finite, &global_finite, 1, MPI_LONG_LONG, MPI_SUM,
+                       mesh.comm() );
+        const Real global_max = Comm::allReduceMax( mesh.comm(), local_max );
+
+        // The Python's `return np.inf` when nothing finite survived. Both the dt
+        // clamp and the filter threshold handle +inf by declining to act.
+        if ( global_finite == 0 )
+            return std::numeric_limits<Real>::infinity();
+        return global_max;
     }
 
     /**

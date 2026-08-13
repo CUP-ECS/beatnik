@@ -16,6 +16,8 @@
 #ifndef BEATNIK_TIMEINTEGRATOR_HPP
 #define BEATNIK_TIMEINTEGRATOR_HPP
 
+#include <Beatnik_Communication.hpp>
+#include <Beatnik_MeshGeometry.hpp>
 #include <Beatnik_MeshInterface.hpp>
 #include <Beatnik_Params.hpp>
 #include <Beatnik_SurfaceState.hpp>
@@ -23,6 +25,12 @@
 #include <Beatnik_ZModelSolver.hpp>
 
 #include <Kokkos_Core.hpp>
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <string>
+#include <utility>
 
 namespace Beatnik
 {
@@ -103,13 +111,66 @@ class TimeIntegrator
      *       collectives and three sets of reductions. Also three ghost
      *       exchanges of the vertex positions, one after each stage update —
      *       `Comm::haloExchangeVertices`.
+     *
+     * **T2d — WHAT THE STAGE CONSTRUCTION HAS TO DO BESIDES THE ARITHMETIC.**
+     * The reference builds each stage through `state.with_arrays(...)`, which
+     * runs `MeshPotentialZModelState.__post_init__` and therefore
+     * **re-centres the potential at the NEW vertices** (`mesh_solver.py:155-159`)
+     * — every stage, not only at the end of the step. So `finishStage` below is
+     * `haloExchange` -> geometry at the new positions -> `centerPotential`, and
+     * the next stage's combination reads the *centred* value, exactly as the
+     * Python's `stage1.potential` is the centred array. Dropping the
+     * per-stage re-centring changes the answer, because the mean is subtracted
+     * from a field the next stage then differentiates.
+     *
+     * The stage geometry is computed twice per stage — once by `finishStage` for
+     * the centring and once inside the RHS — which at 162 vertices is free and
+     * keeps the RHS's documented signature (it takes no geometry, so that it
+     * cannot be handed a stale one).
      */
     void step( mesh_type& mesh, state_type& state, Real dt )
     {
-        (void)mesh;
-        (void)state;
-        (void)dt;
-        BEATNIK_NOT_IMPLEMENTED( "TimeIntegrator", "step" );
+        const int n = mesh.ownedVertexCount();
+        resizeVector( _x0, "beatnik_rk3_x0", n );
+        resizeScalar( _p0, "beatnik_rk3_p0", n );
+
+        {
+            auto pos = mesh.positions();
+            auto phi = mesh.potential();
+            auto x0 = _x0;
+            auto p0 = _p0;
+            Kokkos::parallel_for(
+                "beatnik_rk3_save",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, n ),
+                KOKKOS_LAMBDA( const int i ) {
+                    for ( int d = 0; d < 3; ++d )
+                        x0( i, d ) = pos( i, d );
+                    p0( i ) = phi( i );
+                } );
+            Kokkos::fence();
+        }
+
+        // Stage 1: q1 = q0 + dt L(q0). Written as the general combination with
+        // (a0, a1) = (0, 1) so the three stages are one kernel and cannot drift.
+        _zmodel->computeRightHandSidePotential( mesh, state, _vertex_dot,
+                                                _potential_dot );
+        combine( mesh, n, Real( 0 ), Real( 1 ), dt );
+        finishStage( mesh, state );
+
+        // Stage 2: q2 = 3/4 q0 + 1/4 q1 + 1/4 dt L(q1). Note it combines with
+        // q0, not with q2's own predictor.
+        _zmodel->computeRightHandSidePotential( mesh, state, _vertex_dot,
+                                                _potential_dot );
+        combine( mesh, n, Real( 0.75 ), Real( 0.25 ), Real( 0.25 ) * dt );
+        finishStage( mesh, state );
+
+        // Stage 3: q^{n+1} = 1/3 q0 + 2/3 q2 + 2/3 dt L(q2).
+        _zmodel->computeRightHandSidePotential( mesh, state, _vertex_dot,
+                                                _potential_dot );
+        const Real third = Real( 1 ) / Real( 3 );
+        const Real two_thirds = Real( 2 ) / Real( 3 );
+        combine( mesh, n, third, two_thirds, two_thirds * dt );
+        finishStage( mesh, state );
     }
 
     /**
@@ -150,21 +211,161 @@ class TimeIntegrator
      *
      * @note MPI. \f$h_{\min}\f$ is an `MPI_Allreduce`/`MPI_MIN` and
      *       \f$\|S\|_\infty\f$ an `MPI_Allreduce`/`MPI_MAX`. Every rank **must**
-     *       obtain the same dt — see `Comm::allReduceMin`.
+     *       obtain the same dt — see `Comm::allReduceMin`. `MPI_MIN` on a fixed
+     *       set of values is order-independent, so \f$h_{\min}\f$ is
+     *       reproducible across rank counts *by construction* and not by luck
+     *       (measured at T1c: spread exactly zero). That is what keeps the
+     *       adaptive dt from being the leading term in R2's trajectory
+     *       divergence.
+     *
+     * **T2d — `mesh` is no longer `const`** (`positions()` / `edgeVertices()`),
+     * and **this must not be stubbed to a constant.** The T2a gold set was
+     * generated with `--adaptive-dt` live: `time` is `0.003` exactly at step 1
+     * and then drifts (`0.0059999881751648708` at step 2), so a fixed-dt run
+     * fails on `time` at step 2 and on the fields shortly after, for a reason
+     * that has nothing to do with the RHS.
      */
-    Real chooseStepSize( const mesh_type& mesh, const state_type& state,
+    Real chooseStepSize( mesh_type& mesh, const state_type& state,
                          const TimeParams& time_params,
                          Real initial_min_edge ) const
     {
-        (void)mesh;
-        (void)state;
-        (void)time_params;
-        (void)initial_min_edge;
-        BEATNIK_NOT_IMPLEMENTED( "TimeIntegrator", "chooseStepSize" );
+        Real dt = time_params.dt;
+
+        if ( time_params.adaptive_dt )
+        {
+            // OWNED edges (risk R9). Owned edges form a global partition, so the
+            // reduced minimum is the global minimum exactly once -- and this is
+            // the same quantity, computed the same way, as the `initial_min_edge`
+            // it is divided by.
+            const int n_owned_edges = mesh.ownedEdgeCount();
+            auto owned_edges =
+                Kokkos::subview( mesh.edgeVertices(),
+                                 std::make_pair( 0, n_owned_edges ),
+                                 Kokkos::ALL() );
+            scalar_view lengths(
+                Kokkos::view_alloc( Kokkos::WithoutInitializing,
+                                    "beatnik_dt_edge_lengths" ),
+                n_owned_edges );
+            SurfaceOperators::edgeLengths( mesh.positions(), owned_edges,
+                                           lengths );
+
+            Real local_min = std::numeric_limits<Real>::max();
+            Kokkos::parallel_reduce(
+                "beatnik_dt_min_edge",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, n_owned_edges ),
+                KOKKOS_LAMBDA( const int e, Real& m ) {
+                    if ( lengths( e ) < m )
+                        m = lengths( e );
+                },
+                Kokkos::Min<Real>( local_min ) );
+
+            const Real h_min = Comm::allReduceMin( mesh.comm(), local_min );
+            const Real reference = ( initial_min_edge > Real( 1.0e-300 ) )
+                                       ? initial_min_edge
+                                       : Real( 1.0e-300 );
+            // Capped at 1, so a COARSENING mesh never raises dt above dt0.
+            Real ratio = h_min / reference;
+            if ( ratio > Real( 1 ) )
+                ratio = Real( 1 );
+            const Real power = ( time_params.dt_edge_power > Real( 0 ) )
+                                   ? time_params.dt_edge_power
+                                   : Real( 0 );
+            const Real scale = std::pow( ratio, power );
+            dt = std::max( time_params.min_dt, time_params.dt * scale );
+        }
+
+        if ( time_params.max_sheet_dt_product > Real( 0 ) )
+        {
+            // The reference reads `state.sheet_vector`, which under the potential
+            // model is a PROPERTY that recomputes the surface gradient -- so the
+            // sheet vector is refreshed here rather than reused from the previous
+            // step's last RK3 stage, where it belongs to the pre-final positions.
+            // Costs one extra exchange and one geometry, and only on this branch.
+            mesh.haloExchange();
+            MeshGeometry<ExecutionSpace, MemorySpace> geometry;
+            geometry.compute( mesh.positions(), mesh.totalVertexCount(),
+                              mesh.faceVertices() );
+            state.updateSheetVector( mesh, geometry );
+
+            const Real max_sheet = state.maxSheetStrength( mesh, geometry );
+            if ( std::isfinite( max_sheet ) && max_sheet > Real( 1.0e-300 ) )
+            {
+                // The floor is INSIDE the min, so this clamp cannot push dt
+                // below --min-dt either.
+                const Real clamp =
+                    std::max( time_params.min_dt,
+                              time_params.max_sheet_dt_product / max_sheet );
+                dt = std::min( dt, clamp );
+            }
+        }
+
+        return dt;
     }
 
   private:
+    /// One convex-combination kernel for all three stages:
+    /// \f$q \leftarrow a_0 q^0 + a_1 q + c\,\dot q\f$, over OWNED rows.
+    /// Both components take the SAME weights — the position and the potential
+    /// are not stepped differently.
+    void combine( mesh_type& mesh, int n, Real a0, Real a1, Real c )
+    {
+        auto pos = mesh.positions();
+        auto phi = mesh.potential();
+        auto x0 = _x0;
+        auto p0 = _p0;
+        auto xdot = _vertex_dot;
+        auto pdot = _potential_dot;
+        Kokkos::parallel_for(
+            "beatnik_rk3_combine",
+            Kokkos::RangePolicy<ExecutionSpace>( 0, n ),
+            KOKKOS_LAMBDA( const int i ) {
+                for ( int d = 0; d < 3; ++d )
+                    pos( i, d ) = a0 * x0( i, d ) + a1 * pos( i, d ) +
+                                  c * xdot( i, d );
+                phi( i ) = a0 * p0( i ) + a1 * phi( i ) + c * pdot( i );
+            } );
+        Kokkos::fence();
+    }
+
+    /// What `state.with_arrays(...)` does beyond storing the arrays: refresh the
+    /// ghosts of the fields just written on owned rows, rebuild the geometry at
+    /// the new positions, and re-centre the potential against it. See the
+    /// T2d note on `step`.
+    void finishStage( mesh_type& mesh, state_type& state )
+    {
+        mesh.haloExchange();
+        MeshGeometry<ExecutionSpace, MemorySpace> geometry;
+        geometry.compute( mesh.positions(), mesh.totalVertexCount(),
+                          mesh.faceVertices() );
+        state.centerPotential( mesh, geometry );
+    }
+
+    /// The label is a `std::string`, not a `const char*` — see the same helper
+    /// in `Beatnik_ZModelSolver.hpp` for why a decayed pointer is read by
+    /// `Kokkos::view_alloc` as pointer-to-memory rather than as a label.
+    static void resizeScalar( scalar_view& v, const std::string& label, int n )
+    {
+        if ( static_cast<int>( v.extent( 0 ) ) != n )
+            v = scalar_view(
+                Kokkos::view_alloc( Kokkos::WithoutInitializing, label ), n );
+    }
+
+    static void resizeVector( vector_view& v, const std::string& label, int n )
+    {
+        if ( static_cast<int>( v.extent( 0 ) ) != n )
+            v = vector_view(
+                Kokkos::view_alloc( Kokkos::WithoutInitializing, label ), n );
+    }
+
     zmodel_type* _zmodel = nullptr;
+
+    /// The step's initial state and the current stage's rates. Allocated on
+    /// first use and reused; the RHS reallocates its two out-parameters only on
+    /// an extent mismatch (T2c), so one pair serves all three stages.
+    vector_view _x0;
+    scalar_view _p0;
+    vector_view _vertex_dot;
+    scalar_view _potential_dot;
 };
 
 } // namespace Beatnik

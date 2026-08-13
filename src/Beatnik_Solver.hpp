@@ -114,7 +114,12 @@
 
 #include <mpi.h>
 
+#include <algorithm>
+#include <cmath>
+#include <cstdio>
+#include <iostream>
 #include <memory>
+#include <stdexcept>
 #include <string>
 
 namespace Beatnik
@@ -178,6 +183,14 @@ class Solver
     using quadrature_type = SourceQuadratureBase<ExecutionSpace, MemorySpace>;
     using diagnostics_type =
         DiagnosticsCalculator<ExecutionSpace, MemorySpace>;
+    using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
+
+    // TODO(types): templated pending Tessera/Canopy interface; collapse to a
+    // concrete type once known.
+    using scalar_view = Kokkos::View<Real*, device_type>;
+    // TODO(types): templated pending Tessera/Canopy interface; collapse to a
+    // concrete type once known.
+    using vector_view = Kokkos::View<Real* [3], device_type>;
 
     /**
      * @param comm   Communicator to decompose the surface over.
@@ -291,26 +304,44 @@ class Solver
      *         if it completed its budget. The example driver uses this for its
      *         exit status.
      *
-     * **T1c implements the `steps == 0` GUARD AND NOTHING ELSE.** The loop is
-     * T2d's, and it is deliberately not begun here: `main` (1398-1636) makes
-     * control-flow decisions — where the last-finite state is recorded,
-     * where dt is clamped, in what order the post-step passes run — that
-     * only make sense with the RHS in hand, and a half-transcribed loop would
-     * commit to them early while looking finished.
+     * The `steps == 0` guard is not a special case bolted on. `--steps 0` is a
+     * legitimate configuration (it is exactly the one T1a generated the gold
+     * file with), the Python's loop is `while local_step < steps` and so runs
+     * zero times, and `setup()` has already written the startup checkpoint while
+     * `finalize()` will write the final one. So returning `true` there is the
+     * *correct* behaviour: the run completed its budget.
      *
-     * The guard is not a special case bolted on. `--steps 0` is a legitimate
-     * configuration (it is exactly the one T1a generated the gold file with),
-     * the Python's loop is `while local_step < steps` and so runs zero times,
-     * and `setup()` has already written the startup checkpoint while
-     * `finalize()` will write the final one. So returning `true` here is the
-     * *correct* behaviour and not a stub: the run completed its budget.
+     * **T2d — the loop is here, and the post-step passes it cannot yet run
+     * THROW rather than being skipped.** `requireSupportedConfiguration()` is
+     * called once before the loop and rejects, by name and by task ID, any
+     * configuration whose post-step passes are still stubs (T4a/T4b/T4c/T5c). It
+     * is a configuration check and not a mid-loop guard on purpose: the
+     * conditions are global and time-independent, so failing before the first
+     * step is both cheaper and more honest than aborting at step 5. Silently
+     * skipping them instead would let a run *look* like the reference's default
+     * configuration while omitting the adaptivity that configuration is about.
      */
     bool solve()
     {
         if ( _params.time.steps <= 0 )
             return true;
 
-        BEATNIK_NOT_IMPLEMENTED( "Solver", "solve" );
+        requireSupportedConfiguration();
+
+        for ( int local_step = 0; local_step < _params.time.steps;
+              ++local_step )
+        {
+            // The reference breaks BEFORE incrementing the counters
+            // (run_adaptive_mesh_bubble.py:1402-1403), so a run that lands
+            // exactly on --t-end does not take a zero-length step.
+            if ( _params.time.have_t_end &&
+                 _time >= _params.time.t_end - Real( 1.0e-14 ) )
+                break;
+
+            if ( !advanceOneStep() )
+                return false;
+        }
+        return true;
     }
 
     /**
@@ -322,28 +353,88 @@ class Solver
      * abort and after an interrupt, and writes the recorded last-finite state
      * rather than the current one. A no-op when `--checkpoint-dir` is empty.
      *
-     * **T1c CAVEAT — "last finite" is not yet distinct from "current".** The
-     * last-finite state is recorded inside the step loop, which is T2d's, so at
-     * 0 timesteps the two coincide by construction and this writes the current
-     * state. At `--steps 0` that means the same `(time, step)` and therefore
-     * the same filename as `setup`'s startup checkpoint, so the file is written
-     * twice — which is exactly what the Python does (`main` lines 1313-1324 and
-     * 1641-1652 both fire at t=0/step=0) and is harmless because `writeMesh`
-     * truncates. T2d must make the distinction real; until it does, do not read
-     * a passing 0-step comparison as evidence that the last-finite path works.
+     * **T2d — the distinction is now real.** `advanceOneStep` records the three
+     * owned vertex fields, the positions, and the `(time, step)` pair after
+     * every mutation of a step that ended finite; this restores them into the
+     * mesh before writing, so a run that blows up at step N still leaves a
+     * restartable file describing step N-1. At `--steps 0` nothing was ever
+     * recorded and the current state is written, which is the T1c behaviour and
+     * is what keeps regression test 1 unchanged: same `(time, step)`, therefore
+     * the same filename as `setup`'s startup checkpoint, written twice — exactly
+     * what the Python does (`main` 1313-1324 and 1641-1652 both fire at
+     * t=0/step=0) and harmless because `writeMesh` truncates.
      */
-    void finalize() { writeCheckpoint(); }
+    void finalize()
+    {
+        restoreLastFiniteState();
+        writeCheckpoint();
+    }
 
     /**
      * @brief Advance one accepted step, with all its post-step passes.
      *
+     * Port of run_adaptive_mesh_bubble.py::main (lines 1404-1636), the loop body
+     *
      * The body of the loop, factored out so a test can drive a single step.
      *
+     * Order, and every piece of it is the reference's:
+     *  1. `++step` **before** dt is chosen, because the checkpoint and progress
+     *     schedules are both `step % n == 0` and the reference increments first
+     *     (line 1405).
+     *  2. `chooseStepSize`, then the two clamps that are the *caller's* and not
+     *     that function's — `--dt-switch-time` and landing exactly on `--t-end`
+     *     (lines 1407-1410).
+     *  3. One TVD-RK3 step; advance `time` by the dt actually taken.
+     *  4. The global finiteness check. **Every abort is a global decision**
+     *     (`SurfaceState::allFinite` reduces it), so no rank can leave the loop
+     *     while its peers block in the next collective.
+     *  5. Record the last-finite state — **after** every mutation of the step,
+     *     not before (lines 1566-1569).
+     *  6. Checkpoint if due, then the throttled progress line.
+     *
      * @return False if the step produced a non-finite state.
+     *
+     * @note MPI. Collective throughout, and **uniformly so**: the BR ring inside
+     *       the integrator deadlocks unless every rank reaches it the same
+     *       number of times per step, including a rank that owns zero sources
+     *       (T2c). Every branch here is therefore driven by a globally identical
+     *       quantity — the step counter, the simulation time, or a reduced
+     *       verdict — and never by a rank-local count.
      */
     bool advanceOneStep()
     {
-        BEATNIK_NOT_IMPLEMENTED( "Solver", "advanceOneStep" );
+        ++_step;
+
+        Real dt = _integrator->chooseStepSize( _mesh, _state, _params.time,
+                                               _initial_min_edge );
+        if ( _params.time.dt_switch_time >= Real( 0 ) &&
+             _time >= _params.time.dt_switch_time )
+            dt = std::min( dt, _params.time.dt_after_switch );
+        if ( _params.time.have_t_end )
+            dt = std::min( dt, _params.time.t_end - _time );
+
+        _integrator->step( _mesh, _state, dt );
+        _time += dt;
+        _last_dt = dt;
+
+        if ( !_state.allFinite( _mesh ) )
+        {
+            reportStop( "nonfinite mesh-RHS state" );
+            return false;
+        }
+
+        // The post-step passes (refine, remesh, filter, redistribute) belong to
+        // T4a/T4b/T4c/T5c. `requireSupportedConfiguration()` has already
+        // rejected any configuration that would reach one, so there is nothing
+        // to skip here and nothing that could be silently skipped.
+
+        recordLastFiniteState();
+
+        if ( checkpointDue() )
+            writeCheckpoint();
+
+        writeProgressIfDue( dt );
+        return true;
     }
 
     /**
@@ -384,14 +475,37 @@ class Solver
      * least `--checkpoint-every-time` of simulation time has elapsed since the
      * last checkpoint (with a \f$10^{-14}\f$ slack so an exactly-landing step
      * counts). Either criterion alone suffices; both may be active.
+     *
+     * Always false without `--checkpoint-dir`: the reference guards both
+     * criteria on `checkpoint_dir is not None` (lines 1571, 1573), so a run with
+     * no output directory is not "due but suppressed", it is not due.
      */
     bool checkpointDue() const
     {
-        BEATNIK_NOT_IMPLEMENTED( "Solver", "checkpointDue" );
+        if ( !_params.checkpoint.writing() )
+            return false;
+
+        bool due = false;
+        if ( _params.checkpoint.every_steps > 0 )
+            due = due || ( _step % _params.checkpoint.every_steps == 0 );
+        if ( _params.checkpoint.every_time > Real( 0 ) )
+            due = due || ( _time - _last_checkpoint_time >=
+                           _params.checkpoint.every_time - Real( 1.0e-14 ) );
+        return due;
     }
 
     /// The surface.
     const mesh_type& mesh() const { return _mesh; }
+
+    /// The surface, mutably. **T2d — added for the test, and the reason is the
+    /// M1 storage model rather than convenience:** every geometric accessor
+    /// (`positions()`, `faceVertices()`, `edgeVertices()`) is non-const, because
+    /// the first two return Cabana slices of a non-const member and the third
+    /// builds and caches `Tessera::MeshGeometry` against `generation()`. So a
+    /// caller that wants to *measure* the surface — regression test 2 checks the
+    /// enclosed volume every step — cannot do it through the const accessor.
+    /// Same constraint that widened twelve signatures at T2c.
+    mesh_type& mesh() { return _mesh; }
     /// The solution fields.
     const state_type& state() const { return _state; }
     /// Current simulation time.
@@ -417,6 +531,211 @@ class Solver
     }
 
   private:
+    /// Reject, before the first step, any configuration whose post-step passes
+    /// are still stubs — by name and by the task that owns them.
+    ///
+    /// **Why a throw and not a skip.** The reference's *default* configuration
+    /// runs the dynamic remesher every step, so a Beatnik run that quietly
+    /// omitted it would produce a plausible trajectory that is not the
+    /// reference's and would be compared against gold files generated with
+    /// adaptivity on. Every condition below is global and time-independent, so
+    /// this is a configuration error and belongs before the loop; a mid-loop
+    /// throw would be collective-safe too, but it would report at step 5 what
+    /// was decidable at step 0.
+    void requireSupportedConfiguration() const
+    {
+        if ( _params.dynamic_remesh )
+            throw std::logic_error(
+                "Beatnik::Solver::solve: --dynamic-remesh (the default) needs "
+                "DynamicRemesh::remesh, which is task T4b and still throws. Run "
+                "with --no-dynamic-remesh --refine-every 0 for a "
+                "fixed-connectivity solve (this is how the T2a gold set was "
+                "generated)." );
+
+        if ( _params.amr.refine_every > 0 )
+            throw std::logic_error(
+                "Beatnik::Solver::solve: --refine-every > 0 needs "
+                "AdaptiveMesh::refine, which is task T4a and still throws. Pass "
+                "--refine-every 0 to disable indicator-driven refinement." );
+
+        if ( _params.filter.field_filter_every > 0 )
+            throw std::logic_error(
+                "Beatnik::Solver::solve: --field-filter-every > 0 needs "
+                "Solver::filterCirculationField, which is task T5c and still "
+                "throws. Pass --field-filter-every 0." );
+
+        if ( _params.filter.redistribute_every > 0 )
+            throw std::logic_error(
+                "Beatnik::Solver::solve: --redistribute-every > 0 needs "
+                "MeshQuality::improveQualityTangential, which is task T4c and "
+                "still throws. Pass --redistribute-every 0." );
+    }
+
+    /// Rank 0 prints the reference's stop line verbatim
+    /// (run_adaptive_mesh_bubble.py:1417-1421), so a Beatnik log and a Python
+    /// log of the same failure read the same.
+    void reportStop( const char* reason ) const
+    {
+        int rank = 0;
+        MPI_Comm_rank( _comm, &rank );
+        if ( rank != 0 )
+            return;
+        char line[256];
+        std::snprintf( line, sizeof( line ), "stopping at step=%lld t=%.4f: %s",
+                       _step, static_cast<double>( _time ), reason );
+        std::cout << line << std::endl;
+    }
+
+    /// Record the last finite state, **after** every mutation of the step.
+    ///
+    /// Port of run_adaptive_mesh_bubble.py::main (lines 1566-1569)
+    ///
+    /// Under the M1 storage model the solution lives in the Tessera vertex user
+    /// pack, so "keeping a reference to the state" is not available the way the
+    /// Python's `last_finite_state = state` is: the next step overwrites those
+    /// slots in place. What is kept instead is a copy of the four owned arrays
+    /// plus the `(time, step)` pair — which is exactly what `finalize()` needs
+    /// to write and nothing more.
+    void recordLastFiniteState()
+    {
+        const int n = _mesh.ownedVertexCount();
+        if ( static_cast<int>( _last_finite_position.extent( 0 ) ) != n )
+        {
+            _last_finite_position = vector_view(
+                Kokkos::view_alloc( Kokkos::WithoutInitializing,
+                                    "beatnik_last_finite_position" ),
+                n );
+            _last_finite_material = vector_view(
+                Kokkos::view_alloc( Kokkos::WithoutInitializing,
+                                    "beatnik_last_finite_material" ),
+                n );
+            _last_finite_potential = scalar_view(
+                Kokkos::view_alloc( Kokkos::WithoutInitializing,
+                                    "beatnik_last_finite_potential" ),
+                n );
+            _last_finite_sheet = vector_view(
+                Kokkos::view_alloc( Kokkos::WithoutInitializing,
+                                    "beatnik_last_finite_sheet" ),
+                n );
+        }
+
+        auto pos = _mesh.positions();
+        auto phi = _mesh.potential();
+        auto sheet = _mesh.sheetVector();
+        auto material = _mesh.materialPosition();
+        auto lp = _last_finite_position;
+        auto lm = _last_finite_material;
+        auto lf = _last_finite_potential;
+        auto ls = _last_finite_sheet;
+        Kokkos::parallel_for(
+            "beatnik_record_last_finite",
+            Kokkos::RangePolicy<ExecutionSpace>( 0, n ),
+            KOKKOS_LAMBDA( const int i ) {
+                for ( int d = 0; d < 3; ++d )
+                {
+                    lp( i, d ) = pos( i, d );
+                    lm( i, d ) = material( i, d );
+                    ls( i, d ) = sheet( i, d );
+                }
+                lf( i ) = phi( i );
+            } );
+        Kokkos::fence();
+
+        _last_finite_time = _time;
+        _last_finite_step = _step;
+        _have_last_finite = true;
+    }
+
+    /// Put the recorded last-finite state back into the mesh, so `finalize()`
+    /// writes *that* rather than the current one.
+    ///
+    /// A no-op when nothing was ever recorded (`--steps 0`, or an abort in the
+    /// first step), which is what makes T1c's 0-timestep behaviour unchanged.
+    /// Also a no-op if the owned vertex count has changed since the record,
+    /// which cannot happen today (no adaptivity) and would mean the copy no
+    /// longer describes this mesh; that is reported rather than papered over,
+    /// because writing a mismatched field pack would produce a plausible file.
+    void restoreLastFiniteState()
+    {
+        if ( !_have_last_finite )
+            return;
+
+        const int n = _mesh.ownedVertexCount();
+        if ( static_cast<int>( _last_finite_position.extent( 0 ) ) != n )
+        {
+            int rank = 0;
+            MPI_Comm_rank( _comm, &rank );
+            if ( rank == 0 )
+                std::cout << "Beatnik::Solver::finalize: the recorded "
+                             "last-finite state has "
+                          << _last_finite_position.extent( 0 )
+                          << " owned vertices but the mesh now has " << n
+                          << "; writing the CURRENT state instead."
+                          << std::endl;
+            return;
+        }
+
+        auto pos = _mesh.positions();
+        auto phi = _mesh.potential();
+        auto sheet = _mesh.sheetVector();
+        auto material = _mesh.materialPosition();
+        auto lp = _last_finite_position;
+        auto lm = _last_finite_material;
+        auto lf = _last_finite_potential;
+        auto ls = _last_finite_sheet;
+        Kokkos::parallel_for(
+            "beatnik_restore_last_finite",
+            Kokkos::RangePolicy<ExecutionSpace>( 0, n ),
+            KOKKOS_LAMBDA( const int i ) {
+                for ( int d = 0; d < 3; ++d )
+                {
+                    pos( i, d ) = lp( i, d );
+                    material( i, d ) = lm( i, d );
+                    sheet( i, d ) = ls( i, d );
+                }
+                phi( i ) = lf( i );
+            } );
+        Kokkos::fence();
+
+        // Only owned rows were restored; `writeMesh` writes owned entities only,
+        // but the exchange keeps the mesh self-consistent for anything that
+        // inspects it after `finalize()`.
+        _mesh.haloExchange();
+
+        _time = _last_finite_time;
+        _step = _last_finite_step;
+    }
+
+    /// The reference's progress throttle: step 1, every `steps/10` steps, and
+    /// whenever `--progress-time-interval` of simulation time has elapsed
+    /// (run_adaptive_mesh_bubble.py:1604-1608).
+    ///
+    /// `Diagnostics::compute` is collective, so the condition must be identical
+    /// on every rank — it is built from the step counter and the simulation
+    /// time, both of which are.
+    void writeProgressIfDue( Real dt )
+    {
+        const bool by_time =
+            _params.progress_time_interval > Real( 0 ) &&
+            ( _time - _last_progress_time >= _params.progress_time_interval );
+        const long long stride =
+            std::max<long long>( _params.time.steps / 10, 1 );
+        if ( !( _step == 1 || _step % stride == 0 || by_time ) )
+            return;
+
+        _last_progress_time = _time;
+        const Diagnostics diag = diagnostics_type::compute(
+            _mesh, _state, _initial_volume, _params.remesh,
+            _params.exact_gap_diagnostics );
+
+        int rank = 0;
+        MPI_Comm_rank( _comm, &rank );
+        if ( rank == 0 )
+            diagnostics_type::writeProgressLine( std::cout, diag, _step, _time,
+                                                 dt, _refine_events,
+                                                 _edge_flips, _remesh_events );
+    }
+
     /// Construct the checkpoint IO lazily, so a run with no `--checkpoint-dir`
     /// never creates one and `writeCheckpoint()` stays a single guard.
     void ensureCheckpointIO()
@@ -492,6 +811,18 @@ class Solver
     Real _initial_min_edge = 0.0;
     Real _last_checkpoint_time = 0.0;
     Real _last_progress_time = 0.0;
+    /// The dt the most recent step actually took, after both caller clamps.
+    Real _last_dt = 0.0;
+
+    /// The last finite state, recorded after every successful step and written
+    /// by `finalize()`. See `recordLastFiniteState`.
+    vector_view _last_finite_position;
+    vector_view _last_finite_material;
+    vector_view _last_finite_sheet;
+    scalar_view _last_finite_potential;
+    Real _last_finite_time = 0.0;
+    long long _last_finite_step = 0;
+    bool _have_last_finite = false;
 
     /// Path of the most recent checkpoint, for `lastCheckpointPath()`.
     std::string _last_checkpoint_path;

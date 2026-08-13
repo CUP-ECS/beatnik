@@ -419,9 +419,32 @@ subsections above, which are intended behavior.
   `scripts/tuolumne/run_regression_minset.flux` no longer pass trivially. **A
   green gate now proves that mesh generation, the initial condition and the
   checkpoint write reproduce the reference — and nothing about time integration
-  or adaptivity**, which are still stubs. Resolves progressively as T2d and T4
-  land their own regression tests. See [CLAUDE.md](CLAUDE.md#minimum-test-set)
-  and `tasks/framework.md`.
+  or adaptivity**, which are still stubs. T2c then added
+  `Beatnik_Test_BirkhoffRott` (the vertex quadrature and the direct BR sum), and
+  T2d added regression test 2 — see the entry above, which is why the gate's
+  present state is unknown. Resolves progressively as T2d and T4 land their own
+  regression tests. See [CLAUDE.md](CLAUDE.md#minimum-test-set) and
+  `tasks/framework.md`.
+
+- **Regression test 2 is registered in the ship gate but has NEVER BEEN RUN.**
+  *A regression from current work — task T2d, in progress.* T2d added
+  `tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp` (ten TVD-RK3
+  timesteps against the T2a Python gold set) to the `regression` tier, taking the
+  gate from two members to three and from 24 launches to **36** on tuolumne. The
+  whole tree compiles clean on SERIAL, OPENMP and HIP and `spack install`
+  installs all three binaries per backend, but the session that wrote it ended in
+  the `pdebug` queue before the gate returned. **So the current state of the gate
+  is unknown**, and a green gate has not been observed since T2c. Reproduces by
+  submitting `scripts/tuolumne/run_regression_minset.flux` and reading the log —
+  which is exactly the first step T2d's status note in `tasks/framework.md` calls
+  for. Resolves when T2d's exit criterion is met.
+
+- **The time integration path has never been executed.** *Not a defect; a
+  statement of how far the rebuild has been verified.* Everything T2d wrote — the
+  z-model RHS, the volume projection, TVD-RK3 with adaptive dt, the step loop and
+  the per-step diagnostics — compiles but has not been run once, at any rank
+  count, on any backend. Treat every number in `tasks/framework.md` below the T2c
+  line as unmeasured. Resolves with the entry above.
 
 - **`examples/01_rising_bubble` does not build.** *Pre-existing as of the
   redesign.* `rocketrig.cpp` includes `Solver.hpp` and `BoundaryCondition.hpp`,

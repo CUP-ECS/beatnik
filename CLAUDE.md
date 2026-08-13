@@ -73,9 +73,11 @@ ctest -L regression -R HIP         # additional gate on tuolumne
 In `spack` mode there is no build tree and therefore no `ctest`: run the gate
 through `scripts/<system>/run_regression_minset.<scheduler>` — on tuolumne
 [scripts/tuolumne/run_regression_minset.flux](scripts/tuolumne/run_regression_minset.flux).
-The `regression` tier currently has one member and covers only mesh generation,
-the initial condition and the checkpoint write, so a green gate does **not** say
-the solver integrates anything. Tiers, the installed-path runners and CI:
+The `regression` tier currently has **three** members — the initial condition at
+0 timesteps (T1c), the direct Birkhoff-Rott sum (T2c), and ten timesteps against
+the Python gold set (T2d) — so on tuolumne the gate is **36 launches** and takes
+correspondingly longer to run. **The third member has never been run**; see
+README "Known Issues". Tiers, the installed-path runners and CI:
 [docs/testing.md](docs/testing.md).
 
 ## General guidelines

@@ -141,45 +141,53 @@ re-centres the fields, seeds the material coordinate, computes the two carried
 scalars, and writes an HDF5 checkpoint that matches the Python gold file at
 `--rtol 1e-12 --atol 1e-14` at ranks 1-6 on SERIAL and HIP.
 
-**There is still no timestep.** `Solver::solve` implements a `steps == 0` guard
-and nothing else; at `steps > 0` it throws. **T2b has landed, so the surface
-differential operators are no longer stubs** —
+**There is a timestep, and it has never been run.** **T2b has landed, so the
+surface differential operators are no longer stubs** —
 `SurfaceOperators::{faceScalarGradient, surfaceGradient,
 cotangentLaplacianScalar, graphLaplacianScalar, graphLaplacianVector,
 meanCurvatureNormal, projectTangent}` and `SurfaceState::updateSheetVector` are
 implemented and validated against the Python reference (see T2b's completion
 note). **T2c has landed too**, so the vertex source quadrature and the direct BR
-evaluation are implemented and validated as well. What is still a stub:
+evaluation are implemented and validated as well. **T2d is IN PROGRESS**: the
+RHS, the volume projection, the TVD-RK3 integrator with adaptive dt, the step
+loop, the diagnostics and regression test 2 are all written and the whole tree
+**compiles clean on SERIAL, OPENMP and HIP** — but the gate has **not been run**,
+so *nothing below the T2c line has been validated against anything*. See T2d's
+status note and the `## T2d` log entry for exactly what exists and what is
+unmeasured.
 
-- **No RHS, no integrator, no volume projection.** T2d. **The BR evaluation now
-  exists and is validated on the vertex rule** (T2c): `VertexQuadrature` and
-  `BRSolverDirect` are implemented and checked against the Python reference. What
-  is still missing is the *calling* of them — the BR solver and the quadrature
-  are constructed by `Solver::setup` and no production path invokes them yet,
-  which is T2d's.
+What is still a stub:
+
 - **No adaptivity.** T4a/T4b/T4c, still blocked on the disjoint-editing-families
-  design question and on Tessera's G5b/G5c/G5d.
+  design question and on Tessera's G5b/G5c/G5d. T2d's `Solver::solve` now
+  **rejects** any configuration that would reach one of those passes, by name and
+  by task ID, rather than skipping it — so the reference's *default*
+  configuration (dynamic remeshing every step) aborts at setup instead of
+  silently running a different problem.
 - **`/vertices/u1` in a `--steps 0` checkpoint is still present-but-meaningless**,
   though no longer because of a stub: `SurfaceState::updateSheetVector` is
   implemented (T2b), but nothing on the 0-timestep path *calls* it, so
   `initializeFields` leaves the field zero — a *defined* value and not a correct
   one. `Tessera::writeMesh` writes the whole vertex pack unconditionally and
   `compare_output.py` skips the field `state_model` does not select, so nothing
-  depends on it yet. T2d is where the RHS starts calling it every stage.
+  depends on it yet. At `steps > 0` T2d's RHS refreshes it every stage.
 - **`CheckpointIO::read` and `RestartReader::load` still throw** — T5b. Writing is
   validated; reading is not, in either direction.
 - **`InitialCondition` implements the fast path only.** `applyShapeDeformation`,
   `applyPolarMode` and `seedInitialVorticity` throw (T5a), so any non-default
   `--initial-shape`, `--polar-amp` or `--initial-potential-strength` aborts rather
   than silently producing a sphere. `--mesh-kind latlon` likewise.
-- **`finalize()`'s "last finite state" is not yet distinct from "current".** The
-  last-finite bookkeeping lives in the step loop, which is T2d's, so at 0
-  timesteps the two coincide and a passing gate says nothing about that path.
+- **`Solver::filterCirculationField` and `ZModelSolver::computeRightHandSideSheet`
+  still throw** — T5c. Both had their `mesh` parameter widened to `mesh_type&` at
+  T2d, so T5c implements bodies only.
+- **`BRSolverFMM`'s two methods still throw** — T3a.
 
 Treat the C++ as *buildable, structurally sound, and validated exactly as far as
-T1c's exit criterion reaches* — mesh generation, the initial condition, the two
-carried scalars, and the checkpoint write. Nothing that evolves in time has been
-checked against the Python.
+T2c's exit criterion reaches* — mesh generation, the initial condition, the two
+carried scalars, the checkpoint write, the seven surface operators, the vertex
+quadrature and the direct BR sum. **Nothing that evolves in time has been checked
+against the Python**, and as of T2d's in-progress state nothing that evolves in
+time has been *executed* either.
 
 The Python side **was** run and does pass: `compare_output.py` matches the
 positive fixture, fails the negative one, and the fixtures regenerate
@@ -674,7 +682,7 @@ counts while passing on SERIAL at all six. It is asserted at `1e-13` relative
 instead, measured at `2.4e-16`, with the discriminator recorded: a `br_sign`
 leak would make that number `2.0`. Details in the progress log, under *T2c*.
 
-### T2d — The RHS, volume projection, and the integrator
+### T2d — The RHS, volume projection, and the integrator — **IN PROGRESS**
 
 **Fill in:** `Beatnik_ZModelSolver.hpp`:
 `computeRightHandSidePotential`, `computeBernoulliPotential`,
@@ -700,6 +708,51 @@ the answer if reordered.
 
 **Exit criterion:** **regression test 2 (direct-solve-10-steps) passes at all 10 timesteps**, `--rtol 1e-10`,
 at ranks 1, 2, 3, 4, and 5. Volume drift stays below `1e-12` relative.
+
+**IN PROGRESS — everything is written and it compiles; NOTHING has been run.**
+The exit criterion is **not** met and no number below has been measured. What a
+resuming session inherits, and what it must do first, in order:
+
+1. **Submit the gate and read the log.** `flux batch
+   scripts/tuolumne/run_regression_minset.flux`, then read
+   `beatnik_regression_minset.<jobid>.log` in the submitting directory. **The
+   gate now has three members**, so it is **36 launches** (3 × SERIAL/HIP ×
+   ranks 1-6) and takes materially longer than T2c's 24; the queue wait on
+   `pdebug` was the reason this session stopped. Regression tests 1 and 2 both
+   run the full solver path, so a first run failing somewhere is the expected
+   outcome, not a surprise.
+2. **Read the numbers before changing anything.** `Beatnik_Test_DirectSolve10Steps`
+   reports, per step and at 17 digits, the simulation `time` against its gold
+   literal, the enclosed volume and its relative drift, and the comparator's exit
+   status — so the *first failing step* and *which of the three* failed is in the
+   log without instrumenting anything. Fail on `time` at step 2 means the
+   adaptive dt, not the RHS.
+3. **Only then debug**, and use the R8-versus-R2 discriminator the exit criterion
+   implies: run the same configuration at 1 and 4 ranks. A seam localized on
+   partition boundaries is a halo-depth bug (R8); uniformly distributed noise at
+   the `1e-15` level is summation order (R2).
+
+**What was built.** Every method on this task's fill-in list has a body, plus four
+that were not on it and had to be (recorded under `## T2d` in the log):
+`SurfaceState::{faceSheetVector, maxSheetStrength, projectSheetTangent}` and the
+non-const `Solver::mesh()`. `spack install` succeeds and installs all three gate
+binaries per backend; the gate manifest carries the new line with its two
+arguments.
+
+**What is deliberately NOT built, and stays throwing:**
+`Solver::filterCirculationField` and `ZModelSolver::computeRightHandSideSheet`
+(T5c), `BRSolverFMM`'s bodies (T3a), all of adaptivity (T4a/T4b/T4c).
+`VolumeProjection::projectToVolume` **is** implemented but is unreachable from
+any configuration that exists today — every reference call site is inside a
+refine or remesh branch — so it is written and unexercised, and T4a is where it
+first runs.
+
+**The six diagnostics fields that report `NaN`/`+inf` are a deliberate gap, not a
+bug:** the four AMR indicators need T4a and the two nonlocal-gap fields need
+T4b's spatial query. Nothing in `Diagnostics` is checkpointed or compared, so the
+gap is legibility only — and `NaN`/`+inf` are exactly what the Python's own
+formatter prints when *it* has nothing, so a Beatnik progress line still diffs
+against a Python one.
 
 ---
 
