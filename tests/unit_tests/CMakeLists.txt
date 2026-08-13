@@ -42,6 +42,8 @@
 set(BEATNIK_UNIT_TEST_SOURCES
   # T1b: icosphere generation, mesh geometry, adjacency consistency.
   Beatnik_Test_MeshGeometry.cpp
+  # T2b: the seven surface differential operators, and updateSheetVector.
+  Beatnik_Test_T2bOperators.cpp
   )
 
 # The unit tier runs at ONE rank. A multi-rank unit test would have to reduce

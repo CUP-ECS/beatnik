@@ -617,6 +617,69 @@ class SurfaceOperators
     }
 
     /**
+     * @brief The in-plane gradient on one face, on device.
+     *
+     * Port of mesh_solver.py::_face_scalar_gradient (lines 938-961), the body
+     * of the loop.
+     *
+     * Factored out because `faceScalarGradient` and `surfaceGradient` are the
+     * *same* discretization and the second must not drift from the first:
+     * `surfaceGradient` fuses this into its own face loop rather than
+     * materializing an `(Nf,3)` temporary it would immediately reduce away, so
+     * without a shared kernel the 2x2 Gram solve would exist twice. The
+     * equations and the degeneracy rule are documented on
+     * `faceScalarGradient` below; this is that body and nothing more.
+     *
+     * @param f Local face index. A `-1` corner yields a zero gradient.
+     * @param[out] g The three components.
+     */
+    template <class VertexView, class FaceView, class ScalarView>
+    KOKKOS_INLINE_FUNCTION static void
+    faceGradient( const VertexView& vertices, const FaceView& faces,
+                  const ScalarView& scalar, int f, Real g[3] )
+    {
+        const int ia = faces( f, 0 );
+        const int ib = faces( f, 1 );
+        const int ic = faces( f, 2 );
+        if ( ia < 0 || ib < 0 || ic < 0 )
+        {
+            for ( int d = 0; d < 3; ++d )
+                g[d] = Real( 0 );
+            return;
+        }
+        Real e1[3], e2[3];
+        for ( int d = 0; d < 3; ++d )
+        {
+            e1[d] = vertices( ib, d ) - vertices( ia, d );
+            e2[d] = vertices( ic, d ) - vertices( ia, d );
+        }
+        const Real d1 = scalar( ib ) - scalar( ia );
+        const Real d2 = scalar( ic ) - scalar( ia );
+        Real a = 0, b = 0, c = 0;
+        for ( int d = 0; d < 3; ++d )
+        {
+            a += e1[d] * e1[d];
+            b += e1[d] * e2[d];
+            c += e2[d] * e2[d];
+        }
+        const Real det = a * c - b * b;
+        Real c1 = 0, c2 = 0;
+        // np.divide(..., where=np.abs(det) > 1.0e-300): a degenerate face gives
+        // the zero gradient, not a NaN and not a huge finite value. Note this
+        // is the one place the file header's "floored, not branched" rule does
+        // NOT apply -- the reference branches here, and flooring instead would
+        // turn a collapsed triangle into a 1e300 gradient that poisons the
+        // area-weighted average of every vertex on it.
+        if ( ( det > Real( 1.0e-300 ) ) || ( det < Real( -1.0e-300 ) ) )
+        {
+            c1 = ( d1 * c - d2 * b ) / det;
+            c2 = ( a * d2 - b * d1 ) / det;
+        }
+        for ( int d = 0; d < 3; ++d )
+            g[d] = c1 * e1[d] + c2 * e2[d];
+    }
+
+    /**
      * @brief Per-face gradient of a per-vertex scalar, in the face plane.
      *
      * Port of mesh_solver.py::_face_scalar_gradient (lines 938-961)
@@ -645,11 +708,21 @@ class SurfaceOperators
                                     const ScalarView& scalar,
                                     VectorView& gradient )
     {
-        (void)vertices;
-        (void)faces;
-        (void)scalar;
-        (void)gradient;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceOperators", "faceScalarGradient" );
+        using exec = typename VectorView::execution_space;
+        const int nf = static_cast<int>( faces.extent( 0 ) );
+        auto pos = vertices;
+        auto fv = faces;
+        auto s = scalar;
+        auto g = gradient;
+        Kokkos::parallel_for(
+            "beatnik_face_scalar_gradient", Kokkos::RangePolicy<exec>( 0, nf ),
+            KOKKOS_LAMBDA( const int f ) {
+                Real gf[3];
+                faceGradient( pos, fv, s, f, gf );
+                for ( int d = 0; d < 3; ++d )
+                    g( f, d ) = gf[d];
+            } );
+        Kokkos::fence();
     }
 
     /**
@@ -680,6 +753,21 @@ class SurfaceOperators
      *       every owned vertex — see DISTRIBUTED ASSEMBLY in the file header.
      *       **No scatter-add**, which would double-count. Only a `haloExchange`
      *       of the *input* scalar is needed, so ghost values are current.
+     *
+     * @param faces    `(Nf,3)` local vertex indices — the **WHOLE LOCAL** set.
+     * @param scalar   Per-vertex input. May be a Cabana slice with no extent
+     *                 (`mesh.potential()` is exactly that), which is why `Nv`
+     *                 is taken from `gradient` and not from here.
+     * @param[out] gradient `(Nv,3)`. Its extent defines `Nv`. **Zeroed by this
+     *                 routine** before assembly, so a caller cannot
+     *                 accidentally accumulate two frames.
+     *
+     * @note The face area used as the weight is recomputed here rather than
+     *       taken from `MeshGeometry::face_area`. It is the same expression
+     *       (`0.5*|e1 x e2|`, `mesh.py::face_areas` 81-85) evaluated on the
+     *       same positions, so it is bit-identical to that array; passing the
+     *       array instead would add a required argument, and a stale one is a
+     *       worse failure than a recomputation.
      */
     template <class VertexView, class FaceView, class ScalarView,
               class VectorView, class NormalView>
@@ -689,12 +777,135 @@ class SurfaceOperators
                                  const NormalView& vertex_normal,
                                  VectorView& gradient )
     {
-        (void)vertices;
-        (void)faces;
-        (void)scalar;
-        (void)vertex_normal;
-        (void)gradient;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceOperators", "surfaceGradient" );
+        using exec = typename VectorView::execution_space;
+        using mem = typename VectorView::memory_space;
+        const int nf = static_cast<int>( faces.extent( 0 ) );
+        const int nv = static_cast<int>( gradient.extent( 0 ) );
+
+        auto pos = vertices;
+        auto fv = faces;
+        auto s = scalar;
+        auto vn = vertex_normal;
+        auto g = gradient;
+        // The denominator of the area-weighted average, assembled alongside the
+        // numerator so the two see exactly the same face set.
+        Kokkos::View<Real*, mem> weight( "beatnik_surface_gradient_weight", nv );
+        Kokkos::deep_copy( gradient, Real( 0 ) );
+
+        Kokkos::parallel_for(
+            "beatnik_surface_gradient_faces", Kokkos::RangePolicy<exec>( 0, nf ),
+            KOKKOS_LAMBDA( const int f ) {
+                const int ia = fv( f, 0 );
+                const int ib = fv( f, 1 );
+                const int ic = fv( f, 2 );
+                if ( ia < 0 || ib < 0 || ic < 0 )
+                    return;
+                Real gf[3];
+                faceGradient( pos, fv, s, f, gf );
+
+                Real e1[3], e2[3];
+                for ( int d = 0; d < 3; ++d )
+                {
+                    e1[d] = pos( ib, d ) - pos( ia, d );
+                    e2[d] = pos( ic, d ) - pos( ia, d );
+                }
+                const Real cr[3] = { e1[1] * e2[2] - e1[2] * e2[1],
+                                     e1[2] * e2[0] - e1[0] * e2[2],
+                                     e1[0] * e2[1] - e1[1] * e2[0] };
+                const Real area =
+                    Real( 0.5 ) * Kokkos::sqrt( cr[0] * cr[0] + cr[1] * cr[1] +
+                                                cr[2] * cr[2] );
+
+                const int corner[3] = { ia, ib, ic };
+                for ( int k = 0; k < 3; ++k )
+                {
+                    Kokkos::atomic_add( &weight( corner[k] ), area );
+                    for ( int d = 0; d < 3; ++d )
+                        Kokkos::atomic_add( &g( corner[k], d ), area * gf[d] );
+                }
+            } );
+        Kokkos::fence();
+
+        Kokkos::parallel_for(
+            "beatnik_surface_gradient_vertices",
+            Kokkos::RangePolicy<exec>( 0, nv ), KOKKOS_LAMBDA( const int i ) {
+                // np.divide(..., where=weights > 0): a vertex with no incident
+                // face gets the zero gradient rather than a NaN.
+                if ( weight( i ) > Real( 0 ) )
+                    for ( int d = 0; d < 3; ++d )
+                        g( i, d ) /= weight( i );
+                else
+                    for ( int d = 0; d < 3; ++d )
+                        g( i, d ) = Real( 0 );
+
+                // The projection. The area-weighted average of tangent vectors
+                // from differently-tilted faces is not itself tangent, and the
+                // leftover normal component would become a spurious normal
+                // circulation in the sheet vector.
+                Real dot = 0;
+                for ( int d = 0; d < 3; ++d )
+                    dot += g( i, d ) * vn( i, d );
+                for ( int d = 0; d < 3; ++d )
+                    g( i, d ) -= dot * vn( i, d );
+            } );
+        Kokkos::fence();
+    }
+
+    /**
+     * @brief The cotangent of each of a face's three corner angles, on device.
+     *
+     * Port of mesh_solver.py::cotangent_laplacian_scalars's `_cot`
+     * (lines 1046-1050)
+     *
+     * \f$\cot\theta_p = (u\cdot w)/\|u\times w\|\f$ with \f$u = q-p\f$,
+     * \f$w = r-p\f$ — numerically better than \f$\cos/\sin\f$, and the
+     * denominator is **floored** at 1e-300 rather than branched, so a collapsed
+     * triangle gives a huge finite weight and not a NaN.
+     *
+     * Factored out for the same reason as `faceGradient`:
+     * `cotangentLaplacianScalar` and `meanCurvatureNormal` are the same
+     * operator applied to a scalar and to the positions, and the corner-to-edge
+     * pairing is the sign-critical part of both. One kernel, one place to be
+     * wrong.
+     *
+     * @param[out] cot `cot[k]` is the cotangent at corner `k`, which weights
+     *             the **opposite** edge. Zero for a face with a `-1` corner.
+     */
+    template <class VertexView, class FaceView>
+    KOKKOS_INLINE_FUNCTION static void
+    faceCotangents( const VertexView& vertices, const FaceView& faces, int f,
+                    Real cot[3] )
+    {
+        const int idx[3] = { faces( f, 0 ), faces( f, 1 ), faces( f, 2 ) };
+        if ( idx[0] < 0 || idx[1] < 0 || idx[2] < 0 )
+        {
+            for ( int k = 0; k < 3; ++k )
+                cot[k] = Real( 0 );
+            return;
+        }
+        for ( int k = 0; k < 3; ++k )
+        {
+            const int p = idx[k];
+            const int q = idx[( k + 1 ) % 3];
+            const int r = idx[( k + 2 ) % 3];
+            Real u[3], w[3];
+            for ( int d = 0; d < 3; ++d )
+            {
+                u[d] = vertices( q, d ) - vertices( p, d );
+                w[d] = vertices( r, d ) - vertices( p, d );
+            }
+            const Real cr[3] = { u[1] * w[2] - u[2] * w[1],
+                                 u[2] * w[0] - u[0] * w[2],
+                                 u[0] * w[1] - u[1] * w[0] };
+            Real denom = Kokkos::sqrt( cr[0] * cr[0] + cr[1] * cr[1] +
+                                       cr[2] * cr[2] );
+            if ( denom < Real( 1.0e-300 ) )
+                denom = Real( 1.0e-300 );
+            Real dot = 0;
+            for ( int d = 0; d < 3; ++d )
+                dot += u[d] * w[d];
+            cot[k] = dot / denom;
+        }
     }
 
     /**
@@ -732,22 +943,66 @@ class SurfaceOperators
      *       owned vertex before the division by the vertex area — see
      *       DISTRIBUTED ASSEMBLY in the file header. **No scatter-add.** Only
      *       the input `values` need a preceding `haloExchange`.
+     *
+     * @param values Per-vertex input. **T2b — its type is now independent of
+     *        `result`'s.** The pre-T2b declaration used one `ScalarView` for
+     *        both, which cannot express the call the viscous term actually
+     *        makes: `values` is `mesh.potential()`, a Cabana slice, and
+     *        `result` is a Beatnik-owned `Kokkos::View`. A widening, so every
+     *        conceivable pre-T2b call still compiles.
+     * @param[out] result `(Nv,)`. Its extent defines `Nv`; **zeroed here**.
      */
     template <class VertexView, class FaceView, class ScalarView,
-              class AreaView>
+              class AreaView, class OutScalarView>
     static void cotangentLaplacianScalar( const VertexView& vertices,
                                           const FaceView& faces,
                                           const ScalarView& values,
                                           const AreaView& vertex_area,
-                                          ScalarView& result )
+                                          OutScalarView& result )
     {
-        (void)vertices;
-        (void)faces;
-        (void)values;
-        (void)vertex_area;
-        (void)result;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceOperators",
-                                 "cotangentLaplacianScalar" );
+        using exec = typename OutScalarView::execution_space;
+        const int nf = static_cast<int>( faces.extent( 0 ) );
+        const int nv = static_cast<int>( result.extent( 0 ) );
+        auto pos = vertices;
+        auto fv = faces;
+        auto val = values;
+        auto va = vertex_area;
+        auto out = result;
+        Kokkos::deep_copy( result, Real( 0 ) );
+
+        Kokkos::parallel_for(
+            "beatnik_cotangent_laplacian_faces",
+            Kokkos::RangePolicy<exec>( 0, nf ), KOKKOS_LAMBDA( const int f ) {
+                const int idx[3] = { fv( f, 0 ), fv( f, 1 ), fv( f, 2 ) };
+                if ( idx[0] < 0 || idx[1] < 0 || idx[2] < 0 )
+                    return;
+                Real cot[3];
+                faceCotangents( pos, fv, f, cot );
+                // The angle at corner k weights the OPPOSITE edge, with the
+                // half from this face's side of it: cot0 -> (1,2), cot1 ->
+                // (0,2), cot2 -> (0,1). Getting this pairing wrong still gives
+                // a symmetric operator, so it does not blow up -- it just is
+                // not the Laplacian.
+                for ( int k = 0; k < 3; ++k )
+                {
+                    const int p = idx[( k + 1 ) % 3];
+                    const int q = idx[( k + 2 ) % 3];
+                    const Real w = Real( 0.5 ) * cot[k];
+                    Kokkos::atomic_add( &out( p ), w * ( val( q ) - val( p ) ) );
+                    Kokkos::atomic_add( &out( q ), w * ( val( p ) - val( q ) ) );
+                }
+            } );
+        Kokkos::fence();
+
+        Kokkos::parallel_for(
+            "beatnik_cotangent_laplacian_normalize",
+            Kokkos::RangePolicy<exec>( 0, nv ), KOKKOS_LAMBDA( const int i ) {
+                // np.maximum(vertex_area, 1.0e-300): floored, not branched.
+                const Real a = ( va( i ) > Real( 1.0e-300 ) ) ? va( i )
+                                                              : Real( 1.0e-300 );
+                out( i ) /= a;
+            } );
+        Kokkos::fence();
     }
 
     /**
@@ -761,17 +1016,57 @@ class SurfaceOperators
      * [scalar], which is why the `mu` coefficient means something different
      * under `--viscosity-mode graph` than under `laplace-beltrami`. Kept for
      * bit-comparability against Python runs that used it.
+     *
+     * **T2b SIGNATURE CHANGE — this takes the vertex one-ring CSR, not
+     * `faces`.** The pre-T2b declaration was `(faces, values, vertex_count,
+     * result)`, i.e. a per-face scatter. That cannot reproduce the reference:
+     * the Python builds a `set` of neighbours per vertex and averages over the
+     * **unique** neighbour set, while a per-face scatter visits every interior
+     * neighbour **twice** (once from each of the two faces sharing that edge).
+     * On a closed manifold the double count cancels between numerator and
+     * denominator, so the two agree algebraically — but not bitwise, and the
+     * cancellation argument holds only where every edge has exactly two
+     * incident faces, which the reference never asserts and which a partially
+     * held ghost row need not satisfy. `SurfaceMesh::vertexOneRing()` *is* the
+     * unique set (`Tessera::buildVertexStencil( mesh, 1 )`, ascending unique
+     * local indices), so the argument does not have to be made at all.
+     *
+     * @param one_ring `SurfaceMesh::vertexOneRing()` — CSR `offsets` /
+     *        `neighbors`, self excluded. **Complete for every owned vertex; a
+     *        ghost row may stop at the edge of the local set**, so only owned
+     *        rows of `result` are meaningful. A vertex with an empty row gets
+     *        zero, as the Python's `if not nbrs: continue` leaves it.
+     * @param values Per-vertex input; may be a Cabana slice with no extent.
+     * @param[out] result `(Nv,)`. Its extent defines the range written.
      */
-    template <class FaceView, class ScalarView>
-    static void graphLaplacianScalar( const FaceView& faces,
-                                      const ScalarView& values, int vertex_count,
-                                      ScalarView& result )
+    template <class CsrType, class ScalarView, class OutScalarView>
+    static void graphLaplacianScalar( const CsrType& one_ring,
+                                      const ScalarView& values,
+                                      OutScalarView& result )
     {
-        (void)faces;
-        (void)values;
-        (void)vertex_count;
-        (void)result;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceOperators", "graphLaplacianScalar" );
+        using exec = typename OutScalarView::execution_space;
+        const int nv = static_cast<int>( result.extent( 0 ) );
+        auto offsets = one_ring.offsets;
+        auto neighbors = one_ring.neighbors;
+        auto val = values;
+        auto out = result;
+        Kokkos::parallel_for(
+            "beatnik_graph_laplacian_scalar",
+            Kokkos::RangePolicy<exec>( 0, nv ), KOKKOS_LAMBDA( const int i ) {
+                const int begin = offsets( i );
+                const int end = offsets( i + 1 );
+                const int n = end - begin;
+                if ( n <= 0 )
+                {
+                    out( i ) = Real( 0 );
+                    return;
+                }
+                Real acc = 0;
+                for ( int p = begin; p < end; ++p )
+                    acc += val( neighbors( p ) ) - val( i );
+                out( i ) = acc / static_cast<Real>( n );
+            } );
+        Kokkos::fence();
     }
 
     /**
@@ -783,17 +1078,42 @@ class SurfaceOperators
      * on the **sheet-vector** state (`mesh_rhs`, line 1231) — note the
      * asymmetry with the potential state, which uses the cotangent Laplacian by
      * default. That asymmetry is in the reference, not a porting slip.
+     *
+     * **T2b SIGNATURE CHANGE — takes the vertex one-ring CSR**, for exactly the
+     * reason written out on `graphLaplacianScalar` above.
      */
-    template <class FaceView, class VectorView>
-    static void graphLaplacianVector( const FaceView& faces,
+    template <class CsrType, class VectorView, class OutVectorView>
+    static void graphLaplacianVector( const CsrType& one_ring,
                                       const VectorView& values,
-                                      int vertex_count, VectorView& result )
+                                      OutVectorView& result )
     {
-        (void)faces;
-        (void)values;
-        (void)vertex_count;
-        (void)result;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceOperators", "graphLaplacianVector" );
+        using exec = typename OutVectorView::execution_space;
+        const int nv = static_cast<int>( result.extent( 0 ) );
+        auto offsets = one_ring.offsets;
+        auto neighbors = one_ring.neighbors;
+        auto val = values;
+        auto out = result;
+        Kokkos::parallel_for(
+            "beatnik_graph_laplacian_vector",
+            Kokkos::RangePolicy<exec>( 0, nv ), KOKKOS_LAMBDA( const int i ) {
+                const int begin = offsets( i );
+                const int end = offsets( i + 1 );
+                const int n = end - begin;
+                if ( n <= 0 )
+                {
+                    for ( int d = 0; d < 3; ++d )
+                        out( i, d ) = Real( 0 );
+                    return;
+                }
+                for ( int d = 0; d < 3; ++d )
+                {
+                    Real acc = 0;
+                    for ( int p = begin; p < end; ++p )
+                        acc += val( neighbors( p ), d ) - val( i, d );
+                    out( i, d ) = acc / static_cast<Real>( n );
+                }
+            } );
+        Kokkos::fence();
     }
 
     /**
@@ -819,6 +1139,8 @@ class SurfaceOperators
      * Units: 1/length.
      *
      * @note MPI. Same scatter pattern as `cotangentLaplacianScalar`.
+     *
+     * @param[out] result `(Nv,3)`. Its extent defines `Nv`; **zeroed here**.
      */
     template <class VertexView, class FaceView, class AreaView,
               class VectorView>
@@ -827,11 +1149,52 @@ class SurfaceOperators
                                      const AreaView& vertex_area,
                                      VectorView& result )
     {
-        (void)vertices;
-        (void)faces;
-        (void)vertex_area;
-        (void)result;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceOperators", "meanCurvatureNormal" );
+        using exec = typename VectorView::execution_space;
+        const int nf = static_cast<int>( faces.extent( 0 ) );
+        const int nv = static_cast<int>( result.extent( 0 ) );
+        auto pos = vertices;
+        auto fv = faces;
+        auto va = vertex_area;
+        auto out = result;
+        Kokkos::deep_copy( result, Real( 0 ) );
+
+        Kokkos::parallel_for(
+            "beatnik_mean_curvature_normal_faces",
+            Kokkos::RangePolicy<exec>( 0, nf ), KOKKOS_LAMBDA( const int f ) {
+                const int idx[3] = { fv( f, 0 ), fv( f, 1 ), fv( f, 2 ) };
+                if ( idx[0] < 0 || idx[1] < 0 || idx[2] < 0 )
+                    return;
+                Real cot[3];
+                faceCotangents( pos, fv, f, cot );
+                // Identical assembly to cotangentLaplacianScalar, with the
+                // vertex POSITIONS as the field: contribution w*(x_q - x_p)
+                // onto p and its negation onto q. That antisymmetry is what
+                // makes the result -2H n_out rather than +2H n_out, so it is
+                // the sign the whole surface-tension term rests on.
+                for ( int k = 0; k < 3; ++k )
+                {
+                    const int p = idx[( k + 1 ) % 3];
+                    const int q = idx[( k + 2 ) % 3];
+                    const Real w = Real( 0.5 ) * cot[k];
+                    for ( int d = 0; d < 3; ++d )
+                    {
+                        const Real contrib = w * ( pos( q, d ) - pos( p, d ) );
+                        Kokkos::atomic_add( &out( p, d ), contrib );
+                        Kokkos::atomic_add( &out( q, d ), -contrib );
+                    }
+                }
+            } );
+        Kokkos::fence();
+
+        Kokkos::parallel_for(
+            "beatnik_mean_curvature_normal_normalize",
+            Kokkos::RangePolicy<exec>( 0, nv ), KOKKOS_LAMBDA( const int i ) {
+                const Real a = ( va( i ) > Real( 1.0e-300 ) ) ? va( i )
+                                                              : Real( 1.0e-300 );
+                for ( int d = 0; d < 3; ++d )
+                    out( i, d ) /= a;
+            } );
+        Kokkos::fence();
     }
 
     /**
@@ -850,14 +1213,32 @@ class SurfaceOperators
      * either lets a normal component accumulate that has no physical meaning
      * and feeds straight back into the Bernoulli term through
      * \f$|S|^2\f$.
+     *
+     * @param[in,out] values `(Nv,3)` field, modified in place. May be a Cabana
+     *        slice with no extent (`mesh.sheetVector()` is one), which is why
+     *        `Nv` and the execution space both come from `vertex_normal`.
+     * @param vertex_normal `(Nv,3)` unit vertex normals. Rows where the normal
+     *        is zero — a vertex with no incident face — are left untouched,
+     *        which is what subtracting a zero projection does anyway.
      */
     template <class VectorView, class NormalView>
     static void projectTangent( VectorView& values,
                                 const NormalView& vertex_normal )
     {
-        (void)values;
-        (void)vertex_normal;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceOperators", "projectTangent" );
+        using exec = typename NormalView::execution_space;
+        const int nv = static_cast<int>( vertex_normal.extent( 0 ) );
+        auto v = values;
+        auto vn = vertex_normal;
+        Kokkos::parallel_for(
+            "beatnik_project_tangent", Kokkos::RangePolicy<exec>( 0, nv ),
+            KOKKOS_LAMBDA( const int i ) {
+                Real dot = 0;
+                for ( int d = 0; d < 3; ++d )
+                    dot += v( i, d ) * vn( i, d );
+                for ( int d = 0; d < 3; ++d )
+                    v( i, d ) -= dot * vn( i, d );
+            } );
+        Kokkos::fence();
     }
 
     /**

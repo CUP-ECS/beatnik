@@ -142,20 +142,26 @@ scalars, and writes an HDF5 checkpoint that matches the Python gold file at
 `--rtol 1e-12 --atol 1e-14` at ranks 1-6 on SERIAL and HIP.
 
 **There is still no timestep.** `Solver::solve` implements a `steps == 0` guard
-and nothing else; at `steps > 0` it throws. So the whole of the mathematics
-below T1b remains a stub, and in particular:
+and nothing else; at `steps > 0` it throws. **T2b has landed, so the surface
+differential operators are no longer stubs** —
+`SurfaceOperators::{faceScalarGradient, surfaceGradient,
+cotangentLaplacianScalar, graphLaplacianScalar, graphLaplacianVector,
+meanCurvatureNormal, projectTangent}` and `SurfaceState::updateSheetVector` are
+implemented and validated against the Python reference (see T2b's completion
+note). Everything built *on* them is still a stub:
 
-- **No RHS, no integrator, no volume projection, no BR evaluation.** T2b, T2c and
+- **No RHS, no integrator, no volume projection, no BR evaluation.** T2c and
   T2d. The BR solver and the quadrature are *constructed* by `Solver::setup` and
   never called.
 - **No adaptivity.** T4a/T4b/T4c, still blocked on the disjoint-editing-families
   design question and on Tessera's G5b/G5c/G5d.
-- **`SurfaceState::updateSheetVector` still throws**, deferred to T2b on a stated
-  dependency (it *is* `surfaceGradient`, which is T2b's). Consequence in the
-  checkpoint: `/vertices/u1` is written unconditionally by `Tessera::writeMesh`
-  and is present-but-meaningless — `initializeFields` left it zero, which is a
-  *defined* value and not a correct one. `compare_output.py` skips the field
-  `state_model` does not select, so nothing depends on it yet.
+- **`/vertices/u1` in a `--steps 0` checkpoint is still present-but-meaningless**,
+  though no longer because of a stub: `SurfaceState::updateSheetVector` is
+  implemented (T2b), but nothing on the 0-timestep path *calls* it, so
+  `initializeFields` leaves the field zero — a *defined* value and not a correct
+  one. `Tessera::writeMesh` writes the whole vertex pack unconditionally and
+  `compare_output.py` skips the field `state_model` does not select, so nothing
+  depends on it yet. T2d is where the RHS starts calling it every stage.
 - **`CheckpointIO::read` and `RestartReader::load` still throw** — T5b. Writing is
   validated; reading is not, in either direction.
 - **`InitialCondition` implements the fast path only.** `applyShapeDeformation`,
@@ -348,12 +354,12 @@ progress log, under *M1 adapter rework and T1b*.
   `seedMaterialPosition` / `centerPotential` / `allFinite` now take the mesh,
   because T1c also discharged M1's deferred follow-up — the three evolved fields
   live in the Tessera vertex user pack, so `SurfaceState` holds no storage at
-  all. `remap` was deleted. **`updateSheetVector` is the one method of the five
-  still throwing**, deferred to T2b on a stated dependency: its body *is*
-  `SurfaceOperators::surfaceGradient`, which is T2b's and is itself a stub, and
-  at 0 timesteps under the `potential` model the sheet vector is never read. The
-  reason is written on the declaration so the next reader does not have to
-  re-derive it. See the signature table in the progress log, under *T1c*.
+  all. `remap` was deleted. **`updateSheetVector` was the one method of the five
+  T1c left throwing**, deferred to T2b on a stated dependency: its body *is*
+  `SurfaceOperators::surfaceGradient`, which was T2b's, and at 0 timesteps under
+  the `potential` model the sheet vector is never read. **T2b implemented it**;
+  the fill-in list under T2b now names it. See the signature table in the
+  progress log, under *T1c*.
 - `Beatnik_IOInterface.hpp`: `timeKey`, `write`.
   ← *Python:* `::checkpoint_time_key` (951-952), `::save_state_checkpoint`
   (955-990)
@@ -461,22 +467,102 @@ step 10). The adaptive dt is live in this configuration, so T2d must reproduce
 `choose_step_dt`, not step at a fixed dt; comparing against these files with a
 hardcoded dt will fail on `time` first and on the fields second.
 
-### T2b — Surface differential operators
+### T2b — Surface differential operators — **DONE**
 
 **Fill in:** `Beatnik_MeshGeometry.hpp`:
 `SurfaceOperators::{faceScalarGradient, surfaceGradient,
 cotangentLaplacianScalar, graphLaplacianScalar, graphLaplacianVector,
-meanCurvatureNormal, projectTangent}`.
+meanCurvatureNormal, projectTangent}`;
+`Beatnik_SurfaceState.hpp::updateSheetVector`.
 ← *Python:* `mesh_solver.py::_face_scalar_gradient` (938-961),
 `::surface_gradient` (964-986), `::cotangent_laplacian_scalars` (1020-1059),
 `::graph_laplacian_scalars` (1004-1017), `::graph_laplacian_vectors` (989-1001),
-`::mean_curvature_normal` (1068-1110), `::_project_tangent` (247-256)
+`::mean_curvature_normal` (1068-1110), `::_project_tangent` (247-256),
+`::potential_sheet_vector` (364-367)
+
+`updateSheetVector` is T2b's, not T1c's: T1c deferred it here on a stated
+dependency (its body *is* `surfaceGradient`), and both "What is NOT yet true"
+above and `src/Beatnik_SurfaceState.hpp` said so while this list omitted it.
 
 **Exit criterion:** a unit test (tier `unit`) confirming, on the default
 icosphere, that `meanCurvatureNormal` returns `≈ -2/R · n̂_out` (the
 Meyer-Desbrun-Schroeder-Barr identity — the definitive sign check) and that
 `surfaceGradient` of a linear function reproduces its tangential projection to
 `1e-12`.
+
+**Met**, by the new `unit`-tier test `Beatnik_Test_T2bOperators`
+(`tests/unit_tests/Beatnik_Test_T2bOperators.cpp`), run through
+`flux batch scripts/tuolumne/unit_tests.flux` at 1 rank on the **HIP** backend
+(the default execution space; the tier registers one suffix-less binary):
+**31/31 checks**, tier 4/4. The gate is untouched — the new test is `unit` and
+the `regression` tier still has exactly one member. Every reference number is a
+hard-coded literal computed from the read-only Python on the default icosphere,
+and none was adjusted; **no tolerance was changed anywhere.**
+
+**The sign, first, because it is the check the criterion calls definitive.**
+`meanCurvatureNormal` is strictly inward at **all 162 vertices**, tested as
+\f$\Delta_{LB}x\cdot\hat n_{\text{out}} < 0\f$ against the *exact analytic*
+outward normal \f$(p-c)/\|p-c\|\f$ — available because every icosphere vertex
+lies exactly on the sphere, and therefore dependent on nothing under test. Zero
+violations. Its magnitude averages `8.0177647933837246` against \f$2/R = 8\f$
+exactly, **0.22% high**, inside the `1e-1` bound the test states a priori from
+\f$(h/R)^2 = 0.076\f$; its direction is antiparallel to the radial to
+`1.39e-04`. The per-vertex extremes (`7.9184808270587634` / `9.0760095262647997`,
+the icosphere's valence-5 versus valence-6 vertices) are pinned against the
+Python rather than against a tolerance fitted to that spread.
+
+**Agreement with the Python is at `1e-15` or better on every compared quantity**
+— three decades inside the criterion's `1e-12`, for T1b's reason: Tessera's
+icosphere positions and the Python's differ only in their last bits. Thirteen
+order-invariant summary scalars were compared (`max`, `min`, `sum` of
+magnitudes, so no vertex-order matching is needed); the table is in the progress
+log, under *T2b*. The exact identities:
+
+```
+faceScalarGradient   max|g_f - P_f a| = 1.7056134324626197e-15  (exact per face)
+surfaceGradient      max|g . n_v|     = 1.5619656867989929e-16  (the projection)
+projectTangent       max|v . n_v|     = 3.0631241924871614e-16
+updateSheetVector    max|S . n_v|     = 9.8860206384425047e-17
+updateSheetVector    max|(g x S).n + |g|^2| = 4.4408920985006262e-16
+cotangentLaplacianScalar(const)  max|.| = 0   EXACTLY, not to a tolerance
+graphLaplacianScalar(const)      max|.| = 0   EXACTLY
+```
+
+all bounded a priori at `1e-13` absolute. The test checks more than the
+criterion: the two constant-field identities above (which catch a stencil that
+forgot to difference, and which every non-constant test would pass), the
+cotangent Laplacian's **dissipative sign** via the energy form
+\f$\sum_i A_i\phi_i(\Delta_s\phi)_i = -0.91960120772791898 < 0\f$,
+`projectTangent` reproducing \f$P_v a\f$ to `2.5e-16`, `updateSheetVector`'s
+rotation sense via the signed identity
+\f$(\nabla_s\phi\times S)\cdot\hat n = -\|\nabla_s\phi\|^2\f$ (which a magnitude
+check cannot see — flipping the minus sign reverses it and leaves every
+\f$|S|\f$ unchanged), and both graph Laplacians against the Python, which is
+what validates their taking the **unique** one-ring rather than a per-face
+scatter.
+
+**The criterion's second half cannot hold as literally written, and that is a
+property of the operator, not of the port.** `surfaceGradient` is an
+area-weighted average of the per-face in-plane gradients, then projected. For a
+linear \f$\phi = a\cdot p\f$ the *face* gradient is exactly \f$P_f a\f$ — checked
+above at `1.7e-15` — but the average of \f$P_f a\f$ over mutually tilted faces is
+not \f$P_v a\f$, and the projection does not repair the difference. The
+discrepancy is \f$O((h/R)^2)\f$ and the **reference itself measures
+`2.3416899365234726e-02`** on this mesh, 1.7% of \f$|a|\f$; no correct
+implementation makes it `1e-12`. So `1e-12` is spent on the two statements that
+are true and that a wrong implementation fails: Beatnik reproduces the
+reference's `surface_gradient` of the same linear function on the same mesh —
+that discrepancy scalar included — to `1.2e-15`, and the exact half of the claim,
+no normal component, to `1.6e-16`. The untrue reading was replaced by a stronger
+true one and the discrepancy is reported as a number, not absorbed into a
+tolerance.
+
+**Two signature changes and one widening**, plus a latent bug in *both* tier
+wrappers that this task's second `unit` test exposed — `flux run` was eating the
+manifest on stdin, so the tier reported a green `PASS (3/3 tests)` while silently
+skipping the new test, and the **gate** wrapper had the same bug and would have
+silently run only one member per backend once T2d registered regression test 2.
+All in the progress log, under *T2b*.
 
 ### T2c — Vertex quadrature and the direct BR solver
 

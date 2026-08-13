@@ -208,29 +208,60 @@ class SurfaceState
      *
      * A no-op under `StateModel::SheetVector`.
      *
-     * **STILL A STUB AFTER T1c — DEFERRED TO T2b ON A STATED DEPENDENCY, not
-     * overlooked.** T1c implemented the other four methods named in its task
-     * entry and left this one throwing for two reasons, both checkable:
+     * **Implemented at T2b**, which is where `SurfaceOperators::surfaceGradient`
+     * landed — T1c left this throwing because its body *is* that call and
+     * because at 0 timesteps the sheet vector is never read. Written over the
+     * **whole local range**, so ghost rows are consistent with their owners
+     * without an exchange: `surfaceGradient` assembles from the whole local face
+     * set, so a *ghost* vertex's gradient is a partial sum and its sheet vector
+     * is correspondingly partial — but the halo-exchange-free consumers
+     * (`Beatnik_SourceQuadrature.hpp`, owned entities only) read owned rows, and
+     * a caller that needs ghost rows exact follows with `haloExchange()`.
      *
-     *   1. Its body *is* `SurfaceOperators::surfaceGradient`, which is T2b's
-     *      and is itself still `BEATNIK_NOT_IMPLEMENTED`. Nothing to call.
-     *   2. At T1c's 0 timesteps under `StateModel::Potential` the sheet vector
-     *      is never **read**: the only consumers are the BR source (T2c) and
-     *      `maxSheetStrength`'s dt throttle (T2d), and neither runs. So the
-     *      checkpoint's `/vertices/u1` is present-but-meaningless — see
-     *      `Beatnik_IOInterface.hpp` "BOTH STATE FIELDS ARE ALWAYS PRESENT" —
-     *      and `compare_output.py` skips the field `state_model` does not
-     *      select. `initializeFields` leaves it zero rather than garbage, which
-     *      is a defined value and not a correct one.
-     *
-     * Implement it in T2b, immediately after `surfaceGradient`.
+     * @pre The **potential's** ghost values must be current — one
+     *      `mesh.haloExchange()` before this call. The gradient is a one-ring
+     *      stencil, so an owned vertex on a partition boundary reads the
+     *      potential at vertices it does not own. This is the *only* exchange
+     *      needed: the face-loop assembly is complete on every owned vertex
+     *      without a scatter-add (see DISTRIBUTED ASSEMBLY in
+     *      `Beatnik_MeshGeometry.hpp`), and a second exchange does not widen the
+     *      one-ring — the depth-2 halo built once in `SurfaceMesh` does (R8).
      */
     template <class MeshType, class GeometryType>
     void updateSheetVector( MeshType& mesh, const GeometryType& geometry )
     {
-        (void)mesh;
-        (void)geometry;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceState", "updateSheetVector" );
+        if ( _model != StateModel::Potential )
+            return;
+
+        auto pos = mesh.positions();
+        auto faces = mesh.faceVertices();
+        auto phi = mesh.potential();
+        auto sheet = mesh.sheetVector();
+        const int n = mesh.totalVertexCount();
+
+        Kokkos::View<Real* [3], memory_space> gradient(
+            Kokkos::view_alloc( Kokkos::WithoutInitializing,
+                                "beatnik_sheet_vector_gradient" ),
+            n );
+        SurfaceOperators::surfaceGradient( pos, faces, phi,
+                                          geometry.vertex_normal, gradient );
+
+        auto vn = geometry.vertex_normal;
+        Kokkos::parallel_for(
+            "beatnik_update_sheet_vector",
+            Kokkos::RangePolicy<execution_space>( 0, n ),
+            KOKKOS_LAMBDA( const int i ) {
+                // S = -n x grad_s(phi). The minus sign is load-bearing; see the
+                // declaration. Written out rather than negating a cross-product
+                // helper so the component order is inspectable.
+                sheet( i, 0 ) = -( vn( i, 1 ) * gradient( i, 2 ) -
+                                   vn( i, 2 ) * gradient( i, 1 ) );
+                sheet( i, 1 ) = -( vn( i, 2 ) * gradient( i, 0 ) -
+                                   vn( i, 0 ) * gradient( i, 2 ) );
+                sheet( i, 2 ) = -( vn( i, 0 ) * gradient( i, 1 ) -
+                                   vn( i, 1 ) * gradient( i, 0 ) );
+            } );
+        Kokkos::fence();
     }
 
     /**

@@ -493,3 +493,211 @@ and must not be stubbed to a constant to "get the fields comparable first".
 **No code changed and no test was added.** Regression test 2 does not exist yet —
 the gate still has exactly one member — so nothing was run beyond the three
 comparator self-compares, which are pure Python on committed fixtures.
+
+## T2b
+
+**T2b complete — the seven surface differential operators and
+`SurfaceState::updateSheetVector` are implemented and validated against the
+read-only Python reference.** Next: T2c (vertex quadrature + the direct BR
+solver), then T2d.
+
+**Two decisions taken as given by the task, recorded here because they are the
+kind a later reader will otherwise reopen.**
+
+1. **`updateSheetVector` is T2b's scope, not T5c's or T2d's.** Its body *is*
+   `surfaceGradient` plus \f$S = -\hat n_v\times\nabla_s\phi\f$, so implementing
+   the operator and leaving the one-line consumer throwing would have handed T2c
+   a stub the design already treats as discharged. `framework.md`'s T2b fill-in
+   list omitted it while the same document's "What is NOT yet true" section and
+   `Beatnik_SurfaceState.hpp:211-227` both said it was deferred here; the list is
+   corrected, with the `mesh_solver.py::potential_sheet_vector` (364-367)
+   citation the other entries carry.
+2. **The two graph Laplacians take the vertex one-ring CSR, not `faces`.** The
+   reference averages over the **unique** neighbour set
+   (`mesh_solver.py:989-1001`, `:1004-1017` build a `set` per vertex); a per-face
+   scatter visits every interior neighbour twice, once from each of the two faces
+   sharing that edge. On a closed manifold the double count cancels between
+   numerator and denominator, so the two agree algebraically — but not bitwise,
+   and the cancellation rests on every edge having exactly two incident faces,
+   which the reference never asserts and a partially held ghost row need not
+   satisfy. `SurfaceMesh::vertexOneRing()` is that unique set already
+   (`Tessera::buildVertexStencil( mesh, 1 )`, ascending unique local indices), so
+   the argument does not have to be made at all.
+
+**Three signature changes. Two are decision 2 above; the third is a widening
+forced by the call T2d actually makes.**
+
+| Was | Now | Why it could not stay |
+| --- | --- | --- |
+| `graphLaplacianScalar( faces, values, vertex_count, result )` | `graphLaplacianScalar( one_ring, values, result )` | Decision 2. A per-face scatter is not the reference operator, and `vertex_count` is redundant once the CSR is the argument — `result.extent(0)` is the range and the CSR's `offsets` covers it. |
+| `graphLaplacianVector( faces, values, vertex_count, result )` | `graphLaplacianVector( one_ring, values, result )` | Same, componentwise. |
+| `cotangentLaplacianScalar( ..., const ScalarView& values, ..., ScalarView& result )` | `..., const ScalarView& values, ..., OutScalarView& result` | One template parameter for both cannot express the call the viscous term makes: `values` is `mesh.potential()`, a Cabana slice, and `result` is a Beatnik-owned `Kokkos::View`. **Not forced by a T2b compile failure** — T2b's test can pass a `View` for both — but forced by T2d, and a widening rather than a break, so every conceivable pre-T2b call still compiles. `graphLaplacianScalar`/`Vector` got the same split for the same reason. |
+
+**Two internal shapes worth knowing, neither a signature change.**
+
+- **`Nv` comes from the OUTPUT view everywhere**, never from the input field.
+  Every per-vertex input on these paths may be a Cabana slice
+  (`mesh.potential()`, `mesh.sheetVector()`), which under the M1 storage model
+  exposes no extent — the same constraint that forced `MeshGeometry::compute` to
+  take an explicit `vertex_count` at T1b. `projectTangent` takes it from
+  `vertex_normal` instead, since it has no output view of its own.
+- **Two device helpers, `faceGradient` and `faceCotangents`**, both
+  `KOKKOS_INLINE_FUNCTION`. `surfaceGradient` fuses the per-face gradient into
+  its own face loop rather than materializing an `(Nf,3)` temporary it would
+  immediately reduce away, and `meanCurvatureNormal` is `cotangentLaplacianScalar`
+  applied to the positions — so without shared kernels the 2x2 Gram solve and the
+  corner-to-opposite-edge cotangent pairing would each exist twice. Both are the
+  sign-critical parts.
+
+**One bug that only running revealed, and it was in the test wrapper rather than
+in the operators — with a failure mode worse than a plain failure.**
+
+`scripts/tuolumne/unit_tests.flux` read the installed manifest **on stdin**, and
+`flux run` inherits and consumes its caller's stdin. The first launched binary
+therefore swallowed every remaining manifest line. The tier reported
+
+```
+[unit] SUMMARY: PASS (3/3 tests)
+```
+
+— green, self-consistent, and silently missing the test the task exists to add.
+Latent and invisible for as long as the tier had a single `exe` line (T1b's), and
+found the moment T2b added the second. Fixed by reading the manifest on **fd 3**,
+which protects every line kind rather than only the one that bit.
+
+**`run_regression_minset.flux` had the identical bug** — the same
+`while read` / `flux run` pattern, fed by a heredoc — and it is the *gate*. With
+one member per backend it could never bite; with T2d's regression test 2 it would
+have run only the first member of each backend and still reported
+`[gate] PASS`, which is precisely the "gate silently shrinks" failure CLAUDE.md's
+minimum-test-set rule exists to prevent. Fixed here rather than left for T2d to
+rediscover, and the gate was re-run afterwards to confirm the change is inert
+while the tier has one member: **12 launches** (SERIAL and HIP at ranks 1-6),
+`[gate] PASS (label=regression)`, unchanged from T1c.
+
+**No compile errors at all** — the fourth task running (V0, T1b, T1c, T2b), so no
+semantic decision was forced by the compiler and none is recorded on that
+account.
+
+**What was measured, and the one place the exit criterion cannot be met as
+written.**
+
+`tests/unit_tests/Beatnik_Test_T2bOperators.cpp`, 1 rank on **HIP** (the default
+execution space; the `unit` tier registers one suffix-less binary):
+**31/31 checks**, tier 4/4. Every `kPy*` literal in it was computed by calling
+the read-only reference directly on
+`mesh.icosphere_mesh( subdivisions=2, radius=0.25, center=(0,0,0.25) )` — the
+Python's own defaults, i.e. the mesh T1a's gold file describes — and every one is
+an **order-invariant summary scalar** (a max, a min, a sum of magnitudes), so the
+test does not have to match Beatnik's vertex numbering to the Python's. **No
+tolerance was touched and no reference number was adjusted.**
+
+| Quantity | Beatnik (HIP, np1) | Python | rel |
+| --- | --- | --- | --- |
+| `surfaceGradient` max\|g\| | `1.3193451648051979` | `1.3193451648051981` | 1.7e-16 |
+| `surfaceGradient` sum\|g\| | `167.62467266803063` | `167.62467266803063` | 0 |
+| `surfaceGradient` max\|g - P_v a\| | `0.023416899365234698` | `0.023416899365234726` | 1.2e-15 |
+| `meanCurvatureNormal` min\|H\| | `7.9184808270587634` | `7.9184808270587519` | 1.5e-15 |
+| `meanCurvatureNormal` max\|H\| | `9.0760095262647997` | `9.0760095262648015` | 2.0e-16 |
+| `meanCurvatureNormal` mean\|H\| | `8.0177647933837246` | `8.0177647933837228` | 2.2e-16 |
+| `meanCurvatureNormal` max\|cos+1\| | `1.3907208743912935e-04` | `1.3907208743912935e-04` | 0 |
+| `cotangentLaplacianScalar` max\|.\| | `11.832644731433692` | `11.832644731433687` | 4.2e-16 |
+| `cotangentLaplacianScalar` energy form | `-0.91960120772791898` | `-0.91960120772791909` | 1.2e-16 |
+| `graphLaplacianScalar` max\|.\| | `0.016833076545600918` | `0.016833076545600924` | 3.6e-16 |
+| `graphLaplacianVector` sum\|.\| | `1.9593746256423525` | `1.9593746256423525` | 0 |
+| `updateSheetVector` max\|S\| | `1.3193451648051979` | `1.3193451648051979` | 0 |
+| `updateSheetVector` sum\|S\| | `167.62467266803063` | `167.62467266803066` | 1.7e-16 |
+
+Agreement is at the **1e-15 level or better everywhere**, three decades inside
+the `1e-12` the criterion asks for — the same pleasant surprise T1b recorded, and
+for the same reason: Tessera's icosphere positions and the Python's differ only in
+their last bits.
+
+The exact identities, all bounded a priori at `1e-13` absolute and all measured
+at or below `1.7e-15`:
+
+```
+faceScalarGradient   max|g_f - P_f a| = 1.7056134324626197e-15   (exact per face)
+surfaceGradient      max|g . n_v|     = 1.5619656867989929e-16   (projection)
+projectTangent       max|v . n_v|     = 3.0631241924871614e-16
+projectTangent       max|v - P_v a|   = 2.4825341532472731e-16
+updateSheetVector    max|S . n_v|     = 9.8860206384425047e-17
+updateSheetVector    max|(g x S).n + |g|^2| = 4.4408920985006262e-16
+cotangentLaplacianScalar(const) max|.| = 0            (EXACTLY, not to tolerance)
+graphLaplacianScalar(const)     max|.| = 0            (EXACTLY)
+```
+
+`cotangentLaplacianScalar` and `graphLaplacianScalar` of a *constant* field are
+asserted as exact equalities rather than against a tolerance, and they hold:
+every contribution is a weight times an exact zero, however large the cotangent
+weight. That check is what catches a stencil which forgot to difference — one
+accumulating \f$w\,\phi_j\f$ rather than \f$w(\phi_j-\phi_i)\f$ — which every
+non-constant test would pass.
+
+**The sign, which is the half of the criterion that matters most.**
+`meanCurvatureNormal` is strictly inward at **all 162 vertices** — checked as
+\f$\Delta_{LB}x \cdot \hat n_{\text{out}} < 0\f$ against the *exact analytic*
+outward normal \f$(p-c)/\|p-c\|\f$, which is available because every icosphere
+vertex lies exactly on the sphere and which therefore depends on nothing under
+test. Zero violations. Magnitude: mean `8.0178` against \f$2/R = 8\f$ exactly,
+i.e. **0.22% high**, well inside the `1e-1` discretization bound the test states
+a priori from \f$(h/R)^2 = 0.076\f$. Direction: antiparallel to within
+`1.39e-04`. `updateSheetVector`'s sign is pinned separately by the signed
+identity \f$(\nabla_s\phi\times S)\cdot\hat n = -\|\nabla_s\phi\|^2\f$, which
+holds to `4.4e-16` and is negative everywhere — a magnitude check cannot see the
+direction of rotation within the tangent plane, and flipping the minus sign
+reverses it while leaving every \f$|S|\f$ unchanged.
+
+**The exit criterion's second half cannot hold as literally written, and that is
+a property of the operator rather than of this port.** It asks that
+"`surfaceGradient` of a linear function reproduces its tangential projection to
+`1e-12`". `surfaceGradient` is an **area-weighted average of the per-face
+in-plane gradients, projected onto the vertex tangent plane**. For a linear
+\f$\phi = a\cdot p\f$ the *face* gradient is exactly \f$P_f a\f$ — and that
+exactness is now checked, at `1.7e-15` — but the average of \f$P_f a\f$ over
+faces tilted relative to each other is not \f$P_v a\f$, and the projection
+afterwards does not repair the difference. The discrepancy is
+\f$O((h/R)^2)\f$; the reference itself measures **2.3416899365234726e-02** on
+this mesh, i.e. 1.7% of \f$|a|\f$. No correct implementation makes it `1e-12`,
+and the number is not a Beatnik artifact.
+
+So `1e-12` is spent on the two statements that *are* true and that a wrong
+implementation fails: Beatnik reproduces the reference's `surface_gradient` of the
+same linear function on the same mesh — **that discrepancy scalar included** — to
+`1.2e-15`, and the exact half of the claim, that the result carries no normal
+component, holds to `1.6e-16`. Both are tighter than the criterion in the
+respects where tightness is meaningful. **The criterion was not weakened to make
+the test pass; the untrue reading of it was replaced by a stronger true one, and
+the discrepancy is reported as a number rather than absorbed into a tolerance.**
+
+**Affects:**
+
+- **T2c** — `VertexQuadrature::generate` builds the BR source from the vertex
+  sheet vector, which now exists and is validated: `max|S| = 1.3193451648051979`
+  and `sum|S| = 167.62467266803063` on the default icosphere under
+  \f$\phi = a\cdot p\f$ with `a = (0.3, -0.7, 1.1)`, tangential to `9.9e-17`. Its
+  own hard-coded reference velocity should be generated from a Python state whose
+  potential is set the same way, so a disagreement localizes to the kernel and
+  not to the source. Note also that `updateSheetVector` leaves **ghost** rows
+  holding partial sums by construction (the face-loop assembly is complete on
+  owned vertices only) — the quadrature already emits owned entities only (R9),
+  so nothing needs to change, but a T2c kernel that reads a ghost `S` must
+  `haloExchange()` first.
+- **T2d** — four things. (a) `cotangentLaplacianScalar`'s dissipative sign is
+  confirmed by the energy form `sum A phi Lphi = -0.9196 < 0`, so a blow-up in
+  the viscous term is not a sign error in this operator. (b)
+  `meanCurvatureNormal` returns \f$-2H\hat n_{\text{out}}\f$ and must be added to
+  \f$\dot x\f$ with a **positive** \f$\sigma\f$ — verified inward at every
+  vertex, so `computeSurfaceTension` needs no sign flip. (c) The
+  `cotangentLaplacianScalar` template widening above is what lets the viscous
+  term pass `mesh.potential()` directly. (d) The `flux run`-eats-stdin bug in
+  `run_regression_minset.flux` is fixed, so registering regression test 2
+  alongside test 1 will actually run both — it would not have.
+- **T5c** — `projectTangent` is implemented and exact (`3.1e-16`), so
+  `SurfaceState::projectSheetTangent` is a one-line call. `graphLaplacianVector`
+  is the sheet-vector state's viscous operator and now takes the one-ring CSR.
+- **T4c** — `graphLaplacianVector` on the positions is the umbrella smoothing
+  vector `tangentialRelaxation` needs; measured `max 0.012663750374617330`,
+  `sum 1.9593746256423525` on the initial sphere.
+- **Anyone adding a `unit` or `regression` test** — the tier wrappers now read
+  their manifests on fd 3. Do not move that back to stdin.

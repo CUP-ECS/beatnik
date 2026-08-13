@@ -157,7 +157,16 @@ else
             echo "[gate] no ${BEATNIK_GATE_LABEL} binaries for ${_backend}"
             continue
         fi
-        while IFS= read -r _line; do
+        # FD 3, NOT STDIN: `flux run` below inherits and CONSUMES the loop's
+        # stdin, so with the line list on stdin the first launched binary
+        # swallows every remaining line and the gate silently runs only its
+        # first member -- reporting PASS while covering less than it claims,
+        # which is exactly the "gate silently shrinks" failure CLAUDE.md's
+        # minimum-test-set rule exists to prevent. Invisible while the tier had
+        # one member per backend; found in unit_tests.flux the moment T2b added
+        # a second test, and fixed here at the same time rather than left for
+        # T2d's regression test 2 to rediscover.
+        while IFS= read -r _line <&3; do
             [ -n "${_line}" ] || continue
             # shellcheck disable=SC2086
             set -- ${_line}
@@ -178,7 +187,7 @@ else
                     "${_exe}" "$@" ) || _gate_rc=1
                 _ranks_run=$(( _ranks_run + 1 ))
             done
-        done <<EOF
+        done 3<<EOF
 ${_lines}
 EOF
     done

@@ -168,7 +168,13 @@ echo "[unit] manifest = ${_manifest}"
 
 _python="${BEATNIK_PYTHON:-python3}"
 
-while IFS= read -r _line || [ -n "${_line}" ]; do
+# READ THE MANIFEST ON FD 3, NOT ON STDIN. `flux run` inherits and CONSUMES the
+# loop's stdin, so with the manifest on stdin the first launched binary swallows
+# every remaining line -- and the report is a green `PASS (n/n tests)` naming
+# only the tests that ran, which is the worst possible way to lose one. Latent
+# and invisible while the tier had a single `exe` line; found the moment T2b
+# added the second. The gate wrapper had the same bug and is fixed the same way.
+while IFS= read -r _line <&3 || [ -n "${_line}" ]; do
     case "${_line}" in
         ''|'#'*) continue ;;
     esac
@@ -219,7 +225,7 @@ while IFS= read -r _line || [ -n "${_line}" ]; do
         _rc=1
         ;;
     esac
-done < "${_manifest}"
+done 3< "${_manifest}"
 
 ##--------------------------------------------------------------------------##
 ## Report
