@@ -206,6 +206,19 @@ What is still a stub:
   T2d, so T5c implements bodies only.
 - **`BRSolverFMM`'s two methods still throw** — T3a.
 
+What is **implemented but unexercised**, which is a different and quieter kind of
+gap: **three of the six dt controls are inert in every configuration any test
+runs.** `--max-sheet-dt-product` defaults to `0.0`, `--dt-switch-time` to `-1.0`,
+and `--t-end` is unset, so the `max_sheet_dt_product` branch
+(`src/Beatnik_TimeIntegrator.hpp:277-300`, which takes an extra `haloExchange`, a
+geometry rebuild and a `SurfaceState::updateSheetVector`) and both caller-side
+clamps (`src/Beatnik_Solver.hpp:410-414`, and the `--t-end` loop break at
+`:337-339`) have never executed under a test. The adaptive throttle *itself* is
+validated — T2d pins the per-step `time` against the T2a gold at `~2e-16` for ten
+steps, and that gold set was generated with `--adaptive-dt` live — but it is
+validated only on the two paths the defaults reach. **T5e and T5f close this**,
+and neither is stubbed: these are bodies with no coverage, not `throw`s.
+
 Treat the C++ as *buildable, structurally sound, and validated exactly as far as
 T2d's exit criterion reaches* — mesh generation, the initial condition, the two
 carried scalars, the checkpoint write, the seven surface operators, the vertex
@@ -1382,6 +1395,166 @@ uninterrupted 10-step run** — see R3, and do not write a test that expects it 
 
 **Exit criterion:** a 5-step gold comparison with `--state-model sheet-vector`.
 
+### T5e — Gold sets for the three inert dt controls *(human step)* — **NOT STARTED**
+
+**Depends on:** none. T2d is `**DONE**`, which is all this needs. **Implementable
+now** — it is not gated behind Phase 3 or Phase 4, and it is sequenced here
+because it is coverage rather than capability, not because anything precedes it.
+
+The reference's adaptive timestepping is `choose_step_dt`
+(`run_adaptive_mesh_bubble.py:889-901`) plus two clamps the *caller* applies in
+the step loop (`:1406-1410`) and the `--t-end` loop break (`:1402-1403`). All of
+it is ported and has a body. Three of its controls are nevertheless dead in every
+gold file that exists, because each defaults to off:
+
+| Control | Default | Reference | Port |
+| --- | --- | --- | --- |
+| `--max-sheet-dt-product` | `0.0` (off) | `:897-900`, `max_sheet_strength` `:904-920` | `src/Beatnik_TimeIntegrator.hpp:277-300`, `src/Beatnik_SurfaceState.hpp:474-544` |
+| `--dt-switch-time` / `--dt-after-switch` | `-1.0` (off) / `0.001` | `:1407-1408` | `src/Beatnik_Solver.hpp:410-412` |
+| `--t-end` | unset | `:1402-1403`, `:1409-1410` | `src/Beatnik_Solver.hpp:337-339`, `:413-414` |
+
+This task produces the gold sets. **T5f** consumes them; splitting them is the
+pattern T1a/T2a set, because generating a gold file means running the read-only
+Python and committing the result, and that is a distinct verifiable act from
+writing a test.
+
+**Fill in:** no source. Three new gold directories under
+`tests/regression_tests/`, each with a `README.md` carrying its exact generating
+command, exactly as `tests/regression_tests/direct-solve-10-steps/README.md`
+does.
+
+**Reference:** `tests/regression_tests/direct-solve-10-steps/README.md` for the
+base command and the directory convention; T2a above for why each option on it
+is there.
+
+**Do:**
+
+1. **Start from T2a's command and change nothing else.** Adaptivity stays off
+   (`--no-dynamic-remesh --refine-every 0`) for T2a's reason: this task isolates
+   the *dt controls*, and refinement would move `h_min` discontinuously and
+   confound them. `--source-quadrature vertex` is not optional (R11).
+
+   ```
+   python examples/run_adaptive_mesh_bubble.py --steps 10 \
+     --source-quadrature vertex --br-approximation direct \
+     --no-dynamic-remesh --refine-every 0 \
+     --checkpoint-every-steps 1 --no-video --checkpoint-dir <dir>
+   ```
+
+2. **Pick each control's value so the clamp actually binds, and record how it was
+   picked.** A value that never binds produces the T2a trajectory exactly and
+   makes T5f pass while testing nothing — R15. The window is bounded on both
+   sides: a clamp below `--min-dt` (`2.5e-4`) is swallowed by the floor, which is
+   applied *inside* the `min` (`Beatnik_TimeIntegrator.hpp:293-298`), and a clamp
+   above the unthrottled `dt` (`0.003`) never fires. So every value must land
+   strictly inside `(2.5e-4, 3e-3)`.
+   - **`--max-sheet-dt-product C`.** `C` divides `max|S|`, which is not known a
+     priori. Probe it first — print `max_sheet_strength(state)` from a `--steps 1`
+     run — then set `C = 0.5 · 0.003 · max|S|`, which puts the clamp at half the
+     adaptive dt. Record the probed `max|S|` and the chosen `C` in the README.
+   - **`--dt-switch-time 0.012 --dt-after-switch 0.001`.** T2a's series reaches
+     `t = 0.015` at step 5, so the switch arms partway through and clamps roughly
+     the back half of the run to `0.001`. `0.001` is the reference default and sits
+     inside the window.
+   - **`--t-end 0.02`** with `--steps 10`. The unclamped run passes `0.018` around
+     step 6, so step 7 is *truncated* to land exactly on `0.02` and the loop then
+     breaks — one file exercises both halves of the `--t-end` path, the
+     short final step and the early exit.
+
+   These three are **starting values, not results.** Confirm from the produced
+   files that each bound, and if one did not, adjust it and record the value that
+   worked rather than committing a set that reproduces T2a.
+
+3. **Commit under three sibling directories**, named for the control:
+   `dt-max-sheet-product/gold/`, `dt-switch-time/gold/`, `dt-t-end/gold/`, each
+   with its own `README.md`. Keeping them separate rather than in one directory is
+   what lets T5f name a single gold set per sub-run and report which control
+   failed.
+
+**Exit criterion:** the three gold directories are committed with their
+`README.md` commands, `compare_output.py` self-compares one file from each at
+`--rtol 1e-12 --atol 1e-14` and exits 0, and — the check that makes the set worth
+having — **the per-step `time` series of each set is shown to differ from the T2a
+series in the expected direction and at the expected step**, with the numbers
+written into the README:
+
+- `dt-max-sheet-product`: every step's dt is ≈ half T2a's, from step 1;
+- `dt-switch-time`: the series tracks T2a until `t` crosses `0.012` and the
+  per-step dt is `0.001` thereafter;
+- `dt-t-end`: the last file has `time` equal to `0.02` to within `1e-14`, and the
+  set has **fewer than 11 files**, i.e. the loop broke before the step budget.
+
+A set whose `time` series matches T2a's is a failed generation, not a passing
+one; that is the whole point of the criterion.
+
+### T5f — Regression test for the three dt controls — **NOT STARTED**
+
+**Depends on:** T5e.
+
+**Fill in:**
+- `tests/regression_tests/Beatnik_Test_DtControls.cpp` — one new test binary
+  driving three sub-runs, one per control, each against its T5e gold set.
+- `tests/CMakeLists.txt` — add the source to `BEATNIK_REGRESSION_TEST_SOURCES`
+  (`:209-216`) **and** the matching `_beatnik_args_Beatnik_Test_DtControls_abs`
+  / `_rel` pair (`:240-262`); a missing argument list is a configure-time
+  `FATAL_ERROR` (`:264-273`), not a silent launch. Add the three gold
+  directories to the install rules (`:454-471`), following the T2a block —
+  a regression test installed without its gold data is not installed.
+
+**Reference:** `tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp` for
+the whole shape — the per-step gold lookup by `_step%07d.npz` suffix (which is
+why it takes a gold *directory* and not a file, `tests/CMakeLists.txt:257-262`),
+the `compare_output.py` invocation, and the rank-0-reports convention.
+`src/Beatnik_TimeIntegrator.hpp:228-303` and `src/Beatnik_Solver.hpp:404-438`
+for what is under test.
+
+**Callers to update: none.** This task adds a test and its registration; no
+signature in `src/` changes. `Solver::requireSupportedConfiguration`
+(`src/Beatnik_Solver.hpp:547-571`) rejects none of the three controls today, so
+all three run as-is and nothing needs unblocking first.
+
+**Do:**
+
+1. **Find the gold set by step suffix, never by time key.** The checkpoint name
+   embeds the time (`CheckpointIO::timeKey`, `src/Beatnik_IOInterface.hpp:463`,
+   six fractional digits), and the time is the quantity under test — rebuilding
+   the filename from a computed time would make the test agree with whatever dt
+   it produced. T2d's test already does it this way.
+2. **Assert the clamp bound, per sub-run, as a count and not as a vibe.** Derive
+   from the gold `time` series how many steps each control was expected to alter,
+   and require exactly that many. This is R15's mitigation and it is the check
+   that separates "the clamp works" from "the clamp is a no-op and the gold set
+   was mis-generated".
+3. **Report which sub-run failed.** Three configurations in one binary means a
+   bare non-zero exit is ambiguous; name the control in the failure line.
+4. Keep each sub-run at the step count T5e generated and no more — the gate pays
+   for every step at twelve configurations.
+
+**Exit criterion:** a `regression`-tier test registered per backend with the
+`_<BACKEND>` suffix the gate selects on — **this grows the ship gate by one
+member to 48 launches (60 if T4a has landed first), so confirm with the user
+before registering it** (CLAUDE.md "Minimum test set", and the same note on
+`tests/CMakeLists.txt:53`). Registering one suffix-less binary instead is a
+silent zero-test pass on the installed path (T2c's warning). It must show, at the
+gate's ranks 1-6 on SERIAL and HIP:
+
+- all three sub-runs pass `compare_output.py` against their T5e gold set at
+  every step, at `--rtol 1e-10 --atol 1e-12` (T2d's tolerance — these runs are
+  the same length and the same physics, so a looser one would be unexplained);
+- the per-step `time` matches its gold literal to `1e-14` relative in all three,
+  which is where a mis-ordered clamp shows up first;
+- the bound-step count of each sub-run equals the count derived from its gold
+  series (step 2 above);
+- dt is **identical on every rank** — reduce the per-step dt with
+  `MPI_Allreduce`/`MPI_MIN` and `MPI_MAX` and require the two to be bitwise
+  equal. `max|S|` is an `MPI_MAX` and so is order-independent by construction,
+  but that is the claim under test, and a rank-dependent dt is the one failure
+  here that a single-rank test cannot see;
+- **the failure direction:** re-running the `--max-sheet-dt-product` sub-run with
+  the control at its inert `0.0` against the *same* gold set fails, and fails on
+  the **`time` mismatch at step 1** with that step named — not merely by exiting
+  non-zero, and not on a field comparison several steps later.
+
 ### T5d — Load balancing
 
 **Fill in:** `Beatnik_Communication.hpp::redistribute`.
@@ -2087,3 +2260,42 @@ data to disagree with. Two consequences that are not:
    the vertex case with `/beatnik/vertex_field_names` plus a `compare_output.py`
    cross-check; T4a should extend the same mechanism to the face pack rather than
    inventing a second one, or state in the log why it did not.
+
+## R15 — A dt clamp that never binds is indistinguishable from a correct one
+
+T5e/T5f test three controls that are **`min`s against the adaptive dt**. If the
+value chosen for one of them sits outside the window where it can bite — above
+the unthrottled `--dt` of `0.003`, or below `--min-dt` `2.5e-4`, where the floor
+inside the `min` swallows it (`src/Beatnik_TimeIntegrator.hpp:293-298`) — then
+the run reproduces the T2a trajectory exactly. The gold set generated from it is
+a copy of T2a's, the test compares Beatnik against it and passes, and **the
+control was never executed.** A completely unimplemented clamp passes the same
+test just as well.
+
+This is the failure mode a gold-file comparison is structurally blind to, because
+both the working and the dead implementation produce identical output. It costs
+nothing at the time and shows up much later as a control that was believed
+covered and is not.
+
+**How it would present:** it would not. That is the risk. A green gate, three
+extra members, and no signal.
+
+**What distinguishes it, and why both halves are needed:** the clamp's effect on
+the *trajectory*, asserted as a number at both ends.
+
+- **At generation (T5e):** the per-step `time` series of each gold set must
+  differ from T2a's, in a stated direction and at a stated step. Written into
+  T5e's exit criterion, because that is the last point at which a bad value is
+  cheap to fix.
+- **At test time (T5f):** the count of steps on which the clamp bound must equal
+  the count derived from the gold series. This is the half that survives someone
+  later regenerating a gold set with a different value — the count is re-derived
+  from the gold rather than hard-coded, so the two stay consistent.
+
+**Do not respond to a suspected instance by loosening a tolerance**; the
+comparison is not failing, which is the problem. Recompute the window from
+`max|S|` and `--min-dt` and check that the chosen value is inside it.
+
+The same trap applies to any future `min`-shaped control. The general form:
+**a clamp is only tested by a configuration in which it changes the answer**, so
+its test must assert the change, not merely the agreement.
