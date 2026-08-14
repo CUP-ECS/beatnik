@@ -408,43 +408,36 @@ from current work or pre-existing. Distinct from
 [Future Optimizations](#future-optimizations) and from the design-limitation
 subsections above, which are intended behavior.
 
-- **The ship gate covers initial conditions only — there is no timestep in it
-  yet.** *Not a defect in the gate's construction; a statement of how far the
-  solver has been rebuilt.* The tier was **empty** from `89ec015` (which removed
+- **The ship gate covers everything up to a fixed-mesh timestep — there is no
+  adaptivity in it.** *Not a defect in the gate's construction; a statement of
+  how far the solver has been rebuilt.* The tier was **empty** from `89ec015`
+  (which removed
   the pre-redesign solver and `tests/tstFmmVsExact.hpp`, its only end-to-end test)
   until 2026-08-12, when task T1c registered
   `tests/regression_tests/Beatnik_Test_InitialConditions.cpp` — a `--steps 0` run
   compared against a Python gold checkpoint, passing at ranks 1-6 on SERIAL and
   HIP. So `ctest -L regression -R SERIAL` and
-  `scripts/tuolumne/run_regression_minset.flux` no longer pass trivially. **A
-  green gate now proves that mesh generation, the initial condition and the
-  checkpoint write reproduce the reference — and nothing about time integration
-  or adaptivity**, which are still stubs. T2c then added
-  `Beatnik_Test_BirkhoffRott` (the vertex quadrature and the direct BR sum), and
-  T2d added regression test 2 — see the entry above, which is why the gate's
-  present state is unknown. Resolves progressively as T2d and T4 land their own
-  regression tests. See [CLAUDE.md](CLAUDE.md#minimum-test-set) and
-  `tasks/framework.md`.
+  `scripts/tuolumne/run_regression_minset.flux` no longer pass trivially. T2c
+  then added `Beatnik_Test_BirkhoffRott` (the vertex quadrature and the direct BR
+  sum), and T2d added regression test 2 (ten TVD-RK3 timesteps against the T2a
+  gold set), taking the gate to **three members and 36 launches** on tuolumne.
+  As of T2d the gate is **green in all 36**. **A green gate now proves that mesh
+  generation, the initial condition, the checkpoint write, the seven surface
+  operators, the direct Birkhoff-Rott sum and ten fixed-mesh timesteps reproduce
+  the reference — and nothing about adaptivity**, which is still a stub.
+  Resolves progressively as T4 lands its own regression tests. See
+  [CLAUDE.md](CLAUDE.md#minimum-test-set) and `tasks/framework.md`.
 
-- **Regression test 2 is registered in the ship gate but has NEVER BEEN RUN.**
-  *A regression from current work — task T2d, in progress.* T2d added
-  `tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp` (ten TVD-RK3
-  timesteps against the T2a Python gold set) to the `regression` tier, taking the
-  gate from two members to three and from 24 launches to **36** on tuolumne. The
-  whole tree compiles clean on SERIAL, OPENMP and HIP and `spack install`
-  installs all three binaries per backend, but the session that wrote it ended in
-  the `pdebug` queue before the gate returned. **So the current state of the gate
-  is unknown**, and a green gate has not been observed since T2c. Reproduces by
-  submitting `scripts/tuolumne/run_regression_minset.flux` and reading the log —
-  which is exactly the first step T2d's status note in `tasks/framework.md` calls
-  for. Resolves when T2d's exit criterion is met.
-
-- **The time integration path has never been executed.** *Not a defect; a
-  statement of how far the rebuild has been verified.* Everything T2d wrote — the
-  z-model RHS, the volume projection, TVD-RK3 with adaptive dt, the step loop and
-  the per-step diagnostics — compiles but has not been run once, at any rank
-  count, on any backend. Treat every number in `tasks/framework.md` below the T2c
-  line as unmeasured. Resolves with the entry above.
+- **The ship gate needs a shared filesystem for its scratch directory.** *Not a
+  defect in Beatnik; a launch requirement, found when T2d first ran the gate.*
+  `scripts/tuolumne/run_regression_minset.flux` writes checkpoints through
+  parallel HDF5 (MPI-IO), so `BEATNIK_TEST_SCRATCH` must be visible to every
+  rank. Pointing it at a node-local path (`/tmp` on tuolumne is a per-node
+  tmpfs) makes every launch that spans more than one node — ranks 5 and 6 — die
+  in `H5FD__mpio_open` with "File does not exist", while ranks 1-4 pass; the
+  failure therefore reads like a multi-rank solver bug and is not one. Use a
+  parallel filesystem path (`/p/lustre*/...`) or leave the default, which is the
+  submitting directory. Resolves if the wrapper ever validates the path.
 
 - **`examples/01_rising_bubble` does not build.** *Pre-existing as of the
   redesign.* `rocketrig.cpp` includes `Solver.hpp` and `BoundaryCondition.hpp`,

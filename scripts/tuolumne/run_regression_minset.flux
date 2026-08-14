@@ -209,12 +209,15 @@ fi
 ##--------------------------------------------------------------------------##
 ## Report
 ##--------------------------------------------------------------------------##
-# The regression tier has ONE member as of T1c (2026-08-12):
-# Beatnik_Test_InitialConditions, regression test 1 -- the whole driver path at
-# 0 timesteps against the T1a Python gold checkpoint. It is no longer vacuous,
-# but it covers only what exists: mesh generation, the initial condition, and
-# the checkpoint write. There is still no timestep (T2d) and no adaptivity (T4),
-# so a green result here does not say the solver integrates anything.
+# The regression tier has THREE members as of T2d (2026-08-14):
+# Beatnik_Test_InitialConditions (regression test 1 -- the whole driver path at
+# 0 timesteps against the T1a Python gold checkpoint), Beatnik_Test_BirkhoffRott
+# (T2c -- the vertex quadrature and the direct Birkhoff-Rott sum) and
+# Beatnik_Test_DirectSolve10Steps (regression test 2, T2d -- ten TVD-RK3
+# timesteps against the T2a gold set). Together they cover mesh generation, the
+# initial condition, the checkpoint write, the surface operators, the direct BR
+# evaluation and the fixed-mesh time integration. There is still no adaptivity
+# (T4), so a green result here does not say the solver remeshes anything.
 if [ "${_gate_rc}" -eq 0 ]; then
     echo "[gate] PASS (label=${BEATNIK_GATE_LABEL})"
 else

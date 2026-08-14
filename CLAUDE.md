@@ -76,8 +76,10 @@ through `scripts/<system>/run_regression_minset.<scheduler>` — on tuolumne
 The `regression` tier currently has **three** members — the initial condition at
 0 timesteps (T1c), the direct Birkhoff-Rott sum (T2c), and ten timesteps against
 the Python gold set (T2d) — so on tuolumne the gate is **36 launches** and takes
-correspondingly longer to run. **The third member has never been run**; see
-README "Known Issues". Tiers, the installed-path runners and CI:
+correspondingly longer to run. All 36 are green as of T2d. **`BEATNIK_TEST_SCRATCH`
+must name a path on a parallel filesystem**, not a node-local one: the
+checkpoints go through MPI-IO, so a node-local scratch fails every launch that
+spans more than one node. Tiers, the installed-path runners and CI:
 [docs/testing.md](docs/testing.md).
 
 ## General guidelines

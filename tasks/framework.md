@@ -141,20 +141,20 @@ re-centres the fields, seeds the material coordinate, computes the two carried
 scalars, and writes an HDF5 checkpoint that matches the Python gold file at
 `--rtol 1e-12 --atol 1e-14` at ranks 1-6 on SERIAL and HIP.
 
-**There is a timestep, and it has never been run.** **T2b has landed, so the
-surface differential operators are no longer stubs** —
+**There is a timestep, and it reproduces the reference for ten steps.** **T2b has
+landed, so the surface differential operators are no longer stubs** —
 `SurfaceOperators::{faceScalarGradient, surfaceGradient,
 cotangentLaplacianScalar, graphLaplacianScalar, graphLaplacianVector,
 meanCurvatureNormal, projectTangent}` and `SurfaceState::updateSheetVector` are
 implemented and validated against the Python reference (see T2b's completion
 note). **T2c has landed too**, so the vertex source quadrature and the direct BR
-evaluation are implemented and validated as well. **T2d is IN PROGRESS**: the
-RHS, the volume projection, the TVD-RK3 integrator with adaptive dt, the step
-loop, the diagnostics and regression test 2 are all written and the whole tree
-**compiles clean on SERIAL, OPENMP and HIP** — but the gate has **not been run**,
-so *nothing below the T2c line has been validated against anything*. See T2d's
-status note and the `## T2d` log entry for exactly what exists and what is
-unmeasured.
+evaluation are implemented and validated as well. **T2d has landed**: the RHS,
+the volume projection, the TVD-RK3 integrator with adaptive dt, the step loop,
+the diagnostics and regression test 2 are written, and the **whole 36-launch
+gate is green** — three members × {SERIAL, HIP} × ranks 1-6. Ten timesteps now
+match the Python gold set at `--rtol 1e-10`, with the adaptive dt reproduced and
+the volume drift pinned to the reference's own. See T2d's completion note and the
+`## T2d — completion` log entry.
 
 What is still a stub:
 
@@ -183,11 +183,12 @@ What is still a stub:
 - **`BRSolverFMM`'s two methods still throw** — T3a.
 
 Treat the C++ as *buildable, structurally sound, and validated exactly as far as
-T2c's exit criterion reaches* — mesh generation, the initial condition, the two
+T2d's exit criterion reaches* — mesh generation, the initial condition, the two
 carried scalars, the checkpoint write, the seven surface operators, the vertex
-quadrature and the direct BR sum. **Nothing that evolves in time has been checked
-against the Python**, and as of T2d's in-progress state nothing that evolves in
-time has been *executed* either.
+quadrature, the direct BR sum, and **ten fixed-mesh TVD-RK3 timesteps against the
+Python**. What has *not* been checked against the reference is everything that
+changes the mesh: adaptivity (T4), the FMM BR path (T3a), and the two bodies T5c
+still owes.
 
 The Python side **was** run and does pass: `compare_output.py` matches the
 positive fixture, fails the negative one, and the fixtures regenerate
@@ -682,7 +683,7 @@ counts while passing on SERIAL at all six. It is asserted at `1e-13` relative
 instead, measured at `2.4e-16`, with the discriminator recorded: a `br_sign`
 leak would make that number `2.0`. Details in the progress log, under *T2c*.
 
-### T2d — The RHS, volume projection, and the integrator — **IN PROGRESS**
+### T2d — The RHS, volume projection, and the integrator — **DONE**
 
 **Fill in:** `Beatnik_ZModelSolver.hpp`:
 `computeRightHandSidePotential`, `computeBernoulliPotential`,
@@ -707,30 +708,48 @@ viscous term (lines 1264-1268). Both are documented in the headers; both change
 the answer if reordered.
 
 **Exit criterion:** **regression test 2 (direct-solve-10-steps) passes at all 10 timesteps**, `--rtol 1e-10`,
-at ranks 1, 2, 3, 4, and 5. Volume drift stays below `1e-12` relative.
+at ranks 1, 2, 3, 4, and 5. The per-step volume drift matches the **reference's
+own** per-step drift to `1e-3` relative, with `1e-9` absolute as the blow-up cap.
+*(Restated at T2d from "stays below `1e-12` relative", which was written a priori
+and is an order of magnitude below what the discretization can deliver: the
+Python's own drift, measured from the eleven gold files, is `5.19e-12` at step 1
+and `5.17e-11` at step 10. Agreement with the reference is the stronger check —
+it fails if Beatnik conserves volume better than the Python as well as worse —
+and `1e-3` is a decade above the round-off floor of the drift ratio itself.)*
 
-**IN PROGRESS — everything is written and it compiles; NOTHING has been run.**
-The exit criterion is **not** met and no number below has been measured. What a
-resuming session inherits, and what it must do first, in order:
+**Met.** The whole 36-launch gate is green — three members × {SERIAL, HIP} ×
+ranks 1-6, run on 2026-08-14 inside a 2-node allocation, `[gate] PASS`, zero
+`[FAIL]` lines. `Beatnik_Test_DirectSolve10Steps` reports **107/107 checks** on
+rank 0 and 83/83 on every other rank, at every one of the twelve
+backend × rank-count configurations, so the criterion's ranks 1-5 are a verified
+subset of the gate's 1-6 on both backends. Inside that: the per-step `time`
+matches its gold literal to `~2e-16` at all ten steps (the adaptive dt is
+reproduced, not stubbed); all ten per-step `compare_output.py` invocations exit
+0 at `--rtol 1e-10 --atol 1e-12`; the last-finite round trip matches the step-10
+gold; the negative case against the step-0 gold exits exactly 1; and the mesh
+stays 162/480/320 with halo depth 2 throughout.
 
-1. **Submit the gate and read the log.** `flux batch
-   scripts/tuolumne/run_regression_minset.flux`, then read
-   `beatnik_regression_minset.<jobid>.log` in the submitting directory. **The
-   gate now has three members**, so it is **36 launches** (3 × SERIAL/HIP ×
-   ranks 1-6) and takes materially longer than T2c's 24; the queue wait on
-   `pdebug` was the reason this session stopped. Regression tests 1 and 2 both
-   run the full solver path, so a first run failing somewhere is the expected
-   outcome, not a surprise.
-2. **Read the numbers before changing anything.** `Beatnik_Test_DirectSolve10Steps`
-   reports, per step and at 17 digits, the simulation `time` against its gold
-   literal, the enclosed volume and its relative drift, and the comparator's exit
-   status — so the *first failing step* and *which of the three* failed is in the
-   log without instrumenting anything. Fail on `time` at step 2 means the
-   adaptive dt, not the RHS.
-3. **Only then debug**, and use the R8-versus-R2 discriminator the exit criterion
-   implies: run the same configuration at 1 and 4 ranks. A seam localized on
-   partition boundaries is a halo-depth bug (R8); uniformly distributed noise at
-   the `1e-15` level is summation order (R2).
+**The volume-drift bound was restated, once, against a measurement.** The first
+gate run failed in exactly one way — the per-step drift, ten checks per launch,
+in all twelve configurations, growing *linearly in the step count* (`5.19e-12`
+at step 1 to `5.17e-11` at step 10) and **identical on both backends at every
+rank count**. Backend and rank independence rule out R2 and R8; linear growth
+rules out round-off. That leaves RK3 truncation of a rate-only projection, which
+the reference has too — so it was measured rather than asserted. Computing the
+enclosed volume of the eleven gold `.npz` files offline with `enclosedVolume`'s
+own convention gives the Python drift series, and it agrees with Beatnik's to
+within one to two ulps of the drift ratio at every step. The `1e-12` bound was
+therefore a priori and below the discretization's floor; it is replaced by
+agreement with the reference at `1e-3` relative plus a `1e-9` absolute blow-up
+cap — strictly stronger, since it also fails a run that conserves volume *better*
+than the Python. Both series at 17 digits, and the ulp arithmetic that fixes the
+tolerance, are in the progress log under *T2d — completion*.
+
+**One launch-environment trap, recorded in the README.** The gate's
+`BEATNIK_TEST_SCRATCH` must be on a **parallel** filesystem. Pointed at
+tuolumne's node-local `/tmp`, ranks 1-4 pass and ranks 5-6 die inside
+`H5FD__mpio_open` — which reads exactly like the multi-rank solver bug this test
+exists to catch, and is not one.
 
 **What was built.** Every method on this task's fill-in list has a body, plus four
 that were not on it and had to be (recorded under `## T2d` in the log):

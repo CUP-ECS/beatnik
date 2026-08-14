@@ -926,7 +926,11 @@ the new and edited code is written in the style of its surroundings by hand.
   `_beatnik_args_<stem>_abs` and `_beatnik_args_<stem>_rel` to be defined (empty
   is fine) or the configure fails.
 
-## T2d (IN PROGRESS)
+## T2d — implementation
+
+*(Superseded on its status only: the gate has since been run and is green. See
+`## T2d — completion` at the bottom for the results and for the one tolerance
+that moved. Everything below about **what was built and why** still stands.)*
 
 **T2d is written and compiles; NOTHING has been run.** This entry records what
 was built, the decisions taken, and the four things the implementation forced
@@ -1141,3 +1145,134 @@ is written in the style of its surroundings by hand.
   `_beatnik_args_<stem>_{abs,rel}`, and the new install rule **globs** the T2a
   gold set (with a `FATAL_ERROR` if the glob is empty) rather than enumerating
   eleven time-encoded filenames.
+
+## T2d — completion
+
+**T2d is DONE: the whole 36-launch gate is green.** Run on 2026-08-14 directly
+inside a 2-node interactive allocation (`bash
+scripts/tuolumne/run_regression_minset.flux`, not `flux batch` — the allocation
+was already held), `[gate] PASS`, zero `[FAIL]` lines, 36 launches = 3 members ×
+{SERIAL, HIP} × ranks 1-6. `Beatnik_Test_DirectSolve10Steps` reports **107/107**
+checks on rank 0 and 83/83 on every other rank in all twelve of its
+configurations, so the exit criterion's ranks 1-5 are a verified subset on both
+backends. `Beatnik_Test_InitialConditions` and `Beatnik_Test_BirkhoffRott` are
+unchanged and green in all 12 each.
+
+Inside regression test 2: per-step `time` matches its gold literal to `~2e-16`
+at all ten steps (so `chooseStepSize` reproduces the Python's adaptive dt rather
+than stepping at a constant `0.003` — T2a's trap); all ten per-step
+`compare_output.py` invocations exit 0 at `--rtol 1e-10 --atol 1e-12`; the
+last-finite round trip matches the step-10 gold; the negative case against the
+step-0 gold exits exactly **1** and not 2; entity counts stay 162/480/320 with
+halo depth 2 throughout; R9's two discriminators and T1a's two carried scalars
+hold.
+
+**Two gate runs were needed, and the first failure was not Beatnik's.**
+
+### Run 1 — the volume-drift bound, and a scratch-directory trap
+
+`BEATNIK_TEST_SCRATCH` was pointed at `/tmp/beatnik_gate_scratch` to keep
+artifacts out of the checkout. **On tuolumne `/tmp` is a per-node tmpfs**, and
+the checkpoints go through parallel HDF5 (MPI-IO), so every launch spanning more
+than one node — ranks 5 and 6, at tuolumne's 4-ranks-per-node — died inside
+`H5FD__mpio_open` with "File does not exist", while ranks 1-4 passed. That reads
+exactly like the multi-rank solver bug regression test 2 exists to catch, and is
+not one. Fixed by using `/p/lustre5/stewartj/beatnik/gate_scratch`. Recorded in
+the README's Known Issues and in CLAUDE.md's "Minimum test set", because the next
+session will otherwise pay for it again.
+
+The real finding in run 1 was the one the task predicted: the **per-step volume
+drift**, failing 10 checks per launch in all twelve configurations and nothing
+else — growing **linearly in the step count** and **identical on both backends at
+every rank count**.
+
+### The discrimination: truncation, not a projection bug
+
+Three facts, none of them a tolerance argument:
+
+- **Linear in step count** — round-off accumulates as `sqrt(n)` at best and does
+  not produce a clean straight line through ten points.
+- **Backend independent** — SERIAL and HIP agree, so it is not the atomic face
+  scatter's summation order (**R2**).
+- **Rank independent** — the same number at 1 through 6 ranks, so it is not a
+  halo-depth seam (**R8**) and not a partition-dependent reduction (**R9**).
+
+What is left is RK3 truncation of a *rate-only* projection: `removeVolumeFlux`
+makes `dV/dt` zero in the discrete sense, which says nothing about the volume
+error the three-stage combination accumulates. The reference has the same
+structure, so the claim was **measured against the reference** rather than
+asserted. Computing `V = (1/6) Σ_f a·(b×c)` over `faces` — `enclosedVolume`'s own
+convention — for the eleven committed gold `.npz` files, offline in numpy, with
+no Beatnik build and no allocation:
+
+| step | Python gold drift (`V/V0 - 1`) | Beatnik drift, SERIAL np=1 | deviation |
+| --- | --- | --- | --- |
+| 1 | `5.1898485509127568e-12` | `5.1900705955176818e-12` | `4.2784409361118492e-05` |
+| 2 | `1.0375700298936863e-11` | `1.0375922343541788e-11` | `2.1400445129327039e-05` |
+| 3 | `1.5557333199467394e-11` | `1.5557555244072319e-11` | `1.4272664992098782e-05` |
+| 4 | `2.0734747252504349e-11` | `2.0735191341714199e-11` | `2.1417633137454928e-05` |
+| 5 | `2.5907276324232953e-11` | `2.5907942458047728e-11` | `2.5712228735930154e-05` |
+| 6 | `3.1075142459258132e-11` | `3.1076252682282757e-11` | `3.5727045373246114e-05` |
+| 7 | `3.6238345657579885e-11` | `3.6239233835999585e-11` | `2.4509353381940713e-05` |
+| 8 | `4.1396441829988362e-11` | `4.1397107963803137e-11` | `1.609157177107079e-05` |
+| 9 | `4.6549430976483563e-11` | `4.6550097110298339e-11` | `1.431024613629539e-05` |
+| 10 | `5.1697091052460564e-11` | `5.1698201275485189e-11` | `2.1475541505777684e-05` |
+
+The Python's step-0 volume is `6.32350731246695136e-02`, which is
+`kInitialVolume` to the last digit — the two computations agree bitwise before
+anything evolves, so the drift comparison is about the trajectory and not about
+the volume formula. **Every entry is positive: the reference gains volume,
+linearly, exactly as Beatnik does.** So `1e-12` was written a priori and sits an
+order of magnitude below what this discretization can deliver at ten steps. It
+was a bound on the wrong quantity, not a bound set too tight.
+
+### The restated criterion, and where its number comes from
+
+`kVolumeDriftBound` is replaced by `kGoldVolumeDrift[11]` (the Python series
+above, as 17-digit literals, exactly as every other reference number in this
+tree), checked at `kVolumeDriftRtol = 1e-3` relative, with
+`kVolumeDriftAbsCap = 1e-9` absolute kept as the blow-up detector. **This is
+strictly stronger than the bound it replaces**: it fails a run that conserves
+volume *better* than the Python as well as one that conserves it worse, which
+`drift <= 1e-12` would have passed silently.
+
+`1e-3` is not fitted. The drift is `V/V0 - 1` with `V ≈ V0 ≈ 6.3e-2` and a value
+of `5e-12`, so **one ulp of the ratio is `2.2e-16 / 5.19e-12 = 4.3e-5` of the
+step-1 drift** — a hard round-off floor no implementation can beat, shrinking by
+a decade by step 10 as the drift grows. Across all 36 launches the step-1 drift
+takes exactly **three** distinct values, one ulp apart
+(`5.1898485509127568e-12`, `5.1900705955176818e-12`, `5.1902926401226068e-12`),
+so the largest deviation anywhere in the gate is two ulps,
+`8.5568818722459028e-05`. `1e-3` is a little over a decade above that. The HIP
+np=6 series, for contrast with the SERIAL np=1 column above, is
+`5.1898485509127568e-12`, `1.0375700298936863e-11`, `1.5557555244072319e-11`,
+`2.0734747252504349e-11`, `2.5907498368837878e-11`, `3.1075586548467982e-11`,
+`3.623901179139466e-11`, `4.1396885919198212e-11`, `4.6550097110298339e-11`,
+`5.1697757186275339e-11` — several steps land on the reference value exactly.
+
+The exit criterion in `framework.md` was restated to match, with the reason, and
+the test's header block now carries the whole argument so the next reader does
+not re-derive it.
+
+**No source file outside the test changed.** `removeVolumeFlux`, the RHS, the
+integrator and the step loop are as T2d wrote them; the first gate run validated
+them and only the criterion moved.
+
+**Affects:**
+
+- **T4a** — `projectToVolume` is the *absolute* volume correction the rate-only
+  projection does not do, and this measurement is the quantitative case for it:
+  a run long enough for `5e-12`-per-ten-steps to matter needs it. T4a is also
+  where `projectToVolume` first executes, so it is where this drift series stops
+  being the expected answer.
+- **T4b/T4c** — the drift literals here are for a **fixed** mesh. Any test that
+  remeshes cannot reuse `kGoldVolumeDrift`; it needs its own reference series
+  measured the same way, from its own gold set.
+- **T3a** — the FMM BR path changes the velocity and therefore the drift. If
+  regression test 3 reuses this configuration, expect the drift to move by the
+  FMM's own error and measure the reference again rather than importing these
+  literals.
+- **T5b** — the last-finite round trip is now exercised end to end, so
+  `CheckpointIO::read` has a validated writer to read back.
+- **Anyone adding a multi-node test** — `BEATNIK_TEST_SCRATCH` must be on a
+  parallel filesystem. See run 1 above.
