@@ -44,28 +44,6 @@ tableau, the BR kernel). The five real source files:
 
 `~/research-bridges/zmodel-steve/zmodel3d-amr/` is **strictly read-only**.
 
-### Read this first: the two adaptivity modes never run together
-
-An earlier revision of this document stated that "Beatnik's default configuration
-runs both" refinement and dynamic remeshing, and built a whole open design
-question around the conflict that would create with Tessera's disjoint editing
-families. **That statement was false.**
-`run_adaptive_mesh_bubble.py:1424` guards the refiner with
-`if (not args.dynamic_remesh) and args.refine_every > 0 and …`, and the remesh
-branch at `:1469-1471` with `if args.dynamic_remesh`. The two are mutually
-exclusive, and the choice is a command-line constant for the whole run.
-`src/Beatnik_AdaptiveMesh.hpp:16-22` said so already.
-
-The design question is therefore **closed**, and closed without needing anything
-from Tessera: see *The editing-family question — RESOLVED* under Phase 4. Two
-smaller statements that were also wrong and are corrected there rather than here:
-`Beatnik_AdaptiveMesh.hpp:410-412`'s claim that refinement re-bases the whole
-reference state (it does not — `mesh.py::refine_marked_faces` splits the
-reference area area-proportionally and resets only *subdivided* faces'
-curvature), and this document's treatment of the nonlocal proximity query as
-blocking T4b (both switches that reach it default to `False`,
-`dynamic_remesh.py:33,41`).
-
 ## Approach
 
 ### What the framework commits built
@@ -208,24 +186,11 @@ What is still a stub:
 
 What is **implemented but unexercised**, which is a different and quieter kind of
 gap: **three of the six dt controls are inert in every configuration any test
-runs.** `--max-sheet-dt-product` defaults to `0.0`, `--dt-switch-time` to `-1.0`,
-and `--t-end` is unset, so the `max_sheet_dt_product` branch
-(`src/Beatnik_TimeIntegrator.hpp:277-300`, which takes an extra `haloExchange`, a
-geometry rebuild and a `SurfaceState::updateSheetVector`) and both caller-side
-clamps (`src/Beatnik_Solver.hpp:410-414`, and the `--t-end` loop break at
-`:337-339`) have never executed under a test. The adaptive throttle *itself* is
-validated — T2d pins the per-step `time` against the T2a gold at `~2e-16` for ten
-steps, and that gold set was generated with `--adaptive-dt` live — but it is
-validated only on the two paths the defaults reach. **T5e and T5f close this**,
-and neither is stubbed: these are bodies with no coverage, not `throw`s.
-
-Treat the C++ as *buildable, structurally sound, and validated exactly as far as
-T2d's exit criterion reaches* — mesh generation, the initial condition, the two
-carried scalars, the checkpoint write, the seven surface operators, the vertex
-quadrature, the direct BR sum, and **ten fixed-mesh TVD-RK3 timesteps against the
-Python**. What has *not* been checked against the reference is everything that
-changes the mesh: adaptivity (T4), the FMM BR path (T3a), and the two bodies T5c
-still owes.
+runs** — `--max-sheet-dt-product`, `--dt-switch-time` and `--t-end` are each off
+by default, so neither the `max_sheet_dt_product` branch nor either caller-side
+clamp has ever executed under a test (T5e's table names the defaults and the
+line numbers). **T5e and T5f close this**, and neither is stubbed: these are
+bodies with no coverage, not `throw`s.
 
 The Python side **was** run and does pass: `compare_output.py` matches the
 positive fixture, fails the negative one, and the fixtures regenerate
@@ -271,12 +236,7 @@ first in **M1**; `../canopy` first in **F1**. No earlier task should open either
 
 ## V0 — Make it build and run to a stub *(do this first)* — **DONE**
 
-**Why first:** everything below assumes a compiling baseline. Roughly two dozen
-headers were written without a compiler; expect ordinary errors — missing
-includes, `typename` on dependent types, `auto`-returning stubs whose deduced
-type is `void`, unused-parameter warnings under `-Werror` if the build enables
-it, and the `Kokkos::View<Real*[3], device_type>` aliases needing adjustment for
-the Kokkos 5 API.
+**Why first:** everything below assumes a compiling baseline.
 
 **Do:**
 1. `spack env activate ~/spack_envs/tuolumne_beatnik && spack install`
@@ -291,20 +251,11 @@ the Kokkos 5 API.
 5. `ctest -L unit` in the spack build tree: `Beatnik_Test_PythonCompare` passes
    and `Beatnik_Test_PythonCompare_Negative` passes by failing (`WILL_FAIL`).
 
-**Also check:** the live `~/spack_envs/tuolumne_beatnik/spack.yaml` has drifted
-from the committed `systems/tuolumne/spack.yaml` snapshot (live has `kokkos@5`
-and a `tessera` spec; the snapshot has `kokkos@4` and none). Pre-existing drift,
-not from these commits, but CLAUDE.md requires the snapshot to track the live
-env — resync it here. The working tree also carries uncommitted `CMakeLists.txt`
-edits (`Kokkos 4`→`5`, `find_package(SILO)` commented out) that belong with that
-resync.
-
 **Exit criterion:** all five steps above succeed, and the README "Known Issues"
 entry about the framework never having been compiled is deleted.
 
 **Met.** All five succeeded; step 2 was vacuous (zero compile
-errors). The spack.yaml resync above was already done by the working tree's
-uncommitted edits. Steps 3-4 run via the new
+errors). Steps 3-4 run via the new
 `scripts/tuolumne/run_v0_smoke.flux` — **not** interactively, see the login-node
 rule in CLAUDE.md. Step 5 ran the two `compare_output.py` invocations directly,
 since spack mode has no build tree for `ctest`. Details and the four latent
@@ -454,11 +405,6 @@ twelve configurations, spanning **2 ulp**:
 | `6.32350731246695136e-02` | SERIAL np2/3/4/6, HIP np1/2/3/4/6 — the T1a value, bitwise |
 | `6.32350731246695275e-02` | SERIAL np5 |
 
-i.e. a total spread of `2.78e-17` absolute, `4.4e-16` relative — four orders
-inside the `1e-12` tolerance. **No tolerance was touched.** The discrimination
-that establishes this is summation order and not R9 is recorded under R2 and R9
-below and is built into the test, so it is re-measured on every gate run.
-
 The test checks more than the criterion: the entity counts and Euler
 characteristic, the halo depth, the **owned-set partition** (the per-rank
 `ownedX` counts summed with a plain `MPI_Allreduce` must equal 162/480/320 —
@@ -529,10 +475,6 @@ meanCurvatureNormal, projectTangent}`;
 `::graph_laplacian_scalars` (1004-1017), `::graph_laplacian_vectors` (989-1001),
 `::mean_curvature_normal` (1068-1110), `::_project_tangent` (247-256),
 `::potential_sheet_vector` (364-367)
-
-`updateSheetVector` is T2b's, not T1c's: T1c deferred it here on a stated
-dependency (its body *is* `surfaceGradient`), and both "What is NOT yet true"
-above and `src/Beatnik_SurfaceState.hpp` said so while this list omitted it.
 
 **Exit criterion:** a unit test (tier `unit`) confirming, on the default
 icosphere, that `meanCurvatureNormal` returns `≈ -2/R · n̂_out` (the
@@ -893,7 +835,7 @@ args.dynamic_remesh`. The driver runs the indicator-driven refiner **or** the
 metric remesher, never both, and the choice is a command-line constant for the
 whole run. `src/Beatnik_AdaptiveMesh.hpp:16-22` already said so
 ("Only under `--no-dynamic-remesh` … the driver runs one or the other, never
-both"); this document said the opposite.
+both").
 
 So even had Beatnik kept `Tessera::refine()` for the AMR path and `splitEdges()`
 for the remesh path, no single mesh would ever see both families. The conflict is
@@ -1040,8 +982,8 @@ particular this task needs **no** new Tessera capability.
   and the `FaceFieldId` enum alongside `VertexFieldId`; **delete**
   `SurfaceMesh::refine` (`src/Beatnik_MeshInterface.hpp:1258`) and the
   editing-family warning block above it (`:1184-1195`, whose "Beatnik's default
-  configuration wants both" is the same false premise corrected in *Read this
-  first*); change `SurfaceMesh::splitEdges` (`:1296`) from
+  configuration wants both" is the same false premise corrected in *Finding 1*);
+  change `SurfaceMesh::splitEdges` (`:1296`) from
   `const EdgeListView&` to `const std::vector<char>& edgeMask`; add
   `faceEdges()` (see **Do** step 2).
 - `Beatnik_AdaptiveMesh.hpp`: all of it, restructured onto an edge mask —
@@ -1087,7 +1029,7 @@ will not be after T4b.
      implementing from that comment gets the indicator wrong in a way no
      structural test catches. The file header's list at `:33-43` is right.
    - `Beatnik_MeshInterface.hpp:1184-1195` says "Beatnik's default configuration
-     wants both" editing families. It does not; see *Read this first*.
+     wants both" editing families. It does not; see *Finding 1* above.
 
 2. **Get face → edge.** Tessera has no face→edge CSR: it has
    `mesh.vertexEdges()`, and the edge AoSoA carries `EdgeField::Verts` and
@@ -1688,7 +1630,7 @@ all three, so `DefaultRefinePolicy` is used unchanged.
 *Of the eleven recorded at M1, **eight closed Tessera-side** (branch
 `conforming-refinement`) — G1, G2, G3, G4, G5a, G6, G7,
 G8 — via the calls in the "Added since M1" table above. Only G5b, G5c and G5d
-remain open, and they are what still blocks T4b/T4c.*
+remain open, and they are what still blocks T4d.*
 
 **G5 — No topological edit except the face-mask refine. — PARTIALLY CLOSED.**
   - **G5a — caller-driven edge split. — DONE.** `splitEdges( mesh, halo,
@@ -1712,24 +1654,6 @@ settled:** the split third of `dynamic_remesh.py` is expressible today and is
 **T4b**; the collapse and flip thirds, and every flip in `mesh_quality.py`, are
 **T4d** and wait on G5b/G5c/G5d. Nothing else in Phase 4 is blocked.
 
-**`Tessera::refine()` is not used by Beatnik at all**, so the "Conforming AMR"
-row of the capability table above is available but unexercised. Beatnik drives
-every topological edit through `splitEdges()`; the reasoning, including why that
-is the *higher*-fidelity port of `mesh.py::refine_marked_faces` rather than a
-concession, is under Phase 4.
-
-**The `splitEdges()` quality measurement this document once recorded as missing
-now exists.** `../tessera/tests/test_split_edges.cpp:100-142` (case 8, driven at
-`:915-944`) reports the global minimum inradius/circumradius over successive
-**length-driven** split rounds as `0.3780 0.3780 0.2815` repeating,
-byte-identical at ranks 1-5 on both backends, and additionally asserts
-`kMinAngleDegFloor = 30.0` (measured `33.203°`, flat) and saturation — the final
-`kSaturationRounds = 2` rounds must set no new worst. Converted to the radius
-ratio `Q = R/2r` that
-`test_conforming_quality.cpp` uses, the worst is `1.776` against red-green's
-`2.234`. Read with its scope — **it is a property of the length-driven mask, not
-of `splitEdges()`** — under R12.
-
 #### What Beatnik must implement itself (and legitimately may)
 
 None of these is haloing or partitioning:
@@ -1750,12 +1674,10 @@ None of these is haloing or partitioning:
   round count reported). An arbitrary rank-local mask is a legal input, so
   `Beatnik_Communication.hpp::reconcileRefinementMarks` has no work left to do.
 
-Two smaller shape changes, both recorded inline in the header: `adopt()` now
+One smaller shape change, recorded inline in the header: `adopt()` now
 requires its arrays replicated on **every** rank (not rank 0), because
 `buildFromTriangleSoup` has no communication and `distribute()` relies on
-replication; and `refine()`'s mask is a **host `std::vector<char>` sized
-`ownedFaceCount()`**, not a device view sized `Nf`, so a device-computed AMR
-indicator must round-trip to the host.
+replication.
 
 ### M2 — Open `../tessera`: HDF5 I/O — **DONE**
 
@@ -2035,10 +1957,6 @@ which is wrong only near partition boundaries and only by a small amount — so 
 produces a plausible-looking solution with a seam that moves when the rank count
 changes.
 
-Watch for it explicitly at T2d: run the same configuration at 1 and 4 ranks and
-plot the difference field. A seam localized on partition boundaries is this bug;
-uniformly distributed noise is R2.
-
 ## R9 — Silent double-counting of ghosts
 
 Two independent places where including ghost entities is silently wrong: the
@@ -2081,12 +1999,6 @@ every gate run rather than being a one-off measurement:
 
 **Verdict: summation order (R2), not double-counting (R9).** So the tolerance was
 left alone, which is what the discrimination was for.
-
-The same three checks are the template for T2d, which faces the harder version of
-this ambiguity: R8's seam-versus-noise question. Note grounds 1 and 3 are
-*structural* and stay decisive there, while ground 2 (the no-trend argument) gets
-weaker once positions evolve, because a real seam bug also moves with the
-partition.
 
 ## R10 — Ambiguity in `compare_output.py`'s quantized matching
 
