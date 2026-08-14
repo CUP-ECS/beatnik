@@ -44,6 +44,28 @@ tableau, the BR kernel). The five real source files:
 
 `~/research-bridges/zmodel-steve/zmodel3d-amr/` is **strictly read-only**.
 
+### Read this first: the two adaptivity modes never run together
+
+An earlier revision of this document stated that "Beatnik's default configuration
+runs both" refinement and dynamic remeshing, and built a whole open design
+question around the conflict that would create with Tessera's disjoint editing
+families. **That statement was false.**
+`run_adaptive_mesh_bubble.py:1424` guards the refiner with
+`if (not args.dynamic_remesh) and args.refine_every > 0 and …`, and the remesh
+branch at `:1469-1471` with `if args.dynamic_remesh`. The two are mutually
+exclusive, and the choice is a command-line constant for the whole run.
+`src/Beatnik_AdaptiveMesh.hpp:16-22` said so already.
+
+The design question is therefore **closed**, and closed without needing anything
+from Tessera: see *The editing-family question — RESOLVED* under Phase 4. Two
+smaller statements that were also wrong and are corrected there rather than here:
+`Beatnik_AdaptiveMesh.hpp:410-412`'s claim that refinement re-bases the whole
+reference state (it does not — `mesh.py::refine_marked_faces` splits the
+reference area area-proportionally and resets only *subdivided* faces'
+curvature), and this document's treatment of the nonlocal proximity query as
+blocking T4b (both switches that reach it default to `False`,
+`dynamic_remesh.py:33,41`).
+
 ## Approach
 
 ### What the framework commits built
@@ -158,12 +180,14 @@ the volume drift pinned to the reference's own. See T2d's completion note and th
 
 What is still a stub:
 
-- **No adaptivity.** T4a/T4b/T4c, still blocked on the disjoint-editing-families
-  design question and on Tessera's G5b/G5c/G5d. T2d's `Solver::solve` now
-  **rejects** any configuration that would reach one of those passes, by name and
-  by task ID, rather than skipping it — so the reference's *default*
-  configuration (dynamic remeshing every step) aborts at setup instead of
-  silently running a different problem.
+- **No adaptivity.** T2d's `Solver::solve` **rejects** any configuration that
+  would reach one of those passes, by name and by task ID, rather than skipping
+  it — so the reference's *default* configuration (dynamic remeshing every step)
+  aborts at setup instead of silently running a different problem. The
+  editing-family design question that blocked all of Phase 4 is now **settled**
+  (Phase 4, *The editing-family question — RESOLVED*): **T4a, T4b, T4c and T4e are
+  unblocked and implementable against Tessera as it stands**, and only **T4d** —
+  coarsening, flips and isotropic cleanup — still waits on Tessera's G5b/G5c/G5d.
 - **`/vertices/u1` in a `--steps 0` checkpoint is still present-but-meaningless**,
   though no longer because of a stub: `SurfaceState::updateSheetVector` is
   implemented (T2b), but nothing on the 0-timestep path *calls* it, so
@@ -760,7 +784,7 @@ arguments.
 
 **What is deliberately NOT built, and stays throwing:**
 `Solver::filterCirculationField` and `ZModelSolver::computeRightHandSideSheet`
-(T5c), `BRSolverFMM`'s bodies (T3a), all of adaptivity (T4a/T4b/T4c).
+(T5c), `BRSolverFMM`'s bodies (T3a), all of adaptivity (T4a-T4e).
 `VolumeProjection::projectToVolume` **is** implemented but is unreachable from
 any configuration that exists today — every reference call site is inside a
 refine or remesh branch — so it is written and unexercised, and T4a is where it
@@ -776,6 +800,14 @@ against a Python one.
 ---
 
 ## Phase 3 — Regression test 3: `fmm` BR via Canopy
+
+**Phase 3 may be deferred, and Phase 4 does not wait for it.** The direct BR
+solver is implemented and validated (T2c, T2d) and is a complete far field, just
+a slow one, so every task in Phases 4 and 5 can be implemented and tested with
+`--br-approximation direct`. No task in Phase 4 depends on T3a except **T4e**,
+and only optionally — Canopy's tree is one of the candidate vehicles for the
+proximity query, not a requirement. Phase 3 remains the right next step for
+*throughput*; it is not on the critical path for *capability*.
 
 ### T3a — Canopy far-field adapter
 
@@ -818,215 +850,463 @@ number here once known). Not against a Python `treecode` run; see R6.
 
 ## Phase 4 — Adaptivity
 
-### T4a/T4b — the disjoint editing families *(OPEN DESIGN QUESTION — read before either)*
+### The editing-family question — RESOLVED
 
-**Recorded by the M1 adapter rework. Not resolved, deliberately.**
+**Decision: Beatnik never calls `Tessera::refine()`. Every topological edit, in
+every configuration, goes through the Remesh family — `splitEdges()` today,
+`collapseEdges()` / `flipEdges()` / `compact()` when Tessera lands them. One
+family for the whole run, so Tessera's `EditFamily` guard is a backstop that
+should never fire.**
 
-Tessera has **two disjoint families of topological edit and a mesh belongs to
-exactly one of them**:
+Three alternatives were considered and **dropped**: holding two mesh objects and
+transferring state between them, rebuilding the mesh at each phase change, and
+asking Tessera upstream for the unified anisotropic-bisection level model (or its
+narrower variant, an in-memory clone of a mesh carrying its vertex user pack).
+Each existed to resolve a conflict that finding 1 shows does not arise. **Nothing
+needs to be asked of Tessera to unblock T4a**, and the three findings below also
+change what T4a is, not merely which call it makes.
 
-| Family | Operations | Invariant maintained | `Level` |
-| --- | --- | --- | --- |
-| **Hierarchical** | `refine()`, `refineLocal()` | 2:1 level balance + conforming closure | authoritative |
-| **Remesh** | `splitEdges()`, and `collapseEdges()`/`flipEdges()`/`compact()` when they land | conformity and manifoldness only | advisory |
+#### Finding 1 — the two adaptivity modes are mutually exclusive in the reference
 
-**Verified, not inferred** (`../tessera/src/Tessera_EditFamily.hpp`, README
-*Editing families*): a mesh carries an `EditFamily` tag, `None` until its first
-topological edit and **fixed thereafter**; every entry point calls
-`requireEditFamily()` and **throws `std::runtime_error`** naming both families
-when the tag disagrees. Beatnik cannot make this a Beatnik-side check, cannot
-order its calls around it, and cannot catch-and-continue. Tessera's reason is
-that `refine()`'s 2:1 invariant is stated in *level differences* and is coherent
-only because `refine()` performs the uniform 1→4 red split: bisecting one edge
-of a triangle produces children whose edges have mixed levels, so a
-`splitEdges()` child merely inherits its parent's level.
+The premise the survey rested on — "Beatnik's default configuration runs both" —
+is **false**. `run_adaptive_mesh_bubble.py:1424` reads
 
-**Beatnik's default configuration runs both**: T4a is `refine()`, T4b is
-split/collapse/flip, and `run_adaptive_mesh_bubble.py::main` interleaves them
-inside the step loop (refine every `--refine-every` steps, dynamic remesh every
-step unless `--no-dynamic-remesh`). So this must be settled before either task
-is implemented. The four candidates below are what Tessera's API actually
-admits. **No resolution is presumed, and nothing in T1b's code is shaped around
-one.**
+```python
+if (not args.dynamic_remesh) and args.refine_every > 0 and step % args.refine_every == 0:
+```
 
-#### Option 1 — Two mesh objects, one per family, transferring state between them
+and the dynamic-remesh branch at `:1469-1471` is guarded by `if
+args.dynamic_remesh`. The driver runs the indicator-driven refiner **or** the
+metric remesher, never both, and the choice is a command-line constant for the
+whole run. `src/Beatnik_AdaptiveMesh.hpp:16-22` already said so
+("Only under `--no-dynamic-remesh` … the driver runs one or the other, never
+both"); this document said the opposite.
 
-*What is verified:* a mesh can be built from a triangle soup
-(`buildFromTriangleSoup` + `distribute`, replicated input) or from per-rank
-patches plus canonical keys (`buildFromTriangleSoupDistributed`), and
-`writeMesh`/`readMesh` round-trips a mesh **together with its whole vertex user
-pack** across a change of rank count. So a transfer is expressible.
+So even had Beatnik kept `Tessera::refine()` for the AMR path and `splitEdges()`
+for the remesh path, no single mesh would ever see both families. The conflict is
+not between the two adaptivity modes.
 
-*What it costs Beatnik:* the soup builders carry **positions and connectivity
-only** — not the user pack — so the three vertex fields would have to be moved
-separately, keyed by gid, and **the new build renumbers gids**. That is where
-provenance is lost, and it is not incidental: `buildFromTriangleSoupDistributed`
-requires a *canonical key per local vertex* whose contract is "rank-independent,
-equal iff the same vertex, collisions throw", and `makeVertexKey` is structured
-(a base index, or the sorted pair of a midpoint's two parents). A vertex that
-arrived by several rounds of remeshing has no such provenance available to
-Beatnik, so Beatnik would have to invent a key scheme — which is exactly the
-kind of topology bookkeeping the adapter exists to avoid. The one path that
-*does* carry the pack is an HDF5 round trip per phase switch: a collective
-MPI-IO write plus a read, every time the two phases alternate, i.e. potentially
-every step. Correct, and far too expensive.
+**Where a real interleave does survive**, and it is the only one: the refine
+branch calls `improve_mesh_connectivity_by_edge_flips` and, under
+`--isotropic-cleanup`, `mesh_quality.isotropic_cleanup`'s flip passes
+(`run_adaptive_mesh_bubble.py:1440-1462`). Flips are Remesh-family. So a
+`refine()`-based T4a could never grow its quality repairs, while a
+`splitEdges()`-based one gains them the day Tessera's G5c lands.
+`improve_mesh_quality_tangential` (`mesh_solver.py:1775-1800`) moves vertices and
+changes no connectivity, so it belongs to no family and is legal either way.
 
-*Unknown:* whether an in-memory "clone into a fresh mesh on the same partition,
-carrying the pack" is feasible Tessera-side. It does not exist in the README and
-would be a new capability.
+#### Finding 2 — `splitEdges()` *is* `refine_marked_faces`; `Tessera::refine()` is not
 
-#### Option 2 — Drop one family from the default configuration
+The Python's refinement and Tessera's `splitEdges()` are the same algorithm.
+`mesh.py::refine_marked_faces` creates midpoints on the three edges of every
+**marked** face only, then retriangulates every face on the bit pattern of its
+own split edges — `split_count` 1 → 2 children (median from the midpoint),
+2 → 3 children, 3 → 4 children (red) — with **no cascade**: `existing_midpoint`
+only ever finds midpoints minted by a marked face, so a neighbour's split does
+not propagate. That is `splitEdges()`'s contract verbatim
+(`../tessera/docs/design.md` → *Edge-addressed splitting*, the |S| table), for a
+mask that is "every edge of every marked face".
 
-**Dropping the remesh family** (i.e. `--no-dynamic-remesh` becomes the only
-supported mode) is expressible *today* and T4a's exit criterion already runs
-that configuration. But dynamic remeshing is the Python's default and is what
-holds triangle quality through the roll-up; T4c exists because a run without it
-dies on the "curvature sliver". This trades a correctness-adjacent capability
-for a scheduling convenience and is the weakest of the four.
+`Tessera::refine()` is **not** the same algorithm, and the difference is not
+cosmetic. Its conforming closure is **transient**: every call un-closes the whole
+closure layer, refines the red layer, and rebuilds the closure from scratch
+(`../tessera/docs/design.md` → *The closure layer*). The Python's green and blue
+children are **permanent** — they are ordinary faces of the next round and can be
+bisected again. Two consequences:
 
-**Dropping the hierarchical family** is the interesting direction, and Tessera
-says so itself: README *Future Optimizations* records that "the driving
-consumer, Beatnik's z-model remesher, is entirely edge-addressed and never calls
-`refine()`". `dynamic_remesh.py` is indeed entirely edge-addressed. And the AMR
-indicators, which mark **faces**, translate: marking a face means splitting its
-three edges, which is precisely a red split, and `splitEdges()` performs exactly
-the marked bisections **conforming on exit with no closure layer and no 2:1
-pass**.
+- **Face counts diverge from the Python from round 2 onward** under `refine()`,
+  because round 2 does not see round 1's closure faces at all. Under
+  `splitEdges()` they agree by construction whenever the mark sets agree.
+- **Per-face state is churned by the closure.** Tessera copies a parent's face
+  user fields to its closure children and, on un-close, "keeps the lowest-gid
+  child's values and discards the rest". Beatnik's reference area and reference
+  curvature (below) are exactly such state, and they take a lossy round trip
+  through every closure/un-close cycle. Under `splitEdges()` nothing is ever
+  un-closed and the inheritance is exact.
 
-*What it costs Beatnik:* T4a's exit criterion compares face counts against a
-Python `refine_marked_faces` run, and a split-based refinement will produce a
-*different* face count wherever the closure pattern differs — `splitEdges` gives
-2/3/4-child patterns where red-green gives a transient closure layer. That
-criterion would need restating; risks R4 and R7 already accept this class of
-divergence, so the precedent exists. `Level` also becomes advisory, so nothing
-bounds the level jump across a refinement front.
+So the fidelity argument runs the *opposite* way to the survey's assumption:
+`splitEdges()` is the higher-fidelity port, and `refine()` is the deviation.
 
-*What is verified:* `splitEdges( mesh, halo, edgeMask )` takes a host
-`std::vector<char>` sized `numOwnedEdges()`, the **edge owner** decides, the
-decision is propagated to every rank holding an incident face, the result is
-conforming, and `rebuildHalo()` is called on the way out at the recorded depth.
-It is `split_selected_edges` directly. Conformity — not 2:1 balance — is what the
-surface operators need.
+#### Finding 3 — the quality unknown is measured, and `splitEdges()` wins
 
-*Unknown:* whether the face-mark → edge-mask translation reproduces the Python's
-`projected_red_green_face_count` closely enough for `--max-faces` accounting; and
-whether repeated non-uniform bisection degrades triangle quality faster than
-red-green does. Tessera measured red-green's worst radius ratio saturating by
-round 11 and flat through round 16; it publishes **no equivalent measurement for
-`splitEdges`**, so this is a real gap in the evidence rather than a formality.
+The survey named one discriminating measurement — *does a `splitEdges`-only
+refinement hold triangle quality comparably to red-green over many rounds?* — and
+recorded that Tessera published no such number. **It does now**, and both
+measurements are in Tessera's gate, byte-identical at ranks 1-5 on both backends.
 
-**This is the leading candidate on cost**: no copy, no lost provenance, no new
-Tessera capability, and one editing family for the whole run. It is *not* free of
-prerequisites — a remesh-only Beatnik still needs coarsening, so it blocks on
-G5b (collapse) and G5c (flip), which block T4b anyway.
+| | metric as published | worst, converted to \f$Q = R/2r\f$ |
+| --- | --- | --- |
+| `splitEdges()`, 5 length-driven rounds (`../tessera/tests/test_split_edges.cpp:95-110`, case 8) | min inradius/circumradius per round `0.3780 0.3780 0.2815 0.3780 0.3780` | **1.776** |
+| `refine()` red-green, 16 rounds on a shrinking cap (`../tessera/tests/test_conforming_quality.cpp:36-78`, `../tessera/docs/design.md`) | max \f$Q\f$ by family: red `1.0278`, green `1.5672`, blue `2.2344` (`2.5254` before the geometric diagonal tie-break) | **2.234** |
 
-#### Option 3 — Rebuild the mesh between the AMR phase and the remesh phase
+The two are the same quantity: \f$Q = abc(a+b+c)/16A^2 = R/2r\f$, and
+\f$r/R = 1/2Q\f$, so an equilateral triangle is \f$Q = 1\f$ / ratio `0.5`, and
+`0.2815 → Q = 1.776`. **The `splitEdges()` path's worst element is better than
+red-green's**, and its sequence does not drift downward — rounds 4 and 5 recover
+to round 1's value.
 
-One logical surface, re-created as a fresh `Mesh` (hence `EditFamily::None`)
-whenever the phase changes.
+Two structural reasons it should hold, so the number is not being read as luck:
+Tessera's two-edge tie-break joins the midpoint of the **longer** split edge to
+its opposite corner (`docs/design.md`, *The two-edge tie-break*), which is
+Rivara's longest-edge rule; and Beatnik's masks are the two cases that rule is
+good for — "all three edges of a marked face" (T4a, always the red split) and
+"every edge longer than its target" (T4b, exactly case 8's workload).
 
-*What is verified:* only that a fresh mesh is untagged. Everything else is
-option 1's transfer problem, unchanged — the pack does not come along with a
-soup rebuild.
+**The honest limit of the evidence:** five rounds. `test_conforming_quality.cpp`'s
+own header records that eight rounds could not distinguish saturation from a
+maximum being slowly discovered and sixteen could. So five rounds do not *prove*
+a bound. This is carried as risk **R12**, with the measurement that discriminates
+it stated there rather than left to be re-derived.
 
-*What it costs Beatnik:* option 1's cost, **per phase change**, plus the loss of
-the partition (a fresh `distribute`/`loadBalance`) and of gid continuity. Since
-`main` interleaves the two phases inside the step loop, that is paid every step.
-Strictly worse than option 1 with no compensating benefit.
+#### What the decision buys, beyond unblocking
 
-#### Option 4 — Push a change upstream into Tessera
+- **`_balance_red_green_refinement` becomes three lines of edge-mask logic.** The
+  Python's promotion rule (`mesh_solver.py:1543-1580`) is "an unmarked face with
+  ≥ 2 split edges is promoted to a full red split, to fixpoint", plus a
+  quality test on the one-edge case. On an edge mask that is *mark the third edge
+  of any face with two marked edges*, iterated to a global fixpoint — no face
+  marks, no closure, no 2:1 machinery.
+- **`projected_red_green_face_count` becomes one global sum.** Under an edge
+  mask, the post-split face count is exactly \f$\sum_f (|S_f| + 1)\f$ — local
+  arithmetic plus one `globalSum`, evaluated before any edit.
+- **R4's quadratic greedy loop is no longer needed.** Because the projection is
+  a cheap closed form rather than a fixpoint, `--max-faces` can be enforced by a
+  **global threshold search on the score** (bisect the score threshold until the
+  projected count fits) instead of the reference's sequential accept loop. Same
+  intent, parallel, deterministic, and \f$O(\log)\f$ projections instead of
+  \f$O(N_{\text{seeds}})\f$ closures. R4's warning that a capped run will not
+  match the Python face-for-face still stands.
+- **`Comm::reconcileRefinementMarks` stays deleted-in-effect.** `splitEdges()`
+  agrees the mask across ranks itself, the **edge owner** deciding
+  (`../tessera/src/Tessera_EdgeSplit.hpp`, *Distributed structure* step 1). What
+  Beatnik must reconcile is only its own fixpoint's termination test, which is one
+  `MPI_Allreduce(MPI_LOR)`.
 
-Tessera has already scoped the full version: README *Future Optimizations*,
-"Unify the two editing families by extending the level model to **anisotropic
-bisection**", pointing at `../tessera/tasks/edge-split.md` Decision 1's
-alternative. It needs per-edge levels plus a compatible balance rule, maintained
-by the mark-propagation fixpoint, the closure patterns **and the HDF5 format**
-alike. Tessera calls it "a much larger design than the guard it would replace,
-and one no known consumer needs" — naming Beatnik as the consumer that does not
-need it *because* its remesher is edge-addressed. It is not started.
+#### Deliberate deviations this decision introduces
 
-*What it costs Beatnik:* no implementation, but it blocks on an upstream design
-task that Tessera has explicitly deprioritized on the grounds that option 2 is
-available.
+- **`Tessera::refine()` is not used, so the mesh has no `Level` and no 2:1
+  balance.** Nothing in the z-model needs either: the surface operators need
+  conformity, which `splitEdges()` guarantees on exit, and the Python has no level
+  model to reproduce.
+- **The two-edge diagonal differs from the Python's.** Tessera chooses the
+  shorter diagonal geometrically; `mesh.py::refine_marked_faces` uses a fixed
+  rotation-dependent diagonal. Beatnik keeps Tessera's — it is the better element
+  and it is what Tessera's quality measurement was taken with. Consequence: a
+  Beatnik and a Python refinement of the same mark set have the same V/E/F but not
+  the same connectivity wherever a face had exactly two split edges. Risk **R13**.
+- **The refine branch ships without its quality repairs** until Tessera's G5c
+  lands. `--flip-passes > 0` and `--isotropic-cleanup` are **rejected at setup**
+  in the refine configuration, by name and task ID, never silently skipped — the
+  rule T2d established in `Solver::requireSupportedConfiguration`.
 
-**The narrower upstream ask is the part worth remembering:** options 1 and 3 both
-want the same much smaller thing — *an in-memory clone of a mesh into a fresh
-`Mesh` on the same partition, carrying the vertex user pack and needing no
-canonical keys*. That is a fraction of the anisotropic-bisection design and would
-make either option practical. Whether Tessera would take it is unknown and has
-not been asked.
+#### Conventions for the whole of Phase 4
 
-#### What a later session should do first
+| Convention | Choice |
+| --- | --- |
+| Editing family | Remesh, always. `SurfaceMesh::refine` is **deleted**, not left unused. |
+| Edit entry point | `SurfaceMesh::splitEdges( const std::vector<char>& edgeMask )`, mask sized `ownedEdgeCount()`, `1` = bisect. Matches `Tessera::splitEdges`'s own convention rather than inventing a second. |
+| Mark representation | An **edge** mask, everywhere. Face-level indicators are translated to edges once, at the point of use; no face mask is stored or passed. |
+| Per-face carried state | Tessera **face user fields**, `FaceFields<Real, Real>` = `{ReferenceArea, ReferenceCurvature}`, named from outside via `Beatnik::FaceFieldId` — the same pattern M1 established for vertices, for the same reason (a `Kokkos::View` outside the mesh is silently dropped by a split and silently stale after `migrate`). |
+| Fixpoint loops | Terminate on a global `MPI_Allreduce(MPI_LOR)`, never a rank-local test, and carry a hard round cap that **throws** when hit rather than proceeding with a partial mark set. |
+| Caps and budgets | Global quantities. A per-rank cap is a different algorithm and a rank-count-dependent one. |
+| Unsupported configuration | Rejected in `Solver::requireSupportedConfiguration` before the first step, naming the method and the task ID. Never skipped. |
 
-Not pick from this list on paper. The one measurement that discriminates is the
-unknown under option 2: **does a `splitEdges`-only refinement hold triangle
-quality comparably to red-green over many rounds?** If it does, option 2 is
-clearly right and the question closes. If it does not, the choice is between
-option 4's narrow ask and living with `--no-dynamic-remesh`. That measurement is
-a Tessera-side experiment, not a Beatnik one, and it does not need any of T4a or
-T4b written first.
+---
 
-### T4a — Indicator-driven red-green AMR
+### T4a — Indicator-driven refinement through `splitEdges()` — **NOT STARTED**
 
-**Fill in:** all of `Beatnik_AdaptiveMesh.hpp`;
-`Beatnik_MeshInterface.hpp::refine`;
-`Beatnik_MeshQuality.hpp::{improveConnectivityByFlips,
-improveQualityTangential}`; `Beatnik_Communication.hpp::reconcileRefinementMarks`.
-← *Python:* `mesh.py::{area_change_indicator, curvature_change_indicator,
-curvature_resolution_indicator, refine_marked_faces,
-projected_red_green_face_count}`, `mesh_solver.py::{refine_potential_mesh_state,
-_quality_preserving_refinement_marks, _balance_red_green_refinement,
-_expand_marked_face_rings, _limit_marked_fraction, _drop_faces_below_min_edge,
-improve_mesh_connectivity_by_edge_flips, improve_mesh_quality_tangential}`
+**Depends on:** none — T2d is `**DONE**` and nothing else is required. In
+particular this task needs **no** new Tessera capability.
 
-**Additional information needed before a fine-grained design can be tasked:**
-- The `max_faces` greedy accept loop (`mesh_solver.py:1501-1512`) is inherently
-  sequential — each trial depends on the previous acceptance — and quadratic. A
-  distributed replacement must preserve the *intent* (respect the cap, prefer
-  high scores, keep the closure valid) but will not reproduce the serial mark
-  set. Deciding the replacement needs Tessera's partitioning model, which is only
-  known after M1. See R4.
-- Whether Tessera's refinement is conforming red-green natively or whether
-  Beatnik must drive it edge by edge.
+**Fill in:**
+- `Beatnik_MeshInterface.hpp`: add `face_fields = Tessera::FaceFields<Real, Real>`
+  and the `FaceFieldId` enum alongside `VertexFieldId`; **delete**
+  `SurfaceMesh::refine` (`src/Beatnik_MeshInterface.hpp:1258`) and the
+  editing-family warning block above it (`:1184-1195`, whose "Beatnik's default
+  configuration wants both" is the same false premise corrected in *Read this
+  first*); change `SurfaceMesh::splitEdges` (`:1296`) from
+  `const EdgeListView&` to `const std::vector<char>& edgeMask`; add
+  `faceEdges()` (see **Do** step 2).
+- `Beatnik_AdaptiveMesh.hpp`: all of it, restructured onto an edge mask —
+  `areaChangeIndicator`, `curvatureChangeIndicator`,
+  `curvatureResolutionIndicator`, `markFaces`, `limitMarkedFraction`,
+  `expandMarkedRings`, `balanceRedGreen`, `projectedFaceCount`, `selectMarks`,
+  `refine`, `resetReferenceState`.
+- `Beatnik_Communication.hpp`: **delete** `reconcileRefinementMarks`
+  (`src/Beatnik_Communication.hpp:351`) — M1 already recorded that Tessera leaves
+  it nothing to do, and this task confirms it for `splitEdges()` too.
+- `Beatnik_Solver.hpp`: `requireSupportedConfiguration` — drop the
+  `refine_every > 0` rejection, add rejections for `--flip-passes > 0` and
+  `--isotropic-cleanup` under `--no-dynamic-remesh` (T4d owns them); call the
+  refiner from `advanceOneStep` on the `--refine-every` cadence.
 
-**Exit criterion:** a run with `--no-dynamic-remesh --refine-every 5` completes
-20 steps; face counts match a Python run of the same configuration at ranks 1
-and 4 **when `--max-faces` is not binding**. Where it binds, only the
-non-refinement fields are compared, and the divergence is recorded here.
+← *Python:* `mesh.py::{area_change_indicator (215-218),
+curvature_change_indicator (221-224), face_curvature_indicator (172-174),
+cotangent_vertex_curvature (150-169), curvature_resolution_indicator (203-212),
+refine_marked_faces, projected_red_green_face_count (251-271)}`,
+`mesh_solver.py::{refine_potential_mesh_state (1374-1431),
+_quality_preserving_refinement_marks (1454-1512),
+_expand_marked_face_rings (1515-1530), _limit_marked_fraction (1434-1451),
+_balance_red_green_refinement (1543-1580), _single_green_split_quality
+(1606-1623), _drop_faces_below_min_edge (1626-1635)}`
+← *Tessera:* `../tessera/src/Tessera_EdgeSplit.hpp` (the whole header comment),
+`../tessera/docs/design.md` → *Edge-addressed splitting*
 
-### T4b — Dynamic remeshing
+**Callers to update: none.** Nothing in `src/`, `examples/` or `tests/` calls
+`SurfaceMesh::refine`, `SurfaceMesh::splitEdges`, `reconcileRefinementMarks` or
+any `AdaptiveMesh` method today; the only occurrences are the declarations
+themselves and prose references in `Beatnik_MeshQuality.hpp:157`,
+`Beatnik_Restart.hpp:153` and `Beatnik_SurfaceState.hpp:165`, which must be
+re-pointed but compile either way. So every signature change here is free, and it
+will not be after T4b.
 
-**Fill in:** all of `Beatnik_DynamicRemesh.hpp`;
-`Beatnik_MeshInterface.hpp::{splitEdges, collapseEdges, flipEdges, compact}`.
-← *Python:* all of `dynamic_remesh.py`
+**Do:**
 
-**Additional information needed before a fine-grained design can be tasked:**
-- **The nonlocal proximity query is the hardest single item in the port.** It is
-  a genuinely global spatial search over face centroids with two exclusion
-  criteria (topological rings and material-coordinate distance), and no ghost
-  depth makes it local. Candidate approaches — a distributed ArborX tree, reusing
-  Canopy's tree, or a two-level scheme — cannot be chosen without knowing what
-  Tessera and Canopy already build. Requires M1 and T3a.
-- The exclusion sets are *per-face variable-size index sets*, which suits neither
-  a `Kokkos::View` nor a distributed query cleanly. A ring-depth-bounded CSR
-  representation is the obvious first attempt but needs sizing against real
-  meshes.
-- Collapse safety (link condition + geometric test) across a rank boundary needs
-  a two-phase owner-decides protocol; whether Tessera supplies one is unknown.
+1. **Correct the stale header statements first**, so the headers stop
+   contradicting the code that is about to be written. Two of them:
+   - `Beatnik_AdaptiveMesh.hpp:410-412` claims the refined state is built with
+     `reference_face_area=None` and the reference is "re-based to the
+     post-refinement geometry". It is not — see step 4 — and a session
+     implementing from that comment gets the indicator wrong in a way no
+     structural test catches. The file header's list at `:33-43` is right.
+   - `Beatnik_MeshInterface.hpp:1184-1195` says "Beatnik's default configuration
+     wants both" editing families. It does not; see *Read this first*.
 
-**Exit criterion:** a default-configuration run completes 50 steps without
-aborting, at ranks 1 and 4; volume drift below `1e-10`; minimum triangle quality
-stays above `--remesh-min-quality`.
+2. **Get face → edge.** Tessera has no face→edge CSR: it has
+   `mesh.vertexEdges()`, and the edge AoSoA carries `EdgeField::Verts` and
+   `EdgeField::Faces`. Beatnik already resolves the second of those into local
+   indices in `SurfaceMesh::edgeAdjacency()` (M1's call table). Build the
+   inverse — per owned face, its three local edge indices — and cache it on
+   `generation()` exactly as `edgeAdjacency()` and `vertexOneRing()` do. This is
+   the one new adapter accessor the task needs and it belongs with the others,
+   not inline in the AMR code.
 
-### T4c — Isotropic cleanup
+3. **Translate marks to edges, with the owner able to see them.** An owned edge
+   may be incident on a face owned by another rank, and `splitEdges()` takes the
+   verdict from the **edge owner**. So a face-level decision must reach that rank.
+   Two routes, and the task must choose one and say which in the log: (a) write
+   the per-face score into a face user field, `haloExchange()`, and let each rank
+   evaluate its owned edges from locally-resident faces; or (b) evaluate the
+   indicators on ghost faces too, which is legal because all three are local
+   geometric quantities over a face's own vertices and their one-rings, and the
+   halo is 2-deep. Route (a) is preferred: it is one exchange, it does not
+   duplicate arithmetic, and it does not depend on the one-ring of a ghost face's
+   corner being complete. **Verify, do not assume, that both incident faces of
+   every owned edge are locally resident at halo depth 2** — T1b's test already
+   asserts every edge has exactly two incident faces at ranks 1-6, so the check is
+   a re-assertion, not new work.
 
-**Fill in:** `Beatnik_MeshQuality.hpp::{valenceEqualizingFlips,
-tangentialRelaxation, isotropicCleanup}`.
-← *Python:* `mesh_quality.py` (44-167)
+4. **Get the reference-area transfer right; it is not inheritance.**
+   `mesh.py::refine_marked_faces` gives each child of a subdivided face
+   `parent_ref * child_area / parent_area`, keeps an unsplit face's reference
+   unchanged, and **resets** reference *curvature* to the child's current value
+   for subdivided faces only. Tessera inherits face user fields **verbatim** and
+   `RefinePolicy` covers vertex fields only
+   (`../tessera/src/Tessera_RefinePolicy.hpp` — the two hooks are
+   `interpolatePosition` and `interpolateVertexField`), so neither rule is
+   expressible through the policy. Do it with two local passes around the call:
+   - **before** `splitEdges()`, replace the stored reference area by the ratio
+     \f$\sigma_f = A^{\text{ref}}_f / A_f\f$;
+   - **after** it, restore \f$A^{\text{ref}}_f = \sigma_f A_f\f$.
 
-**Exit criterion:** with cleanup on, a run that reaches a tightening roll-up does
-not die on the "curvature sliver"; the valence histogram stays concentrated at 6.
-Compare the *statistics* against a Python run, not the flip set — see R7.
+   This reproduces the Python **exactly**, for both cases at once: children of one
+   parent share \f$\sigma\f$, so \f$A^{\text{ref}}_{\text{child}} = (A^{\text{ref}}_p/A_p)
+   A_{\text{child}}\f$; and an unsplit face's corners are untouched by a split, so
+   its area — and therefore its reference — is unchanged. The one departure is
+   that the Python normalizes by `sum(child_areas)` rather than the parent's own
+   area; the two differ only in floating-point association.
+
+   Reference *curvature* needs a "was I subdivided" discriminator. Use the fact
+   that a face with `|S| = 0` **keeps its gid** while a subdivided parent's gid is
+   retired (`../tessera/src/Tessera_EdgeSplit.hpp`, the |S| table and the child-gid
+   exscan): snapshot the owned face gids before the call and reset the reference
+   curvature of exactly those faces whose gid is not in the snapshot. State in the
+   log what the measured new-face count was, so a silently-empty snapshot is not
+   mistaken for "nothing refined".
+
+5. **Seed, cap, expand, balance — in that order**, matching
+   `_quality_preserving_refinement_marks`. The seed and the score are per face
+   (`markFaces`'s existing doc comment is correct and stays); everything after is
+   per edge:
+   - `limitMarkedFraction` keeps the `max(1, ceil(f·N_f))` highest-scoring seeds.
+     The ranking is **global**; implement it as a threshold search on the score
+     with one `globalSum` of the count per probe, not a distributed sort.
+   - `expandMarkedRings` is `--refine-neighbor-rings` breadth-first steps over
+     face adjacency. Use `faceAdjacency()`'s `nbrGid`/`nbrOwner` half, which M1
+     records as the one valid for a *topological* consumer; do **not** use the
+     local-index CSR unless `numNonResident == 0`.
+   - `balanceRedGreen` is the fixpoint of *mark the third edge of any face with
+     exactly two marked edges*, plus the one-edge quality promotion against
+     \f$\max(\tau_{\text{floor}}, f_q q_{\text{parent}})\f$. Terminate on
+     `MPI_Allreduce(MPI_LOR)`; cap the rounds and **throw** on the cap.
+   - `projectedFaceCount` is \f$\sum_f (|S_f|+1)\f$ over owned faces plus one
+     `globalSum`. `--max-faces` is enforced by bisecting the score threshold until
+     the projection fits, **not** by the reference's greedy accept loop (R4).
+
+6. **Re-base the reference and re-project the volume** after the pass, in the
+   reference's order: the Python runs `project_state_to_volume` after the repairs
+   only when something changed (`run_adaptive_mesh_bubble.py:1466-1468`).
+   `VolumeProjection::projectToVolume` is implemented and, per T2d, has never run
+   — **this task is where it first executes**, so check its result rather than
+   assuming it.
+
+**Exit criterion:** a `regression`-tier test, registered per backend with the
+`_<BACKEND>` suffix the gate selects on — **this grows the ship gate to four
+members / 48 launches, the user has confirmed this is allowed**
+(CLAUDE.md "Minimum test set"). It must show, at the gate's ranks 1-6 on SERIAL
+and HIP:
+
+- a `--no-dynamic-remesh --refine-every 5 --flip-passes 0 --smooth-iters 0` run
+  completes 20 steps without aborting, and the global V/E/F satisfy Euler
+  \f$V-E+F=2\f$ and conformity after every refinement pass;
+- the **global** face count after each pass equals this rank's own
+  `projectedFaceCount` prediction for that pass **exactly** — the check that
+  catches a mask that was reconciled differently than it was projected, and the
+  one that fails loudly if the balance fixpoint did not converge;
+- the face count agrees with a Python run of the same configuration at ranks 1
+  and 4 where `--max-faces` is not binding, and where it binds only the
+  non-refinement fields are compared and the divergence is recorded in the log
+  (R4);
+- the minimum triangle radius ratio over the whole run stays above a floor
+  **measured on the first run and recorded here**, not guessed (R12);
+- **the failure direction:** a run with `--refine-every 5 --flip-passes 2` exits
+  non-zero from `requireSupportedConfiguration` with a message naming
+  `MeshQuality::improveConnectivityByFlips` and **T4d** — not from a Tessera
+  `EditFamily` throw, and not by silently running without flips.
+
+---
+
+### T4b — Metric-driven dynamic remeshing: the sizing field and the split pass — **NOT STARTED**
+
+**Depends on:** T4a (the edge-mask plumbing, the face-user-field pack, and the
+face→edge accessor are all T4a's, and this task must not re-invent them).
+
+The default configuration. `dynamic_remesh.py` is three thirds — split, collapse,
+flip — and **only the split third is expressible against Tessera today** (G5b,
+G5c, G5d are open; see M1's gap section). This task is the split third and the
+sizing field that drives it; T4d is the rest. Splitting them this way is
+deliberate: the sizing field, the gradation smoothing and the pass structure are
+the bulk of `dynamic_remesh.py` and none of it is blocked.
+
+**Fill in:** `Beatnik_DynamicRemesh.hpp` — the target-length (sizing) field from
+the sagitta tolerance \f$h = \sqrt{8\,\text{tol}/\kappa}\f$ clamped to
+`[h_min, h_max]`, the gradation smoothing
+(`target_gradation_factor` 1.35, `target_gradation_iterations` 8), the split
+selection (`edge length > split_factor · target`), the multi-pass loop
+(`passes` = 2), the per-pass split cap, and the diagnostics.
+← *Python:* `dynamic_remesh.py`, everything except `collapse_short_edges`,
+`flip_edges_for_quality` and the proximity paths.
+
+**Explicitly out of scope, and why:**
+- Collapse and flip → **T4d**, blocked upstream.
+- **The nonlocal proximity query → T4e.** This document called it "the hardest
+  single item in the port" and treated it as blocking. It is not: both switches
+  that reach it, `DynamicRemeshParams.use_proximity` and `.surgical_proximity`,
+  **default to `False`** (`dynamic_remesh.py:33,41`), so it is off on the default
+  path. It is isolated into its own late task rather than allowed to hold up the
+  remesher.
+
+**Additional information needed before T4d can be tasked, and answered by this
+task:** whether a split-only remesher holds triangle quality at all over a
+roll-up, and for how many steps — i.e. how badly the missing coarsening bites,
+measured rather than argued. Record the step count at which the minimum quality
+crosses `--remesh-min-quality`.
+
+**Exit criterion:** a `--dynamic-remesh` run completes 20 steps at ranks 1-6 on
+both backends without aborting; V/E/F satisfy Euler 2 and conformity after every
+pass; the enclosed-volume drift per step agrees with a Python run of the same
+configuration to `1e-3` relative with `1e-9` absolute as the blow-up cap (T2d's
+form, which is the one that also fails a run that conserves *better* than the
+reference); every edge longer than `split_factor · target` at the end of a pass
+is either split in the next pass or blocked by `h_min`, asserted rather than
+inspected. **Failure direction:** `--remesh-use-proximity` exits non-zero naming
+T4e, and a configuration that would need a collapse exits non-zero naming T4d.
+
+---
+
+### T4c — Tangential relaxation — **NOT STARTED**
+
+**Depends on:** none. Independent of T4a and T4b, and deliberately so: it changes
+**no connectivity**, so it belongs to no editing family and could be implemented
+before either. Sequenced here only because nothing calls it until T4a does.
+
+**Fill in:** `Beatnik_MeshQuality.hpp::improveQualityTangential`;
+`Beatnik_Solver.hpp::requireSupportedConfiguration` — drop the
+`redistribute_every > 0` rejection.
+← *Python:* `mesh_solver.py::improve_mesh_quality_tangential` (1775-1831)
+
+The displacement is the neighbour-centroid Laplacian **projected onto the local
+tangent plane**, so the interface geometry is not normal-smoothed. Both operators
+exist and are validated: `SurfaceOperators::graphLaplacianVector` and
+`::projectTangent` (T2b). The `reset_reference` argument is real — the driver
+passes `reset_reference = (smooth_iters == 0)` to the flips and `False` here
+(`run_adaptive_mesh_bubble.py:1440-1451`), so the re-basing is *not*
+unconditional.
+
+**Exit criterion:** a `unit`-tier test on the default icosphere showing that the
+pass moves every vertex tangentially — \f$|\Delta x \cdot \hat n_v| < 10^{-13}\f$
+relative to \f$|\Delta x|\f$ at all 162 vertices — that the mean triangle quality
+does not decrease, and that V/E/F are **unchanged**; plus the failure direction,
+that a deliberately un-projected displacement raises the enclosed-volume change
+by orders of magnitude, so the tangency check is shown to have teeth.
+
+---
+
+### T4d — Coarsening, flips, and isotropic cleanup — **BLOCKED (upstream)**
+
+**Depends on:** T4b, T4c, **and Tessera G5b (edge collapse), G5c (edge flip) and
+G5d (compaction)** — all three `NOT STARTED` in `../tessera/tasks/`
+(`edge-collapse.md`, `edge-flip.md`, `mesh-compaction.md`), with Tessera's own
+ordering being compaction → flip → collapse. **This task cannot start until they
+land**, and that is the only thing standing between Phase 4 and the reference's
+full behaviour.
+
+**Fill in:** `Beatnik_MeshInterface.hpp::{collapseEdges, flipEdges, compact}`;
+the collapse and flip thirds of `Beatnik_DynamicRemesh.hpp`;
+`Beatnik_MeshQuality.hpp::{improveConnectivityByFlips, valenceEqualizingFlips,
+isotropicCleanup}`; the `requireSupportedConfiguration` rejections T4a and T4b
+added.
+← *Python:* `dynamic_remesh.py::{collapse_short_edges, flip_edges_for_quality}`,
+`mesh_quality.py` (44-167),
+`mesh_solver.py::improve_mesh_connectivity_by_edge_flips` (1704-1772)
+
+**Additional information needed, to be answered against Tessera when the three
+land, not now:** whether `collapseEdges` supplies the two-phase owner-decides
+protocol for the link condition and the geometric safety test across a rank
+boundary, or leaves it to the caller; and whether `compact()` invalidates the
+face user fields the way `refine()`/`splitEdges()` invalidate edge user fields.
+
+**Exit criterion:** a default-configuration run completes 50 steps at ranks 1
+and 4; volume drift below `1e-10`; the minimum triangle quality stays above
+`--remesh-min-quality` for the whole run; and with `--isotropic-cleanup` a run
+that reaches a tightening roll-up does not die on the "curvature sliver", with
+the valence histogram staying concentrated at 6. Compare **statistics** against
+the Python, never the flip or collapse set (R7).
+
+---
+
+### T4e — Nonlocal proximity queries — **NOT STARTED (opt-in)**
+
+**Depends on:** T4b, and T3a if Canopy's tree is the chosen vehicle.
+
+Off by default on both switches, so nothing else waits for it. A genuinely global
+spatial search over face centroids with two exclusion criteria — topological
+rings (`proximity_exclusion_rings` 3) and material-coordinate distance — that no
+ghost depth makes local.
+
+**Additional information needed before a fine-grained design:** whether to build a
+distributed ArborX tree, reuse Canopy's FMM tree (T3a will have opened Canopy and
+can answer), or use a two-level scheme; and how to represent the per-face
+variable-size exclusion sets, for which a ring-depth-bounded CSR is the obvious
+first attempt but needs sizing against a real refined mesh. **A distributed
+spatial-index library would be a new third-party dependency and is a decision for
+the user, not for the implementing session** — the alternative that avoids it is
+reusing Canopy's tree.
+
+**Exit criterion:** with `--remesh-use-proximity`, a run in which two sheet lobes
+approach to within `proximity_activation_distance` refines the approaching faces
+and not their topological neighbours, at ranks 1 and 4, with the marked set
+identical at both rank counts.
 
 ---
 
@@ -1151,13 +1431,14 @@ API section.
 | Lat/lon sphere | `generateLatLonSphere<Scalar>( nLat, nLon )` / `buildLatLonSphere( mesh, nLat, nLon )` | Serves `--mesh-kind latlon`. Exact poles, no seam duplicate, fixed quad diagonal, CCW-outward. **libm reproducibility caveat** — positions are not bit-reproducible across machines, which is exactly R1's `latlon` concern. |
 | Load-balance mode | `loadBalance( mesh, halo, tol, LoadBalanceMode::…, &stats )` / `computeLoadBalance(...)` | Default is **`Sampled`** — the only mode measured run-to-run reproducible; nothing is gathered to rank 0 in `Sampled` (`O(nparts)`) or `Distributed` (zero). `LoadBalanceStats::rootSolveFaces` reports it. |
 
-**One new constraint that did not exist at M1: the two editing families are
-disjoint and enforced by a throw**, so `refine()` (T4a) and
-`splitEdges()`/`collapseEdges()`/`flipEdges()` (T4b) cannot run on the same
-mesh. Laid out in full, with the four candidate resolutions, under
-"T4a/T4b — the disjoint editing families" in the task sequence above. Noted on
-all four declarations in `Beatnik_MeshInterface.hpp` so it cannot be met for
-the first time as a runtime throw.
+**One constraint that did not exist at M1: the two editing families are disjoint
+and enforced by a throw**, so `refine()` and
+`splitEdges()`/`collapseEdges()`/`flipEdges()`/`compact()` cannot run on the same
+mesh. **Beatnik's resolution is to use the Remesh family exclusively and never
+call `refine()`** — see *The editing-family question — RESOLVED* under Phase 4 for
+the reasoning and for what T4a does instead. The constraint is noted on all four
+declarations in `Beatnik_MeshInterface.hpp` so it cannot be met for the first
+time as a runtime throw; T4a deletes the `refine()` declaration outright.
 **Calls the M1 adapter rework and T1b introduced.** The two tables
 above say what Tessera *offers*; this one says what Beatnik now actually calls,
 so a reader can see the adapter's whole Tessera surface in one place.
@@ -1226,8 +1507,24 @@ remain open, and they are what still blocks T4b/T4c.*
   - **G5d — compaction. — OPEN.** Prerequisite of collapse rather than a
     consequence of it in Tessera's own ordering.
     `../tessera/tasks/mesh-compaction.md` (NOT STARTED).
-**T4b (dynamic remeshing) and T4c's flips are still blocked** — the split third
-of `dynamic_remesh.py` is now expressible, the collapse and flip thirds are not.
+**What the three open gaps actually block, restated after the Phase 4 design
+settled:** the split third of `dynamic_remesh.py` is expressible today and is
+**T4b**; the collapse and flip thirds, and every flip in `mesh_quality.py`, are
+**T4d** and wait on G5b/G5c/G5d. Nothing else in Phase 4 is blocked.
+
+**`Tessera::refine()` is not used by Beatnik at all**, so the "Conforming AMR"
+row of the capability table above is available but unexercised. Beatnik drives
+every topological edit through `splitEdges()`; the reasoning, including why that
+is the *higher*-fidelity port of `mesh.py::refine_marked_faces` rather than a
+concession, is under Phase 4.
+
+**The `splitEdges()` quality measurement this document once recorded as missing
+now exists.** `../tessera/tests/test_split_edges.cpp:95-110` (case 8) reports the
+global minimum inradius/circumradius over five successive length-driven split
+rounds as `0.3780 0.3780 0.2815 0.3780 0.3780`, byte-identical at ranks 1-5 on
+both backends and not trending downward. Converted to the radius ratio
+`Q = R/2r` that `test_conforming_quality.cpp` uses, the worst is `1.776` against
+red-green's `2.234`. Read with its limit — five rounds — under R12.
 
 #### What Beatnik must implement itself (and legitimately may)
 
@@ -1466,6 +1763,15 @@ where `--max-faces` binds will not match the Python face for face.** T4a's exit
 criterion is written around that. When the cap binds, compare the fields, not the
 mesh.
 
+**Downgraded by the Phase 4 design, but not retired.** The *cost* half of this
+risk is gone: under an edge mask the projected face count is
+\f$\sum_f(|S_f|+1)\f$, one local sum plus one `globalSum`, so the cap can be
+enforced by a global threshold search on the score — \f$O(\log)\f$ projections,
+parallel and deterministic — instead of the reference's \f$O(N_{\text{seeds}})\f$
+sequential accept loop. The *divergence* half stands unchanged: a threshold
+search accepts a different mark set than a greedy walk, so a capped run still
+will not match the Python face for face.
+
 ## R5 — `surface-riesz` + fast far field has no gold file
 
 The Python raises for `bernoulli_scalar_mode=surface-riesz` under `treecode`
@@ -1605,3 +1911,73 @@ per-vertex gradient), differing at `O(h)`.
 file made with the default will disagree with a correct Beatnik run by an amount
 that looks exactly like a subtle discretization bug. Written into T1a and T2a;
 repeated here because it is the single easiest way to lose a week.
+## R12 — The `splitEdges()` quality evidence is five rounds deep
+
+Phase 4 rests on `splitEdges()` holding triangle shape over many rounds, and the
+measurement that supports it — `../tessera/tests/test_split_edges.cpp` case 8 —
+runs **five** rounds. Tessera's own red-green quality test records that eight
+rounds could not distinguish saturation from a maximum being discovered slowly
+and sixteen could (`../tessera/tests/test_conforming_quality.cpp`, the blue
+family stepped at rounds 6, 8 and 11). So five rounds are consistent with a bound
+but do not establish one, and a Beatnik run refines far more than five times.
+
+**How it would present:** a long run's minimum triangle quality declining slowly
+and monotonically, with no single bad edit to point at — which reads exactly like
+an accumulating solver bug, and is not one.
+
+**What distinguishes it:** the decline is a property of the *mesh*, not of the
+*fields*. Record the global minimum radius ratio per refinement pass from T4a's
+first run onward and plot it against the round index. A shape problem is
+monotone in the round count and independent of the physics; a solver problem
+tracks the roll-up. If it does decline without bound, the fix is a quality
+constraint on the mask (refuse to split an edge whose split would drop a child
+below a floor — `_single_green_split_quality` is already the predicate for it),
+not a wider tolerance.
+
+**Do not set the floor a priori.** T4a's exit criterion requires the floor to be
+measured on the first run and written into this document, because a guessed floor
+either fires spuriously or never fires at all.
+
+## R13 — Beatnik's two-edge diagonal differs from the Python's
+
+For a face with exactly two split edges, `Tessera::splitEdges` cuts the quad
+along its **shorter** diagonal, decided geometrically and tie-broken on `EdgeKey`
+(`../tessera/docs/design.md` → *The two-edge tie-break*).
+`mesh.py::refine_marked_faces` uses a fixed diagonal determined by which pair of
+edges was split. Beatnik keeps Tessera's: it is the better-shaped element, and it
+is what Tessera's quality numbers were measured with.
+
+**Consequence:** a Beatnik and a Python refinement of the same mark set have
+identical V, E and F but **not** identical connectivity, wherever a face had
+exactly two split edges. Vertex positions are unaffected — the midpoints are the
+same points either way — so a comparison of positions and fields still holds;
+only face-for-face connectivity comparison does not.
+
+Practically the same class of divergence as R7, and handled the same way: compare
+counts and statistics, not the edit set. It is recorded separately because it is
+*deterministic and structural* rather than order-dependent, so unlike R7 it will
+reproduce identically at every rank count — and a tester who sees a stable,
+reproducible connectivity difference will otherwise reasonably conclude it is a
+bug.
+
+## R14 — Face user fields silently widen the checkpoint
+
+T4a adds `FaceFields<Real, Real>` to the mesh type. `Tessera::writeMesh` writes
+the face user pack unconditionally, as its own datasets, exactly as it does the
+vertex pack — so every checkpoint gains `/faces/u0` and `/faces/u1`.
+
+Harmless **today**: `compare_output.py` reads HDF5 only through `FIELD_MAP`, so
+datasets it does not name are ignored, and the gold `.npz` files carry no face
+data to disagree with. Two consequences that are not:
+
+1. **Every checkpoint written before T4a becomes unreadable by a post-T4a
+   binary.** `Tessera::readMesh` treats a field-pack mismatch as an
+   **`MPI_Abort` inside Tessera, not a catchable exception** (M2's trap (b)), so
+   this surfaces as a hard abort with no Beatnik-side message. Nothing depends on
+   it yet — `CheckpointIO::read` still throws (T5b) — but T5b must not be written
+   assuming the two packs are compatible.
+2. **`/faces/u<N>` is positional**, exactly as `/vertices/u<N>` is, so reordering
+   `Beatnik::FaceFieldId` silently relabels every checkpoint on disk. M2 mitigated
+   the vertex case with `/beatnik/vertex_field_names` plus a `compare_output.py`
+   cross-check; T4a should extend the same mechanism to the face pack rather than
+   inventing a second one, or state in the log why it did not.
