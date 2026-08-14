@@ -1399,3 +1399,108 @@ Tessera as it stands**, which was not true of any of them before.
   automatically, which is one fewer thing for it to move.
 - **R4** — its cost half is retired (the projection is a closed form, so the cap
   is a threshold search rather than a greedy loop); its divergence half stands.
+
+## R12 — Tessera's depth study of `splitEdges()` triangle shape
+
+Not a Beatnik task. Tessera investigated the open question R12 carried — whether
+five rounds of case 8 established a shape bound — and the answer changed what R12
+says, so it is recorded here.
+
+**The result, in one line:** the Phase 4 assumption holds, but it holds because
+of *the mask*, not because of `splitEdges()`.
+
+A new Tessera diagnostic, `../tessera/tests/test_split_edges_depth.cpp` (`unit`
+tier, not in Tessera's gate), drives repeated `splitEdges()` with no intervening
+`migrate()` and records per round the global minimum \f$r/R\f$, the global
+minimum angle, and the population below five \f$r/R\f$ thresholds. Four mask
+families:
+
+| mask rule | rounds | min \f$r/R\f$ | verdict |
+| --- | --- | --- | --- |
+| longer than the mean | 10, F 320 → 3 276 800 | `0.3780 0.3780 0.2815` repeating | bounded, **exactly periodic, period 3**; min angle `33.203°` flat |
+| shorter than the mean | 7, F → 1 179 680 | `0.1953 … 0.0007` | unbounded, halves per round; min angle `24.96° → 0.21°` |
+| length-blind (hash of midpoint mod 3) | 27, F → 2 340 916 | `0.1953` → `0.0000` from round 8 | unbounded; 96.7% of faces below `0.30` |
+| the same inside a geodesic cap | 30 | `0.2238` → `0.0000` by round 11 | unbounded and **localised** |
+
+Every round line is byte-identical across np 1, 2, 4, 5 × {SERIAL, HIP} ×
+{Serial, Default} — 7 configurations reduce to 39 distinct lines with zero
+spread, so these are properties of the global mesh, not of a decomposition.
+
+**The mechanism, which is the part worth keeping.** The red-green intuition does
+not transfer. `refine()` is shape-bounded independently of round count because
+its closure is transient — un-close discards the whole closure layer every round,
+so every visible triangle is one of finitely many retriangulations of a red
+triangle. `splitEdges()` has no reset: a \f$|S|=1\f$ median-cut child is an
+ordinary face next call and can be cut again, so the reachable similarity classes
+are unbounded in the round count. `splitEdges()` therefore cannot offer a shape
+guarantee and does not claim one. What bounds the friendly family is that the
+rule is length-driven, making it a coarse Rivara longest-edge bisection: it
+attacks the long edge of a stretched triangle, which is exactly the edge whose
+bisection improves shape. Splitting short edges is the same machinery backwards,
+degrading ~2× per round.
+
+**Why Tessera did not fix this inside `splitEdges()`, deliberately.** Refusing to
+split an edge whose child would fall below a floor would bisect fewer edges than
+asked, on a predicate the caller cannot see — contradicting the "bisects EXACTLY
+the marked edges" contract that cases 1-4 pin, and converting a visible quality
+problem into silent under-refinement. The fix belongs above Tessera. If a filter
+is ever genuinely wanted inside, the correct shape is an **opt-in mask filter
+that returns which marks it dropped**; it is not built because no consumer needs
+it.
+
+**What changed on the Tessera side, so expectations match what a checkout shows.**
+`test_split_edges` case 8 now runs **7** rounds, not 5 (period 3 means five rounds
+show one dip and one recovery — consistent with a bound, not establishing one),
+and additionally asserts min angle above `30.0°` and saturation (the last two
+rounds set no new worst). Round count overridable with `TESSERA_SPLIT_ROUNDS`.
+`kMinRadiusRatioFloor` is unchanged at `0.25` (measured worst
+`0.281541949162`, hit at rounds 3, 6 and 9 with the same value each time), but
+its comment now carries a SCOPE paragraph: **the floor is a statement about the
+mask.** Do not quote it as a property of `splitEdges()`, and do not adopt it as
+Beatnik's own floor.
+
+**Verified against source.** The `../tessera` clone was pulled to `cdba371`
+("splitEdges() shape quality at depth: the bound is the mask's, not the
+operation's") and every claim above was checked against it, so the design doc's
+citations carry line ranges again. What the source adds beyond the report:
+
+- `kMinRadiusRatioFloor` is at `tests/test_split_edges.cpp:140`, with the
+  measured table at `:108-110` and the SCOPE paragraph at `:123-136`. A second
+  floor, `kMinAngleDegFloor = 30.0`, sits at `:142`. Case 8's
+  `kRepeatRounds = 7` and `kSaturationRounds = 2` are at `:921` and `:928`, the
+  case itself at `:944`.
+- The depth diagnostic reports the tail at five fixed thresholds,
+  `kTail = {0.30, 0.25, 0.20, 0.15, 0.10}` (`test_split_edges_depth.cpp:98-102`).
+  The `0.25` R12 asks T4a to log is one of them — deliberately kept there so the
+  two diagnostics are directly comparable, rather than picking a Beatnik-specific
+  value.
+- Adding a fifth family is three edit sites, not one: the `Family` enum and
+  `familyName` (`:305-326`), a `case` in `buildMask` (`:333-397`), and a
+  `driveFamily` call in `run` (`:493-500`). The rule must be a pure function of
+  global mesh geometry — the existing families hash the midpoint **position**,
+  not gids, because gids come from an `MPI_Exscan` and are not rank-count
+  invariant (`:52-54`). A family keyed on gids would break the byte-identical
+  cross-rank property that makes the whole table meaningful.
+
+**Affects:**
+- **R12** — rewritten. No longer "the evidence is five rounds deep"; it is now
+  the constraint that every marked edge must be marked *because it exceeds a
+  target length*, plus the sharper monitoring discriminator and the ordered fix
+  list (Rivara mask promotion first, caller-side shape filter with logging
+  second, an opt-in Tessera filter last).
+- **T4a** — exit criterion gains the second R12 signal: log the count of faces
+  below \f$r/R\f$ `0.25` alongside the minimum, per pass, against the round
+  index. Under a length-driven mask that count returns to zero between dips;
+  under a degrading one it settles at a stable fraction of the mesh (~17% in the
+  below-mean family), which flags "the mesh is going bad" far earlier than the
+  minimum does. The measured floor must still be measured, and must not be
+  Tessera's `0.25`.
+- **T4b** — gains a hard constraint: an edge may enter the split mask only
+  because its length exceeds `split_factor · target`. No curvature, vorticity or
+  region-tag union. If such a term is ever needed, make the mask
+  longest-edge-consistent first (Rivara promotion to fixpoint, a pure mask
+  transform above Tessera) and add the rule as a fifth family in
+  `test_split_edges_depth.cpp` — ~40 lines, one batch job, ~1m15s at np4 — before
+  committing to it. Its exit criterion now requires the healthy signature.
+- **T4d** — when collapse and flip land, their masks are *not* length-driven in
+  the same sense; re-read R12 before assuming the bound extends to them.
