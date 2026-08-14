@@ -2,7 +2,52 @@
   "permissions": {
     "allow": [
       "Read(//dev/**)",
-      "Bash(xargs ls -lt)"
+      "Bash(xargs ls -lt)",
+      "Bash(git mv *)",
+      "Bash(cp ~/spack_envs/tuolumne_beatnik/spack.yaml systems/tuolumne/spack.yaml)",
+      "Bash(cp ~/spack_envs/tuolumne_beatnik_production/spack.yaml systems/tuolumne/spack-production.yaml)",
+      "Bash(chmod +x scripts/tuolumne/run_regression_minset.flux scripts/tuolumne/test_template.flux)",
+      "Bash(git rm *)",
+      "Bash(bash -c 'BEATNIK_ENV_DRY_RUN=1 source scripts/lib/beatnik_env.sh; echo \"rc=$?\"')",
+      "Bash(bash -c 'BEATNIK_ENV_DRY_RUN=1 BEATNIK_SYSTEM=nosuch source scripts/lib/beatnik_env.sh; echo rc=$?')",
+      "Bash(bash -c 'BEATNIK_ENV_DRY_RUN=1 BEATNIK_BUILD_MODE=manual source scripts/lib/beatnik_env.sh')",
+      "Bash(bash -c 'BEATNIK_ENV_DRY_RUN=1 source scripts/lib/beatnik_env.sh')",
+      "Bash(git check-ignore *)",
+      "Bash(bash -c 'BEATNIK_ENV_DRY_RUN=1 BEATNIK_BUILD_MODE=spack source scripts/lib/beatnik_env.sh')",
+      "Bash(bash -c 'BEATNIK_ENV_DRY_RUN=1 BEATNIK_USE_PROD=1 source scripts/lib/beatnik_env.sh')",
+      "Bash(git restore *)",
+      "Bash(git commit *)",
+      "Bash(cd /g/g20/stewartj/spack_envs/tuolumne_beatnik/beatnik *)",
+      "Bash(ls -la ~/research-bridges/zmodel-steve/zmodel3d-amr/ ~/research-bridges/zmodel-steve/zmodel3d-amr/zmodel3d/ ~/research-bridges/zmodel-steve/zmodel3d-amr/examples/ 2>&1 | head -60; echo \"=== wc ===\"; wc -l ~/research-bridges/zmodel-steve/zmodel3d-amr/examples/run_adaptive_mesh_bubble.py ~/research-bridges/zmodel-steve/zmodel3d-amr/zmodel3d/solver.py)",
+      "Read(//g/g20/stewartj/research-bridges/zmodel-steve/zmodel3d-amr/**)",
+      "Read(//g/g20/stewartj/research-bridges/zmodel-steve/zmodel3d-amr/examples/**)",
+      "Bash(python3 -c \"import numpy, h5py; print\\(numpy.__version__, h5py.__version__\\)\")",
+      "Bash(python3 make_fixtures.py --outdir /tmp/fresh)",
+      "Bash(python3 compare_output.py /tmp/fresh/synthetic_match.h5 fixtures/synthetic_gold.npz --rtol 1e-14 --atol 1e-16 --quiet)",
+      "Bash(echo \"reproducibility rc=$?\")",
+      "Bash(spack concretize *)",
+      "Bash(echo \"RC=$?\")",
+      "Bash(spack install *)",
+      "Bash(echo \"INSTALL_RC=$?\")",
+      "Bash(spack info *)",
+      "Bash(grep -nE \"adios2|trilinos|kokkos|variants\" ~/.spack/tuolumne/packages.yaml)",
+      "Read(//g/g20/stewartj/.spack/tuolumne/**)",
+      "Bash(grep -rnE \"trilinos\" /g/g20/stewartj/.spack/package_repos/COMPASS/ --include=package.py | head -20)",
+      "Read(//g/g20/stewartj/.spack/package_repos/COMPASS/**)",
+      "Bash(grep -rn \"trilinos\" ~/.spack/tuolumne/packages.yaml ~/.spack/packages.yaml /usr/workspace/wsb/stewartj/spack/etc/spack/*.yaml 2>/dev/null | head)",
+      "Read(//g/g20/stewartj/.spack/**)",
+      "Bash(ls examples/ && ls /usr/WS2/stewartj/spack/opt/spack/linux-zen4/beatnik-develop-anhmwp5tkf37jscqvlawncbhrlv2qkc6/bin/ 2>&1)",
+      "Read(//usr/WS2/stewartj/spack/opt/spack/linux-zen4/beatnik-develop-anhmwp5tkf37jscqvlawncbhrlv2qkc6/bin/**)",
+      "Bash(spack find *)",
+      "Bash(python3 -)",
+      "Bash(ls -d /g/g20/stewartj/spack_envs/tuolumne_beatnik/beatnik/../tessera; ls /g/g20/stewartj/spack_envs/tuolumne_beatnik/)",
+      "Read(//g/g20/stewartj/spack_envs/tuolumne_beatnik/tessera/**)",
+      "Bash(grep -n \"^#\\\\{1,3\\\\} \" README.md)"
+    ],
+    "additionalDirectories": [
+      "/tmp",
+      "/g/g20/stewartj/spack_envs/tuolumne_beatnik",
+      "/g/g20/stewartj/.spack/package_repos/COMPASS/spack_pkgs/spack_repo/compass/packages/beatnik"
     ]
   }
 }
