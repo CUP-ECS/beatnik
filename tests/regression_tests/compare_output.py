@@ -129,6 +129,24 @@ FIELD_MAP: Dict[str, str] = {
 # written before M2; checked only when present.
 VERTEX_FIELD_NAMES_PATH = "/beatnik/vertex_field_names"
 
+# The same declaration for the FACE user pack, added at T4a with
+# Beatnik::FaceFieldId. `/faces/u<N>` is positional exactly as `/vertices/u<N>`
+# is (risk R14), so the writer declares the meaning of each slot and this script
+# verifies it. Unlike the vertex pack there is nothing to compare the face data
+# ITSELF against -- the Python `.npz` gold files carry no per-face state -- so
+# no face dataset appears in FIELD_MAP and none is loaded. What is checked is
+# only that the file's own declaration still says what this script expects,
+# which is what turns a silent enum reordering into a named failure.
+#
+# Absent from a `.npz` and from any file written before T4a; checked only when
+# present.
+FACE_FIELD_NAMES_PATH = "/beatnik/face_field_names"
+FACE_FIELD_NAMES = (
+    "reference_face_area",
+    "reference_face_curvature",
+    "refine_mark",
+)
+
 # Present in every checkpoint regardless of state model.
 REQUIRED_FIELDS = (
     "state_model",
@@ -208,6 +226,32 @@ def check_vertex_field_names(declared: np.ndarray) -> None:
             )
 
 
+def check_face_field_names(declared: np.ndarray) -> None:
+    """Verify the file's `/faces/u<N>` slot declaration against this script.
+
+    The face analogue of `check_vertex_field_names`, and the T4a half of risk
+    R14's mitigation. There is no `FIELD_MAP` entry to check against because no
+    face dataset is compared, so the expected list is spelled out in
+    `FACE_FIELD_NAMES` -- which makes this a check that the two independent
+    statements of `Beatnik::FaceFieldId`'s order still agree.
+
+    :param declared: the `/beatnik/face_field_names` dataset: the name of slot
+        ``N`` at index ``N``.
+    :raises LoadError: on any disagreement, naming both sides.
+    """
+    names = tuple(
+        item.decode("utf-8") if isinstance(item, bytes) else str(item)
+        for item in np.asarray(declared).ravel().tolist()
+    )
+    if names != FACE_FIELD_NAMES:
+        raise LoadError(
+            f"the file declares face user-field slots {names!r}, but this "
+            f"script expects {FACE_FIELD_NAMES!r}. Beatnik::FaceFieldId and "
+            "FACE_FIELD_NAMES have drifted -- fix the table, do not widen the "
+            "check."
+        )
+
+
 def load_h5(path: str) -> Dict[str, np.ndarray]:
     """Read the Beatnik `.h5`, returning a dict keyed by **npz** names.
 
@@ -226,6 +270,8 @@ def load_h5(path: str) -> Dict[str, np.ndarray]:
         with h5py.File(path, "r") as handle:
             if VERTEX_FIELD_NAMES_PATH in handle:
                 check_vertex_field_names(handle[VERTEX_FIELD_NAMES_PATH][()])
+            if FACE_FIELD_NAMES_PATH in handle:
+                check_face_field_names(handle[FACE_FIELD_NAMES_PATH][()])
             for npz_key, h5_path in FIELD_MAP.items():
                 if h5_path in handle:
                     out[npz_key] = np.asarray(handle[h5_path][()])

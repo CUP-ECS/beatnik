@@ -158,14 +158,20 @@ the volume drift pinned to the reference's own. See T2d's completion note and th
 
 What is still a stub:
 
-- **No adaptivity.** T2d's `Solver::solve` **rejects** any configuration that
-  would reach one of those passes, by name and by task ID, rather than skipping
-  it — so the reference's *default* configuration (dynamic remeshing every step)
-  aborts at setup instead of silently running a different problem. The
-  editing-family design question that blocked all of Phase 4 is now **settled**
-  (Phase 4, *The editing-family question — RESOLVED*): **T4a, T4b, T4c and T4e are
-  unblocked and implementable against Tessera as it stands**, and only **T4d** —
-  coarsening, flips and isotropic cleanup — still waits on Tessera's G5b/G5c/G5d.
+- **Adaptivity is half-open. T4a is `**DONE**` and green at the full gate** —
+  see that entry's Met. paragraph. `--no-dynamic-remesh
+  --refine-every N` now refines, through `Tessera::splitEdges()`; everything
+  else on the post-step path still throws, by name and by task ID, so the
+  reference's *default* configuration (dynamic remeshing every step) aborts at
+  setup rather than silently running a different problem. The **three
+  post-refine quality repairs are rejected too** — `--flip-passes > 0` (T4d),
+  `--smooth-iters > 0` (T4c, and it defaults to `1`) and `--isotropic-cleanup`
+  (T4d, and it defaults to *on*) — so a refining run must pass
+  `--flip-passes 0 --smooth-iters 0 --no-isotropic-cleanup`. The editing-family
+  question that blocked all of Phase 4 is **settled** (Phase 4, *The
+  editing-family question — RESOLVED*): T4b, T4c and T4e are implementable
+  against Tessera as it stands, and only **T4d** — coarsening, flips and
+  isotropic cleanup — still waits on Tessera's G5b/G5c/G5d.
 - **`/vertices/u1` in a `--steps 0` checkpoint is still present-but-meaningless**,
   though no longer because of a stub: `SurfaceState::updateSheetVector` is
   implemented (T2b), but nothing on the 0-timestep path *calls* it, so
@@ -742,8 +748,11 @@ arguments.
 (T5c), `BRSolverFMM`'s bodies (T3a), all of adaptivity (T4a-T4e).
 `VolumeProjection::projectToVolume` **is** implemented but is unreachable from
 any configuration that exists today — every reference call site is inside a
-refine or remesh branch — so it is written and unexercised, and T4a is where it
-first runs.
+refine or remesh branch — so it is written and unexercised. **T4a is NOT where
+it first runs**, contrary to what this note originally said: the reference gates
+it on a *repair* having run (`flips > 0 or smooth_iters > 0 or
+isotropic_cleanup`), and T4a rejects all three. It first runs at T4c or T4d,
+whichever lands first.
 
 **The six diagnostics fields that report `NaN`/`+inf` are a deliberate gap, not a
 bug:** the four AMR indicators need T4a and the two nonlocal-gap fields need
@@ -964,15 +973,54 @@ restores the bound if a non-length term is ever needed.
 | --- | --- |
 | Editing family | Remesh, always. `SurfaceMesh::refine` is **deleted**, not left unused. |
 | Edit entry point | `SurfaceMesh::splitEdges( const std::vector<char>& edgeMask )`, mask sized `ownedEdgeCount()`, `1` = bisect. Matches `Tessera::splitEdges`'s own convention rather than inventing a second. |
-| Mark representation | An **edge** mask, everywhere. Face-level indicators are translated to edges once, at the point of use; no face mask is stored or passed. |
-| Per-face carried state | Tessera **face user fields**, `FaceFields<Real, Real>` = `{ReferenceArea, ReferenceCurvature}`, named from outside via `Beatnik::FaceFieldId` — the same pattern M1 established for vertices, for the same reason (a `Kokkos::View` outside the mesh is silently dropped by a split and silently stale after `migrate`). |
+| Mark representation | An **edge** mask, everywhere: the only thing passed to Tessera, and the only thing R12 constrains. Face-level indicators are translated to edges at the point of use. **T4a correction:** the *verdict* is nonetheless carried per face, in a `RefineMark` face user field, because route (a) has to halo-exchange it and `haloExchange()` addresses fields by compile-time member index — a mark outside the mesh cannot cross a rank boundary. So "no face mask is stored" is true of Beatnik-side storage and false of the mesh field; the edge mask is derived from it before every use. |
+| Per-face carried state | Tessera **face user fields**, named from outside via `Beatnik::FaceFieldId` — the same pattern M1 established for vertices, for the same reason (a `Kokkos::View` outside the mesh is silently dropped by a split and silently stale after `migrate`). **T4a correction: three slots, not two** — `FaceFields<Real, Real, Real>` = `{ReferenceArea, ReferenceCurvature, RefineMark}`. See the row above for why the third is there, and R14 for what it does to the checkpoint. |
 | Fixpoint loops | Terminate on a global `MPI_Allreduce(MPI_LOR)`, never a rank-local test, and carry a hard round cap that **throws** when hit rather than proceeding with a partial mark set. |
 | Caps and budgets | Global quantities. A per-rank cap is a different algorithm and a rank-count-dependent one. |
 | Unsupported configuration | Rejected in `Solver::requireSupportedConfiguration` before the first step, naming the method and the task ID. Never skipped. |
 
 ---
 
-### T4a — Indicator-driven refinement through `splitEdges()` — **NOT STARTED**
+### T4a — Indicator-driven refinement through `splitEdges()` — **DONE**
+
+**Met.** Gate run 4 (`f3SRwVuXai8X`) is green: **all 48 launches**, four
+`regression` members x {SERIAL, HIP} x ranks 1, 2, 3, 4, 5, 6, ending
+`[gate] PASS (label=regression)` with zero failures.
+`Beatnik_Test_RefineSplitEdges` passes **86/86 checks in each of its twelve
+configurations** — `--no-dynamic-remesh --refine-every 5 --flip-passes 0
+--smooth-iters 0 --no-isotropic-cleanup --max-faces 1400` at `--area-threshold
+1e-4 --curvature-change-threshold 1e-4` (the threshold deviation is the one
+recorded below and in the test header, because at the defaults the criterion's
+command refines nothing). Every pass satisfies \f$V-E+F=2\f$, every owned edge
+names exactly two incident faces with both locally resident after every edit,
+and the global face count equals `projectedFaceCount`'s prediction **exactly**
+at every pass and every configuration. The failure direction is confirmed:
+`--flip-passes 2` exits from `requireSupportedConfiguration` naming
+`MeshQuality::improveConnectivityByFlips` and T4d, not from a Tessera
+`EditFamily` throw.
+
+**The measured floor is `0.119`.** The whole-run global minimum \f$r/R\f$ is
+`0.119876446958` at ranks 1-4 and `0.119867784111` at ranks 5-6, identical on
+both backends. (The `0.119867826031` this document previously called the ranks
+5-6 run minimum is pass 3's minimum; the run minimum is pass 4's, four ulp-scale
+digits lower, because the mesh keeps evolving for five more steps after the last
+mark. The floor is unaffected and the ranks 1-4 figure is unchanged.)
+
+**The two R12 series**, per pass and per the round index, matching what was
+measured before to twelve significant digits:
+
+- global minimum \f$r/R\f$: `0.304119905237` → `0.123117984672` →
+  `0.119867826031` (ranks 5-6; `0.119877418574` at ranks 1-4) →
+  `0.119867784111` (ranks 5-6; `0.119876446958` at ranks 1-4);
+- global count of faces below \f$r/R\f$ `0.25`: `0` → `4` → `96` (ranks 5-6;
+  `94` at ranks 1-4) → unchanged at pass 4.
+
+Both decline monotonically — R12's *shape-problem* signature, and it is the
+**reference algorithm's** behaviour, not Beatnik's: the Python's own series is
+reproduced to twelve digits on the two uncapped passes. No mitigation was
+applied; see R12. Gate run 3's hang in `Beatnik_Test_InitialConditions_MPI_SERIAL`
+at 6 ranks did not recur — that member was green at every rank count in run 4,
+so the hang was a transient and not a finding.
 
 **Depends on:** none — T2d is `**DONE**` and nothing else is required. In
 particular this task needs **no** new Tessera capability.
@@ -995,9 +1043,20 @@ particular this task needs **no** new Tessera capability.
   (`src/Beatnik_Communication.hpp:351`) — M1 already recorded that Tessera leaves
   it nothing to do, and this task confirms it for `splitEdges()` too.
 - `Beatnik_Solver.hpp`: `requireSupportedConfiguration` — drop the
-  `refine_every > 0` rejection, add rejections for `--flip-passes > 0` and
-  `--isotropic-cleanup` under `--no-dynamic-remesh` (T4d owns them); call the
-  refiner from `advanceOneStep` on the `--refine-every` cadence.
+  `refine_every > 0` rejection, add rejections for `--flip-passes > 0`
+  (T4d), `--isotropic-cleanup` (T4d) **and `--smooth-iters > 0`** under
+  `--no-dynamic-remesh`; call the refiner from `advanceOneStep` on the
+  `--refine-every` cadence.
+
+  **The `--smooth-iters` rejection is not optional and was missing from this
+  list.** `FilterParams::smooth_iters` defaults to `1`
+  (`src/Beatnik_Params.hpp:588`) and the reference's refine branch calls the
+  tangential pass with it *unconditionally* once anything is marked
+  (`run_adaptive_mesh_bubble.py:1446-1450`), so without it a default
+  `--refine-every N` run reaches `MeshQuality::improveQualityTangential` — a
+  throwing **T4c** method with no task ID on its message — several steps in.
+  It names the method and T4c, like the other three. The existing
+  `--redistribute-every > 0` rejection stays (also T4c).
 
 ← *Python:* `mesh.py::{area_change_indicator (215-218),
 curvature_change_indicator (221-224), face_curvature_indicator (172-174),
@@ -1102,12 +1161,20 @@ will not be after T4b.
      `globalSum`. `--max-faces` is enforced by bisecting the score threshold until
      the projection fits, **not** by the reference's greedy accept loop (R4).
 
-6. **Re-base the reference and re-project the volume** after the pass, in the
-   reference's order: the Python runs `project_state_to_volume` after the repairs
-   only when something changed (`run_adaptive_mesh_bubble.py:1466-1468`).
-   `VolumeProjection::projectToVolume` is implemented and, per T2d, has never run
-   — **this task is where it first executes**, so check its result rather than
-   assuming it.
+6. **Re-base the reference, and implement the volume-projection gate as the
+   reference writes it — which under this task's configuration means the
+   projection does NOT run.** The Python gates `project_state_to_volume` on a
+   repair having *actually happened*, not on the refinement having happened:
+   `if not args.no_preserve_volume and (flips > 0 or args.smooth_iters > 0 or
+   args.isotropic_cleanup)` (`run_adaptive_mesh_bubble.py:1465-1468`). Under the
+   only configuration this build accepts — flips, smoothing and cleanup all
+   rejected at setup — all three are false. So implement the same gate, in full
+   rather than folded to `false`, and **do not** call the projection
+   unconditionally to "exercise it": that would be a deviation from the
+   reference dressed as coverage. `VolumeProjection::projectToVolume` therefore
+   remains **unexercised** and first executes at T4c/T4d, whichever lands first.
+   (An earlier revision of this entry, and T2d's `Affects:` note, both said T4a
+   was where it first runs. Both were wrong for this reason.)
 
 **Exit criterion:** a `regression`-tier test, registered per backend with the
 `_<BACKEND>` suffix the gate selects on — **this grows the ship gate to four
@@ -1115,25 +1182,25 @@ members / 48 launches, the user has confirmed this is allowed**
 (CLAUDE.md "Minimum test set"). It must show, at the gate's ranks 1-6 on SERIAL
 and HIP:
 
-- a `--no-dynamic-remesh --refine-every 5 --flip-passes 0 --smooth-iters 0` run
-  completes 20 steps without aborting, and the global V/E/F satisfy Euler
-  \f$V-E+F=2\f$ and conformity after every refinement pass;
+- a `--no-dynamic-remesh --refine-every 5 --flip-passes 0 --smooth-iters 0
+  --no-isotropic-cleanup` run completes 20 steps without aborting, and the
+  global V/E/F satisfy Euler \f$V-E+F=2\f$ and conformity after every
+  refinement pass. **`--no-isotropic-cleanup` is part of the command**:
+  `CleanupParams::enabled` defaults to `true` (`src/Beatnik_Params.hpp:376-378`),
+  so without it the run is rejected by the very rejection this task adds;
 - the **global** face count after each pass equals this rank's own
   `projectedFaceCount` prediction for that pass **exactly** — the check that
   catches a mask that was reconciled differently than it was projected, and the
   one that fails loudly if the balance fixpoint did not converge;
-- the face count agrees with a Python run of the same configuration at ranks 1
-  and 4 where `--max-faces` is not binding, and where it binds only the
-  non-refinement fields are compared and the divergence is recorded in the log
-  (R4);
+- the face count agrees with a Python run of the same configuration where
+  `--max-faces` is not binding, and where it binds only the non-refinement
+  fields are compared and the divergence is recorded in the log (R4);
 - the minimum triangle radius ratio over the whole run stays above a floor
   **measured on the first run and recorded here**, not guessed, and **not** taken
   from Tessera's `kMinRadiusRatioFloor` (R12);
 - the per-pass diagnostics log **both** R12 signals against the round index: the
   global minimum \f$r/R\f$ **and** the global count of faces below \f$r/R\f$
-  `0.25`. Under this task's mask — all three edges of a marked face, so
-  length-driven by construction — the minimum must cycle rather than set new lows
-  late, and the sub-`0.25` count must return to zero between dips;
+  `0.25`;
 - **the failure direction:** a run with `--refine-every 5 --flip-passes 2` exits
   non-zero from `requireSupportedConfiguration` with a message naming
   `MeshQuality::improveConnectivityByFlips` and **T4d** — not from a Tessera
@@ -1474,7 +1541,7 @@ all three run as-is and nothing needs unblocking first.
 
 **Exit criterion:** a `regression`-tier test registered per backend with the
 `_<BACKEND>` suffix the gate selects on — **this grows the ship gate by one
-member to 48 launches (60 if T4a has landed first), so confirm with the user
+member to 60 launches (T4a has landed, so the gate is at 48), so confirm with the user
 before registering it** (CLAUDE.md "Minimum test set", and the same note on
 `tests/CMakeLists.txt:53`). Registering one suffix-less binary instead is a
 silent zero-test pass on the installed path (T2c's warning). It must show, at the
@@ -1889,6 +1956,17 @@ where `--max-faces` binds will not match the Python face for face.** T4a's exit
 criterion is written around that. When the cap binds, compare the fields, not the
 mesh.
 
+**Measured at T4a, and it is worse than "will not match the Python".** A
+capped pass is not rank-count invariant *within Beatnik either*. The threshold
+search converges to a value pinned between two adjacent scores, so an ulp-level
+difference in a score near the cut — which R2 guarantees across rank counts —
+flips a mark. Measured on the T4a configuration: pass 3 gives **1372 faces at
+ranks 1-4 and 1390 at ranks 5-6, identically on both backends**, which locates
+it in the cross-rank reduction order rather than in the on-node atomics. The
+uncapped passes are invariant across all twelve configurations. So a test over a
+capped pass may assert the cap, the projection identity and the structural
+invariants, and must not assert a face count.
+
 **Downgraded by the Phase 4 design, but not retired.** The *cost* half of this
 risk is gone: under an edge mask the projected face count is
 \f$\sum_f(|S_f|+1)\f$, one local sum plus one `globalSum`, so the cap can be
@@ -2117,12 +2195,75 @@ rule must be a pure function of **global mesh geometry** — Tessera's families
 hash the midpoint *position*, not gids, because gids come from an `MPI_Exscan`
 and are not rank-count invariant (`:52-54`).
 
+### MEASURED AT T4a — and T4a's mask is **NOT** in the bounded family
+
+Phase 4's *Finding 3* claims Beatnik's two masks are "the two cases that rule is
+good for", naming T4a's "all three edges of a marked face" as always-the-red-split
+and therefore bounded. **That is wrong, and T4a measured it.** The global minimum
+\f$r/R\f$ per refinement pass, and the population below `0.25`:
+
+| pass | Python `min r/R` | Python `< 0.25` | Beatnik `min r/R` | Beatnik `< 0.25` |
+| --- | --- | --- | --- | --- |
+| 0 (initial) | `0.486497704566` | 0 | `0.486497704566` | 0 |
+| 1 | `0.304119905237` | 0 | `0.304119905237` | 0 |
+| 2 | `0.123117984672` | 4 | `0.123117984672` | 4 |
+| 3 | `0.119867830292` | 101 | `0.119877` / `0.119868` | 94 / 96 |
+| 4 | `0.119867790771` | 101 | `0.119876` / `0.119868` | 94 / 96 |
+
+The minimum **does not cycle** and the sub-`0.25` count **does not return to
+zero**: both decline monotonically, and the count settles at ~7% of the mesh.
+That is this risk's *shape-problem* signature, arriving on the very first task
+that could produce it.
+
+**It is the reference algorithm's, not Beatnik's and not `splitEdges()`'s.** The
+Python columns above are the reference's own numbers, computed offline from its
+checkpoints with the same \f$8A^2/((a+b+c)abc)\f$ formula; Beatnik reproduces
+the first two passes to twelve significant digits *including the count*, on both
+backends at every rank count. The pass-3/4 spread is R4's capped-pass divergence
+and nothing else. So the decline is a faithful port, and the correct response is
+to record it rather than to "fix" it away from the reference.
+
+**The mechanism, which this risk predicts once the mask is read carefully.** A
+*red* face's four children are similar to their parent and are fine. The **green
+transition faces** at the red region's boundary are not: they are bisected on
+whichever edge their neighbour happened to red, **not** on their own longest
+edge. Those edges are not length-driven, they inherit none of the bound, and the
+next pass cuts the previous pass's green children again — `splitEdges()` has no
+reset, so a \f$|S|=1\f$ child is an ordinary face next call. Phase 4's claim
+holds for the red interior and fails for exactly the faces that set the minimum.
+
+**What this does *not* undermine.** T4b's mask — "every edge longer than its
+target" — is genuinely the family Tessera measured as periodic, and is
+unaffected. What is retired is the assumption that *T4a's* mask inherits the
+bound by being a red split.
+
+**What to do about it is a later task's decision, and the options are this
+risk's ordered list unchanged** (Rivara mask promotion first, a caller-side shape
+filter with logging second, an opt-in Tessera filter last). T4a deliberately did
+none of them: each changes every refinement decision away from the reference,
+which is a semantic deviation that needs its own gold set and its own task.
+
 **Do not set the floor a priori.** T4a's exit criterion requires the floor to be
 measured on the first run and written into this document, because a guessed floor
 either fires spuriously or never fires at all. Do **not** reuse Tessera's
 `kMinRadiusRatioFloor` (`0.25`, `../tessera/tests/test_split_edges.cpp:100-140`)
 as that floor: it is a statement about case 8's mask, not about `splitEdges()`,
-and its comment carries an explicit SCOPE paragraph (`:123-136`) saying so.
+and its comment carries an explicit SCOPE paragraph (`:123-136`) saying so — and
+on the T4a configuration a `0.25` floor fails outright, with 96 faces below it.
+
+**THE MEASURED FLOOR IS `0.119`.** The global minimum \f$r/R\f$ over the whole
+20-step T4a run is `0.119867784111` at ranks 5-6 and `0.119876446958` at ranks
+1-4, on both backends — a spread of `7.2e-5` relative, entirely inside the capped
+pass's mark divergence. (An earlier revision gave the ranks 5-6 figure as
+`0.119867826031`; that is pass *3*'s minimum, not the run's. Pass 4 marks
+nothing but the mesh evolves five more steps, and the minimum drifts down in its
+tenth significant digit. Neither the floor nor the ranks 1-4 figure moves.) `0.119` is that minimum rounded **down** to three digits,
+so a run reproducing the measurement clears it by roughly 700x the observed
+spread while a run that sets a genuinely new low fails. It lives in
+`tests/regression_tests/Beatnik_Test_RefineSplitEdges.cpp` as
+`kMinRadiusRatioFloor`, and **it is a floor for this configuration and this
+number of passes**, not a property of the method: four passes reach `0.1199`, and
+nothing here says a fortieth pass would.
 
 **One threshold worth borrowing rather than inventing:** the depth diagnostic
 reports the tail population at `r/R` of `0.30, 0.25, 0.20, 0.15, 0.10`
@@ -2143,6 +2284,19 @@ identical V, E and F but **not** identical connectivity, wherever a face had
 exactly two split edges. Vertex positions are unaffected — the midpoints are the
 same points either way — so a comparison of positions and fields still holds;
 only face-for-face connectivity comparison does not.
+
+**Measured at T4a, and the consequence runs one level further than the paragraph
+above says.** Identical V/E/F holds for *one* refinement of *one* agreed mesh.
+From the pass after that the two codes are integrating **different meshes**, so
+their indicators differ and they select different mark sets — and then even the
+counts diverge. Measured on the T4a configuration: pass 1 agrees exactly
+(320 → 452 faces, 162 → 228 vertices), pass 2 gives **788 faces here against 796
+there**. Nothing is wrong on either side. What *does* survive is the shape
+statistics: Beatnik reproduces the Python's global minimum \f$r/R\f$ and its
+count below `0.25` to twelve significant digits at both of those passes, i.e.
+the worst elements are literally the same elements even where the counts differ.
+So a Python comparison for an adaptive run is a **one-pass** comparison of
+counts plus an all-pass comparison of shape statistics.
 
 Practically the same class of divergence as R7, and handled the same way: compare
 counts and statistics, not the edit set. It is recorded separately because it is
@@ -2170,8 +2324,24 @@ data to disagree with. Two consequences that are not:
 2. **`/faces/u<N>` is positional**, exactly as `/vertices/u<N>` is, so reordering
    `Beatnik::FaceFieldId` silently relabels every checkpoint on disk. M2 mitigated
    the vertex case with `/beatnik/vertex_field_names` plus a `compare_output.py`
-   cross-check; T4a should extend the same mechanism to the face pack rather than
-   inventing a second one, or state in the log why it did not.
+   cross-check; **T4a extended the same mechanism** rather than inventing a
+   second one. `CheckpointIO::write` now emits `/beatnik/face_field_names` from
+   `AdaptiveMesh::face_field_names`, under the same `static_assert` against
+   `FaceFieldId::Count`, and `compare_output.py::check_face_field_names`
+   verifies it. One difference from the vertex case, stated because it changes
+   what the check *is*: no face dataset appears in `FIELD_MAP` and none is
+   compared — the gold `.npz` files carry no per-face state — so the check is
+   against a spelled-out `FACE_FIELD_NAMES` tuple rather than against the path
+   table.
+
+**The pack is THREE slots, not the two this risk was written against.**
+`FaceFields<Real, Real, Real>` = `{ReferenceArea, ReferenceCurvature,
+RefineMark}`; every checkpoint gains `/faces/u0`, `/faces/u1` **and**
+`/faces/u2`. The third is scratch between refinement passes and is in the pack
+only because route (a) has to halo-exchange it, and `haloExchange()` addresses
+fields by their compile-time Cabana member index — so a mark held outside the
+mesh cannot cross a rank boundary at all. It is zeroed after every pass, so a
+checkpoint carries zeros unless it was written mid-pass, which nothing does.
 
 ## R15 — A dt clamp that never binds is indistinguishable from a correct one
 

@@ -79,12 +79,15 @@
  * **Tessera does not report such a map and does not need one**, because it
  * transfers fields itself:
  *
- *   - `refine()` and `splitEdges()` insert a midpoint vertex on each bisected
- *     edge and fill its position *and every vertex user field* from the two
- *     endpoints through a pluggable `RefinePolicy` (default: the linear
- *     average, i.e. exactly the `(0.5, 0.5)` weights the old `MeshEditResult`
- *     encoded). Existing vertex and face user fields are preserved. Edge user
- *     fields are **reset** by either edit, which is why Beatnik declares none.
+ *   - `splitEdges()` inserts a midpoint vertex on each bisected edge and fills
+ *     its position *and every vertex user field* from the two endpoints through
+ *     a pluggable `RefinePolicy` (default: the linear average, i.e. exactly the
+ *     `(0.5, 0.5)` weights the old `MeshEditResult` encoded). Existing vertex
+ *     user fields are preserved, and **face** user fields are inherited
+ *     verbatim by every child of a subdivided face — which is not the rule
+ *     Beatnik's reference area wants, and is why `AdaptiveMesh::refine` wraps
+ *     the call in the two local passes described there. Edge user fields are
+ *     **reset**, which is why Beatnik declares none.
  *   - `migrate()` / `loadBalance()` move **whole Cabana tuples**, so every user
  *     field follows its entity across ranks with no per-field plumbing.
  *   - `haloExchange()` likewise syncs the whole tuple of every ghost.
@@ -137,7 +140,7 @@
  * potential), and `buildVertexStencil(mesh, 2)` was *silently* short within one
  * hop of a partition boundary. Tessera now takes a `depth` on `distribute()`
  * and `rebuildHalo()`, reports it as `mesh.haloDepth()`, and **preserves it
- * across `refine()`, `splitEdges()` and `migrate()`**. So:
+ * across `splitEdges()` and `migrate()`**. So:
  *
  *   - `SurfaceMesh::halo_depth` is **2**, passed to `distribute()` exactly
  * once,
@@ -220,10 +223,11 @@
  * **Do not cache the return of `positions()`, `faceVertices()` or
  * `vertexOneRing()` across a mesh edit.**
  *
- * THE TWO EDITING FAMILIES ARE DISJOINT, AND TESSERA ENFORCES IT
- * -------------------------------------------------------------
- * **M1-REWORK — a constraint that did not exist at M1.** Tessera's topological
- * edits fall into two families and **a mesh belongs to exactly one**:
+ * THE TWO EDITING FAMILIES ARE DISJOINT — AND BEATNIK USES EXACTLY ONE
+ * --------------------------------------------------------------------
+ * **M1-REWORK — a constraint that did not exist at M1; SETTLED at T4a.**
+ * Tessera's topological edits fall into two families and **a mesh belongs to
+ * exactly one**:
  *
  * | Family | Operations | Invariant kept | `Level` is |
  * | --- | --- | --- | --- |
@@ -233,30 +237,28 @@
  * A mesh carries an `EditFamily` tag, `None` until its first topological edit
  * and fixed thereafter, and **each entry point throws `std::runtime_error`** if
  * the other family is then used on it. This is not a Beatnik-side check and
- * cannot be one: Beatnik cannot make the two families compatible by ordering
- * its calls differently.
+ * cannot be one.
  *
- * Beatnik's AMR path (T4a, `refine()`) and its dynamic-remesh path (T4b,
- * split / collapse / flip) therefore **cannot run on the same mesh**, and the
- * default configuration runs both. That is a design question, settled at
- * T4a/T4b, not an implementation detail — the candidate resolutions and what
- * each costs are analysed under "T4a/T4b — the disjoint editing families" in
- * `tasks/framework.md`. **No resolution is presumed here**, and the four
- * affected declarations below each carry the constraint so it cannot be met for
- * the first time as a runtime throw.
+ * **Beatnik never uses the Hierarchical family.** Every topological edit, in
+ * every configuration — the indicator-driven refiner (T4a) as much as the
+ * metric remesher (T4b) — goes through the **Remesh** family, so Tessera's
+ * guard is a backstop that should never fire. `SurfaceMesh::refine` was
+ * **deleted** at T4a rather than left unused; see `tasks/framework.md`,
+ * Phase 4, *The editing-family question — RESOLVED*. Two findings drove it:
+ * the two adaptivity modes are mutually exclusive per run
+ * (`run_adaptive_mesh_bubble.py:1424` versus `:1469-1471`), so no mesh ever
+ * needed both; and `Tessera::splitEdges()` **is** `mesh.py::refine_marked_faces`
+ * — for the mask "every edge of every marked face" the two are the same
+ * algorithm — whereas `Tessera::refine()`'s transient closure is not, and would
+ * diverge from the Python in face count from round 2 onward.
  *
  * REFINEMENT MODE
  * ---------------
- * The mesh is instantiated `RefinementMode::Conforming` (Tessera's default): a
- * marked face is red-split 1->4 and the kept neighbours are retriangulated by a
- * transient closure layer, so no hanging node survives. This is what the Python
- * red-green scheme produces and what a surface operator needs to be consistent.
- * Two consequences Beatnik inherits:
- *
- *   - `Level` is the **red** level, so it no longer maps 1:1 to triangle size.
- *   - The face AoSoA stores only the **visible** faces; a retired red parent
- *     exists only inside `refine()` and is never stored, so every local face is
- *     part of the current triangulation and there is nothing to skip.
+ * The mesh is still instantiated `RefinementMode::Conforming`, which is
+ * Tessera's default and what fixes the face tuple layout; nothing Beatnik calls
+ * exercises the closure, because `splitEdges()` is conforming on exit with no
+ * closure layer and no 2:1 pass. `Level` is therefore advisory throughout, and
+ * every local face is part of the current triangulation.
  */
 
 #ifndef BEATNIK_MESHINTERFACE_HPP
@@ -311,6 +313,63 @@ enum : int
     Potential = 0,        ///< `Real`,    velocity potential jump phi.
     SheetVector = 1,      ///< `Real[3]`, tangential sheet vector S.
     MaterialPosition = 2, ///< `Real[3]`, carried Lagrangian coordinate.
+    Count = 3
+};
+}
+
+//---------------------------------------------------------------------------//
+/**
+ * @brief Beatnik's **face** user fields, as offsets into Tessera's face user
+ *        pack. Added at T4a.
+ *
+ * The same reasoning as `VertexFieldId`, applied to per-face state: a
+ * `Kokkos::View` of per-face values held *outside* the mesh is silently dropped
+ * by `splitEdges()` (children get no value) and silently stale after
+ * `migrate()`. Tessera inherits a parent's face user fields **verbatim** by its
+ * children and ships them whole on migration, so anything per-face that must
+ * survive an edit belongs here.
+ *
+ * Three slots, and each is here because it must cross one of those two events:
+ *
+ * | `FaceFieldId::` slot | Type | Meaning |
+ * | --- | --- | --- |
+ * | `ReferenceArea`      | `Real` | \f$A^{\text{ref}}_f\f$, the area the area-change indicator measures against. |
+ * | `ReferenceCurvature` | `Real` | \f$\kappa^{\text{ref}}_f\f$, likewise for the curvature-change indicator. |
+ * | `RefineMark`         | `Real` | `1` if the face is red this pass, else `0`. **Scratch between passes, but it must be halo-exchanged during one**, which is the whole of route (a) below. |
+ *
+ * **Why `RefineMark` is in the pack even though it is scratch.** T4a's mark
+ * translation is route (a) of the two `tasks/framework.md` offered: a face-level
+ * verdict is computed on **owned** faces, `haloExchange()`d, and each rank then
+ * evaluates its **owned edges** from locally-resident faces. `haloExchange()` is
+ * whole-tuple and addresses fields by their compile-time Cabana member index, so
+ * there is no way to exchange a Beatnik-side view — the mark has to be a mesh
+ * field or it cannot cross a rank boundary at all. The red-green balance
+ * fixpoint re-exchanges it once per round, which is what makes its termination
+ * test a single `MPI_Allreduce(MPI_LOR)` rather than a mark-propagation
+ * protocol of Beatnik's own. The per-face **score** deliberately stays outside
+ * the mesh: only owned faces are ever thresholded, so it never needs to cross.
+ *
+ * **T4a CHANGE — this widens every checkpoint**, exactly as risk R14 predicted:
+ * `Tessera::writeMesh` writes the face user pack unconditionally, so a file now
+ * carries `/faces/u0`, `/faces/u1` and `/faces/u2`. Two consequences:
+ *
+ *   1. A checkpoint written by a pre-T4a binary is **not readable** by a
+ *      post-T4a one — `Tessera::readMesh` treats a field-pack mismatch as an
+ *      `MPI_Abort` inside Tessera, not a catchable exception (M2's trap (b)).
+ *      Nothing depends on it yet (`CheckpointIO::read` still throws, T5b), but
+ *      T5b must not assume the two packs are compatible.
+ *   2. `/faces/u<N>` is **positional**, so reordering this enum silently
+ *      relabels every file on disk. The same mitigation the vertex pack got at
+ *      M2 applies: the writer emits `/beatnik/face_field_names` alongside
+ *      `/beatnik/vertex_field_names`, and `compare_output.py` cross-checks it.
+ */
+namespace FaceFieldId
+{
+enum : int
+{
+    ReferenceArea = 0,      ///< `Real`, reference face area.
+    ReferenceCurvature = 1, ///< `Real`, reference face curvature indicator.
+    RefineMark = 2,         ///< `Real`, 1 = red this pass. Scratch, exchanged.
     Count = 3
 };
 }
@@ -373,7 +432,7 @@ class SurfaceMesh
      *
      * The Beatnik RHS is a two-ring stencil on the potential (risk R8), so
      * every construction entry point passes this to `Tessera::distribute` and
-     * nothing afterwards re-states it: Tessera's `refine()`, `splitEdges()` and
+     * nothing afterwards re-states it: Tessera's `splitEdges()` and
      * `migrate()` preserve the recorded depth. Raising it costs ghost memory
      * and halo traffic; **lowering it silently breaks the RHS at partition
      * boundaries**, which is why it is a compile-time constant here rather than
@@ -385,12 +444,18 @@ class SurfaceMesh
     /// Beatnik's vertex user pack, in `VertexFieldId` order.
     using vertex_fields = Tessera::VertexFields<Real, Real[3], Real[3]>;
 
-    /// No per-edge or per-face user state. Note that Tessera **resets** edge
-    /// user fields on every `refine()` / `splitEdges()` (edges are re-derived
-    /// from the new face connectivity), so an edge field would be unsafe to
-    /// carry anyway.
+    /// No per-edge user state. Tessera **resets** edge user fields on every
+    /// `splitEdges()` (edges are re-derived from the new face connectivity), so
+    /// an edge field would be unsafe to carry anyway. That is also why the
+    /// refinement mask is passed as a plain host vector rather than parked in
+    /// an edge field: an edge field could not survive the edit that consumes
+    /// it.
     using edge_fields = Tessera::EdgeFields<>;
-    using face_fields = Tessera::FaceFields<>;
+
+    /// Beatnik's face user pack, in `FaceFieldId` order. **T4a CHANGE — this
+    /// was `FaceFields<>`.** See `FaceFieldId` for what each slot is for and
+    /// for the checkpoint consequences (risk R14).
+    using face_fields = Tessera::FaceFields<Real, Real, Real>;
 
   public:
     /// The Tessera mesh Beatnik is a facade over. Named here and nowhere else.
@@ -428,6 +493,18 @@ class SurfaceMesh
         decltype( std::declval<tessera_mesh_type&>()
                       .template vertexSlice<Tessera::userVertexField<
                           VertexFieldId::Potential>()>() );
+
+    /**
+     * @brief `(Nf,)` scalar **face** user field slice. T4a.
+     *
+     * The face analogue of `scalar_field_slice`, and it carries the same
+     * generation guard and the same "exposes no extent" property — a routine
+     * that needs `Nf` takes it from `ownedFaceCount()` / `totalFaceCount()`.
+     */
+    using face_scalar_slice =
+        decltype( std::declval<tessera_mesh_type&>()
+                      .template faceSlice<Tessera::userFaceField<
+                          FaceFieldId::ReferenceArea>()>() );
 
     /// `(Nv, 3)` vector vertex user field slice (sheet vector, material pos).
     using vector_field_slice =
@@ -469,29 +546,59 @@ class SurfaceMesh
     };
 
     /**
-     * @brief Edge-to-face incidence, in local indices plus the raw count.
+     * @brief Edge-to-face incidence, two ways, because the two answer different
+     *        questions and **only one of them survives a topological edit**.
      *
-     * M1-REWORK. Tessera maintains the unique edge set and its two incident
-     * face **gids** continuously, so there is nothing to build — this is a
-     * *read* of `EdgeField::Faces`, resolved to local indices where the face is
-     * held here.
+     * M1-REWORK, corrected at T4a.
      *
-     * `count` is the load-bearing member: on a closed surface every edge must
-     * name **two** faces, and it does so on both sides of a rank boundary
-     * because the gids are carried verbatim through distribution. A count of 1
-     * therefore signals a genuine hole — a bug in a mesh generator or in
-     * refinement — independently of which faces happen to be resident.
+     * `count` / `faces` are a *read* of Tessera's `EdgeField::Faces`, which
+     * holds an edge's incident face **gids**. Immediately after `distribute()`
+     * that field is complete on every rank that holds the edge, because
+     * distribution cuts a replicated mesh in which every rank knew both
+     * incidences — which is what made `count == 2` a global closed-surface
+     * assertion at T1b.
+     *
+     * **It does not stay complete.** Tessera fills `EdgeField::Faces` from
+     * *each rank's own incidences only* — its own words, at
+     * `../tessera/src/Tessera_DistributedBuilder.hpp:698`: "the same
+     * partial-by-construction contract `migrate()` leaves, and the reason
+     * `buildFaceAdjacency()` exists rather than reading this field". So after
+     * `splitEdges()` rebuilds the edge set from each rank's local faces, an edge
+     * on a partition boundary records only the face on this side and `count`
+     * drops to 1 for a perfectly conforming mesh. **Measured at T4a:** 0 such
+     * edges at 1 rank, 24 at 2, 45 at 3, 104 at 6 — a partition-boundary
+     * population, not a hole.
+     *
+     * `resident_count` / `resident_faces` are therefore derived the other way,
+     * from `FaceField::Edges` over **all locally held faces** — the face's own
+     * record of which edges it uses, which is complete for every resident face
+     * at every generation. That makes `resident_count(e) == 2` for an owned edge
+     * mean exactly "this rank can see both faces of this edge", which is
+     * simultaneously the conformity statement and the residency precondition
+     * `Beatnik_AdaptiveMesh.hpp`'s route (a) rests on. **Post-edit code wants
+     * this pair; `count` is only trustworthy before the first edit.**
      */
     struct EdgeFaceIncidence
     {
-        /// `(Ne,)` number of incident faces recorded for each local edge: 2 in
-        /// the interior of a closed surface, 1 on a genuine boundary.
+        /// `(Ne,)` incident faces **recorded by gid** for each local edge.
+        /// Complete only until the first topological edit; see above.
         Kokkos::View<int*, memory_space> count;
 
-        /// `(Ne, 2)` local index of each incident face, or `-1` when that face
-        /// is recorded (by gid) but not held on this rank. Slot 1 is `-1`
-        /// whenever `count == 1`. **A `-1` is not a hole**; check `count`.
+        /// `(Ne, 2)` local index of each gid-recorded incident face, or `-1`
+        /// when that face is recorded but not held here. **A `-1` is not a
+        /// hole**; check `count`.
         Kokkos::View<int* [2], memory_space> faces;
+
+        /// `(Ne,)` **locally resident** faces incident on each local edge,
+        /// counted from the faces themselves. T4a. `2` for every owned edge of
+        /// a closed conforming surface at `halo_depth = 2`, at every generation;
+        /// a ghost edge at the outermost ring may legitimately read `1`. A value
+        /// above 2 is a non-manifold edge, and only the first two are stored.
+        Kokkos::View<int*, memory_space> resident_count;
+
+        /// `(Ne, 2)` local indices of those faces, ascending, `-1` in unused
+        /// slots. Never `-1` below `resident_count`.
+        Kokkos::View<int* [2], memory_space> resident_faces;
     };
 
     /**
@@ -880,6 +987,44 @@ class SurfaceMesh
         return _geometry.faceVerts;
     }
 
+    /**
+     * @brief `(Nf,)` reference face area \f$A^{\text{ref}}_f\f$. T4a.
+     *
+     * What `AdaptiveMesh::areaChangeIndicator` measures the current area
+     * against. Set to the current areas at construction and re-based after any
+     * edit that legitimately changes areas
+     * (`AdaptiveMesh::resetReferenceState`). Inherited **verbatim** by a
+     * `splitEdges()` child, which is *not* the rule the Python uses — see
+     * `AdaptiveMesh::refine`'s \f$\sigma = A^{\text{ref}}/A\f$ round trip, which
+     * is where the reference's per-child area scaling actually happens.
+     *
+     * Covers owned **and** ghost faces; ghost rows are current only after a
+     * `haloExchange()`.
+     */
+    face_scalar_slice referenceFaceArea()
+    {
+        return _mesh.template faceSlice<
+            Tessera::userFaceField<FaceFieldId::ReferenceArea>()>();
+    }
+
+    /// `(Nf,)` reference face curvature indicator. T4a. Same storage contract
+    /// as `referenceFaceArea()`; **reset**, not scaled, for a subdivided face.
+    face_scalar_slice referenceFaceCurvature()
+    {
+        return _mesh.template faceSlice<
+            Tessera::userFaceField<FaceFieldId::ReferenceCurvature>()>();
+    }
+
+    /// `(Nf,)` red-refinement mark, `1` = this face bisects all three of its
+    /// edges. T4a. Scratch between refinement passes, but a **mesh field**
+    /// because the balance fixpoint has to halo-exchange it — see
+    /// `FaceFieldId`.
+    face_scalar_slice refineMark()
+    {
+        return _mesh.template faceSlice<
+            Tessera::userFaceField<FaceFieldId::RefineMark>()>();
+    }
+
     /// `(Ne, 2)` local vertex indices per edge, from the same accessor. This is
     /// the unique-edge list, so it is also the answer to "enumerate the edges"
     /// for the edge-length reduction — and the reason
@@ -1002,9 +1147,9 @@ class SurfaceMesh
      * keeping: on a closed surface every edge must name two faces, i.e.
      * `count(e) == 2` for every local edge. A count of 1 signals a genuine
      * hole. **M1-REWORK — the pre-rework caveat that this is only meaningful on
-     * a halo-consistent mesh no longer applies**: `refine()` and `splitEdges()`
-     * rebuild the halo themselves before returning, so there is no window in
-     * which the mesh is left with a cleared halo.
+     * a halo-consistent mesh no longer applies**: `splitEdges()` rebuilds the
+     * halo itself before returning, so there is no window in which the mesh is
+     * left with a cleared halo.
      *
      * @note `EdgeField::Faces` stores **gids**, and Tessera carries them
      *       verbatim through migration — an edge's incident-face gid may name a
@@ -1019,6 +1164,74 @@ class SurfaceMesh
     {
         ensureEdgeFaceIncidence();
         return _edge_faces;
+    }
+
+    /**
+     * @brief `(Nf, 3)` **local** edge indices per face. T4a.
+     *
+     * The inverse of `edgeAdjacency()`, and the one new adapter accessor T4a
+     * needed. Tessera publishes no face->edge CSR — it has `vertexEdges()`, and
+     * the face AoSoA carries `FaceField::Edges` as **gids** — so this is the
+     * same host `gid -> local` resolution `edgeAdjacency()` does, run the other
+     * way, and cached against `generation()` for the same reason.
+     *
+     * It exists because the whole of T4a is a translation between a face-level
+     * verdict and an edge-level mask, in both directions: "mark all three edges
+     * of this face" needs face->edge, and "how many of this face's edges are
+     * marked" (\f$|S_f|\f$, which decides the child count and therefore
+     * `AdaptiveMesh::projectedFaceCount`) needs it too. Doing it inline in the
+     * AMR code would put a host-side gid map inside a per-pass loop.
+     *
+     * Edge slot `k` is the edge Tessera records in `FaceField::Edges[k]`; it is
+     * **not** promised to be the edge between corners `k` and `k+1` of
+     * `faceVertices()`, so a kernel that needs the endpoints of a face's edge
+     * must read them from `edgeVertices()` rather than assume the pairing.
+     *
+     * An entry is `-1` when the named edge is not held on this rank. That is
+     * unreachable for an **owned** face at `halo_depth = 2` — every edge of an
+     * owned face is an edge of a locally held face — and `AdaptiveMesh` asserts
+     * it rather than assuming it. Guard it anyway, exactly as
+     * `face_vertex_view`'s `-1` corners are guarded.
+     */
+    face_vertex_view faceEdges()
+    {
+        ensureFaceEdges();
+        return _face_edges;
+    }
+
+    /**
+     * @brief Global ids of this rank's **owned** faces, on the host, in local
+     *        index order. T4a.
+     *
+     * The discriminator for "was this face subdivided?", which nothing else in
+     * the adapter can answer: a face with \f$|S| = 0\f$ **keeps its gid**
+     * through `splitEdges()` while a subdivided parent's gid is retired and its
+     * children get fresh ones from the child-gid exscan
+     * (`../tessera/src/Tessera_EdgeSplit.hpp`, the |S| table). So a snapshot
+     * taken before the call, differenced against the gids after it, is exactly
+     * the set of new faces — which is what the Python's "reset reference
+     * curvature for subdivided faces only" rule needs and what `RefinePolicy`
+     * cannot supply (its two hooks are `interpolatePosition` and
+     * `interpolateVertexField`; face fields are inherited verbatim and vertex
+     * fields are all it can touch).
+     *
+     * A host `std::vector` and not a device view on purpose: its consumer is a
+     * set membership test against the post-edit gids, which is a host hash
+     * lookup, and it is `O(ownedFaceCount())` once per refinement pass.
+     */
+    std::vector<std::uint64_t> ownedFaceGids()
+    {
+        const std::size_t nf = static_cast<std::size_t>( ownedFaceCount() );
+        Cabana::AoSoA<typename tessera_mesh_type::face_member_types,
+                      Kokkos::HostSpace>
+            hf( "beatnik_owned_face_gids", _mesh.numFaces() );
+        Cabana::deep_copy( hf, _mesh.faces() );
+        auto f_gid = Cabana::slice<Tessera::FaceField::Gid>( hf );
+
+        std::vector<std::uint64_t> out( nf );
+        for ( std::size_t f = 0; f < nf; ++f )
+            out[f] = static_cast<std::uint64_t>( f_gid( f ) );
+        return out;
     }
 
     /**
@@ -1077,7 +1290,7 @@ class SurfaceMesh
      *     are locally held, and the vertex-ring closure does not guarantee an
      *     owned face's edge-neighbour is present.
      *
-     * Tessera reuses `refine()`'s **edge coordinator** rather than the halo,
+     * Tessera reuses the **edge coordinator** rather than the halo,
      * adding no new communication mechanism, and returns both halves — see
      * `FaceAdjacencyCsr`, whose precondition split (`non_resident == 0` for a
      * geometric consumer) is the part to read before using it.
@@ -1125,12 +1338,12 @@ class SurfaceMesh
      * before it stay valid.
      *
      * @pre The halo plans must be live. **M1-REWORK — they always are.** At M1
-     *      `Tessera::refine()` returned with the halo *cleared*, so an exchange
-     *      in between was a silent no-op on an empty plan and the adapter had
-     *      to insert an identity `migrate()`. `refine()` and `splitEdges()` now
-     *      call `rebuildHalo()` themselves, at the recorded depth, before
-     *      returning. There is no longer a window in which this is a no-op, and
-     *      the workaround is gone from `refine()` below.
+     *      Tessera's edits returned with the halo *cleared*, so an exchange in
+     *      between was a silent no-op on an empty plan and the adapter had to
+     *      insert an identity `migrate()`. `splitEdges()` now calls
+     *      `rebuildHalo()` itself, at the recorded depth, before returning.
+     *      There is no longer a window in which this is a no-op, and the
+     *      workaround is gone from `splitEdges()` below.
      */
     void haloExchange() { Tessera::haloExchange( _mesh, _halo ); }
 
@@ -1183,120 +1396,95 @@ class SurfaceMesh
     //-----------------------------------------------------------------------//
     // Topological edits
     //
-    // EDITING FAMILIES — READ THE FILE HEADER. `refine()` is the HIERARCHICAL
-    // family; `splitEdges()` / `collapseEdges()` / `flipEdges()` / `compact()`
-    // are the REMESH family. A mesh is tagged on its first topological edit and
-    // Tessera THROWS from the entry point if the other family is then used on
-    // it. Beatnik's default configuration wants both; the options are analysed
-    // in `tasks/framework.md` under "T4a/T4b — the disjoint editing families"
-    // and nothing here presumes a resolution.
+    // EDITING FAMILIES — READ THE FILE HEADER. Every edit named below is in the
+    // REMESH family, which is the only family Beatnik uses:
+    // `splitEdges()` today, `collapseEdges()` / `flipEdges()` / `compact()`
+    // when Tessera lands them. `SurfaceMesh::refine` — the HIERARCHICAL
+    // family's entry point — was **deleted** at T4a rather than left unused, so
+    // Tessera's `EditFamily` guard is a backstop that should never fire. The
+    // decision and its two findings are in `tasks/framework.md`, Phase 4,
+    // *The editing-family question — RESOLVED*.
     //-----------------------------------------------------------------------//
 
     /**
-     * @brief Conforming red-green refinement of a marked face set.
+     * @brief Split a specified set of edges at their midpoints. **The only
+     *        topological edit Beatnik performs.**
      *
-     * Port of mesh.py::refine_marked_faces (lines 570-730)
+     * Port of dynamic_remesh.py::split_selected_edges (lines 261-298) **and**
+     * of mesh.py::refine_marked_faces (lines 570-730)
      *
-     * A *red* (marked) face is split into four by bisecting all three edges. An
-     * unmarked face sharing split edges is retriangulated so the result is
-     * conforming (no hanging nodes). New vertices sit at the linear edge
-     * midpoint — **not** projected back to any surface, since the interface is
-     * the surface. Tessera's `DefaultRefinePolicy` implements exactly that.
+     * The second of those is the T4a finding and is not a coincidence. For the
+     * mask "every edge of every marked face", `splitEdges()` and
+     * `refine_marked_faces` are the *same algorithm*: the Python mints
+     * midpoints on marked faces' edges only and retriangulates every face on
+     * the bit pattern of its own split edges — `|S|` of 1, 2, 3 giving 2, 3, 4
+     * children — with no cascade, because its `existing_midpoint` only ever
+     * finds midpoints a marked face minted. That is `splitEdges()`'s contract
+     * verbatim. So the indicator-driven refiner (T4a) and the metric remesher
+     * (T4b) are two mask-construction rules over one primitive, rather than two
+     * editing families.
      *
-     * **Conforming red-green refinement is NATIVE** (T4a asked this directly).
-     * Beatnik does not drive it edge by edge and does not implement the
-     * closure. Tessera's `RefinementMode::Conforming` — the mode this mesh is
-     * instantiated with — does the 1->4 red split, the cross-rank 2:1 level
-     * balance, and the transient red/green/blue closure of the kept neighbours.
+     * **M1-REWORK (G5a closed).** `Tessera::splitEdges( mesh, halo, edgeMask )`
+     * bisects exactly the marked edges, the edge **owner** decides, every
+     * incident face becomes 2, 3 or 4 children, and the result is **conforming
+     * on exit with no closure layer and no 2:1 pass** — an edge-addressed split
+     * needs neither, because both faces incident on a bisected edge subdivide
+     * that edge the same way and no hanging node survives. `rebuildHalo()` is
+     * called on the way out, so the halo is live at `halo_depth` on return, a
+     * `haloExchange()` immediately afterwards is meaningful, and a second
+     * `splitEdges()` may follow with nothing in between.
      *
-     * TESSERA MAPPING: `Tessera::refine( mesh, halo, mask )`.
+     * **T4a CHANGE — the parameter is a concrete `const std::vector<char>&`,
+     * not a template.** It was left templated at M1 because T4b had not settled
+     * how the remesher would produce it; T4a settles it for both, and the
+     * answer is Tessera's own convention rather than a second one invented on
+     * top: a **host** mask sized `ownedEdgeCount()`, indexed by owned edge local
+     * index, `1` = bisect. A device-computed indicator is copied to the host and
+     * truncated to the owned range, which is a real cost on the AMR path and is
+     * where it belongs — `Tessera::splitEdges` takes a host vector, so a
+     * templated parameter could only have hidden the copy, not avoided it.
      *
-     * **M1-REWORK — the mandatory post-refine sequence is GONE.** The
-     * pre-rework contract was `refine` -> identity `migrate` -> `haloExchange`,
-     * because `Tessera::refine()` used to return with the halo cleared. It now
-     * calls `rebuildHalo()` itself at the recorded `halo_depth`, so it returns
-     * with a live halo of the right depth, a second `refine()` may follow
-     * immediately, and `haloExchange()` is meaningful straight afterwards. Any
-     * code still inserting the identity `migrate()` is doing an unnecessary
-     * all-to-all.
-     *
-     * **EDITING FAMILY — Hierarchical.** This call tags the mesh
-     * `EditFamily::Hierarchical` on first use, after which `splitEdges()`,
-     * `collapseEdges()`, `flipEdges()` and `compact()` on the *same* mesh
-     * **throw `std::runtime_error`** from inside Tessera, naming both families.
-     * The two are mutually exclusive per mesh because `refine()`'s 2:1 balance
-     * and closure read `Level` as authoritative while a remesh-family child
-     * merely inherits its parent's level. It is **not** a Beatnik-side check
-     * and cannot be made one.
-     *
-     * @param marked Per-**owned-face** marks, `1` = refine. **M1 CHANGE — this
-     *        is a host `std::vector<char>` sized `ownedFaceCount()`, not a
-     *        device `MarkView` sized `Nf`.** Tessera's mask is host-side and
-     *        owned-only. A device-computed indicator (T4a) must therefore be
-     *        copied to the host and truncated to the owned range before it can
-     *        be used, which is a real cost on the AMR path and is recorded as
-     *        such in `tasks/framework.md`.
+     * @param edgeMask Per-**owned-edge** marks, `1` = bisect. Must be exactly
+     *        `ownedEdgeCount()` long; Tessera checks this and an empty mask is
+     *        a documented no-op fast path (V/E/F unchanged, no communication
+     *        beyond the two global counts).
      * @return What the edit did; see `MeshEditReport`. **No parent/weight map
-     *         — Tessera transfers the fields itself.**
+     *         — Tessera transfers the vertex fields itself** through the
+     *         `RefinePolicy`, and inherits face user fields verbatim.
      *
-     * @note MPI. **M1 CHANGE — marks do NOT need reconciling first.** The
-     *       pre-M1 header required the caller to close the mark set across rank
-     *       boundaries via `reconcileRefinementMarks`. Tessera runs that
-     *       itself: its Phase-1 coordinator drives a 2:1 mark-propagation
-     *       fixpoint to convergence, guarded by an `MPI_Allreduce` and a hard
-     *       iteration cap, and reports the round count in
-     *       `MeshEditReport::balance_rounds`. So an arbitrary, unreconciled,
-     *       rank-local mask is a legal input and
-     *       `Beatnik_Communication.hpp::reconcileRefinementMarks` has no work
-     * left to do.
+     * @note MPI. **Collective**, and the mask needs no reconciling first: the
+     *       edge owner's verdict is routed to every rank holding an incident
+     *       face by Tessera's edge coordinator, so an arbitrary, unreconciled,
+     *       rank-local mask is a legal input. This is what left
+     *       `Comm::reconcileRefinementMarks` with nothing to do, and T4a
+     *       deleted it. What Beatnik must still agree across ranks is its own
+     *       *mark closure*, which happens before this call and terminates on
+     *       one `MPI_Allreduce(MPI_LOR)`.
      *
-     * @note The refined set is a **superset** of `marked` — the 2:1 fixpoint
-     *       pulls in whatever it must, and the closure adds children on top. A
-     *       `--max-faces` cap (risk R4) therefore cannot be enforced by
-     *       trimming the mask exactly; it can only be approached from below.
+     * @note INVALIDATION. Reallocates the AoSoAs, the key views and the CSRs
+     *       and replaces the halo plans, so every slice, CSR and cached
+     *       accessor taken before this call is dangling. `generation()` is
+     *       bumped, the adapter's four caches invalidate themselves, and every
+     *       accessor must be re-taken.
+     *
+     * **EDITING FAMILY — Remesh**, and this is the call that tags the mesh.
+     * Nothing can subsequently violate it, because `refine()` no longer exists
+     * in this facade.
      */
-    MeshEditReport refine( const std::vector<char>& marked )
+    MeshEditReport splitEdges( const std::vector<char>& edgeMask )
     {
-        (void)marked;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceMesh", "refine" );
-    }
+        const Tessera::SplitResult result =
+            Tessera::splitEdges( _mesh, _halo, edgeMask );
 
-    /**
-     * @brief Split a specified set of edges at their midpoints.
-     *
-     * Port of dynamic_remesh.py::split_selected_edges (lines 261-298)
-     *
-     * The primitive under both `split_long_edges` and the surgical proximity
-     * splits: unlike `refine`, the caller chooses *edges* rather than faces.
-     *
-     * **M1-REWORK (G5a closed) — `Tessera::splitEdges( mesh, halo, edgeMask )`
-     * provides it, and it is `split_selected_edges` directly.** The pre-rework
-     * header recorded this as a gap and refused to approximate it with a face
-     * mask; that refusal is now moot. Exactly the marked edges are bisected,
-     * the edge **owner** decides, every incident face becomes 2, 3 or 4
-     * children, and the result is **conforming on exit with no closure layer
-     * and no 2:1 pass** — an edge-addressed split needs neither.
-     * `rebuildHalo()` is called on the way out, so the halo is live at
-     * `halo_depth` on return.
-     *
-     * @param edges Per-**owned-edge** marks, a host `std::vector<char>` sized
-     *        `ownedEdgeCount()` — the same host-mask convention `refine()`
-     *        uses, so a device-computed indicator round-trips the same way.
-     *        Kept as a template parameter for now only because T4b has not
-     *        settled how the remesher will produce it.
-     *
-     * **EDITING FAMILY — Remesh.** This call tags the mesh `EditFamily::Remesh`
-     * on first use, after which `refine()` on the *same* mesh **throws
-     * `std::runtime_error`** from inside Tessera, naming both families. A
-     * `splitEdges()` child inherits its parent's level, so the mesh is no
-     * longer 2:1-level-meaningful and `refine()`'s balance would be stated
-     * against levels that mean nothing. Not a Beatnik-side check.
-     */
-    template <class EdgeListView>
-    MeshEditReport splitEdges( const EdgeListView& edges )
-    {
-        (void)edges;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceMesh", "splitEdges" );
+        MeshEditReport report;
+        // A remesh-family edit runs no balance pass, so this is always 0. Kept
+        // in the report because the field is part of the shared shape.
+        report.balance_rounds = 0;
+        report.split_edges_local =
+            static_cast<long long>( result.midpoints.size() );
+        report.owned_vertices_after = ownedVertexCount();
+        report.owned_faces_after = ownedFaceCount();
+        return report;
     }
 
     /**
@@ -1321,9 +1509,9 @@ class SurfaceMesh
      * still blocks T4b.
      *
      * **EDITING FAMILY — Remesh**, when it lands: it will tag the mesh
-     * `EditFamily::Remesh`, mutually exclusive with `refine()` per mesh, and
-     * violation will be a throw from inside Tessera rather than a Beatnik
-     * check.
+     * `EditFamily::Remesh`, the same family `splitEdges()` already tags this
+     * mesh with — so it composes with it freely, and Tessera's guard stays a
+     * backstop that never fires.
      */
     template <class EdgeListView>
     MeshEditReport collapseEdges( const EdgeListView& edges )
@@ -1348,8 +1536,8 @@ class SurfaceMesh
      * — and `buildFaceAdjacency` (G4) now exposes exactly that. This blocks
      * T4c's flips.
      *
-     * **EDITING FAMILY — Remesh**, when it lands: mutually exclusive with
-     * `refine()` per mesh, enforced by a throw from inside Tessera.
+     * **EDITING FAMILY — Remesh**, when it lands: the same family
+     * `splitEdges()` already tags this mesh with, so it composes with it.
      */
     template <class EdgeListView>
     int flipEdges( const EdgeListView& edges )
@@ -1415,8 +1603,8 @@ class SurfaceMesh
      *
      * This is what `Beatnik_Communication.hpp::redistribute` (T5d) calls.
      *
-     * **M1-REWORK — it is no longer also the post-`refine()` halo rebuild.**
-     * `refine()` rebuilds its own halo now, so the identity-`migrate()` call
+     * **M1-REWORK — it is no longer also the post-edit halo rebuild.**
+     * `splitEdges()` rebuilds its own halo now, so the identity-`migrate()` call
      * that used to be forced through here is gone and `rebalance == false` is a
      * genuine no-op path a caller has no reason to ask for.
      *
@@ -1599,6 +1787,57 @@ class SurfaceMesh
         }
     }
 
+    /// Resolve `FaceField::Edges` (gids) to local edge indices, on the host,
+    /// once per topology generation — the inverse of
+    /// `ensureEdgeFaceIncidence()` below and built the same way, for the same
+    /// reason. T4a.
+    void ensureFaceEdges()
+    {
+        if ( _face_edges_generation == _mesh.generation() )
+            return;
+
+        const std::size_t ne = _mesh.numEdges();
+        const std::size_t nf = _mesh.numFaces();
+
+        Cabana::AoSoA<typename tessera_mesh_type::edge_member_types,
+                      Kokkos::HostSpace>
+            he( "beatnik_face_edges_he", ne );
+        Cabana::AoSoA<typename tessera_mesh_type::face_member_types,
+                      Kokkos::HostSpace>
+            hf( "beatnik_face_edges_hf", nf );
+        Cabana::deep_copy( he, _mesh.edges() );
+        Cabana::deep_copy( hf, _mesh.faces() );
+        auto e_gid = Cabana::slice<Tessera::EdgeField::Gid>( he );
+        auto f_e = Cabana::slice<Tessera::FaceField::Edges>( hf );
+
+        std::unordered_map<Tessera::GlobalId, int> gid2local;
+        gid2local.reserve( ne * 2 );
+        for ( std::size_t e = 0; e < ne; ++e )
+            gid2local[e_gid( e )] = static_cast<int>( e );
+
+        face_vertex_view edges(
+            Kokkos::view_alloc( Kokkos::WithoutInitializing,
+                                "beatnik_face_edges" ),
+            nf );
+        auto h_edges = Kokkos::create_mirror_view( edges );
+        for ( std::size_t f = 0; f < nf; ++f )
+            for ( int k = 0; k < 3; ++k )
+            {
+                const Tessera::GlobalId g = f_e( f, k );
+                if ( g == Tessera::invalid_gid )
+                {
+                    h_edges( f, k ) = -1;
+                    continue;
+                }
+                auto it = gid2local.find( g );
+                h_edges( f, k ) = ( it == gid2local.end() ) ? -1 : it->second;
+            }
+        Kokkos::deep_copy( edges, h_edges );
+
+        _face_edges = edges;
+        _face_edges_generation = _mesh.generation();
+    }
+
     /// Resolve `EdgeField::Faces` (gids) to local face indices, on the host,
     /// once per topology generation. Same locus and idiom as Tessera's own
     /// `buildMeshGeometry` / `buildVertexStencil`.
@@ -1656,8 +1895,51 @@ class SurfaceMesh
         Kokkos::deep_copy( count, h_count );
         Kokkos::deep_copy( faces, h_faces );
 
+        // The second, edit-durable view: scatter each LOCALLY HELD face into
+        // its three edges. `FaceField::Edges` is the face's own record and is
+        // complete for every resident face at every generation, which
+        // `EdgeField::Faces` above is not once an edit has rebuilt the edge set
+        // from each rank's local faces. See `EdgeFaceIncidence`.
+        ensureFaceEdges();
+        auto h_face_edges = Kokkos::create_mirror_view( _face_edges );
+        Kokkos::deep_copy( h_face_edges, _face_edges );
+
+        Kokkos::View<int*, memory_space> resident_count(
+            "beatnik_edge_resident_count", ne );
+        Kokkos::View<int* [2], memory_space> resident_faces(
+            Kokkos::view_alloc( Kokkos::WithoutInitializing,
+                                "beatnik_edge_resident_faces" ),
+            ne );
+        auto h_resident_count = Kokkos::create_mirror_view( resident_count );
+        auto h_resident_faces = Kokkos::create_mirror_view( resident_faces );
+        for ( std::size_t e = 0; e < ne; ++e )
+        {
+            h_resident_count( e ) = 0;
+            h_resident_faces( e, 0 ) = -1;
+            h_resident_faces( e, 1 ) = -1;
+        }
+        // Ascending local face index, because the loop runs that way — so the
+        // slot order is a property of the local numbering and not of insertion
+        // race, which matters for nothing today (every consumer is symmetric in
+        // the two) and would matter the moment one is not.
+        for ( std::size_t f = 0; f < nf; ++f )
+            for ( int k = 0; k < 3; ++k )
+            {
+                const int e = h_face_edges( f, k );
+                if ( e < 0 )
+                    continue;
+                const int n = h_resident_count( e );
+                if ( n < 2 )
+                    h_resident_faces( e, n ) = static_cast<int>( f );
+                h_resident_count( e ) = n + 1;
+            }
+        Kokkos::deep_copy( resident_count, h_resident_count );
+        Kokkos::deep_copy( resident_faces, h_resident_faces );
+
         _edge_faces.count = count;
         _edge_faces.faces = faces;
+        _edge_faces.resident_count = resident_count;
+        _edge_faces.resident_faces = resident_faces;
         _edge_faces_generation = _mesh.generation();
     }
 
@@ -1666,7 +1948,7 @@ class SurfaceMesh
     tessera_mesh_type _mesh;
 
     /// The three halo exchange plans, carrying `halo_depth`. Rebuilt in place
-    /// by `Tessera::refine` / `splitEdges` / `migrate` / `loadBalance`, each of
+    /// by `Tessera::splitEdges` / `migrate` / `loadBalance`, each of
     /// which preserves the recorded depth.
     tessera_halo_type _halo;
 
@@ -1689,6 +1971,10 @@ class SurfaceMesh
     /// Cached edge-to-face incidence, resolved from gids on the host.
     EdgeFaceIncidence _edge_faces;
     std::size_t _edge_faces_generation = static_cast<std::size_t>( -1 );
+
+    /// Cached face-to-edge indices, resolved from gids on the host. T4a.
+    face_vertex_view _face_edges;
+    std::size_t _face_edges_generation = static_cast<std::size_t>( -1 );
 };
 
 } // namespace Beatnik

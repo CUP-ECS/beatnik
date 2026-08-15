@@ -57,14 +57,19 @@ pass for the wrong reason.
 
 ## What the gate currently covers
 
-> **The `regression` tier has ONE member** as of 2026-08-12 (task T1c):
-> `Beatnik_Test_InitialConditions`, regression test 1 — the whole driver path at
-> 0 timesteps against a Python gold checkpoint. The tier was empty from `89ec015`
-> (which removed the pre-redesign solver and its only end-to-end test) until then,
-> and the gate was vacuous; it is not any more. **But it covers only what
-> exists** — mesh generation, the initial condition and the checkpoint write.
-> There is no timestep and no adaptivity yet, so a green gate does not say the
-> solver integrates anything. See `tasks/framework.md`.
+> **The `regression` tier has FOUR members** as of T4a, so the gate is
+> **48 launches** on tuolumne, and all four are green:
+> `Beatnik_Test_InitialConditions` (regression test 1, T1c — the whole driver
+> path at 0 timesteps against a Python gold checkpoint),
+> `Beatnik_Test_BirkhoffRott` (T2c — the vertex quadrature and the direct BR
+> sum), `Beatnik_Test_DirectSolve10Steps` (regression test 2, T2d — ten TVD-RK3
+> timesteps against the T2a gold set) and `Beatnik_Test_RefineSplitEdges`
+> (regression test 4, T4a — twenty timesteps with indicator-driven refinement
+> through `Tessera::splitEdges()`). The tier was empty from `89ec015` (which
+> removed the pre-redesign solver and its only end-to-end test) until T1c, and
+> the gate was vacuous; it is not any more. **But it covers only what exists** —
+> adaptivity is covered for the refine path alone, and only for the structural
+> and shape claims T4a's test makes. See `tasks/framework.md`.
 
 ## CI
 

@@ -234,6 +234,7 @@
 #ifndef BEATNIK_IOINTERFACE_HPP
 #define BEATNIK_IOINTERFACE_HPP
 
+#include <Beatnik_AdaptiveMesh.hpp>
 #include <Beatnik_MeshInterface.hpp>
 #include <Beatnik_SurfaceState.hpp>
 #include <Beatnik_Types.hpp>
@@ -734,6 +735,28 @@ class CheckpointIO
         for ( int i = 0; i < VertexFieldId::Count; ++i )
             names.push_back( state_type::vertex_field_names[i] );
         IoDetail::writeStringArray( group, "vertex_field_names", names );
+
+        // T4a: the same declaration for the FACE user pack, which this task
+        // added and which risk R14 flagged for exactly this reason --
+        // `/faces/u<N>` is as positional as `/vertices/u<N>`. R14 asked that
+        // M2's mechanism be extended rather than a second one invented, so this
+        // is the identical shape: an independent name table, a static_assert
+        // that it covers every slot, and a cross-check in `compare_output.py`.
+        using amr_type = AdaptiveMesh<ExecutionSpace, MemorySpace>;
+        static_assert(
+            FaceFieldId::Count ==
+                static_cast<int>( sizeof( amr_type::face_field_names ) /
+                                  sizeof( const char* ) ),
+            "AdaptiveMesh::face_field_names must have one entry per "
+            "FaceFieldId slot: it is what /beatnik/face_field_names declares. "
+            "Adding a face field means updating FaceFieldId, that table, the "
+            "schema table in this header, and FACE_FIELD_NAMES in "
+            "tests/regression_tests/compare_output.py, in one change." );
+        std::vector<const char*> face_names;
+        face_names.reserve( FaceFieldId::Count );
+        for ( int i = 0; i < FaceFieldId::Count; ++i )
+            face_names.push_back( amr_type::face_field_names[i] );
+        IoDetail::writeStringArray( group, "face_field_names", face_names );
 
         H5Gclose( group );
         H5Fclose( file );

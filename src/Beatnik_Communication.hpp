@@ -113,8 +113,8 @@ namespace Comm
  * what retired most of risk R8; see the halo section of
  * `Beatnik_MeshInterface.hpp`.
  *
- * @pre The halo plans must be live. **They always are**: Tessera's `refine()`
- *      and `splitEdges()` rebuild the halo at the recorded depth before
+ * @pre The halo plans must be live. **They always are**: Tessera's
+ *      `splitEdges()` rebuilds the halo at the recorded depth before
  *      returning, so unlike at M1 there is no window in which this is a silent
  *      no-op on an empty plan.
  */
@@ -318,42 +318,29 @@ inline bool allReduceAllFinite( MPI_Comm comm, bool local_finite )
 // 3. Refinement and load balancing
 //---------------------------------------------------------------------------//
 
-/**
- * @brief Make refinement marks consistent across rank boundaries.
- *
- * **M1 CHANGE — there is nothing left for this to do, and it is kept only as
- * the place that says so.** Red-green closure is a *fixed-point* computation
- * (`mesh_solver.py::_balance_red_green_refinement`, lines 1543-1580, loops
- * `while changed`): marking a face implies splitting its three edges, which can
- * force a neighbour from green to red, which splits *its* edges, and so on.
- * When that cascade crosses a rank boundary it must propagate, or the two sides
- * make different decisions about the same edge and the surface tears — one side
- * gains a midpoint vertex the other does not. A single exchange is not enough,
- * because a cascade can traverse several ranks.
- *
- * **Tessera runs exactly that fixpoint itself**, inside `refine()`: its Phase-1
- * edge coordinator propagates 2:1 marks to convergence, guarded by an
- * `MPI_Allreduce` and a hard iteration cap, and reports the round count as
- * `MeshEditReport::balance_rounds`. An arbitrary, unreconciled, rank-local mask
- * is therefore a **legal input** to `SurfaceMesh::refine`.
- *
- * Left throwing rather than made a no-op on purpose: a no-op would let a T4a
- * caller keep a reconciliation step in its control flow and believe it was
- * doing something. If a call site turns out to want this, the answer is to
- * delete the call site.
- *
- * @note `splitEdges()` needs no analogue. It performs no closure and no 2:1
- *       pass — the edge **owner** decides and the decision is propagated to
- *       every rank holding an incident face — so an arbitrary owned-edge mask
- *       is likewise legal.
- */
-template <class MeshType, class MarkView>
-void reconcileRefinementMarks( MeshType& mesh, MarkView& marked )
-{
-    (void)mesh;
-    (void)marked;
-    BEATNIK_NOT_IMPLEMENTED( "Comm", "reconcileRefinementMarks" );
-}
+// NOTE (T4a): `reconcileRefinementMarks` was DELETED here, not left as a stub
+// and not made a no-op.
+//
+// Red-green closure is a fixed-point computation
+// (`mesh_solver.py::_balance_red_green_refinement`, lines 1543-1580, loops
+// `while changed`): marking a face implies splitting its three edges, which can
+// force a neighbour from green to red, which splits *its* edges, and so on.
+// When that cascade crosses a rank boundary it must propagate, or the two sides
+// make different decisions about the same edge and the surface tears.
+//
+// **Tessera closes the half of that which concerns the EDIT itself.**
+// `splitEdges()` performs no closure and no 2:1 pass: the edge **owner**
+// decides, and its verdict is routed to every rank holding an incident face by
+// the edge coordinator, so an arbitrary, unreconciled, rank-local owned-edge
+// mask is a legal input to `SurfaceMesh::splitEdges`.
+//
+// What is left is the half that concerns Beatnik's own MARK CLOSURE, and it is
+// not a communication primitive: `AdaptiveMesh::refine` carries the promotion
+// mark in the `FaceFieldId::RefineMark` face user field, re-`haloExchange()`es
+// it once per round, and terminates on a single `MPI_Allreduce(MPI_LOR)` with a
+// hard round cap. There is nothing for a separate entry point here to do, and a
+// no-op one would let a caller keep a reconciliation step in its control flow
+// and believe it was doing something.
 
 /**
  * @brief Redistribute the surface after adaptation and migrate its fields.

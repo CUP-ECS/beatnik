@@ -164,6 +164,21 @@ set(_beatnik_rel_fixtures regression_tests/fixtures)
 #                                    member that says the solver integrates
 #                                    anything.
 #
+# GREW TO FOUR MEMBERS AT TASK T4a, authorized in that task's exit criterion:
+#
+#   Beatnik_Test_RefineSplitEdges    regression test 4 -- twenty timesteps with
+#                                    indicator-driven refinement through
+#                                    Tessera::splitEdges(). Takes NO arguments:
+#                                    it compares global counts, the projection
+#                                    identity and risk R12's shape signals, not
+#                                    field tables, because R13's diagonal
+#                                    difference makes a field-for-field
+#                                    comparison against the Python meaningless
+#                                    after the first pass. See that file's
+#                                    header.
+#
+# The gate on tuolumne is therefore 4 x {SERIAL, HIP} x ranks 1-6 = 48 launches.
+#
 # HOW A MULTI-RANK REGRESSION ENTRY IS REPRESENTED, AND WHY THIS SHAPE
 # --------------------------------------------------------------------
 # T1c's exit criterion names ranks 1, 2 and 4; the GATE is defined at ranks
@@ -213,6 +228,8 @@ set(BEATNIK_REGRESSION_TEST_SOURCES
   Beatnik_Test_BirkhoffRott.cpp
   # T2d: regression test 2 -- ten timesteps against the T2a gold set.
   Beatnik_Test_DirectSolve10Steps.cpp
+  # T4a: regression test 4 -- twenty timesteps with splitEdges() refinement.
+  Beatnik_Test_RefineSplitEdges.cpp
   )
 
 # Kokkos execution-space class per BEATNIK_SUPPORTED_DEVICES name. Spelled out
@@ -260,6 +277,14 @@ set(_beatnik_args_Beatnik_Test_DirectSolve10Steps_abs
 set(_beatnik_args_Beatnik_Test_DirectSolve10Steps_rel
   regression_tests/direct-solve-10-steps/gold
   ${_beatnik_rel_compare_py})
+
+# T4a takes no arguments and reads no gold file: the Python reference enters it
+# as compiled-in literals (global face and vertex counts per refinement pass),
+# because those are the only quantities R13 leaves comparable. Declared
+# explicitly -- and as DEFINED, which an empty list still is -- so the "did the
+# author forget?" check below stays meaningful.
+set(_beatnik_args_Beatnik_Test_RefineSplitEdges_abs "")
+set(_beatnik_args_Beatnik_Test_RefineSplitEdges_rel "")
 
 foreach(_src ${BEATNIK_REGRESSION_TEST_SOURCES})
   get_filename_component(_stem ${_src} NAME_WE)

@@ -420,12 +420,16 @@ subsections above, which are intended behavior.
   `scripts/tuolumne/run_regression_minset.flux` no longer pass trivially. T2c
   then added `Beatnik_Test_BirkhoffRott` (the vertex quadrature and the direct BR
   sum), and T2d added regression test 2 (ten TVD-RK3 timesteps against the T2a
-  gold set), taking the gate to **three members and 36 launches** on tuolumne.
-  As of T2d the gate is **green in all 36**. **A green gate now proves that mesh
+  gold set), taking the gate to three members and 36 launches on tuolumne, all
+  green as of T2d. **T4a has since added a fourth member**
+  (`Beatnik_Test_RefineSplitEdges`, twenty timesteps with indicator-driven
+  refinement through `Tessera::splitEdges()`), taking the gate to **four members
+  and 48 launches**, all green as of T4a. A green gate proves that mesh
   generation, the initial condition, the checkpoint write, the seven surface
   operators, the direct Birkhoff-Rott sum and ten fixed-mesh timesteps reproduce
-  the reference — and nothing about adaptivity**, which is still a stub.
-  Resolves progressively as T4 lands its own regression tests. See
+  the reference; adaptivity is covered only for the indicator-driven refine path,
+  and only for the structural and shape claims T4a's test makes.
+  Resolves progressively as T4 lands its remaining regression tests. See
   [CLAUDE.md](CLAUDE.md#minimum-test-set) and `tasks/framework.md`.
 
 - **The ship gate needs a shared filesystem for its scratch directory.** *Not a

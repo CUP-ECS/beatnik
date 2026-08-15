@@ -287,7 +287,19 @@ class Solver
         if ( start.from_checkpoint )
             _state.seedMaterialPosition( _mesh );
 
-        // 5. The startup checkpoint, at the loaded or zero step and time.
+        // 5. Initialize the AMR reference state. UNCONDITIONAL, not gated on
+        //    `--refine-every > 0`: `FaceFieldId::{ReferenceArea,
+        //    ReferenceCurvature, RefineMark}` are slots in Tessera's face
+        //    AoSoA, which is allocated uninitialized, and `writeMesh` writes the
+        //    whole face pack — so a run that skipped this would checkpoint
+        //    whatever was in memory. It is also step 1 of the reference's own
+        //    reset list (`Beatnik_AdaptiveMesh.hpp`, THE REFERENCE STATE):
+        //    `TriangleSurfaceState.__post_init__` seeds both from the current
+        //    geometry whenever they are not supplied, which on a cold start and
+        //    on a restart is always.
+        _amr->resetReferenceState( _mesh );
+
+        // 6. The startup checkpoint, at the loaded or zero step and time.
         writeCheckpoint();
     }
 
@@ -423,10 +435,51 @@ class Solver
             return false;
         }
 
-        // The post-step passes (refine, remesh, filter, redistribute) belong to
-        // T4a/T4b/T4c/T5c. `requireSupportedConfiguration()` has already
-        // rejected any configuration that would reach one, so there is nothing
+        // -- the indicator-driven refine branch (T4a) ---------------------
+        // run_adaptive_mesh_bubble.py:1424-1468. The cadence condition is
+        // globally identical (it is built from the step counter and two
+        // parameters), so every rank enters the collective refiner together.
+        //
+        // The remesh (T4b), filter (T5c) and redistribute (T4c) branches are
+        // still stubs, and `requireSupportedConfiguration()` has already
+        // rejected any configuration that would reach one — so there is nothing
         // to skip here and nothing that could be silently skipped.
+        if ( !_params.dynamic_remesh && _params.amr.refine_every > 0 &&
+             _step % _params.amr.refine_every == 0 )
+        {
+            _last_refinement = _amr->refine( _mesh, _state );
+            if ( _last_refinement.marked_faces > 0 )
+            {
+                _refine_events += _last_refinement.marked_faces;
+
+                // The reference's three quality repairs go here
+                // (lines 1440-1464). All three are rejected at setup, by name
+                // and task ID, so the counter below is a transcription of the
+                // reference's own gate rather than a placeholder:
+                //
+                //   improveConnectivityByFlips   T4d (blocked, Tessera G5c)
+                //   improveQualityTangential     T4c
+                //   isotropicCleanup             T4d (blocked, Tessera G5c)
+                const int flips = 0;
+
+                // `project_state_to_volume` is gated on a repair having
+                // ACTUALLY RUN (lines 1465-1468), not on the refinement having
+                // happened — `flips > 0 or smooth_iters > 0 or
+                // isotropic_cleanup`. Under the only configuration this build
+                // accepts all three are false, so the projection does NOT
+                // execute, and that is the reference's behaviour rather than an
+                // omission. The gate is written out in full instead of folded
+                // to `false` so that landing T4c or T4d turns it on by deleting
+                // a rejection, not by remembering to add a call.
+                const bool repaired = ( flips > 0 ) ||
+                                      ( _params.filter.smooth_iters > 0 ) ||
+                                      _params.cleanup.enabled;
+                if ( _params.zmodel.preserve_volume && repaired )
+                    VolumeProjection<ExecutionSpace,
+                                     MemorySpace>::projectToVolume( _mesh,
+                                                                    _initial_volume );
+            }
+        }
 
         recordLastFiniteState();
 
@@ -521,6 +574,17 @@ class Solver
     /// \f$h^0_{\min}\f$, the scale dt and the proximity radii are expressed in.
     Real initialMinEdge() const { return _initial_min_edge; }
 
+    /// What the most recent refinement pass did, or a default-constructed
+    /// value if none has run. Exposed so the T4a regression test can check the
+    /// projection against the realized face count and log R12's two signals
+    /// against the round index without re-deriving either — the projection in
+    /// particular is only knowable *before* the edit, so a test cannot
+    /// reconstruct it afterwards.
+    const RefinementDiagnostics& lastRefinement() const
+    {
+        return _last_refinement;
+    }
+
     /// Path of the last checkpoint written, empty if none. Exposed so a test
     /// can find the file to compare without reconstructing the naming rule —
     /// which would be a second implementation of `CheckpointIO::timeKey`, and
@@ -552,11 +616,48 @@ class Solver
                 "fixed-connectivity solve (this is how the T2a gold set was "
                 "generated)." );
 
-        if ( _params.amr.refine_every > 0 )
+        // T4a landed, so `--refine-every > 0` is supported. What is NOT
+        // supported is the reference's follow-on quality repair, all three
+        // pieces of which are still stubs — and each is rejected by name and by
+        // task ID rather than silently skipped, because the refine branch runs
+        // them whenever anything was marked
+        // (`run_adaptive_mesh_bubble.py:1440-1464`) and a run that omitted them
+        // would produce a plausible trajectory that is not the reference's.
+        //
+        // Note these are rejected UNCONDITIONALLY rather than only under
+        // `--refine-every > 0`. They are equally unimplemented in the remesh
+        // branch, which `--dynamic-remesh` already rejects above, so a
+        // conditional would only make the message arrive later.
+        const bool refining =
+            !_params.dynamic_remesh && _params.amr.refine_every > 0;
+
+        if ( refining && _params.filter.flip_passes > 0 )
             throw std::logic_error(
-                "Beatnik::Solver::solve: --refine-every > 0 needs "
-                "AdaptiveMesh::refine, which is task T4a and still throws. Pass "
-                "--refine-every 0 to disable indicator-driven refinement." );
+                "Beatnik::Solver::solve: --flip-passes > 0 under "
+                "--refine-every needs MeshQuality::improveConnectivityByFlips, "
+                "which is task T4d and still throws. T4d is additionally "
+                "BLOCKED upstream: Tessera implements no edge flip "
+                "(../tessera/tasks/edge-flip.md, gap G5c). Pass "
+                "--flip-passes 0." );
+
+        // `--smooth-iters` defaults to 1, and the refine branch calls the
+        // tangential pass with it UNCONDITIONALLY once anything is marked
+        // (`run_adaptive_mesh_bubble.py:1446-1450`) — so without this rejection
+        // a default `--refine-every N` run reaches a throwing T4c method with no
+        // task ID on it, several steps into the run.
+        if ( refining && _params.filter.smooth_iters > 0 )
+            throw std::logic_error(
+                "Beatnik::Solver::solve: --smooth-iters > 0 under "
+                "--refine-every needs MeshQuality::improveQualityTangential, "
+                "which is task T4c and still throws. Pass --smooth-iters 0." );
+
+        if ( refining && _params.cleanup.enabled )
+            throw std::logic_error(
+                "Beatnik::Solver::solve: --isotropic-cleanup (the default) "
+                "under --refine-every needs MeshQuality::isotropicCleanup, "
+                "which is task T4d and still throws; its valence-equalizing "
+                "flips are blocked on the same Tessera gap G5c. Pass "
+                "--no-isotropic-cleanup." );
 
         if ( _params.filter.field_filter_every > 0 )
             throw std::logic_error(
@@ -826,6 +927,9 @@ class Solver
 
     /// Path of the most recent checkpoint, for `lastCheckpointPath()`.
     std::string _last_checkpoint_path;
+
+    /// What the most recent refinement pass did. T4a.
+    RefinementDiagnostics _last_refinement;
 
     /// Running totals reported on the progress line.
     long long _refine_events = 0;

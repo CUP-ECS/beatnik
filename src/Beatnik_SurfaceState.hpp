@@ -55,7 +55,7 @@
  * sheet vector and the material position. Under the M1 vertex user field pack
  * those three *are* slots in Tessera's vertex AoSoA
  * (`Beatnik::VertexFieldId`), and M1 recorded why a Beatnik-side copy cannot
- * work: `refine()` interpolates only fields it owns, `migrate()` ships only
+ * work: `splitEdges()` interpolates only fields it owns, `migrate()` ships only
  * tuples it owns, and `haloExchange()` syncs only the pack. A per-vertex field
  * held outside the mesh is therefore **silently dropped by refinement and
  * silently stale after migration** — and, before T1c, those three views were
@@ -162,7 +162,7 @@ class SurfaceState
      *          pre-T1c `resize` was documented as "called after every mesh
      *          edit", which was correct when Beatnik owned the storage and
      *          reallocation was Beatnik's job. It is now actively wrong:
-     *          `refine()` and `splitEdges()` interpolate the pack through the
+     *          `splitEdges()` interpolates the pack through the
      *          `RefinePolicy` and `migrate()` ships it, so zeroing afterwards
      *          would **destroy the solution**. Nothing needs calling after an
      *          edit; that is the whole benefit of the fields being in the mesh.
