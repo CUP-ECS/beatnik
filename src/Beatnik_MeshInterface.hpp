@@ -1348,6 +1348,67 @@ class SurfaceMesh
     void haloExchange() { Tessera::haloExchange( _mesh, _halo ); }
 
     /**
+     * @brief Refresh the ghost rows of a **Beatnik-owned** per-vertex scalar
+     *        view from their owners. T4b.
+     *
+     * TESSERA MAPPING: `Tessera::haloExchange( comm, aosoa, halo.vplan )` — the
+     * *same* plan and the same pack/unpack machinery `haloExchange()` uses,
+     * applied to a one-member scratch AoSoA laid out over the same local vertex
+     * range. Beatnik posts no message of its own; the staging AoSoA exists only
+     * because Tessera's exchange is expressed over an AoSoA.
+     *
+     * **Why this exists, since the file header says a field outside the mesh
+     * cannot cross a rank boundary.** That statement is about the *reverse*
+     * halo: `haloScatterAddVertices` accumulates into a field addressed by its
+     * compile-time Cabana member index, so an external view genuinely has no
+     * way in. A forward exchange has no such obstacle — it is a gather from
+     * owned rows and a scatter into ghost rows, and the plan's index lists are
+     * ordinary integers.
+     *
+     * **Why not a fourth vertex user field instead.** The one consumer is
+     * `DynamicRemesh`'s sizing field, whose gradation sweep (T4b) propagates a
+     * minimum `--remesh-target-gradation-iters` (8) rings — past
+     * `halo_depth = 2`, so it must exchange between sweeps or the sizing field
+     * differs at every partition boundary and the split set moves with the rank
+     * count. Adding a slot to `vertex_fields` would put a *scratch* quantity in
+     * `/vertices/u3` of every checkpoint and make every existing file
+     * unreadable (risk R14) for a field no restart needs. T4a paid that price
+     * for `RefineMark` because the reverse direction left it no choice; here
+     * there is one.
+     *
+     * @param values `(Nv,)` over the **local** vertex range,
+     *        `totalVertexCount()` rows. Owned rows are read, ghost rows are
+     *        overwritten.
+     *
+     * @note MPI. Collective on `comm()`, and a no-op at one rank (the plan is
+     *       empty, exactly as `haloExchange()` is).
+     */
+    template <class ScalarView>
+    void haloExchangeVertexView( ScalarView& values )
+    {
+        using aosoa_type =
+            Cabana::AoSoA<Cabana::MemberTypes<Real>, memory_space>;
+        const int nv = totalVertexCount();
+        aosoa_type buffer( "beatnik_vertex_view_halo", nv );
+        auto slice = Cabana::slice<0>( buffer );
+        auto in = values;
+        Kokkos::parallel_for(
+            "beatnik_vertex_view_halo_load",
+            Kokkos::RangePolicy<execution_space>( 0, nv ),
+            KOKKOS_LAMBDA( const int i ) { slice( i ) = in( i ); } );
+        Kokkos::fence();
+
+        Tessera::haloExchange( comm(), buffer, _halo.vplan );
+
+        auto out = values;
+        Kokkos::parallel_for(
+            "beatnik_vertex_view_halo_store",
+            Kokkos::RangePolicy<execution_space>( 0, nv ),
+            KOKKOS_LAMBDA( const int i ) { out( i ) = slice( i ); } );
+        Kokkos::fence();
+    }
+
+    /**
      * @brief Accumulate one **mesh-resident** vertex field from ghost slots
      *        into their owners.
      *

@@ -1669,60 +1669,19 @@ class AdaptiveMesh
      * — `0.5` for an equilateral triangle, `0` for a degenerate one, and the
      * reciprocal of twice Tessera's published \f$Q = R/2r\f$, so the two
      * measurements compare directly without a conversion at the call site.
+     *
+     * **T4b — the kernel moved to `SurfaceOperators::radiusRatioStats`**, which
+     * is the same arithmetic in the same order (so T4a's compiled-in literals
+     * are unchanged), single-sourced because T4b's remesher reports the same two
+     * signals per pass against the same Python numbers.
      */
     void measureShape( mesh_type& mesh, RefinementDiagnostics& diag ) const
     {
-        const int n_owned = mesh.ownedFaceCount();
-        auto pos = mesh.positions();
-        auto fv = mesh.faceVertices();
-        const Real tail = quality_tail_threshold;
-
         Real local_min = Real( 1.0e300 );
         long long local_tail = 0;
-        Kokkos::parallel_reduce(
-            "beatnik_amr_shape",
-            Kokkos::RangePolicy<ExecutionSpace>( 0, n_owned ),
-            KOKKOS_LAMBDA( const int f, Real& mn, long long& cnt ) {
-                Real p[3][3];
-                for ( int k = 0; k < 3; ++k )
-                {
-                    const int i = fv( f, k );
-                    if ( i < 0 )
-                        return;
-                    for ( int d = 0; d < 3; ++d )
-                        p[k][d] = pos( i, d );
-                }
-                Real e0[3], e1[3], e2[3];
-                for ( int d = 0; d < 3; ++d )
-                {
-                    e0[d] = p[1][d] - p[0][d];
-                    e1[d] = p[2][d] - p[1][d];
-                    e2[d] = p[0][d] - p[2][d];
-                }
-                const Real a = Kokkos::sqrt( e0[0] * e0[0] + e0[1] * e0[1] +
-                                             e0[2] * e0[2] );
-                const Real b = Kokkos::sqrt( e1[0] * e1[0] + e1[1] * e1[1] +
-                                             e1[2] * e1[2] );
-                const Real c = Kokkos::sqrt( e2[0] * e2[0] + e2[1] * e2[1] +
-                                             e2[2] * e2[2] );
-                Real u[3];
-                u[0] = e0[1] * ( -e2[2] ) - e0[2] * ( -e2[1] );
-                u[1] = e0[2] * ( -e2[0] ) - e0[0] * ( -e2[2] );
-                u[2] = e0[0] * ( -e2[1] ) - e0[1] * ( -e2[0] );
-                const Real area =
-                    Real( 0.5 ) *
-                    Kokkos::sqrt( u[0] * u[0] + u[1] * u[1] + u[2] * u[2] );
-                const Real den = ( a + b + c ) * a * b * c;
-                const Real ratio =
-                    ( den > Real( 0 ) )
-                        ? Real( 8 ) * area * area / den
-                        : Real( 0 );
-                if ( ratio < mn )
-                    mn = ratio;
-                if ( ratio < tail )
-                    ++cnt;
-            },
-            Kokkos::Min<Real>( local_min ), local_tail );
+        SurfaceOperators::radiusRatioStats<ExecutionSpace>(
+            mesh.positions(), mesh.faceVertices(), mesh.ownedFaceCount(),
+            quality_tail_threshold, local_min, local_tail );
 
         Real global_min = Real( 0 );
         MPI_Allreduce( &local_min, &global_min, 1, MPI_DOUBLE, MPI_MIN,

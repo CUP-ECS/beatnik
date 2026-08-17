@@ -57,19 +57,24 @@ pass for the wrong reason.
 
 ## What the gate currently covers
 
-> **The `regression` tier has FOUR members** as of T4a, so the gate is
-> **48 launches** on tuolumne, and all four are green:
+> **The `regression` tier has FIVE members** as of T4b, so the gate is
+> **60 launches** on tuolumne, and all five are green:
 > `Beatnik_Test_InitialConditions` (regression test 1, T1c — the whole driver
 > path at 0 timesteps against a Python gold checkpoint),
 > `Beatnik_Test_BirkhoffRott` (T2c — the vertex quadrature and the direct BR
 > sum), `Beatnik_Test_DirectSolve10Steps` (regression test 2, T2d — ten TVD-RK3
-> timesteps against the T2a gold set) and `Beatnik_Test_RefineSplitEdges`
+> timesteps against the T2a gold set), `Beatnik_Test_RefineSplitEdges`
 > (regression test 4, T4a — twenty timesteps with indicator-driven refinement
-> through `Tessera::splitEdges()`). The tier was empty from `89ec015` (which
+> through `Tessera::splitEdges()`) and `Beatnik_Test_DynamicRemeshSplit`
+> (regression test 5, T4b — twenty timesteps of metric-driven dynamic remeshing
+> with only the split third live). The tier was empty from `89ec015` (which
 > removed the pre-redesign solver and its only end-to-end test) until T1c, and
 > the gate was vacuous; it is not any more. **But it covers only what exists** —
-> adaptivity is covered for the refine path alone, and only for the structural
-> and shape claims T4a's test makes. See `tasks/framework.md`.
+> both adaptivity paths are covered for their *refinement* halves only, and only
+> for the structural and shape claims those two tests make. Nothing in the gate
+> coarsens: collapse, quality flips and the isotropic cleanup are T4d, blocked
+> upstream, and any configuration reaching one is rejected before the first
+> step. See `tasks/framework.md`.
 
 ## CI
 

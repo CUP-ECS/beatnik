@@ -1208,7 +1208,55 @@ and HIP:
 
 ---
 
-### T4b — Metric-driven dynamic remeshing: the sizing field and the split pass — **NOT STARTED**
+### T4b — Metric-driven dynamic remeshing: the sizing field and the split pass — **DONE**
+
+**Met.** Gate run 1 for this task (`f3SpT4MZbqMh`) is green at all **60
+launches** — five `regression` members × {SERIAL, HIP} × ranks 1-6, ending
+`[gate] PASS (label=regression)` with zero failures. The four pre-existing
+members are unchanged (`Beatnik_Test_RefineSplitEdges` still 86/86, which is
+also the check that T4a's shape literals did not move when its `r/R` kernel was
+single-sourced into `SurfaceOperators::radiusRatioStats`).
+`Beatnik_Test_DynamicRemeshSplit` passes **377/377 checks in each of its twelve
+configurations**, running
+`--dynamic-remesh --remesh-every 1 --remesh-collapse-factor 0
+--remesh-max-collapses 0 --remesh-smooth-iters 0 --remesh-flip-min-gain 1e12
+--no-isotropic-cleanup` for 20 steps at `--remesh-sagitta-tolerance 0.002
+--remesh-h-max 0.06` (the two-knob deviation recorded below, forced by the same
+R15 trap that moved T4a's thresholds — at the defaults the sizing field is
+pinned at its upper clamp and the pass is all-or-nothing).
+
+What was verified, at every one of the twenty passes: `V - E + F = 2` globally;
+every owned edge naming exactly two incident faces with both locally resident;
+`splits == split_candidates` with the per-pass cap never binding, i.e. **every**
+edge longer than `split_factor · max(target, h_min)` entering the mask; and the
+volume drift held at zero to `1e-14` — which is where
+`VolumeProjection::projectToVolume` **first executes**, T4b being the first task
+whose branch reaches it. The face and vertex counts reproduce the reference's
+`320 → 560 → 800 → 1040 → 1160 → 1400` **exactly at every step**, not only at
+pass 1, and the two R12 signals reproduce the reference's to all twelve
+significant digits at every step. Every printed number is **byte-identical
+across {SERIAL, HIP} × ranks {1, 3, 6}** — the sizing field, the eight gradation
+sweeps and the mask are rank-count invariant, which is what the new per-vertex
+halo exchange buys.
+
+**R12's answer for this mask is the HEALTHY signature, and that is the headline.**
+The global minimum \f$r/R\f$ runs
+`0.4865 → 0.3739 → 0.2485 → 0.2485 → 0.2815` and then *stays* at `0.2815`; the
+population below `0.25` runs `0 → 0 → 120 → 120 → 0` and stays at zero. It dips
+and recovers, and the last third of the run sets no new low — exactly what R12
+predicts for a purely length-driven mask, and exactly what T4a's mask did not
+do. The measured floor is `0.248`.
+
+**The failure direction is confirmed five ways**: `--remesh-proximity` exits
+naming `DynamicRemesh::nonlocalFaceCentroidDistance` and T4e;
+`--remesh-collapse-factor 0.45`, `--remesh-smooth-iters 1`,
+`--remesh-flip-min-gain 1e-3` and `--isotropic-cleanup` each exit naming their
+method and T4d. None is a Tessera `EditFamily` throw and none runs silently.
+
+**T4d's question, answered from the run:** the missing coarsening does **not**
+bite within 20 steps. The minimum triangle quality falls `0.977 → 0.625` over
+the five real passes and then *recovers* to `0.673`, never approaching
+`--remesh-min-quality` `0.18`. There is no crossing step to report.
 
 **Depends on:** T4a (the edge-mask plumbing, the face-user-field pack, and the
 face→edge accessor are all T4a's, and this task must not re-invent them).
@@ -1220,14 +1268,27 @@ sizing field that drives it; T4d is the rest. Splitting them this way is
 deliberate: the sizing field, the gradation smoothing and the pass structure are
 the bulk of `dynamic_remesh.py` and none of it is blocked.
 
-**Fill in:** `Beatnik_DynamicRemesh.hpp` — the target-length (sizing) field from
-the sagitta tolerance \f$h = \sqrt{8\,\text{tol}/\kappa}\f$ clamped to
-`[h_min, h_max]`, the gradation smoothing
-(`target_gradation_factor` 1.35, `target_gradation_iterations` 8), the split
-selection (`edge length > split_factor · target`), the multi-pass loop
-(`passes` = 2), the per-pass split cap, and the diagnostics.
+**Fill in:**
+- `Beatnik_DynamicRemesh.hpp` — the target-length (sizing) field from the
+  sagitta tolerance \f$h = \sqrt{8\,\text{tol}/\kappa}\f$ clamped to
+  `[h_min, h_max]`, the gradation smoothing (`target_gradation_factor` 1.35,
+  `target_gradation_iterations` 8), the split selection
+  (`edge length > split_factor · target`), the multi-pass loop
+  (**`passes` = 1**), the per-pass split cap, and the diagnostics.
+
+  **The pass count is 1, not 2.** `2` is `DynamicRemeshParams.passes`'s
+  dataclass default (`dynamic_remesh.py:31`), which the driver overrides with
+  `--remesh-passes`, default **1** (`run_adaptive_mesh_bubble.py:420`).
+  `RemeshParams::passes` (`src/Beatnik_Params.hpp:265`) already said 1; this
+  entry was the thing that was wrong.
+- `Beatnik_Solver.hpp` — the rejections below, and the call to the remesher from
+  `advanceOneStep` on the `--remesh-every` cadence
+  (`src/Beatnik_Solver.hpp:149`, the branch sketched at `:42-48`). This was
+  missing from the list; the task is not expressible without it, since
+  `--dynamic-remesh` is rejected outright until it is written.
+
 ← *Python:* `dynamic_remesh.py`, everything except `collapse_short_edges`,
-`flip_edges_for_quality` and the proximity paths.
+`flip_edges_for_quality`, `tangential_smooth_vertices` and the proximity paths.
 
 **Hard constraint on the mask (R12):** an edge may enter the split mask **only**
 because its length exceeds `split_factor · target`. That is the one family
@@ -1257,19 +1318,75 @@ roll-up, and for how many steps — i.e. how badly the missing coarsening bites,
 measured rather than argued. Record the step count at which the minimum quality
 crosses `--remesh-min-quality`.
 
-**Exit criterion:** a `--dynamic-remesh` run completes 20 steps at ranks 1-6 on
-both backends without aborting; V/E/F satisfy Euler 2 and conformity after every
-pass; the enclosed-volume drift per step agrees with a Python run of the same
-configuration to `1e-3` relative with `1e-9` absolute as the blow-up cap (T2d's
-form, which is the one that also fails a run that conserves *better* than the
-reference); every edge longer than `split_factor · target` at the end of a pass
-is either split in the next pass or blocked by `h_min`, asserted rather than
-inspected; and the R12 pair — global minimum \f$r/R\f$ and the count below `0.25`
-— is logged per pass and shows the healthy signature (the minimum cycles and sets
-no new low in the last third of the run; the count returns to zero between dips)
-rather than a monotone per-round decline. **Failure direction:**
-`--remesh-use-proximity` exits non-zero naming T4e, and a configuration that
-would need a collapse exits non-zero naming T4d.
+**ANSWERED: it does not cross, within 20 steps, and the trace is not even
+monotone.** The global minimum triangle quality \f$4\sqrt3 A/\sum\ell^2\f$ falls
+`0.977 → 0.769 → 0.625 → 0.625 → 0.673` across the five real passes and then
+holds at `0.673`, drifting in its sixth digit for the remaining fifteen steps.
+`--remesh-min-quality` is `0.18`. So on this problem the collapse third is not
+what holds quality up over this horizon — the split mask's own
+longest-edge-consistency is — and T4d's case rests on longer runs and on the
+tighter roll-up, not on this one.
+
+**Exit criterion — RESTATED, because the document's original conflicts with
+itself and the conflict is structural.** The original asked for a
+`--dynamic-remesh` run that completes 20 steps *and* for "a configuration that
+would need a collapse" to exit non-zero naming T4d. **Every `--dynamic-remesh`
+run needs a collapse**: `dynamic_remesh_arrays` (`dynamic_remesh.py:141-172`)
+calls `collapse_short_edges` unconditionally on every pass, and
+`flip_edges_for_quality` + `tangential_smooth_vertices` whenever
+`splits > 0 or collapses > 0 or min_quality < 0.18`. There is no
+`--dynamic-remesh-split-only` switch and none was added. The two halves are
+therefore satisfiable only by making the *configuration* the discriminator: a
+run is accepted when the reference's own knobs make the three unimplemented
+thirds no-ops, and rejected otherwise. That is what the restatement below says.
+
+A `regression`-tier test registered per backend, showing at the gate's ranks 1-6
+on SERIAL and HIP:
+
+- a `--dynamic-remesh --remesh-collapse-factor 0 --remesh-max-collapses 0
+  --remesh-smooth-iters 0 --remesh-flip-min-gain 1e12 --no-isotropic-cleanup`
+  run completes 20 steps without aborting, and the global V/E/F satisfy Euler
+  \f$V-E+F=2\f$ and conformity after every pass. **Confirm the split pass
+  actually fires at the default sizing parameters and, if it does not, lower the
+  sagitta tolerance until the scheduled passes are real and record the
+  deviation** — R15's trap, exactly as it bit T4a's thresholds;
+- every edge longer than `split_factor · target` at the end of a pass is either
+  split in the next pass or blocked by `h_min` — asserted, not inspected;
+- the R12 pair — the global minimum \f$r/R\f$ and the global count of faces
+  below \f$r/R\f$ `0.25` — is logged per pass against the round index, and shows
+  the **healthy** signature (the minimum cycles and sets no new low in the last
+  third of the run; the count returns to zero between dips) rather than a
+  monotone per-round decline. If it declines monotonically, say so and record
+  it; do not apply an R12 mitigation, which is a separate task with its own gold
+  set;
+- against an offline split-only Python reference: pass-1 face and vertex counts
+  agree **exactly**, and the global minimum \f$r/R\f$ and sub-`0.25` count agree
+  at every pass to the precision T4a achieved (twelve significant digits). Per
+  R13, do not expect the *counts* to agree past pass 1;
+- the per-step enclosed-volume drift is **measured and written into this
+  document as 17-digit literals** (T2d's convention — its `kGoldVolumeDrift` is
+  for a fixed mesh and must not be reused), with `1e-9` absolute retained as the
+  blow-up cap;
+- **the failure direction:** `--remesh-proximity` exits non-zero from
+  `requireSupportedConfiguration` naming T4e, and each of
+  `--remesh-collapse-factor 0.45` (the default), `--remesh-smooth-iters 1`,
+  `--remesh-flip-min-gain 1e-3` and `--isotropic-cleanup` exits non-zero naming
+  its method and **T4d** — not from a Tessera `EditFamily` throw, and not by
+  silently running without them.
+
+**The measured volume drift, as 17-digit literals.** It is **exactly zero at
+every step**, on both backends at every rank count, and so is the reference's —
+because under `--dynamic-remesh` the driver projects the state back to the
+initial volume after *every* remesh step (`run_adaptive_mesh_bubble.py:1513-1516`,
+gated on the remesh having run rather than on it having changed anything). The
+reference's series carries one non-zero entry, step 17's
+`2.22044604925031308e-16`, which is one ulp of the ratio. A series of zeros is
+only a meaningful assertion if the bound is tight enough to fail a build that
+skipped the projection, so the test's bound is `1.0e-14`: T2d measured the
+drift of a fixed-connectivity run *without* the projection as
+`5.1697091052460564e-11` by step 10, growing linearly, which is three decades
+above it. The `1e-9` absolute cap is kept as the coarser blow-up detector the
+criterion names.
 
 ---
 
@@ -1311,11 +1428,19 @@ land**, and that is the only thing standing between Phase 4 and the reference's
 full behaviour.
 
 **Fill in:** `Beatnik_MeshInterface.hpp::{collapseEdges, flipEdges, compact}`;
-the collapse and flip thirds of `Beatnik_DynamicRemesh.hpp`;
+the collapse and flip thirds of `Beatnik_DynamicRemesh.hpp`
+(`collapseShortEdges`, `flipEdgesForQuality`) **and `tangentialSmooth`**, which
+was assigned to no task until T4b assigned it here — it is a port of
+`dynamic_remesh.py::tangential_smooth_vertices`, *not* of
+`mesh_solver.py::improve_mesh_quality_tangential` (that one is T4c), and it runs
+inside the same `if changed or needs_quality_repair` block as the flips;
 `Beatnik_MeshQuality.hpp::{improveConnectivityByFlips, valenceEqualizingFlips,
 isotropicCleanup}`; the `requireSupportedConfiguration` rejections T4a and T4b
-added.
-← *Python:* `dynamic_remesh.py::{collapse_short_edges, flip_edges_for_quality}`,
+added. Note `tangentialSmooth` moves vertices and changes no connectivity, so
+unlike the other two it is **not** blocked on a Tessera gap — it is here only
+because it is unreachable while the flips are.
+← *Python:* `dynamic_remesh.py::{collapse_short_edges, flip_edges_for_quality,
+tangential_smooth_vertices}`,
 `mesh_quality.py` (44-167),
 `mesh_solver.py::improve_mesh_connectivity_by_edge_flips` (1704-1772)
 
@@ -2237,6 +2362,50 @@ target" — is genuinely the family Tessera measured as periodic, and is
 unaffected. What is retired is the assumption that *T4a's* mask inherits the
 bound by being a red split.
 
+### MEASURED AT T4b — the length-driven mask IS in the bounded family, and the CAP can take it out
+
+T4b ran the same two signals per pass over twenty steps of split-only dynamic
+remeshing, and got the **healthy** signature this risk describes, in both of its
+halves:
+
+| pass | min \f$r/R\f$ | \f$< 0.25\f$ | splits |
+| --- | --- | --- | --- |
+| 0 (initial) | `0.486497704566` | 0 | — |
+| 1 | `0.373875540852` | 0 | 120 |
+| 2 | `0.248492357897` | **120** | 120 |
+| 3 | `0.248490855246` | **120** | 120 |
+| 4 | `0.281539942917` | **0** | 60 |
+| 5 | `0.281537474137` | 0 | 120 |
+| 6-20 | `0.2815` → `0.281492866851` | 0 | 0 |
+
+The minimum **dips and recovers**; the sub-`0.25` population appears and
+**returns to zero**; the last third of the run sets no new low. The residual
+decline from pass 5 on is in the sixth digit and tracks the roll-up rather than
+the round index — this risk's *solver* axis, and at that magnitude simply the
+bubble deforming under a fixed connectivity. Beatnik reproduces the reference's
+column to all twelve digits at **every** pass, and the whole table is
+byte-identical across {SERIAL, HIP} × ranks {1, 3, 6}. The measured floor is
+`0.248`, which lives in `Beatnik_Test_DynamicRemeshSplit.cpp` as
+`kMinRadiusRatioFloor` — again **not** Tessera's `0.25`, which this run would
+fail by four ulp at passes 2 and 3.
+
+So the two masks now have measurements and they say opposite things, which is
+this risk's whole point: the bound belongs to the *mask*, not to `splitEdges()`.
+
+**And there is a third finding, which this risk did not anticipate: the per-pass
+cap can move a length-driven mask OUT of the bounded family.** At the reference's
+*default* sizing parameters the same configuration marks all 480 edges and
+`--remesh-max-splits 300` truncates the mask; measured on the reference itself,
+that run's minimum \f$r/R\f$ goes to `0.204341652937` at pass 1 with **32** faces
+below `0.25`, then **64** — and it never returns to zero for the remaining
+eighteen steps. A truncated mask is no longer "every edge longer than its
+target": the surviving edges are the top-\f$N\f$ by ratio, which is a
+*rank*-driven rule, and the neighbours left unsplit are exactly the transition
+faces that carry no bound. Practical consequence for any later task: **a capped
+pass is not just R4's count divergence, it is an R12 exposure**, and a
+configuration whose cap binds every pass should expect the shape-problem
+signature.
+
 **What to do about it is a later task's decision, and the options are this
 risk's ordered list unchanged** (Rivara mask promotion first, a caller-side shape
 filter with logging second, an opt-in Tessera filter last). T4a deliberately did
@@ -2297,6 +2466,17 @@ count below `0.25` to twelve significant digits at both of those passes, i.e.
 the worst elements are literally the same elements even where the counts differ.
 So a Python comparison for an adaptive run is a **one-pass** comparison of
 counts plus an all-pass comparison of shape statistics.
+
+**Measured again at T4b, and there it did NOT bite — which is worth stating so
+the risk is read as conditional rather than as a law.** T4b's masks are partial
+from the first pass (120 of 480 edges), so faces with exactly two split edges do
+arise and the two codes do choose their diagonals by different rules. Even so,
+Beatnik reproduced the reference's per-step face and vertex counts **exactly at
+all twenty steps**, along with both shape signals to twelve digits. The honest
+reading is that on this mesh the two rules agree wherever the case arises — not
+that the risk is retired. A later task that sees a late-step count divergence
+under a partial mask should check the diagonal before assuming a bug, and a
+later task that sees agreement should not conclude the rules are the same.
 
 Practically the same class of divergence as R7, and handled the same way: compare
 counts and statistics, not the edit set. It is recorded separately because it is

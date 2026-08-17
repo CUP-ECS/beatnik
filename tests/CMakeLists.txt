@@ -177,7 +177,17 @@ set(_beatnik_rel_fixtures regression_tests/fixtures)
 #                                    after the first pass. See that file's
 #                                    header.
 #
-# The gate on tuolumne is therefore 4 x {SERIAL, HIP} x ranks 1-6 = 48 launches.
+# GREW TO FIVE MEMBERS AT TASK T4b, authorized in that task's exit criterion:
+#
+#   Beatnik_Test_DynamicRemeshSplit  regression test 5 -- twenty timesteps of
+#                                    metric-driven dynamic remeshing, split
+#                                    third only, with the collapse, flip and
+#                                    smoothing thirds configured off through the
+#                                    REFERENCE's own knobs rather than through a
+#                                    Beatnik-only switch. Takes NO arguments.
+#                                    See that file's header.
+#
+# The gate on tuolumne is therefore 5 x {SERIAL, HIP} x ranks 1-6 = 60 launches.
 #
 # HOW A MULTI-RANK REGRESSION ENTRY IS REPRESENTED, AND WHY THIS SHAPE
 # --------------------------------------------------------------------
@@ -230,6 +240,8 @@ set(BEATNIK_REGRESSION_TEST_SOURCES
   Beatnik_Test_DirectSolve10Steps.cpp
   # T4a: regression test 4 -- twenty timesteps with splitEdges() refinement.
   Beatnik_Test_RefineSplitEdges.cpp
+  # T4b: regression test 5 -- twenty timesteps of split-only dynamic remeshing.
+  Beatnik_Test_DynamicRemeshSplit.cpp
   )
 
 # Kokkos execution-space class per BEATNIK_SUPPORTED_DEVICES name. Spelled out
@@ -285,6 +297,14 @@ set(_beatnik_args_Beatnik_Test_DirectSolve10Steps_rel
 # author forget?" check below stays meaningful.
 set(_beatnik_args_Beatnik_Test_RefineSplitEdges_abs "")
 set(_beatnik_args_Beatnik_Test_RefineSplitEdges_rel "")
+
+# T4b takes no arguments and reads no gold file either, for the same reason as
+# T4a and one more: its masks are partial from the first pass, so R13's diagonal
+# difference makes the two codes integrate different meshes from step 2 and only
+# the pass-1 counts and the shape statistics are comparable. Those enter as
+# compiled-in literals.
+set(_beatnik_args_Beatnik_Test_DynamicRemeshSplit_abs "")
+set(_beatnik_args_Beatnik_Test_DynamicRemeshSplit_rel "")
 
 foreach(_src ${BEATNIK_REGRESSION_TEST_SOURCES})
   get_filename_component(_stem ${_src} NAME_WE)

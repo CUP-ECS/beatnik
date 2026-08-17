@@ -73,11 +73,12 @@ ctest -L regression -R HIP         # additional gate on tuolumne
 In `spack` mode there is no build tree and therefore no `ctest`: run the gate
 through `scripts/<system>/run_regression_minset.<scheduler>` — on tuolumne
 [scripts/tuolumne/run_regression_minset.flux](scripts/tuolumne/run_regression_minset.flux).
-The `regression` tier currently has **four** members — the initial condition at
+The `regression` tier currently has **five** members — the initial condition at
 0 timesteps (T1c), the direct Birkhoff-Rott sum (T2c), ten timesteps against
-the Python gold set (T2d), and twenty timesteps with `splitEdges()` refinement
-(T4a) — so on tuolumne the gate is **48 launches** and takes correspondingly
-longer to run. **All four are green**, the full sweep as of T4a.
+the Python gold set (T2d), twenty timesteps with `splitEdges()` refinement
+(T4a), and twenty timesteps of split-only dynamic remeshing (T4b) — so on
+tuolumne the gate is **60 launches** and takes correspondingly longer to run.
+**All five are green**, the full sweep as of T4b.
 **`BEATNIK_TEST_SCRATCH`
 must name a path on a parallel filesystem**, not a node-local one: the
 checkpoints go through MPI-IO, so a node-local scratch fails every launch that

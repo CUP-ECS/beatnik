@@ -440,10 +440,12 @@ class Solver
         // globally identical (it is built from the step counter and two
         // parameters), so every rank enters the collective refiner together.
         //
-        // The remesh (T4b), filter (T5c) and redistribute (T4c) branches are
-        // still stubs, and `requireSupportedConfiguration()` has already
-        // rejected any configuration that would reach one — so there is nothing
-        // to skip here and nothing that could be silently skipped.
+        // The filter (T5c) and redistribute (T4c) branches are still stubs, as
+        // are the collapse/flip/smooth thirds of the remesh branch below (T4d)
+        // and both of its proximity paths (T4e); `requireSupportedConfiguration`
+        // has already rejected any configuration that would reach one — so
+        // there is nothing to skip here and nothing that could be silently
+        // skipped.
         if ( !_params.dynamic_remesh && _params.amr.refine_every > 0 &&
              _step % _params.amr.refine_every == 0 )
         {
@@ -478,6 +480,70 @@ class Solver
                     VolumeProjection<ExecutionSpace,
                                      MemorySpace>::projectToVolume( _mesh,
                                                                     _initial_volume );
+            }
+        }
+
+        // -- the metric-remesh branch (T4b) --------------------------------
+        // run_adaptive_mesh_bubble.py:1469-1527. Mutually exclusive with the
+        // branch above by construction (`:1424` versus `:1469`), and the
+        // cadence condition is again built only from the step counter and two
+        // parameters, so every rank enters the collective remesher together.
+        if ( _params.dynamic_remesh )
+        {
+            // The tight parameter set (`:1473-1480`) would swap `_params.remesh`
+            // for `_params.remesh_tight` past `--remesh-tight-after`. It is
+            // unported and `requireSupportedConfiguration` rejects
+            // `--remesh-tight-after >= 0`, so the active set is always the
+            // baseline one and the swap is not written as dead code.
+            const int every = _params.remesh_every;
+            const bool remeshed = ( every > 0 ) && ( _step % every == 0 );
+            if ( remeshed )
+            {
+                _last_remesh = _remesh->remesh( _mesh, _state );
+                _remesh_events += _last_remesh.splits + _last_remesh.collapses +
+                                  _last_remesh.flips;
+
+                // `mesh_quality.isotropic_cleanup` runs here (`:1493-1504`).
+                // T4d, blocked on Tessera G5c, and `--isotropic-cleanup` is
+                // rejected at setup rather than skipped.
+
+                // The reference rebuilds the state from the remeshed arrays,
+                // which (a) re-bases the reference area and curvature —
+                // `dynamic_remesh_state_with_material` passes both as `None`
+                // (`:1099-1101`) and `TriangleSurfaceState.__post_init__`
+                // re-seeds them from the current geometry — and (b) re-centres
+                // the potential against the NEW area weights
+                // (`mesh_solver.py:155-162`). Both are done here, in that
+                // order, because both are properties of state construction
+                // rather than of the remesher.
+                _amr->resetReferenceState( _mesh );
+                {
+                    MeshGeometry<ExecutionSpace, MemorySpace> geometry;
+                    geometry.compute( _mesh.positions(),
+                                      _mesh.totalVertexCount(),
+                                      _mesh.faceVertices() );
+                    _state.centerPotential( _mesh, geometry );
+                }
+            }
+
+            // `project_state_to_volume` is gated on a remesh having RUN, not on
+            // it having changed anything (`:1513-1516`) — unlike the refine
+            // branch above, which gates on a repair having run. So under
+            // `--dynamic-remesh` (and without `--no-preserve-volume`) the
+            // absolute volume projection executes every remesh step. **T4b is
+            // therefore where `VolumeProjection::projectToVolume` first runs**;
+            // T4a's entry and T2d's `Affects:` note both guessed T4c/T4d.
+            if ( remeshed )
+            {
+                if ( _params.zmodel.preserve_volume )
+                    VolumeProjection<ExecutionSpace, MemorySpace>::
+                        projectToVolume( _mesh, _initial_volume );
+
+                if ( !_state.allFinite( _mesh ) )
+                {
+                    reportStop( "nonfinite dynamic-remesh state" );
+                    return false;
+                }
             }
         }
 
@@ -585,6 +651,13 @@ class Solver
         return _last_refinement;
     }
 
+    /// What the most recent dynamic-remesh call did, or a default-constructed
+    /// value if none has run. T4b, and exposed for the same reason
+    /// `lastRefinement()` is: the split pass's **candidate** count and the
+    /// cap's verdict are knowable only inside the call, and T4b's exit
+    /// criterion asserts on the difference between them.
+    const RemeshDiagnostics& lastRemesh() const { return _last_remesh; }
+
     /// Path of the last checkpoint written, empty if none. Exposed so a test
     /// can find the file to compare without reconstructing the naming rule —
     /// which would be a second implementation of `CheckpointIO::timeKey`, and
@@ -608,28 +681,26 @@ class Solver
     /// was decidable at step 0.
     void requireSupportedConfiguration() const
     {
-        if ( _params.dynamic_remesh )
-            throw std::logic_error(
-                "Beatnik::Solver::solve: --dynamic-remesh (the default) needs "
-                "DynamicRemesh::remesh, which is task T4b and still throws. Run "
-                "with --no-dynamic-remesh --refine-every 0 for a "
-                "fixed-connectivity solve (this is how the T2a gold set was "
-                "generated)." );
-
-        // T4a landed, so `--refine-every > 0` is supported. What is NOT
-        // supported is the reference's follow-on quality repair, all three
-        // pieces of which are still stubs — and each is rejected by name and by
-        // task ID rather than silently skipped, because the refine branch runs
-        // them whenever anything was marked
-        // (`run_adaptive_mesh_bubble.py:1440-1464`) and a run that omitted them
-        // would produce a plausible trajectory that is not the reference's.
+        // The two adaptivity modes are mutually exclusive per run
+        // (`run_adaptive_mesh_bubble.py:1424` versus `:1469-1471`), and each
+        // has its own set of unimplemented follow-on passes. Each is rejected
+        // by name and by task ID rather than silently skipped, because a run
+        // that omitted one would produce a plausible trajectory that is not the
+        // reference's.
         //
-        // Note these are rejected UNCONDITIONALLY rather than only under
-        // `--refine-every > 0`. They are equally unimplemented in the remesh
-        // branch, which `--dynamic-remesh` already rejects above, so a
-        // conditional would only make the message arrive later.
+        // **T4b CORRECTION — these are NOT rejected unconditionally, and the
+        // comment here used to say they were.** All of them were already
+        // guarded by `refining`, which is false under `--dynamic-remesh`; that
+        // was harmless only while `--dynamic-remesh` was rejected outright, and
+        // the moment T4b dropped that rejection every one of them became a
+        // live hole — `--isotropic-cleanup` defaults to TRUE and the reference
+        // runs `mesh_quality.isotropic_cleanup` after every dynamic remesh. So
+        // the remesh branch now carries its own rejections below, and the
+        // comment describes what the code does.
         const bool refining =
             !_params.dynamic_remesh && _params.amr.refine_every > 0;
+        const bool remeshing =
+            _params.dynamic_remesh && _params.remesh_every > 0;
 
         if ( refining && _params.filter.flip_passes > 0 )
             throw std::logic_error(
@@ -651,13 +722,103 @@ class Solver
                 "--refine-every needs MeshQuality::improveQualityTangential, "
                 "which is task T4c and still throws. Pass --smooth-iters 0." );
 
-        if ( refining && _params.cleanup.enabled )
+        if ( ( refining || remeshing ) && _params.cleanup.enabled )
             throw std::logic_error(
                 "Beatnik::Solver::solve: --isotropic-cleanup (the default) "
-                "under --refine-every needs MeshQuality::isotropicCleanup, "
-                "which is task T4d and still throws; its valence-equalizing "
-                "flips are blocked on the same Tessera gap G5c. Pass "
-                "--no-isotropic-cleanup." );
+                "under --refine-every or --dynamic-remesh needs "
+                "MeshQuality::isotropicCleanup, which is task T4d and still "
+                "throws; its valence-equalizing flips are blocked on the same "
+                "Tessera gap G5c. Pass --no-isotropic-cleanup." );
+
+        //-- the metric remesher's own rejections (T4b) ----------------------//
+        //
+        // T4b landed the sizing field and the SPLIT third of
+        // `dynamic_remesh.py`. The collapse, flip and smoothing thirds are T4d
+        // (the first two blocked on Tessera gaps G5b and G5c), and the two
+        // proximity paths are T4e. Rather than invent a `--dynamic-remesh-split
+        // -only` switch, a run is accepted exactly when the reference's OWN
+        // knobs make those thirds no-ops — so what Beatnik runs is what the
+        // reference would run, not a Beatnik-only subset of it. Each rejection
+        // below names the method, the task, and the knob that satisfies it.
+        if ( remeshing && _params.remesh.use_proximity )
+            throw std::logic_error(
+                "Beatnik::Solver::solve: --remesh-proximity under "
+                "--dynamic-remesh needs "
+                "DynamicRemesh::nonlocalFaceCentroidDistance, which is task "
+                "T4e and still throws -- a genuinely global spatial query with "
+                "two exclusion criteria, which no ghost depth makes local. It "
+                "is off by default (dynamic_remesh.py:33); pass "
+                "--no-remesh-proximity." );
+
+        if ( remeshing && _params.remesh.surgical_proximity )
+            throw std::logic_error(
+                "Beatnik::Solver::solve: --remesh-surgical-proximity under "
+                "--dynamic-remesh needs "
+                "DynamicRemesh::splitSurgicalProximityEdges and "
+                "::nonlocalFaceProximityPairs, which are task T4e and still "
+                "throw. Off by default (dynamic_remesh.py:41); pass "
+                "--no-remesh-surgical-proximity." );
+
+        // The collapse third. `--remesh-collapse-factor 0` makes the
+        // reference's candidate predicate `length < 0 * target`
+        // (dynamic_remesh.py:373) false for every edge, so the pass returns
+        // before any mutation -- and the reference's own tight profile ships
+        // that value (run_adaptive_mesh_bubble.py:520), so it is an in-family
+        // configuration rather than an invention.
+        //
+        // `--remesh-max-collapses 0` is NOT a second lever, however plausible
+        // it looks: the driver maps a non-positive value to `None` = UNLIMITED
+        // (`:1350-1352`), which `RemeshParams::max_collapses_per_pass`
+        // reproduces. Accepting on it would accept a run in which the reference
+        // still collapses.
+        if ( remeshing && _params.remesh.collapse_factor > Real( 0 ) )
+            throw std::logic_error(
+                "Beatnik::Solver::solve: --remesh-collapse-factor > 0 (the "
+                "default is 0.45) under --dynamic-remesh needs "
+                "DynamicRemesh::collapseShortEdges, which is task T4d and "
+                "still throws. T4d is additionally BLOCKED upstream: Tessera "
+                "implements no edge collapse (../tessera/tasks/edge-collapse.md, "
+                "gap G5b). Pass --remesh-collapse-factor 0, which is what the "
+                "reference's own tight profile passes and which makes its "
+                "collapse pass an exact no-op. NOTE: --remesh-max-collapses 0 "
+                "does NOT disable collapse -- it means UNLIMITED." );
+
+        if ( remeshing && _params.remesh.smoothing_iterations > 0 )
+            throw std::logic_error(
+                "Beatnik::Solver::solve: --remesh-smooth-iters > 0 (the "
+                "default is 1) under --dynamic-remesh needs "
+                "DynamicRemesh::tangentialSmooth, which is task T4d and still "
+                "throws. Pass --remesh-smooth-iters 0, which makes the "
+                "reference's own pass return immediately "
+                "(dynamic_remesh.py:463-465)." );
+
+        if ( remeshing &&
+             _params.remesh.flip_min_gain < kFlipsDisabledMinGain )
+            throw std::logic_error(
+                "Beatnik::Solver::solve: --remesh-flip-min-gain below 1e12 "
+                "(the default is 1e-3) under --dynamic-remesh needs "
+                "DynamicRemesh::flipEdgesForQuality, which is task T4d and "
+                "still throws. T4d is additionally BLOCKED upstream: Tessera "
+                "implements no edge flip (../tessera/tasks/edge-flip.md, gap "
+                "G5c). Pass --remesh-flip-min-gain 1e12: triangle quality lies "
+                "in [0,1], so the reference's accept test "
+                "min(new) > min(old)*(1+gain) (dynamic_remesh.py:449-450) is "
+                "then unsatisfiable and its flip pass mutates nothing." );
+
+        // The tight parameter set is UNPORTED: `--remesh-tight-*` has no
+        // representation in `RemeshParams` beyond the prose note on it, so
+        // `SolverParams::remesh_tight` is a copy of the baseline set and a run
+        // past `--remesh-tight-after` would silently keep remeshing at the
+        // baseline parameters instead of tightening. Unassigned to a task; see
+        // the T4b entry in tasks/framework-progress-log.md.
+        if ( remeshing && _params.remesh_tight_after >= Real( 0 ) )
+            throw std::logic_error(
+                "Beatnik::Solver::solve: --remesh-tight-after >= 0 selects the "
+                "reference's tight remesh parameter set "
+                "(run_adaptive_mesh_bubble.py:1358-1396), which is NOT ported: "
+                "no --remesh-tight-* option reaches RemeshParams, so the run "
+                "would silently continue at the baseline parameters. Pass "
+                "--remesh-tight-after -1." );
 
         if ( _params.filter.field_filter_every > 0 )
             throw std::logic_error(
@@ -930,6 +1091,9 @@ class Solver
 
     /// What the most recent refinement pass did. T4a.
     RefinementDiagnostics _last_refinement;
+
+    /// What the most recent dynamic-remesh call did. T4b.
+    RemeshDiagnostics _last_remesh;
 
     /// Running totals reported on the progress line.
     long long _refine_events = 0;

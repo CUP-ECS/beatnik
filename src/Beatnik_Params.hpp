@@ -211,6 +211,26 @@ struct AmrParams
 
 //---------------------------------------------------------------------------//
 /**
+ * @brief The `--remesh-flip-min-gain` at or above which the reference's quality
+ *        flip pass accepts **nothing**, i.e. flips are configured off through
+ *        the reference's own knob rather than through a Beatnik-only switch.
+ *
+ * `dynamic_remesh.py:449-450` accepts a flip only when
+ * \f$\min(q_{\text{new}}) > \min(q_{\text{old}})(1+g)\f$; every candidate is
+ * `continue`d otherwise. Triangle quality is \f$4\sqrt3 A/\sum \ell^2\f$ and
+ * therefore lies in \f$[0,1]\f$, so a gain of \f$10^{12}\f$ makes the accept
+ * test unsatisfiable for every pair of triangles that can exist — the pass
+ * still runs and still mutates nothing.
+ *
+ * **T4b uses this as the acceptance criterion for `--dynamic-remesh`**: the
+ * flip third is `DynamicRemesh::flipEdgesForQuality`, which is T4d and blocked
+ * on Tessera gap G5c, so a run is accepted only when the reference itself would
+ * flip nothing. See `Solver::requireSupportedConfiguration`.
+ */
+constexpr Real kFlipsDisabledMinGain = 1.0e12;
+
+//---------------------------------------------------------------------------//
+/**
  * @brief Metric-based dynamic remeshing controls (the default adaptivity path).
  *
  * Port of dynamic_remesh.py::DynamicRemeshParams (lines 17-46)

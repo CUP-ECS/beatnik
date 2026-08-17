@@ -209,15 +209,21 @@ fi
 ##--------------------------------------------------------------------------##
 ## Report
 ##--------------------------------------------------------------------------##
-# The regression tier has THREE members as of T2d (2026-08-14):
+# The regression tier has FIVE members as of T4b (2026-08-17):
 # Beatnik_Test_InitialConditions (regression test 1 -- the whole driver path at
 # 0 timesteps against the T1a Python gold checkpoint), Beatnik_Test_BirkhoffRott
-# (T2c -- the vertex quadrature and the direct Birkhoff-Rott sum) and
+# (T2c -- the vertex quadrature and the direct Birkhoff-Rott sum),
 # Beatnik_Test_DirectSolve10Steps (regression test 2, T2d -- ten TVD-RK3
-# timesteps against the T2a gold set). Together they cover mesh generation, the
-# initial condition, the checkpoint write, the surface operators, the direct BR
-# evaluation and the fixed-mesh time integration. There is still no adaptivity
-# (T4), so a green result here does not say the solver remeshes anything.
+# timesteps against the T2a gold set), Beatnik_Test_RefineSplitEdges
+# (regression test 4, T4a -- twenty timesteps of indicator-driven refinement
+# through splitEdges()) and Beatnik_Test_DynamicRemeshSplit (regression test 5,
+# T4b -- twenty timesteps of metric-driven dynamic remeshing, split third only).
+# Together they cover mesh generation, the initial condition, the checkpoint
+# write, the surface operators, the direct BR evaluation, the fixed-mesh time
+# integration and BOTH adaptivity modes. What a green result still does not say
+# is that the solver COARSENS anything: collapse, flips and the isotropic
+# cleanup are T4d, blocked on Tessera gaps G5b/G5c/G5d, and every configuration
+# that would reach one is rejected before the first step.
 if [ "${_gate_rc}" -eq 0 ]; then
     echo "[gate] PASS (label=${BEATNIK_GATE_LABEL})"
 else

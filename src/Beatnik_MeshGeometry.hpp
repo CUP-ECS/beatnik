@@ -351,6 +351,100 @@ class SurfaceOperators
     }
 
     /**
+     * @brief Risk R12's two shape signals, reduced over a face range.
+     *
+     * \f[
+     *   \frac{r}{R} = \frac{8A^2}{(a+b+c)\,abc}
+     * \f]
+     * — `0.5` for an equilateral triangle, `0` for a degenerate one, and the
+     * reciprocal of twice Tessera's published \f$Q = R/2r\f$, so Beatnik's
+     * diagnostic and Tessera's depth study compare without a conversion at the
+     * call site.
+     *
+     * **Single-sourced at T4b, and the reason is that it is now measured by two
+     * unrelated passes.** T4a computed it inline inside
+     * `AdaptiveMesh::measureShape`; T4b's remesher needs exactly the same
+     * number, per pass, compared against the same twelve-significant-digit
+     * Python literals. Two copies of a formula that a gold set is asserted
+     * against is one copy too many, so the kernel moved here verbatim —
+     * identical arithmetic in identical order, which is why T4a's compiled-in
+     * literals did not move.
+     *
+     * A face with a `-1` corner is **skipped entirely** (it contributes to
+     * neither the minimum nor the tail count), which is what a partial ghost
+     * triangle deserves and what T4a's kernel already did.
+     *
+     * @param face_count Rows to reduce. Pass the **OWNED** count: each local
+     *        face is owned exactly once globally, so a ghost would be counted
+     *        twice in the tail population (risk R9).
+     * @param tail Ratio below which a face is counted, `0.25` everywhere in
+     *        Beatnik (`AdaptiveMesh::quality_tail_threshold`).
+     * @param[out] local_min Minimum over this rank's range, `1e300` if empty.
+     * @param[out] local_below Tail population on this rank.
+     *
+     * @note MPI. **None** — the caller reduces, with `MPI_MIN` and `MPI_SUM`
+     *       respectively, because the two consumers report into different
+     *       diagnostics structs.
+     */
+    template <class ExecSpace, class VertexView, class FaceView>
+    static void radiusRatioStats( const VertexView& vertices,
+                                  const FaceView& faces, int face_count,
+                                  Real tail, Real& local_min,
+                                  long long& local_below )
+    {
+        auto pos = vertices;
+        auto fv = faces;
+        const Real cut = tail;
+        Real mn_out = Real( 1.0e300 );
+        long long below_out = 0;
+        Kokkos::parallel_reduce(
+            "beatnik_radius_ratio_stats",
+            Kokkos::RangePolicy<ExecSpace>( 0, face_count ),
+            KOKKOS_LAMBDA( const int f, Real& mn, long long& cnt ) {
+                Real p[3][3];
+                for ( int k = 0; k < 3; ++k )
+                {
+                    const int i = fv( f, k );
+                    if ( i < 0 )
+                        return;
+                    for ( int d = 0; d < 3; ++d )
+                        p[k][d] = pos( i, d );
+                }
+                Real e0[3], e1[3], e2[3];
+                for ( int d = 0; d < 3; ++d )
+                {
+                    e0[d] = p[1][d] - p[0][d];
+                    e1[d] = p[2][d] - p[1][d];
+                    e2[d] = p[0][d] - p[2][d];
+                }
+                const Real a = Kokkos::sqrt( e0[0] * e0[0] + e0[1] * e0[1] +
+                                             e0[2] * e0[2] );
+                const Real b = Kokkos::sqrt( e1[0] * e1[0] + e1[1] * e1[1] +
+                                             e1[2] * e1[2] );
+                const Real c = Kokkos::sqrt( e2[0] * e2[0] + e2[1] * e2[1] +
+                                             e2[2] * e2[2] );
+                Real u[3];
+                u[0] = e0[1] * ( -e2[2] ) - e0[2] * ( -e2[1] );
+                u[1] = e0[2] * ( -e2[0] ) - e0[0] * ( -e2[2] );
+                u[2] = e0[0] * ( -e2[1] ) - e0[1] * ( -e2[0] );
+                const Real area =
+                    Real( 0.5 ) *
+                    Kokkos::sqrt( u[0] * u[0] + u[1] * u[1] + u[2] * u[2] );
+                const Real den = ( a + b + c ) * a * b * c;
+                const Real ratio = ( den > Real( 0 ) )
+                                       ? Real( 8 ) * area * area / den
+                                       : Real( 0 );
+                if ( ratio < mn )
+                    mn = ratio;
+                if ( ratio < cut )
+                    ++cnt;
+            },
+            Kokkos::Min<Real>( mn_out ), below_out );
+        local_min = mn_out;
+        local_below = below_out;
+    }
+
+    /**
      * @brief Length of every edge in the supplied edge list.
      *
      * Port of run_adaptive_mesh_bubble.py::mesh_edge_lengths (lines 545-555)

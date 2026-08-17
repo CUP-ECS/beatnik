@@ -1756,3 +1756,289 @@ four AMR indicator fields as `NaN`. Every piece it needs exists, but it runs
 inside three *other* gate members, so it stayed out of T4a rather than put a
 green gate at risk for something outside the exit criterion. It is now a small
 self-contained follow-up against a gate that is green.
+
+## T4b
+
+**T4b is DONE.** The sizing field, the gradation sweep and the split third of
+`dynamic_remesh.py` are implemented; the gate grew to **five members / 60
+launches** and is green. `Beatnik_Test_DynamicRemeshSplit` reports **377/377
+checks** in each of its twelve {SERIAL, HIP} x ranks 1-6 configurations, and
+every diagnostic number it prints — twenty per-pass lines of counts, split
+tallies, quality, sagitta and both R12 signals — is **byte-identical across all
+twelve**, verified by diffing the gate log's tables rather than by inspection.
+
+The gate run is `f3SpT4MZbqMh` (`beatnik_regression_minset.f3SpT4MZbqMh.log`,
+~11 minutes), ending `[gate] PASS (label=regression)` with zero `[FAIL]` lines.
+The four pre-existing members are unchanged — in particular
+`Beatnik_Test_RefineSplitEdges` is still 86/86 in all twelve of its
+configurations, which is the check that T4a's twelve-digit shape literals did
+not move when its `r/R` kernel was single-sourced into
+`SurfaceOperators::radiusRatioStats`.
+
+### The decisions this task fixed, recorded so they are not reopened
+
+1. **No new CLI flag. The port follows the reference's CLI exactly.** A
+   `--dynamic-remesh` run is accepted only when the three unimplemented thirds
+   are configured off through the reference's *own* knobs, so what Beatnik runs
+   is what the reference would run rather than a Beatnik-only subset of it.
+   `requireSupportedConfiguration` rejects every other remeshing configuration by
+   name and task ID, per the Phase 4 *Unsupported configuration* convention:
+
+   | knob | accepted value | what the reference then does | rejection names |
+   | --- | --- | --- | --- |
+   | `--remesh-collapse-factor` | `0` | candidate predicate `length < 0*target` never true (`dynamic_remesh.py:373`) | `DynamicRemesh::collapseShortEdges`, **T4d**, gap G5b |
+   | `--remesh-smooth-iters` | `0` | returns at `:463-465` | `DynamicRemesh::tangentialSmooth`, **T4d** |
+   | `--remesh-flip-min-gain` | `>= 1e12` | accept test `min(new) > min(old)(1+g)` unsatisfiable (`:449-450`) | `DynamicRemesh::flipEdgesForQuality`, **T4d**, gap G5c |
+   | `--isotropic-cleanup` | off | driver skips the block (`:1493`) | `MeshQuality::isotropicCleanup`, **T4d** |
+   | `--remesh-proximity`, `--remesh-surgical-proximity` | off (their defaults) | never reached | `nonlocalFaceCentroidDistance` / `splitSurgicalProximityEdges`, **T4e** |
+
+   The `1e12` sentinel is `Beatnik::kFlipsDisabledMinGain` in
+   `Beatnik_Params.hpp`, with the citation on it: triangle quality is
+   `4*sqrt(3)*A/sum(l^2)` and therefore lies in `[0,1]`, so no pair of triangles
+   can clear a gain of `1e12`.
+
+2. **`--remesh-max-collapses 0` is NOT a lever, and the task prompt's claim that
+   it "truncates the candidate list to empty" is true of the dataclass field and
+   **false of the driver**.** `run_adaptive_mesh_bubble.py:1350-1352` maps a
+   non-positive value to `None` = *unlimited*, and `RemeshParams::
+   max_collapses_per_pass` documents the same ("<= 0 means unlimited"). Accepting
+   on it would have accepted a run in which the reference still collapses, which
+   is the exact failure the acceptance rule exists to prevent. The rule is
+   therefore `collapse_factor <= 0` alone; the rejection message says so
+   explicitly so the next reader does not re-derive it. The gate's command line
+   still carries `--remesh-max-collapses 0` because the exit criterion names it
+   and it is harmless once the factor gates the pass.
+
+3. **`--remesh-tight-after >= 0` is rejected, and the tight profile is
+   unported and unassigned.** No `--remesh-tight-*` option reaches
+   `RemeshParams` — `Beatnik_Params.hpp:219` mentions the profile in prose only
+   and `SolverParams::remesh_tight` is a copy of the baseline set. Without the
+   rejection a run past `--remesh-tight-after` would silently keep remeshing at
+   the baseline parameters, which is a wrong answer rather than a missing
+   feature. Porting it is **not assigned to any task**; it is a self-contained
+   parameter-plumbing job (twenty-odd CLI options into a second `RemeshParams`)
+   and the solver branch that swaps the sets is already written as a comment at
+   the one place it belongs.
+
+4. **The reference comparison is the driver run at the accepted configuration,
+   analyzed offline — not a `--dynamic-remesh` gold set at the defaults.** With
+   the four knobs above the reference's own remesh path *is* split-only
+   (verified by reading each of the four early returns), so the driver run is a
+   split-only run; committing a default-configuration gold set would have
+   compared against a different algorithm. Its checkpoints were analyzed offline
+   in numpy for the per-pass counts, both R12 signals, the minimum triangle
+   quality and the volume drift, exactly as T4a produced its Python columns. The
+   scratch scripts live in `/p/lustre5/stewartj/beatnik/t4b/`
+   (`probe_sizing.py`, `probe_fixpoint.py`, `analyze_ref.py`) and nothing from
+   them is committed except the resulting literals.
+
+5. **The re-basing after a remesh is done by the SOLVER, not by the remesher.**
+   `dynamic_remesh_state_with_material` rebuilds the state with
+   `reference_face_area=None` and `reference_face_curvature=None` and
+   `MeshPotentialZModelState.__post_init__` re-seeds them *and* re-centres the
+   potential against the new area weights (`mesh_solver.py:155-162`). Both are
+   properties of state construction rather than of the remesher, and
+   `AdaptiveMesh::resetReferenceState` lives in the AMR header, so
+   `Solver::advanceOneStep` calls it plus a `centerPotential` immediately after
+   `remesh()` returns. Having `DynamicRemesh` depend on the AMR header to satisfy
+   a configuration in which the AMR indicators are never read would have been the
+   wrong coupling.
+
+### Signature and API changes, and what forced each
+
+| Was | Now | Why it could not stay |
+| --- | --- | --- |
+| `faceCurvatureForSizing( const mesh_type&, ... )` | `( mesh_type&, ... )` | `positions()`, `faceVertices()`, `faceEdges()` and `edgeAdjacency()` are all non-const — Cabana slices behind a generation guard and CSRs cached against `generation()`. The same widening T2c applied to twelve signatures. Same for `vertexTargetEdgeLength` and `gradeTargetEdgeLength`. |
+| `int splitLongEdges( mesh, state, target )` | `+ RemeshDiagnostics& diag` | The **candidate** count is knowable only inside the function, and `splits == candidates` is the assertion the exit criterion's "every long edge is split unless blocked" reduces to. |
+| `RemeshDiagnostics{old,new}_{vertices,faces}` as `int` | `GlobalIndex`, and **global** | `RefinementDiagnostics`' reason: a per-rank entity count is a statement about the partition. |
+| — | `RemeshDiagnostics` + `passes`, `split_candidates`, `split_capped`, `split_ratio_threshold`, `long_edges_after`, `long_edges_at_h_min`, `min_radius_ratio`, `faces_below_quarter` | R12's two signals and the mask-completeness audit. |
+| — | `Solver::lastRemesh()` | Same reason as `lastRefinement()`: the candidate count and the cap's verdict cannot be reconstructed after the call. |
+| — | `SurfaceMesh::haloExchangeVertexView( view )` | **The one genuinely new primitive.** See below. |
+| — | `SurfaceOperators::radiusRatioStats<ExecSpace>( ... )` | R12's kernel, moved verbatim out of `AdaptiveMesh::measureShape` so two tasks asserting against the same twelve-digit Python numbers use one implementation. Identical arithmetic in identical order; T4a's literals did not move, and the gate proves it. |
+| — | `Beatnik::kFlipsDisabledMinGain` | Decision 1. |
+
+### The new communication primitive, and why a fourth vertex field was the wrong answer
+
+The gradation sweep needs a ghost exchange of the per-vertex target *between
+sweeps* — the header always said so. After `k` sweeps a vertex's target sees
+`gamma^d * h_j` for every vertex `j` at graph distance `d <= k`, so the default
+eight sweeps reach **four times the halo depth**. Without the exchange the
+constraint is enforced over a 2-ring at a partition boundary and an 8-ring
+everywhere else: the sizing field bends at every seam and the split set moves
+with the rank count.
+
+`Beatnik_MeshInterface.hpp`'s own header says a field outside the mesh cannot
+cross a rank boundary. **That is a statement about the REVERSE halo** —
+`haloScatterAddVertices` accumulates into a field addressed by its compile-time
+Cabana member index, so an external view has no way in. A *forward* exchange has
+no such obstacle: it is a gather from owned rows and a scatter into ghost rows,
+and the plan's index lists are ordinary integers. `haloExchangeVertexView` loads
+the view into a one-member scratch AoSoA over the same local vertex range and
+calls `Tessera::haloExchange( comm, aosoa, halo.vplan )` — Tessera's own tested
+pack/unpack over Tessera's own plan, so **Beatnik still posts no message of its
+own** and the claim at the top of `Beatnik_Communication.hpp` stands unchanged.
+
+The alternative — a fourth slot in `vertex_fields` — was rejected: it would put a
+*scratch* quantity in `/vertices/u3` of every checkpoint and make every existing
+file unreadable (R14) for something no restart needs. T4a paid that price for
+`RefineMark` because the reverse direction left it no choice; here there was one.
+
+### What was measured, and the configuration deviation that made it measurable
+
+**At the reference's default sizing parameters this test would have been
+vacuous, in both directions at once.** Measured against the read-only Python:
+the curvature term asks for `sqrt(8*0.004/3.98) = 0.0894`, `--remesh-h-max 0.05`
+cuts it to `0.05`, and the split threshold `1.35*0.05 = 0.0675` lands **below the
+shortest edge in the mesh** (`0.0690`). So
+
+- pass 1 marks **480 of 480** edges — the metric selects nothing;
+- `--remesh-max-splits 300` truncates it, which is R4's territory *and*, as it
+  turns out, an R12 exposure (see below), and makes a pass-1 comparison with the
+  reference impossible: the tie-break is the endpoint index pair, which Beatnik
+  does not have;
+- and the reference's own run then splits **nothing for the remaining eighteen
+  steps** (measured: `320 -> 920 -> 1280`, then flat) — R15's trap.
+
+The test therefore runs at `--remesh-sagitta-tolerance 0.002 --remesh-h-max
+0.06`, which puts the threshold *inside* the edge-length distribution. Every
+other remesh knob is the reference's default, **including `--remesh-max-splits
+300`, which never binds** (the largest pass is 120). This is the same class of
+deviation T4a recorded for its indicator thresholds, made for the same reason,
+and it is written into the test's header, into T4b's entry and here.
+
+Per pass, identical across all twelve configurations, and identical to the
+reference's own columns:
+
+| pass (step) | faces | vertices | splits / candidates | long after (at h_min) | min quality | min r/R | `< 0.25` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 320 -> 560 | 162 -> 282 | 120 / 120 | 120 (0) | `0.768627058629` | `0.373875540852` | 0 |
+| 2 | 560 -> 800 | 282 -> 402 | 120 / 120 | 120 (0) | `0.624710812018` | `0.248492357897` | **120** |
+| 3 | 800 -> 1040 | 402 -> 522 | 120 / 120 | 60 (0) | `0.624708569426` | `0.248490855246` | **120** |
+| 4 | 1040 -> 1160 | 522 -> 582 | 60 / 60 | 120 (0) | `0.673305465303` | `0.281539942917` | 0 |
+| 5 | 1160 -> 1400 | 582 -> 702 | 120 / 120 | 0 (0) | `0.673301906463` | `0.281537474137` | 0 |
+| 6-20 | 1400 | 702 | 0 / 0 | 0 (0) | `0.6733` -> `0.673236892764` | `0.2815` -> `0.281492866851` | 0 |
+
+`splits == candidates` at every pass with the cap never binding: **every** edge
+longer than `split_factor * max(target, h_min)` entered the mask. The non-zero
+`long after` at passes 1-4 is not a defect and the test says so — a split halves
+an edge, so an edge more than `2*split_factor` over target is still long
+afterwards and is the next pass's work; pass 5 clears the last 120 and the count
+stays at zero.
+
+**R12: the healthy signature, and this is the first time the risk's positive
+case has been observed.** The minimum `r/R` dips to `0.2485` and **recovers** to
+`0.2815`; the sub-`0.25` population goes `0 -> 120 -> 120 -> 0` and **returns to
+zero**; the last third of the run sets no new low. Both are asserted, not
+eyeballed. T4a's mask produced the opposite signature and R12 now carries both
+measurements side by side. The measured floor is `0.248` (the run minimum
+rounded down), explicitly **not** Tessera's `0.25`, which this run would fail by
+four ulp at passes 2 and 3.
+
+**A third R12 finding, which the risk did not anticipate: the per-pass cap can
+take a length-driven mask OUT of the bounded family.** The default-parameter
+reference run above, whose mask is truncated by `--remesh-max-splits 300` every
+time it fires, goes to `0.204341652937` with **32** faces below `0.25` at pass 1,
+then **64**, and never returns to zero. A truncated mask is no longer "every edge
+longer than its target" — it is the top-N by ratio, a rank-driven rule, and the
+neighbours left unsplit are exactly the transition faces that carry no bound. So
+a capped pass is not only R4's count divergence; it is an R12 exposure. Recorded
+in R12.
+
+**R13 did not bite here, and that is a measurement rather than a reprieve.**
+This task's masks are partial from pass 1, so `|S| = 2` faces do arise and the
+two codes do choose their diagonals by different rules — and yet Beatnik
+reproduced the reference's face and vertex counts **exactly at all twenty
+steps**, not only at pass 1, along with both shape signals to twelve digits. The
+test asserts all twenty. The honest reading is that on this mesh the two rules
+agree wherever the case arises; R13 is amended to say so without being retired.
+
+**`VolumeProjection::projectToVolume` executes for the first time here.** The
+reference gates it on a remesh having *run*, not on it having changed anything
+(`:1513-1516`), so under `--dynamic-remesh` it runs every step. T4a's entry and
+T2d's `Affects:` note both predicted T4c/T4d; both are wrong for that reason.
+Consequence for the exit criterion's volume-drift clause: the drift is **exactly
+zero at every step**, on both backends at every rank count, and so is the
+reference's (one entry aside, step 17's `2.22044604925031308e-16`, one ulp of the
+ratio). A series of zeros only asserts anything if the bound can fail a build
+that skipped the projection, so `kVolumeDriftBound = 1e-14` — T2d measured
+`5.1697091052460564e-11` at step 10 for a fixed mesh with no projection, three
+decades above it. The `1e-9` absolute cap the criterion names is kept as the
+coarser blow-up detector. T2d's `kGoldVolumeDrift` is **not** reused, exactly as
+its `Affects:` note required.
+
+**T4d's question, answered from the run.** The minimum triangle quality falls
+`0.977 -> 0.769 -> 0.625 -> 0.625 -> 0.673` and then *recovers* and holds at
+`0.673` for fifteen steps. It never approaches `--remesh-min-quality` `0.18`, so
+there is no crossing step to report: **the missing coarsening does not bite
+within 20 steps on this problem**. What holds quality up is the split mask's own
+longest-edge consistency, not the collapse third. T4d's case therefore rests on
+longer runs and on the tight roll-up, and a T4d exit criterion built around "the
+minimum quality stays above `--remesh-min-quality`" will pass on this
+configuration whether or not collapse works — R15's shape again.
+
+### No bug survived to the gate, and one thing that is worth writing down anyway
+
+Unusually for this tree, the first run of the new member passed everywhere. Two
+traps were paid for in advance rather than discovered:
+
+- **`EdgeField::Faces` is partial after any edit** — the normal-variation
+  curvature reads the edge's two incident faces, and it runs *between* splits, so
+  it uses `EdgeFaceIncidence::resident_count` / `resident_faces` throughout. T4a
+  paid a whole gate run for that lesson and its `Affects:` note is what kept this
+  task from repeating it.
+- **The Python's gradation sweep is Jacobi, not Gauss-Seidel.** It writes into
+  `target` while reading the neighbour value from `old`, the copy taken at the
+  top of the sweep, so one sweep is exactly
+  `h_i <- min(h_i, gamma * min_j h_j)` over the previous iterate and is
+  independent of the edge order. Reading it as Gauss-Seidel would have made the
+  port order-dependent — and therefore partition-dependent — while looking like a
+  faithful transcription.
+
+Also deliberate: the normal-jump curvature is a **gather** over each face's three
+edges rather than the reference's scatter over edges into both incident faces.
+The two visit the same (edge, face) pairs so the result is identical, and the
+gather needs no atomic max on a `Real`.
+
+**Formatting: `clang-format` was NOT run**, per the standing user instruction and
+CLAUDE.md's rule. No file was reformatted; the new and edited code is written in
+the style of its surroundings by hand.
+
+### Not done, deliberately
+
+`collapseShortEdges`, `flipEdgesForQuality`, `tangentialSmooth` and `compact`
+(T4d, blocked on Tessera G5b/G5c/G5d); `nonlocalFaceCentroidDistance`,
+`nonlocalFaceProximityPairs` and `splitSurgicalProximityEdges` (T4e); the
+`--remesh-tight-*` profile (unported, unassigned, and now rejected rather than
+silently ignored); and `Diagnostics::compute`'s four `NaN` AMR indicator fields
+(T4a's named follow-up, still open and still self-contained).
+
+**Affects:**
+
+- **T4d** — inherits four things. (a) Its blocking question is answered: quality
+  does not degrade to the repair trigger in 20 steps, so its exit criterion needs
+  a longer horizon or the tight roll-up, and "min quality stays above 0.18" is
+  **not** a discriminating assertion on this configuration. (b) It lands by
+  deleting its four rejections from `requireSupportedConfiguration`; each names
+  itself. (c) `tangentialSmooth` is now assigned to it, and is the one piece of
+  it that is *not* blocked upstream — it changes no connectivity. (d) The pass
+  loop in `DynamicRemesh::remesh` already carries the reference's
+  `changed || needs_quality_repair` gate in full, and the sizing recompute
+  between split and collapse is documented as load-bearing at the point where
+  T4d must add it back.
+- **T4e** — inherits the sizing field with its proximity term marked at the one
+  place it enters (`vertexTargetEdgeLength` stage 2), and
+  `vertexTargetEdgeLength` already takes the `state` it will need for the
+  material exclusion, so landing T4e changes no caller.
+- **R12** — now carries measurements of **both** mask families, plus the new
+  finding that a per-pass cap can move a length-driven mask out of the bounded
+  family.
+- **R13** — amended: partial masks did not diverge here, at twenty steps, so the
+  risk is conditional rather than structural in its consequence.
+- **R4** — a capped split pass is the same divergence as a capped refine pass,
+  and is avoided here by keeping the candidate count under the cap; the test
+  asserts `!split_capped` rather than assuming it.
+- **T5b** — the checkpoint layout is unchanged by this task. The gradation's
+  ghost exchange goes through a scratch AoSoA, so no new vertex field entered
+  `/vertices/`, and a T4a-era checkpoint remains readable.
+- **Anyone adding a `regression` test** — the gate is now **five** members and
+  **60 launches** on tuolumne.

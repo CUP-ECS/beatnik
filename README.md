@@ -423,13 +423,18 @@ subsections above, which are intended behavior.
   gold set), taking the gate to three members and 36 launches on tuolumne, all
   green as of T2d. **T4a has since added a fourth member**
   (`Beatnik_Test_RefineSplitEdges`, twenty timesteps with indicator-driven
-  refinement through `Tessera::splitEdges()`), taking the gate to **four members
-  and 48 launches**, all green as of T4a. A green gate proves that mesh
+  refinement through `Tessera::splitEdges()`), and **T4b a fifth**
+  (`Beatnik_Test_DynamicRemeshSplit`, twenty timesteps of metric-driven dynamic
+  remeshing with only the split third live), taking the gate to **five members
+  and 60 launches**, all green as of T4b. A green gate proves that mesh
   generation, the initial condition, the checkpoint write, the seven surface
-  operators, the direct Birkhoff-Rott sum and ten fixed-mesh timesteps reproduce
-  the reference; adaptivity is covered only for the indicator-driven refine path,
-  and only for the structural and shape claims T4a's test makes.
-  Resolves progressively as T4 lands its remaining regression tests. See
+  operators, the direct Birkhoff-Rott sum, ten fixed-mesh timesteps and **both
+  adaptivity paths' refinement halves** reproduce the reference. What it still
+  does not cover is **coarsening**: edge collapse, quality flips and the
+  isotropic cleanup are T4d, blocked on Tessera gaps G5b/G5c/G5d, and every
+  configuration that would reach one is rejected before the first step by name
+  and task ID. Resolves progressively as T4 lands its remaining regression
+  tests. See
   [CLAUDE.md](CLAUDE.md#minimum-test-set) and `tasks/framework.md`.
 
 - **The ship gate needs a shared filesystem for its scratch directory.** *Not a
