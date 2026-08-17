@@ -1396,10 +1396,30 @@ criterion names.
 **no connectivity**, so it belongs to no editing family and could be implemented
 before either. Sequenced here only because nothing calls it until T4a does.
 
-**Fill in:** `Beatnik_MeshQuality.hpp::improveQualityTangential`;
-`Beatnik_Solver.hpp::requireSupportedConfiguration` — drop the
-`redistribute_every > 0` rejection.
-← *Python:* `mesh_solver.py::improve_mesh_quality_tangential` (1775-1831)
+**Fill in:**
+- `Beatnik_MeshQuality.hpp::improveQualityTangential` **and
+  `::tangentialRelaxation`** (`src/Beatnik_MeshQuality.hpp:138`, `:211`). They are
+  the same operator reached from different callers — the header at `:141` already
+  says so — and `tangentialRelaxation` was assigned to no task at all, the hole
+  T4b found for `tangentialSmooth`. One private kernel, both entry points
+  delegating to it. `tangentialRelaxation` therefore ships **implemented but
+  unexercised**, its only caller `isotropicCleanup` being T4d: the same
+  standing as `VolumeProjection::projectToVolume` between T2d and T4b.
+- `Beatnik_Solver.hpp::requireSupportedConfiguration` — drop **two** rejections,
+  not one: `redistribute_every > 0` (`src/Beatnik_Solver.hpp:829-834`) and
+  `--smooth-iters > 0` under `--refine-every` (`:719-723`), which T4a added
+  naming this task by ID. Every other rejection there stays.
+- `Beatnik_Solver.hpp::advanceOneStep` — **the two call sites, neither of which
+  exists in code today.** Without them the task is not expressible, and the
+  original fill-in list named neither: the post-refine tangential pass
+  (`src/Beatnik_Solver.hpp:462-478`, where the reference's three repairs are
+  currently a comment and `flips` is a literal `0`) and the whole
+  `--redistribute-every` branch, transcribed in the control-flow comment at
+  `:56-57` and absent below it.
+
+← *Python:* `mesh_solver.py::improve_mesh_quality_tangential` (1775-1832),
+`run_adaptive_mesh_bubble.py::main` (1446-1451, the post-refine call; 1557-1565,
+the redistribute branch)
 
 The displacement is the neighbour-centroid Laplacian **projected onto the local
 tangent plane**, so the interface geometry is not normal-smoothed. Both operators
@@ -1409,12 +1429,224 @@ passes `reset_reference = (smooth_iters == 0)` to the flips and `False` here
 (`run_adaptive_mesh_bubble.py:1440-1451`), so the re-basing is *not*
 unconditional.
 
-**Exit criterion:** a `unit`-tier test on the default icosphere showing that the
-pass moves every vertex tangentially — \f$|\Delta x \cdot \hat n_v| < 10^{-13}\f$
-relative to \f$|\Delta x|\f$ at all 162 vertices — that the mean triangle quality
-does not decrease, and that V/E/F are **unchanged**; plus the failure direction,
-that a deliberately un-projected displacement raises the enclosed-volume change
-by orders of magnitude, so the tangency check is shown to have teeth.
+**`--redistribute-every` is not load balancing and this task is not blocked on
+T5d.** The reference's branch is the tangential pass plus
+`VolumeProjection::projectToVolume`, gated on `smooth_iters > 0` rather than on
+`--no-preserve-volume` alone (`:1564-1565`), and nothing else — no
+repartitioning, the Python being serial. `Comm::redistribute` stays T5d's.
+
+**Dropping the `--smooth-iters` rejection is where the volume projection first
+runs on the REFINE path.** The refine branch's gate is
+`flips > 0 || smooth_iters > 0 || isotropic_cleanup`
+(`src/Beatnik_Solver.hpp:475-479`), transcribed in full by T4a precisely so that
+deleting a rejection turns it on; `--smooth-iters` defaults to `1`. T4b already
+executed the projection on the remesh path, so what is new here is the refine
+path only.
+
+**Exit criterion:** a `unit`-tier test on the default icosphere — the tier, so
+the ship gate stays at five members / 60 launches — showing:
+
+- **tangency, stated so it is satisfiable.** At `iterations = 1`,
+  \f$\max_v |\Delta x_v\cdot\hat n_v| \le 10^{-13}\max_v|\Delta x_v|\f$; the
+  reference measures `2.05e-17`. Two things forbid the per-vertex ratio the
+  criterion originally asked for: **42 of the 162 vertices move by exactly
+  zero** (icosahedral symmetry makes their neighbour-centroid offset exactly
+  radial), so \f$|\Delta x\cdot\hat n|/|\Delta x|\f$ is `0/0` on a quarter of
+  the mesh; and the identity is **per sweep, not cumulative** — at
+  `iterations = 3` the accumulated \f$\max|\Delta x\cdot\hat n|\f$ against the
+  pre-pass normals is `2.05e-6`, because each sweep re-projects against the
+  geometry the previous one moved. At `iterations > 1`, assert tangency **per
+  sweep**;
+- **the mean triangle quality rises and V/E/F are unchanged.** Reference mean
+  \f$4\sqrt3 A/\sum\ell^2\f$: `0.98852866623246283` →
+  `0.99027290116169975` at `iterations = 1` and → `0.99244442526171672` at
+  `iterations = 3`. The **minimum** quality *decreases* slightly
+  (`0.97727413140883002` → `0.97721067116745464`), which is a property of the
+  operator and not of the port — report it, do not assert it. Displacement
+  scale: \f$\max|\Delta x|\f$ `0.00079728040863246894` at `iterations = 1`,
+  `0.0021023925151415252` at `iterations = 3`, against a shortest edge of
+  `0.068976121063816842`, so the pass is not a no-op on this mesh and R15's trap
+  does not apply;
+- **the failure direction, with the separation measured rather than asserted:** a
+  deliberately un-projected displacement changes the enclosed volume by
+  `1.606e-2` relative against the projected pass's `3.898e-6`, a factor of
+  ~4100. A tangency check that cannot see that factor has no teeth;
+- **rank-count invariance of every scalar above**, with the tier run once at
+  `BEATNIK_UNIT_RANKS=4` (`scripts/tuolumne/unit_tests.flux:99`). The pass
+  recomputes normals each sweep and so needs a position halo exchange *between*
+  sweeps; at one rank that precondition is unobservable, and getting it wrong
+  moves a seam with the rank count rather than failing.
+
+**Session prompt:**
+
+````
+Read `tasks/framework.md` and implement `T4c` — tangential relaxation: the
+neighbour-centroid Laplacian displacement projected onto the local tangent
+plane, plus the two reference call sites that reach it.
+
+Read these before starting, and skip the rest of the document:
+- `tasks/framework.md`: the `T4c` task entry, the Conventions table under
+  "Conventions established", the "Conventions for the whole of Phase 4" table,
+  and risks **R8** (a multi-sweep pass and the ghost depth), **R9** (owned-only
+  iteration) and **R15** (a pass that changes nothing is indistinguishable from
+  a correct one).
+- `tasks/framework-progress-log.md`: `## T2b` — both operators this task
+  composes are implemented and validated there, and its `Affects: T4c` bullet
+  carries the umbrella-vector scalars the test cross-checks against; `## T2d` —
+  decision 9 (why the post-step passes throw rather than skip) and decision 4
+  (owned range out, whole local range for anything a face loop scatters into);
+  `## T4a` — route (a), the `EdgeField::Faces`-is-partial-after-any-edit bug, and
+  that `resetReferenceState` is also what *initializes* the face pack; `## T4b` —
+  why the reference's smoothing sweep is Jacobi and what reading it as
+  Gauss-Seidel would have cost.
+- `src/Beatnik_MeshQuality.hpp:110-220` — `tangentialRelaxation` (`:138`) and
+  `improveQualityTangential` (`:211`), both throwing.
+- `src/Beatnik_Solver.hpp:33-60` (the control flow transcribed against `main`),
+  `:440-500` (the refine branch and its volume-projection gate), `:715-725` and
+  `:826-835` (the two rejections to delete).
+- Read-only reference, under `~/research-bridges/zmodel-steve/zmodel3d-amr/`:
+  `zmodel3d/mesh_solver.py:1775-1832`,
+  `examples/run_adaptive_mesh_bubble.py:1438-1451` and `:1557-1565`.
+
+The document is stale in these small ways. Correct them as part of this task:
+- T4a's **Do** step 6 and T2d's "What is deliberately NOT built" paragraph both
+  say `VolumeProjection::projectToVolume` first executes at T4c or T4d,
+  whichever lands first. T4b ran it first — its **Met.** paragraph and `## T4b`
+  in the log both say so. What is true of this task is narrower and is already
+  stated in its own entry: it is where the projection first runs on the
+  **refine** path.
+- "What is NOT yet true": the `--smooth-iters > 0` (T4c) clause and the sentence
+  requiring a refining run to pass `--flip-passes 0 --smooth-iters 0
+  --no-isotropic-cleanup` both stop being true of `--smooth-iters`.
+- `src/Beatnik_MeshQuality.hpp:182-186` says "the caller re-bases explicitly
+  after both" the flip and the smooth pass. The reference passes
+  `reset_reference=False` to the tangential pass at **both** of its call sites
+  (`:1449`, `:1562`), so that sentence is true only of the flip path — scope it
+  to T4d.
+
+Decisions already made — do not reopen, and record them in
+`tasks/framework-progress-log.md` under `## T4c`:
+- **One kernel, two entry points.** `improveQualityTangential` and
+  `tangentialRelaxation` are the same operator; implement one private device
+  kernel and have both delegate. `tangentialRelaxation` ships **unexercised** —
+  its only caller `isotropicCleanup` is T4d — which is `projectToVolume`'s
+  standing between T2d and T4b, not an oversight. Say so in the log.
+- **Compose T2b's validated operators; do not write a new stencil.**
+  `SurfaceOperators::graphLaplacianVector` over `mesh.vertexOneRing()` is exactly
+  the reference's sorted unique-neighbour centroid offset. T2b measured its `max`
+  as `0.012663750374617330` and the reference's own raw offset on the same mesh
+  is `0.012663750374617372` — agreement at `4e-17`, which is what localizes a
+  failure to the projection rather than to the stencil. `::projectTangent` is the
+  projection.
+- **The sweep is Jacobi, not Gauss-Seidel.** The reference builds the whole
+  displacement array from `vertices` and only then adds it (`:1804-1812`), so one
+  sweep is independent of vertex order and therefore of the partition. Reading it
+  as Gauss-Seidel is a faithful-looking transcription that is partition
+  dependent — the trap `## T4b` records for the gradation sweep.
+- **Recompute the vertex normals every sweep, and halo-exchange positions
+  between sweeps.** Positions live in the mesh, so that is `mesh.haloExchange()`;
+  `haloExchangeVertexView` (T4b) exists for views held *outside* the mesh and is
+  not needed here. Without the exchange, boundary vertices relax against stale
+  neighbours and the seam moves with the rank count.
+- **Do not re-base the AMR reference state after this pass.** Both reference call
+  sites pass `reset_reference=False`, and with `--flip-passes 0` the flip pass
+  returns having changed nothing, so nothing re-bases. An
+  `AdaptiveMesh::resetReferenceState` call here would change every subsequent
+  refinement decision.
+- **The `--redistribute-every` branch needs no repartitioning**, so this task is
+  not blocked on T5d. See the entry.
+
+Constraints specific to this task:
+- **The reference's CLI is the CLI** — no new switch, and only the two named
+  rejections come out of `requireSupportedConfiguration`. The others stay, by
+  name and task ID.
+- Out of scope by name and task ID: `DynamicRemesh::tangentialSmooth` (T4d — a
+  port of `dynamic_remesh.py::tangential_smooth_vertices`, a *different*
+  function), `isotropicCleanup` and both flip passes (T4d, blocked on Tessera
+  G5c), and `Diagnostics::compute`'s four `NaN` AMR indicator fields (T4a's named
+  open follow-up, which runs inside three other gate members).
+
+Running on the cluster — this machine uses Flux:
+
+- Do not run executables directly. No `flux run`, no bare `mpirun`, and no
+  invoking a test binary or the example driver on the login node — not a
+  single-rank smoke test, not `--help`. On a login node an interactive launch
+  does not fail, it blocks forever waiting for an allocation that never comes.
+  Everything that executes goes through a batch script submitted to the `pdebug`
+  queue. Building is the exception and is done on the login node.
+- **Build with `spack install`, never `cmake`/`make`** — this checkout is spack
+  mode: `spack env activate ~/spack_envs/tuolumne_beatnik && spack install`.
+  `Beatnik` is a CMake INTERFACE library that does not track its headers as
+  dependencies, so a header-only change can report a sub-second no-op build;
+  `touch examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp` first
+  (`systems/tuolumne/claude.md` §3).
+- **Do not write a new batch script.** Both tier wrappers already exist and
+  **discover** their tests, so a newly registered test lands in them for free:
+  `scripts/tuolumne/unit_tests.flux` (queue `pdebug`, `--nodes=1 --exclusive
+  -t 20m`, no account flag on this system) and the ship gate
+  `scripts/tuolumne/run_regression_minset.flux`. Each writes
+  `<job-name>.<jobid>.log` to the submitting directory and exits non-zero if any
+  test failed, so the job's own status is meaningful.
+- The exit criterion needs the unit tier twice — once at the default one rank,
+  once at four:
+
+  ```bash
+  jobid=$(flux batch scripts/tuolumne/unit_tests.flux)
+  while flux jobs "$jobid" 2>/dev/null | grep -q "$jobid"; do sleep 30; done
+  flux job status "$jobid"
+  ```
+
+  then again with `BEATNIK_UNIT_RANKS=4` exported before `flux batch`. Poll every
+  30 seconds and continue the moment the job leaves the queue; do not sleep for
+  the walltime.
+- **Then run the ship gate, because this task edits `Solver::advanceOneStep` and
+  all five `regression` members execute it** (CLAUDE.md "Minimum test set"):
+  `BEATNIK_TEST_SCRATCH=/p/lustre5/stewartj/beatnik/gate_scratch flux batch
+  scripts/tuolumne/run_regression_minset.flux`, polled the same way. That path
+  must stay on the parallel filesystem — pointed at tuolumne's node-local `/tmp`,
+  ranks 1-4 pass and ranks 5-6 die inside `H5FD__mpio_open`, which reads exactly
+  like the multi-rank solver bug the gate exists to catch. All 60 launches must
+  end `[gate] PASS (label=regression)` with the five members' check counts
+  unchanged — `Beatnik_Test_RefineSplitEdges` 86/86 and
+  `Beatnik_Test_DynamicRemeshSplit` 377/377 are the two that would move if the
+  new call site perturbed a mesh it should not.
+- Leaving the queue is not success. Read `flux job status` and then the `.log`
+  file before concluding anything: a job killed at its walltime or lost to a node
+  failure disappears from the queue exactly like one that passed.
+- If a job is still pending after ten minutes, stop polling and report the queue
+  state instead of waiting silently. Cancel any job you started and are no longer
+  waiting on (`flux cancel <jobid>`) before you finish.
+- **Do not touch the rank-to-GPU binding.** Both wrappers launch with
+  `--ntasks=N --nodes=ceil(N/4) --exclusive --gpus-per-task=1 --cores-per-task=24
+  --setopt=mpibind=verbose:1`; tuolumne is 4 ranks per node. A wrong binding does
+  not fail, it oversubscribes one device and returns a plausible number.
+- Both wrappers read their manifests on **fd 3**, not stdin, because `flux run`
+  inherits and consumes its caller's stdin and swallowed every remaining manifest
+  line — a green tier that silently skipped the new test. Do not move that back.
+- **Do not run `clang-format`.** Formatting is the user's job; write and edit in
+  the style of the surrounding code.
+- Stop and report rather than work around. If the build fails twice for the same
+  reason, or a job dies twice the same way, write up what you tried and what the
+  error was, and stop. Do not loosen a tolerance, drop a case, or substitute a
+  smaller run — that silently changes what **DONE** means and the substitution is
+  invisible in the diff.
+
+Exit criterion: as restated in the `T4c` entry — read it there rather than from
+this block. Every reference number in it was measured from the read-only Python
+on the default icosphere; hard-code them as 17-digit literals, the convention
+every other test in this tree follows, and do not adjust one to make a check
+pass.
+
+When done: commit and push the work, then mark `T4c` **DONE** in
+`tasks/framework.md` with a **Met.** paragraph stating what was actually
+verified, and append a `## T4c` section to `tasks/framework-progress-log.md`
+covering the decisions above, any signature changed and what forced it, bugs only
+running revealed, and the numbers measured — with an `**Affects:**` line naming
+the later task IDs your findings change (T4d at least: it inherits the shared
+kernel, and its `isotropicCleanup` is `tangentialRelaxation`'s first caller).
+Delete this `**Session prompt:**` block from the `T4c` entry in the same edit;
+it describes work that is now finished.
+````
 
 ---
 
