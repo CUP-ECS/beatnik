@@ -326,7 +326,8 @@ class Solver
      * **T2d — the loop is here, and the post-step passes it cannot yet run
      * THROW rather than being skipped.** `requireSupportedConfiguration()` is
      * called once before the loop and rejects, by name and by task ID, any
-     * configuration whose post-step passes are still stubs (T4a/T4b/T4c/T5c). It
+     * configuration whose post-step passes are still stubs (T4d/T4e/T5c; T4a,
+     * T4b and T4c have landed and their rejections are gone). It
      * is a configuration check and not a mid-loop guard on purpose: the
      * conditions are global and time-independent, so failing before the first
      * step is both cheaper and more honest than aborting at step 5. Silently
@@ -440,12 +441,13 @@ class Solver
         // globally identical (it is built from the step counter and two
         // parameters), so every rank enters the collective refiner together.
         //
-        // The filter (T5c) and redistribute (T4c) branches are still stubs, as
-        // are the collapse/flip/smooth thirds of the remesh branch below (T4d)
-        // and both of its proximity paths (T4e); `requireSupportedConfiguration`
-        // has already rejected any configuration that would reach one — so
-        // there is nothing to skip here and nothing that could be silently
-        // skipped.
+        // The filter branch (T5c) is still a stub, as are the collapse/flip/
+        // smooth thirds of the remesh branch below (T4d) and both of its
+        // proximity paths (T4e); `requireSupportedConfiguration` has already
+        // rejected any configuration that would reach one — so there is nothing
+        // to skip here and nothing that could be silently skipped. **T4c landed
+        // the tangential pass and the redistribute branch**, so those two are no
+        // longer in that list.
         if ( !_params.dynamic_remesh && _params.amr.refine_every > 0 &&
              _step % _params.amr.refine_every == 0 )
         {
@@ -455,24 +457,43 @@ class Solver
                 _refine_events += _last_refinement.marked_faces;
 
                 // The reference's three quality repairs go here
-                // (lines 1440-1464). All three are rejected at setup, by name
-                // and task ID, so the counter below is a transcription of the
-                // reference's own gate rather than a placeholder:
+                // (lines 1440-1464). Two of the three are still rejected at
+                // setup, by name and task ID, so the counter below is a
+                // transcription of the reference's own gate rather than a
+                // placeholder:
                 //
                 //   improveConnectivityByFlips   T4d (blocked, Tessera G5c)
-                //   improveQualityTangential     T4c
                 //   isotropicCleanup             T4d (blocked, Tessera G5c)
                 const int flips = 0;
+
+                // MeshQuality::improveQualityTangential (lines 1446-1450) —
+                // T4c. Called UNCONDITIONALLY once anything was marked, with
+                // `--smooth-iters` (default 1) and `--smooth-relaxation`
+                // (0.12); the pass makes its own no-op decision when either is
+                // zero, exactly as the reference's early return does.
+                //
+                // NOTHING RE-BASES THE AMR REFERENCE STATE AFTER IT. The
+                // reference passes `reset_reference=False` here (`:1449`) and
+                // `reset_reference=(smooth_iters == 0)` to the flip pass above
+                // — which, with `--flip-passes 0`, returns having changed
+                // nothing and re-bases nothing. An `AdaptiveMesh::
+                // resetReferenceState` call here would change every subsequent
+                // refinement decision, so there is none; T4d owns the question
+                // for the flip path.
+                _quality->improveQualityTangential(
+                    _mesh, _params.filter.smooth_iters,
+                    _params.filter.smooth_relaxation );
 
                 // `project_state_to_volume` is gated on a repair having
                 // ACTUALLY RUN (lines 1465-1468), not on the refinement having
                 // happened — `flips > 0 or smooth_iters > 0 or
-                // isotropic_cleanup`. Under the only configuration this build
-                // accepts all three are false, so the projection does NOT
-                // execute, and that is the reference's behaviour rather than an
-                // omission. The gate is written out in full instead of folded
-                // to `false` so that landing T4c or T4d turns it on by deleting
-                // a rejection, not by remembering to add a call.
+                // isotropic_cleanup`. **T4c: this is where the projection first
+                // runs on the REFINE path**, because dropping the
+                // `--smooth-iters` rejection makes the middle clause true at
+                // the default `--smooth-iters 1` — which is exactly why T4a
+                // transcribed the gate in full rather than folding it to
+                // `false`. (T4b was where `projectToVolume` first ran at all,
+                // on the remesh path.)
                 const bool repaired = ( flips > 0 ) ||
                                       ( _params.filter.smooth_iters > 0 ) ||
                                       _params.cleanup.enabled;
@@ -545,6 +566,32 @@ class Solver
                     return false;
                 }
             }
+        }
+
+        // -- the periodic redistribution branch (T4c) -----------------------
+        // run_adaptive_mesh_bubble.py:1557-1565. **NOT load balancing**, in
+        // spite of the name: it is the tangential pass on its own cadence plus
+        // the volume projection, and nothing else — the Python is serial and
+        // repartitions nothing, so this branch is not blocked on T5d and
+        // `Comm::redistribute` stays T5d's. Off by default
+        // (`--redistribute-every 0`); the cadence is built from the step counter
+        // and one parameter, so every rank enters the collective pass together.
+        //
+        // The projection's gate here is NOT the refine branch's: the reference
+        // asks only `not no_preserve_volume and args.smooth_iters > 0`
+        // (`:1564-1565`), i.e. it is the tangential pass having been asked for,
+        // with no `flips`/`isotropic_cleanup` clause.
+        if ( _params.filter.redistribute_every > 0 &&
+             _step % _params.filter.redistribute_every == 0 )
+        {
+            _quality->improveQualityTangential(
+                _mesh, _params.filter.smooth_iters,
+                _params.filter.smooth_relaxation );
+
+            if ( _params.zmodel.preserve_volume &&
+                 _params.filter.smooth_iters > 0 )
+                VolumeProjection<ExecutionSpace, MemorySpace>::projectToVolume(
+                    _mesh, _initial_volume );
         }
 
         recordLastFiniteState();
@@ -711,16 +758,13 @@ class Solver
                 "(../tessera/tasks/edge-flip.md, gap G5c). Pass "
                 "--flip-passes 0." );
 
-        // `--smooth-iters` defaults to 1, and the refine branch calls the
-        // tangential pass with it UNCONDITIONALLY once anything is marked
-        // (`run_adaptive_mesh_bubble.py:1446-1450`) — so without this rejection
-        // a default `--refine-every N` run reaches a throwing T4c method with no
-        // task ID on it, several steps into the run.
-        if ( refining && _params.filter.smooth_iters > 0 )
-            throw std::logic_error(
-                "Beatnik::Solver::solve: --smooth-iters > 0 under "
-                "--refine-every needs MeshQuality::improveQualityTangential, "
-                "which is task T4c and still throws. Pass --smooth-iters 0." );
+        // **T4c: the `--smooth-iters > 0` rejection is GONE.**
+        // `MeshQuality::improveQualityTangential` is implemented, so the refine
+        // branch's unconditional tangential pass
+        // (`run_adaptive_mesh_bubble.py:1446-1450`) runs at the default
+        // `--smooth-iters 1` — and so, through the repair gate, does the volume
+        // projection. `--redistribute-every > 0` is accepted for the same
+        // reason; its rejection at the bottom of this function is gone too.
 
         if ( ( refining || remeshing ) && _params.cleanup.enabled )
             throw std::logic_error(
@@ -825,12 +869,6 @@ class Solver
                 "Beatnik::Solver::solve: --field-filter-every > 0 needs "
                 "Solver::filterCirculationField, which is task T5c and still "
                 "throws. Pass --field-filter-every 0." );
-
-        if ( _params.filter.redistribute_every > 0 )
-            throw std::logic_error(
-                "Beatnik::Solver::solve: --redistribute-every > 0 needs "
-                "MeshQuality::improveQualityTangential, which is task T4c and "
-                "still throws. Pass --redistribute-every 0." );
     }
 
     /// Rank 0 prints the reference's stop line verbatim

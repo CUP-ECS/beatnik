@@ -44,12 +44,26 @@ set(BEATNIK_UNIT_TEST_SOURCES
   Beatnik_Test_MeshGeometry.cpp
   # T2b: the seven surface differential operators, and updateSheetVector.
   Beatnik_Test_T2bOperators.cpp
+  # T4c: tangential relaxation -- the tangent-plane-projected neighbour-centroid
+  # Laplacian. THE FIRST RANK-COUNT-AWARE MEMBER OF THIS TIER: every scalar it
+  # checks is a global reduction over owned entities, so the same literals hold
+  # at any rank count and the batch wrapper's BEATNIK_UNIT_RANKS=4 run is what
+  # checks the position halo exchange between sweeps.
+  Beatnik_Test_TangentialRelaxation.cpp
   )
 
-# The unit tier runs at ONE rank. A multi-rank unit test would have to reduce
-# its failure count before reporting a verdict (the recorder is rank-local by
-# design), which is a decision for the task that first needs one -- and the
-# rank sweep is the `regression` tier's job, not this one's.
+# The registered ctest entry runs at ONE rank; the rank sweep is the
+# `regression` tier's job, not this one's, and the four-rank run of this tier is
+# `BEATNIK_UNIT_RANKS=4 flux batch scripts/<system>/unit_tests.<scheduler>`.
+#
+# T4c ANSWERED THE MULTI-RANK QUESTION this comment used to leave open. The
+# recorder is rank-local by design, so a multi-rank member calls `report()` on
+# every rank -- the log then names WHICH rank failed -- and reduces the returned
+# exit codes with `MPI_Allreduce(..., MPI_MAX, comm)` in `main`. That is T1c's
+# pattern for the `regression` tier and it needs nothing from this file; see
+# Beatnik_TestAssert.hpp for why the reduction stays at the call site. A member
+# whose checks are whole-surface summary scalars (T2b's) still asserts
+# `comm_size == 1` rather than silently passing after checking nothing.
 set(_beatnik_unit_ranks 1)
 
 foreach(_src ${BEATNIK_UNIT_TEST_SOURCES})

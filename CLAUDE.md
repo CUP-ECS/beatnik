@@ -78,7 +78,9 @@ The `regression` tier currently has **five** members — the initial condition a
 the Python gold set (T2d), twenty timesteps with `splitEdges()` refinement
 (T4a), and twenty timesteps of split-only dynamic remeshing (T4b) — so on
 tuolumne the gate is **60 launches** and takes correspondingly longer to run.
-**All five are green**, the full sweep as of T4b.
+**All five are green**, the full sweep as of T4c (T4c added no member — its
+tangential relaxation is a `unit`-tier test — and re-ran the gate to show the two
+new `advanceOneStep` call sites perturb nothing).
 **`BEATNIK_TEST_SCRATCH`
 must name a path on a parallel filesystem**, not a node-local one: the
 checkpoints go through MPI-IO, so a node-local scratch fails every launch that

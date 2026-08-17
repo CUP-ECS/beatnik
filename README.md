@@ -426,7 +426,12 @@ subsections above, which are intended behavior.
   refinement through `Tessera::splitEdges()`), and **T4b a fifth**
   (`Beatnik_Test_DynamicRemeshSplit`, twenty timesteps of metric-driven dynamic
   remeshing with only the split third live), taking the gate to **five members
-  and 60 launches**, all green as of T4b. A green gate proves that mesh
+  and 60 launches**, all green as of T4b and **re-run green at T4c**, which
+  added no member: its tangential relaxation is covered by the `unit` tier
+  (`Beatnik_Test_TangentialRelaxation`), and the gate's role there was to show
+  that the two new `advanceOneStep` call sites perturb nothing at the gate's own
+  configuration (`--smooth-iters 0 --redistribute-every 0`) — the two sentinel
+  members' check counts, 86/86 and 377/377, are unmoved. A green gate proves that mesh
   generation, the initial condition, the checkpoint write, the seven surface
   operators, the direct Birkhoff-Rott sum, ten fixed-mesh timesteps and **both
   adaptivity paths' refinement halves** reproduce the reference. What it still

@@ -41,6 +41,7 @@
 #ifndef BEATNIK_MESHQUALITY_HPP
 #define BEATNIK_MESHQUALITY_HPP
 
+#include <Beatnik_MeshGeometry.hpp>
 #include <Beatnik_MeshInterface.hpp>
 #include <Beatnik_Params.hpp>
 #include <Beatnik_Types.hpp>
@@ -130,16 +131,29 @@ class MeshQuality
      * The vertex normals are recomputed **each pass**, since the surface
      * parameterization has moved.
      *
-     * @note MPI. Ghost positions must be refreshed between passes
-     *       (`Comm::haloExchangeVertices`) or boundary vertices relax against
-     *       stale neighbors and a visible seam develops.
+     * **T4c — implemented, and it is `improveQualityTangential`'s kernel.** Both
+     * entry points delegate to `relaxTangential` below; the reference's two
+     * functions (`mesh_quality.py::_tangential_relaxation` and
+     * `mesh_solver.py::improve_mesh_quality_tangential`) are the same operator
+     * written twice, one over raw arrays and one over a state. This entry point
+     * ships with **no caller on any solver path** — its consumer is
+     * `isotropicCleanup`, which is T4d — exactly the standing
+     * `VolumeProjection::projectToVolume` had between T2d and T4b. The only
+     * thing that exercises it is the one-kernel equivalence check in
+     * `tests/unit_tests/Beatnik_Test_TangentialRelaxation.cpp`.
+     *
+     * @param mesh   Surface; **owned** vertex positions moved in place.
+     * @param passes Sweeps; a non-positive count is a no-op, as is `weight` 0.
+     * @param weight Relaxation factor \f$w\f$.
+     * @return Sweeps actually applied.
+     *
+     * @note MPI. Ghost positions are refreshed between passes by
+     *       `mesh.haloExchange()` — see `relaxTangential`, which is where the
+     *       requirement this note records is discharged.
      */
     int tangentialRelaxation( mesh_type& mesh, int passes, Real weight ) const
     {
-        (void)mesh;
-        (void)passes;
-        (void)weight;
-        BEATNIK_NOT_IMPLEMENTED( "MeshQuality", "tangentialRelaxation" );
+        return relaxTangential( mesh, passes, weight );
     }
 
     /**
@@ -181,8 +195,12 @@ class MeshQuality
      * The `reset_reference` flag in the Python is threaded oddly — the caller
      * passes `reset_reference=(smooth_iters == 0)` so the reference is re-based
      * by whichever of the flip and smooth passes runs last
-     * (`run_adaptive_mesh_bubble.py:1440-1451`). Here the caller re-bases
-     * explicitly after both, which is equivalent and easier to reason about.
+     * (`run_adaptive_mesh_bubble.py:1440-1451`). **T4c correction: that is a
+     * statement about THIS pass only.** The tangential pass is handed
+     * `reset_reference=False` at *both* of the reference's call sites (`:1449`,
+     * `:1562`), so it never re-bases and `improveQualityTangential` does not;
+     * whether the flip path re-bases explicitly afterwards is T4d's decision to
+     * make, and this note previously claimed it for both.
      */
     int improveConnectivityByFlips( mesh_type& mesh, int max_passes,
                                     Real min_gain ) const
@@ -207,17 +225,133 @@ class MeshQuality
      * The reference notes it "targets element quality while avoiding deliberate
      * normal smoothing of the interface geometry" — the same tangential
      * constraint, stated for the same reason.
+     *
+     * **T4c.** One kernel, two entry points: this is `relaxTangential` below,
+     * as is `tangentialRelaxation`. Called from `Solver::advanceOneStep` at both
+     * of the reference's call sites — after an indicator-driven refine
+     * (`--smooth-iters`, `--smooth-relaxation`) and from the periodic
+     * `--redistribute-every` sweep. **It does not re-base the AMR reference
+     * state**: both call sites pass `reset_reference=False`, so re-basing here
+     * would change every subsequent refinement decision.
+     *
+     * @param mesh       Surface; **owned** vertex positions moved in place.
+     * @param iterations `--smooth-iters`; a non-positive count is a no-op, as is
+     *                   a zero `relaxation` (`mesh_solver.py:1793-1794`).
+     * @param relaxation `--smooth-relaxation`.
      */
     void improveQualityTangential( mesh_type& mesh, int iterations,
                                    Real relaxation ) const
     {
-        (void)mesh;
-        (void)iterations;
-        (void)relaxation;
-        BEATNIK_NOT_IMPLEMENTED( "MeshQuality", "improveQualityTangential" );
+        relaxTangential( mesh, iterations, relaxation );
     }
 
   private:
+    /**
+     * @brief The one tangential-relaxation sweep loop. T4c.
+     *
+     * Port of mesh_solver.py::improve_mesh_quality_tangential (lines 1792-1812)
+     * and mesh_quality.py::_tangential_relaxation (lines 108-115)
+     *
+     * \f[
+     *   x_v \mathrel{+}= w\,P_v\big(\bar x_v - x_v\big), \qquad
+     *   P_v u = u - (u\cdot\hat n_v)\hat n_v,
+     * \f]
+     * with \f$\bar x_v\f$ the mean over the **unique** neighbour set. That
+     * offset is exactly `SurfaceOperators::graphLaplacianVector` over
+     * `mesh.vertexOneRing()` and the projection is exactly
+     * `SurfaceOperators::projectTangent` — both validated at T2b against this
+     * same reference on this same mesh (`max` of the raw offset
+     * `1.2663750374617e-2`, agreeing to `4e-17`), so no new stencil is written
+     * here and a failure localizes to the projection rather than to the
+     * neighbourhood.
+     *
+     * **THE SWEEP IS JACOBI, NOT GAUSS-SEIDEL.** The reference builds the whole
+     * `displacement` array from `vertices` and only then adds it
+     * (`mesh_solver.py:1804-1812`), so one sweep is independent of vertex order
+     * and therefore of the partition. Reading it as Gauss-Seidel — updating a
+     * position and letting the next vertex see it — is a faithful-*looking*
+     * transcription that is partition dependent; the same trap T4b records for
+     * the gradation sweep.
+     *
+     * **Two things the distributed form needs that the serial reference does
+     * not.** The vertex normals are recomputed **every sweep** (the surface
+     * parameterization has moved, and the reference recomputes them too), and
+     * the positions are halo-exchanged **between** sweeps — `mesh.haloExchange()`,
+     * since positions live in the mesh; `haloExchangeVertexView` (T4b) is for
+     * views held outside it and is not needed here. Without the exchange a
+     * boundary vertex relaxes against stale neighbours and the seam moves with
+     * the rank count. The exchange at the top of the loop also covers whatever
+     * edited the mesh just before the call, and the one after it leaves the mesh
+     * halo-consistent for the volume projection that follows.
+     *
+     * Only **owned** rows of `positions()` are written (risk R9): a ghost is an
+     * owned vertex somewhere else and its own rank moves it. `displacement` is
+     * allocated over the **whole local range** because `projectTangent` takes
+     * its extent from `vertex_normal`, which is local-ranged — T2d's decision 4,
+     * both halves of it.
+     *
+     * The `reference_area` / `reference_curvature` re-base at
+     * `mesh_solver.py:1814-1818` is **deliberately not done**: it is gated on
+     * `reset_reference`, and both of the reference's call sites pass `False`.
+     *
+     * @return Sweeps applied — 0 when the pass is configured off, which is the
+     *         reference's own early return.
+     *
+     * @note MPI. Collective: `haloExchange()` and `vertexOneRing()` both are,
+     *       and the sweep count is a parameter identical on every rank, so every
+     *       rank reaches each of them the same number of times.
+     */
+    int relaxTangential( mesh_type& mesh, int iterations,
+                         Real relaxation ) const
+    {
+        // `iterations = max(int(iterations), 0)`, then the two-clause early
+        // return (mesh_solver.py:1792-1794). `relaxation == 0` is compared
+        // exactly, as the Python does.
+        const int sweeps = ( iterations > 0 ) ? iterations : 0;
+        if ( sweeps == 0 || relaxation == Real( 0 ) )
+            return 0;
+
+        using device_type = Kokkos::Device<ExecutionSpace, MemorySpace>;
+        // TODO(types): templated pending Tessera/Canopy interface; collapse to a
+        // concrete type once known.
+        using vector_view = Kokkos::View<Real* [3], device_type>;
+
+        MeshGeometry<ExecutionSpace, MemorySpace> geometry;
+        const Real w = relaxation;
+
+        for ( int sweep = 0; sweep < sweeps; ++sweep )
+        {
+            mesh.haloExchange();
+
+            const int nv = mesh.totalVertexCount();
+            const int n_owned = mesh.ownedVertexCount();
+            auto pos = mesh.positions();
+
+            geometry.compute( pos, nv, mesh.faceVertices() );
+
+            vector_view displacement( "beatnik_tangential_displacement", nv );
+            SurfaceOperators::graphLaplacianVector( mesh.vertexOneRing(), pos,
+                                                   displacement );
+            SurfaceOperators::projectTangent( displacement,
+                                              geometry.vertex_normal );
+
+            Kokkos::parallel_for(
+                "beatnik_tangential_relaxation_apply",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, n_owned ),
+                KOKKOS_LAMBDA( const int i ) {
+                    for ( int d = 0; d < 3; ++d )
+                        pos( i, d ) += w * displacement( i, d );
+                } );
+            Kokkos::fence();
+        }
+
+        // Leave the ghosts consistent with the moved owners, so the caller's
+        // next geometry computation (the volume projection, at both call sites)
+        // does not read stale positions.
+        mesh.haloExchange();
+        return sweeps;
+    }
+
     CleanupParams _params;
 };
 

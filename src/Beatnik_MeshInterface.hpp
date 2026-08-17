@@ -1595,7 +1595,7 @@ class SurfaceMesh
      * met: a correct flip needs both incident faces, which the vertex halo does
      * not guarantee are co-resident, so it needs the edge-coordinator machinery
      * — and `buildFaceAdjacency` (G4) now exposes exactly that. This blocks
-     * T4c's flips.
+     * T4d's flips (T4c is the tangential pass and needs no flip).
      *
      * **EDITING FAMILY — Remesh**, when it lands: the same family
      * `splitEdges()` already tags this mesh with, so it composes with it.
