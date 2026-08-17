@@ -72,6 +72,7 @@ it from the header alone, without reading the Python.
 | C++ standard | C++17 |
 | Parallelism | Kokkos + MPI from the start; no serial-only signatures |
 | Stub bodies | `BEATNIK_NOT_IMPLEMENTED("Class", "method")` |
+| CLI surface | **Exactly the reference's.** No option that `run_adaptive_mesh_bubble.py::parse_args` does not define, ever — not a Beatnik-only convenience switch and not a subset-selecting one. The audited sets agree today: every option `parse_args` defines is parsed by `examples/02_adaptive_mesh_bubble/InputFile.hpp`, and Beatnik defines none the Python does not. Where a partially ported path needs part of the reference's behaviour turned off, turn it off through the reference's **own** knob at a value that makes it a no-op — T4b's `kFlipsDisabledMinGain` (`src/Beatnik_Params.hpp:212-226`) rather than a `--dynamic-remesh-split-only` — and reject every other configuration by name and task ID. |
 | Traceability | `// Port of <file>::<fn> (lines N-M)` on every ported routine |
 | Container types | templated on `<ExecutionSpace, MemorySpace>`, each view alias carrying `// TODO(types): templated pending Tessera/Canopy interface; collapse to a concrete type once known.` |
 
@@ -169,9 +170,14 @@ What is still a stub:
   (T4d, and it defaults to *on*) — so a refining run must pass
   `--flip-passes 0 --smooth-iters 0 --no-isotropic-cleanup`. The editing-family
   question that blocked all of Phase 4 is **settled** (Phase 4, *The
-  editing-family question — RESOLVED*): T4b, T4c and T4e are implementable
+  editing-family question — RESOLVED*): T4b, T4c, T4e and T4f are implementable
   against Tessera as it stands, and only **T4d** — coarsening, flips and
   isotropic cleanup — still waits on Tessera's G5b/G5c/G5d.
+- **`--remesh-tight-after >= 0` is rejected.** The sixteen `--remesh-tight-*`
+  options parse and populate a distinct `RemeshParams`, but nothing selects it,
+  so a run past the switch time would otherwise keep remeshing at the baseline
+  parameters — a wrong answer rather than a missing feature. That switch is
+  **T4f**, and it needs no new CLI.
 - **`/vertices/u1` in a `--steps 0` checkpoint is still present-but-meaningless**,
   though no longer because of a stub: `SurfaceState::updateSheetVector` is
   implemented (T2b), but nothing on the 0-timestep path *calls* it, so
@@ -745,7 +751,7 @@ arguments.
 
 **What is deliberately NOT built, and stays throwing:**
 `Solver::filterCirculationField` and `ZModelSolver::computeRightHandSideSheet`
-(T5c), `BRSolverFMM`'s bodies (T3a), all of adaptivity (T4a-T4e).
+(T5c), `BRSolverFMM`'s bodies (T3a), all of adaptivity (T4a-T4f).
 `VolumeProjection::projectToVolume` **is** implemented but is unreachable from
 any configuration that exists today — every reference call site is inside a
 refine or remesh branch — so it is written and unexercised. **T4a is NOT where
@@ -1486,7 +1492,8 @@ plane, plus the two reference call sites that reach it.
 
 Read these before starting, and skip the rest of the document:
 - `tasks/framework.md`: the `T4c` task entry, the Conventions table under
-  "Conventions established", the "Conventions for the whole of Phase 4" table,
+  "Conventions established" — the **CLI surface** row in particular — the
+  "Conventions for the whole of Phase 4" table,
   and risks **R8** (a multi-sweep pass and the ghost depth), **R9** (owned-only
   iteration) and **R15** (a pass that changes nothing is indistinguishable from
   a correct one).
@@ -1557,14 +1564,26 @@ Decisions already made — do not reopen, and record them in
   not blocked on T5d. See the entry.
 
 Constraints specific to this task:
-- **The reference's CLI is the CLI** — no new switch, and only the two named
-  rejections come out of `requireSupportedConfiguration`. The others stay, by
-  name and task ID.
+- **Add no CLI option.** The library's CLI is exactly
+  `run_adaptive_mesh_bubble.py::parse_args`'s, with no exceptions — see the
+  Conventions table's **CLI surface** row. This task needs none: its three knobs
+  are `--smooth-iters` (default 1), `--smooth-relaxation` (0.12) and
+  `--redistribute-every` (0) at `parse_args:387-389`, all three already parsed at
+  `examples/02_adaptive_mesh_bubble/InputFile.hpp:576-578` and landing in
+  `FilterParams` (`src/Beatnik_Params.hpp:606-617`). Only the two named
+  rejections come out of `requireSupportedConfiguration`; every other rejection
+  there stays, by name and task ID. If you find yourself wanting a switch to
+  express a partially ported path, the answer is a reference knob at a no-op
+  value (T4b's `kFlipsDisabledMinGain`) or a rejection — never a new option.
 - Out of scope by name and task ID: `DynamicRemesh::tangentialSmooth` (T4d — a
   port of `dynamic_remesh.py::tangential_smooth_vertices`, a *different*
   function), `isotropicCleanup` and both flip passes (T4d, blocked on Tessera
-  G5c), and `Diagnostics::compute`'s four `NaN` AMR indicator fields (T4a's named
-  open follow-up, which runs inside three other gate members).
+  G5c), the tight-remesh parameter switch (**T4f** — do not touch the
+  `remesh_tight_after` rejection or the profile-swap comment at
+  `src/Beatnik_Solver.hpp:493-497, 806-816`, even though they sit inside the two
+  functions this task edits), and `Diagnostics::compute`'s four `NaN` AMR
+  indicator fields (T4a's named open follow-up, which runs inside three other
+  gate members).
 
 Running on the cluster — this machine uses Flux:
 
@@ -1713,6 +1732,90 @@ reusing Canopy's tree.
 approach to within `proximity_activation_distance` refines the approaching faces
 and not their topological neighbours, at ranks 1 and 4, with the marked set
 identical at both rank counts.
+
+---
+
+### T4f — The tight dynamic-remesh parameter profile — **NOT STARTED**
+
+**Depends on:** T4b, whose remesher this switches the parameters of. Nothing
+upstream: it needs no Tessera capability and adds **no CLI**, the sixteen
+`--remesh-tight-*` options being the reference's own.
+
+**Fill in:**
+- `Beatnik_Solver.hpp::advanceOneStep` — the profile swap its own control-flow
+  comment already documents (`src/Beatnik_Solver.hpp:493-497`): past
+  `remesh_tight_after` the active parameter set becomes `_params.remesh_tight`
+  and the active cadence becomes `_params.remesh_tight_every`.
+- `Beatnik_Solver.hpp::requireSupportedConfiguration` — delete the
+  `remesh_tight_after >= 0` rejection (`:806-816`) **together with its comment,
+  which is false**; see below.
+← *Python:* `run_adaptive_mesh_bubble.py::main` (1358-1380, the second parameter
+set; 1473-1480, the switch), `::parse_args` (497-532)
+
+**The CLI and the parameters are already ported; only the switch is missing.**
+The rejection's comment claims `--remesh-tight-*` "has no representation in
+`RemeshParams`" and that `SolverParams::remesh_tight` "is a copy of the baseline
+set". Both are false, which is why this task is six lines rather than the
+parameter-plumbing job it has been described as: all sixteen options parse
+(`examples/02_adaptive_mesh_bubble/InputFile.hpp:640-670`), the tight defaults —
+which differ from the baseline in every field — are applied *before* parsing so
+overrides land on the right starting point (`applyTightRemeshDefaults`, called
+from `examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp:182-183`), the
+`use_proximity` OR and the `None`-means-inherit proximity fraction are
+reconciled after parsing (`InputFile.hpp:725-732`), `SolverParams::remesh_tight`
+is a distinct `RemeshParams` (`src/Beatnik_Solver.hpp:145`), and `Solver::setup`
+already resolves its proximity radii (`:281`).
+
+**Do:**
+
+1. **Swap the pair, not just the parameters.** The reference replaces
+   `active_remesh_every` with `--remesh-tight-every` (default 1) in the same
+   branch. Tight parameters at the baseline cadence is a third configuration the
+   reference cannot produce.
+2. **Re-evaluate the predicate every step** rather than latching a flag. It is
+   one-way in practice, and the reference still tests
+   `current_time >= args.remesh_tight_after` per step; a latch is a different
+   program whose difference is invisible until someone makes the threshold
+   non-monotonic.
+3. **Apply T4b's acceptance rule to BOTH sets.** `remesh_tight` carries its own
+   `collapse_factor` (`0.0`, already a no-op), `smoothing_iterations` (**1**) and
+   `flip_min_gain` (**1e-3**), so a run that is acceptable before the switch can
+   reach all three unimplemented thirds after it. Extend the four T4b rejections
+   to test the tight set as well rather than duplicating them, and record in the
+   log what the fully accepted tight command line is.
+4. **Expect the per-pass cap to bind, and expect R12.** The tight set is
+   `h_min 0.0008` against the baseline `1.5e-3`, `max_splits_per_pass 900`,
+   `passes 2`, `split_factor 1.05`. T4b measured that a *truncated* split mask
+   leaves R12's bounded family — minimum \f$r/R\f$ to `0.204341652937` with a
+   sub-`0.25` population that never returns to zero. So log both R12 signals per
+   pass across the switch and report the tight set's own trajectory; T4b's
+   `0.248` floor is a statement about the baseline set and does not carry over.
+
+**Exit criterion:** a new sub-run added to the existing `regression` member
+`Beatnik_Test_DynamicRemeshSplit`, so the ship gate stays at **five members / 60
+launches** and its twelve existing configurations keep their current check count
+as a subset. Promoting it to a member of its own would grow the gate and needs
+the user's confirmation first (CLAUDE.md "Minimum test set"). It must show, at
+the gate's ranks 1-6 on SERIAL and HIP:
+
+- a run with `--remesh-tight-after` set to a time the run actually crosses (take
+  it from T4b's measured `time` series rather than guessing, R15) and with
+  `--remesh-tight-smooth-iters 0 --remesh-tight-flip-min-gain 1e12
+  --remesh-tight-collapse-factor 0` reports, from the step after the crossing,
+  the **tight** `sagitta_tolerance`, `h_min`, `h_max`, `split_factor` and
+  `passes` in its per-pass diagnostics, and the tight cadence — asserted against
+  the parameter values, not inferred from the pass structure;
+- the pass **before** the crossing still reproduces T4b's own per-pass numbers
+  exactly, which is what proves the switch changed the parameters and not the
+  baseline path;
+- both R12 signals logged per pass across the crossing, with the tight set's
+  measured floor written into this document (T4a's and T4b's convention) and
+  **not** taken from either of theirs;
+- **the failure direction:** `--remesh-tight-after 0` with the tight set's
+  *default* `--remesh-tight-smooth-iters 1` exits non-zero from
+  `requireSupportedConfiguration` naming `DynamicRemesh::tangentialSmooth` and
+  **T4d** — the check that the acceptance rule is applied to the tight set and
+  not only to the baseline one.
 
 ---
 
