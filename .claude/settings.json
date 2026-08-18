@@ -42,12 +42,45 @@
       "Bash(python3 -)",
       "Bash(ls -d /g/g20/stewartj/spack_envs/tuolumne_beatnik/beatnik/../tessera; ls /g/g20/stewartj/spack_envs/tuolumne_beatnik/)",
       "Read(//g/g20/stewartj/spack_envs/tuolumne_beatnik/tessera/**)",
-      "Bash(grep -n \"^#\\\\{1,3\\\\} \" README.md)"
+      "Bash(grep -n \"^#\\\\{1,3\\\\} \" README.md)",
+      "Bash(refine)",
+      "Bash(grep -n \"refine\\(\\)\\\\|`refine`\\\\|Tessera::refine\\\\|reconcileRefinementMarks\\\\|T4a\" src/Beatnik_MeshInterface.hpp)",
+      "Bash(flux resource *)",
+      "Bash(BEATNIK_TEST_SCRATCH=/p/lustre5/stewartj/beatnik/gate_scratch flux batch scripts/tuolumne/run_regression_minset.flux)",
+      "Bash(mkdir -p /p/lustre5/stewartj/beatnik/gate_scratch && BEATNIK_TEST_SCRATCH=/p/lustre5/stewartj/beatnik/gate_scratch flux batch scripts/tuolumne/run_regression_minset.flux)",
+      "Bash(grep -rn \"zmodel3d\" tasks/framework.md | head -3; ls ~/ 2>/dev/null | head -30)",
+      "Read(//g/g20/stewartj/**)",
+      "Bash(mkdir -p /p/lustre5/stewartj/beatnik/t4b/ref)",
+      "Bash(nohup timeout 5400 python3 examples/run_adaptive_mesh_bubble.py --steps 20 --source-quadrature vertex --br-approximation direct --dynamic-remesh --remesh-every 1 --remesh-sagitta-tolerance 0.002 --remesh-h-max 0.06 --remesh-collapse-factor 0 --remesh-max-collapses 0 --remesh-smooth-iters 0 --remesh-flip-min-gain 1e12 --no-isotropic-cleanup --checkpoint-every-steps 1 --no-video --checkpoint-dir /p/lustre5/stewartj/beatnik/t4b/ref)",
+      "Read(//p/lustre5/stewartj/beatnik/t4b/**)",
+      "Bash(cat)",
+      "Bash(python3 /p/lustre5/stewartj/beatnik/t4b/analyze_ref.py)",
+      "Bash(sed -i 's|checkpoint_\\\\*.npz|checkpoint_t*.npz|' analyze_ref.py)",
+      "Bash(python3 analyze_ref.py)",
+      "Bash(mkdir -p /p/lustre5/stewartj/beatnik/t4b/ref_default)",
+      "Bash(nohup timeout 5400 python3 examples/run_adaptive_mesh_bubble.py --steps 20 --source-quadrature vertex --br-approximation direct --dynamic-remesh --remesh-every 1 --remesh-collapse-factor 0 --remesh-max-collapses 0 --remesh-smooth-iters 0 --remesh-flip-min-gain 1e12 --no-isotropic-cleanup --checkpoint-every-steps 1 --no-video --checkpoint-dir /p/lustre5/stewartj/beatnik/t4b/ref_default)",
+      "Bash(touch examples/02_adaptive_mesh_bubble/*.cpp 2>/dev/null; ls examples/)",
+      "Bash(bash -lc 'echo $MODULEPATH | tr \":\" \"\\\\n\" | head -3; module list 2>&1 | head -8')",
+      "Bash(bash -lc 'unset HIPCC_LINK_FLAGS_APPEND HIPCC_COMPILE_FLAGS_APPEND; source /usr/workspace/wsb/stewartj/spack/share/spack/setup-env.sh && spack env activate ~/spack_envs/tuolumne_beatnik && spack install')",
+      "Bash(ls -la /usr/WS2/stewartj/spack/opt/spack/linux-zen4/beatnik-develop-4bhhtbdwohpiyl6g7fjykhzd3vbfgcuh/bin/ 2>/dev/null | head -20)",
+      "Read(//usr/WS2/stewartj/spack/opt/spack/linux-zen4/beatnik-develop-4bhhtbdwohpiyl6g7fjykhzd3vbfgcuh/bin/**)",
+      "Read(//usr/WS2/stewartj/spack/opt/spack/linux-zen4/beatnik-develop-4bhhtbdwohpiyl6g7fjykhzd3vbfgcuh/**)",
+      "Bash(bash -lc 'flux batch /p/lustre5/stewartj/beatnik/t4b/t4b_probe.flux')",
+      "Bash(bash -lc 'export SPACK_ROOT=/usr/WS2/stewartj/spack; source $SPACK_ROOT/share/spack/setup-env.sh; flux batch /p/lustre5/stewartj/beatnik/t4b/t4b_probe.flux')",
+      "Bash(awk '/=== SERIAL at 1 ranks ===/,/=== SERIAL at 3 ranks ===/' beatnik_t4b_probe.f3SpMEJba5dZ.log)",
+      "Bash(sed 's|t4b/ref\"|t4b/ref_default\"|' analyze_ref.py)",
+      "Bash(python3 analyze_ref_default.py)",
+      "Bash(bash -lc 'export SPACK_ROOT=/usr/WS2/stewartj/spack; source $SPACK_ROOT/share/spack/setup-env.sh; export BEATNIK_TEST_SCRATCH=/p/lustre5/stewartj/beatnik/gate_scratch; cd /g/g20/stewartj/spack_envs/tuolumne_beatnik/beatnik && flux batch scripts/tuolumne/run_regression_minset.flux')",
+      "Bash(regression)",
+      "Bash(grep -rn \"48 launches\\\\|four members\\\\|FOUR members\\\\|four `regression`\" --include=\"*.md\" --include=\"*.flux\" --include=\"*.txt\" --include=\"*.cpp\" .)",
+      "Bash(awk '/DynamicRemeshSplit_MPI_SERIAL at 1 ranks/,/DynamicRemeshSplit_MPI_SERIAL at 2 ranks/' beatnik_regression_minset.f3SpT4MZbqMh.log)"
     ],
     "additionalDirectories": [
       "/tmp",
       "/g/g20/stewartj/spack_envs/tuolumne_beatnik",
-      "/g/g20/stewartj/.spack/package_repos/COMPASS/spack_pkgs/spack_repo/compass/packages/beatnik"
+      "/g/g20/stewartj/.spack/package_repos/COMPASS/spack_pkgs/spack_repo/compass/packages/beatnik",
+      "/p/lustre5/stewartj/beatnik/gate_scratch",
+      "/g/g20/stewartj/spack_envs/tuolumne_beatnik/beatnik/examples/02_adaptive_mesh_bubble"
     ]
   }
 }
