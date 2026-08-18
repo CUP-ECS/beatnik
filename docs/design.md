@@ -91,6 +91,14 @@ whether a run is stable, and an undocumented default is a trap.
 *To fill in:* output format, what is written, write frequency, and the
 parallel-write strategy.
 
+The checkpoint path is already documented **in the code**, and deliberately only
+there: the file-header comment of
+[src/Beatnik_IOInterface.hpp](../src/Beatnik_IOInterface.hpp) carries the HDF5
+schema, the division of labour between Tessera and Beatnik, the file naming, the
+grouped XDMF master and the equal-time rule. Restating any of it here is how the
+two copies drift, so this section stays a pointer until it has something to say
+that the adapter's own header does not.
+
 Silo is a required dependency (`find_package(SILO REQUIRED)` in
 `CMakeLists.txt`), and the previous implementation wrote Silo files.
 

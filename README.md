@@ -173,6 +173,39 @@ flux run --ntasks=4 --nodes=1 --exclusive --gpus-per-task=1 --cores-per-task=24 
     "$(beatnik_exe adaptive_mesh_bubble)" --steps 20 --checkpoint-dir out
 ```
 
+##### Checkpoint output: open `<prefix>.xmf`, with the *temporal* reader
+
+A `--checkpoint-dir out` run that takes N checkpoints leaves, for the default
+`--checkpoint-prefix checkpoint`:
+
+| File | What it is |
+| --- | --- |
+| N x `out/checkpoint_t<timekey>_step<step>.h5` | the frames; one restartable checkpoint each |
+| N x `out/checkpoint_t<timekey>_step<step>.xmf` | per-frame sidecars, so a single frame stays individually openable |
+| `out/checkpoint.xmf` | **the master** — one XDMF temporal collection over every frame |
+| `out/checkpoint.xmfindex` | Tessera's frame/time record, for a future series reopen |
+| `out/checkpoint_latest.{h5,xmf}` | symlinks to the newest **frame**; `--restart-from` consumes the `.h5` |
+
+**Open `out/checkpoint.xmf` in Paraview and choose the `Xdmf3ReaderT` reader.**
+Only the *temporal* XDMF3 reader walks a temporal collection; the plain
+`Xdmf3ReaderS` opens the same file and shows a single timestep, which looks like
+a broken file and is not one. If the time slider has one stop, check the file
+before the writer:
+
+```
+grep -c '<Time Value=' out/checkpoint.xmf     # == number of distinct checkpoints
+```
+
+If that count is N, the light data is right and the reader choice was wrong. The
+count is over *distinct* checkpoints: the final state is written twice at the same
+time and step (once by the last step, once at shutdown) and appears in the master
+once. No CLI option controls any of this, and the per-frame `.h5` layout is
+unchanged — `tests/regression_tests/compare_output.py` reads the same datasets it
+always did. Emitted and asserted by
+`tests/unit_tests/Beatnik_Test_CheckpointSeries.cpp`; the reasoning lives in the
+`GROUPED OUTPUT` section of
+[src/Beatnik_IOInterface.hpp](src/Beatnik_IOInterface.hpp).
+
 **The option names and defaults match the Python script exactly**, so one command
 line drives both the Python gold-file run and this one — which is what makes the
 gold-file comparison in `tests/regression_tests/` possible. The full list is in
@@ -441,6 +474,24 @@ subsections above, which are intended behavior.
   and task ID. Resolves progressively as T4 lands its remaining regression
   tests. See
   [CLAUDE.md](CLAUDE.md#minimum-test-set) and `tasks/framework.md`.
+
+- **A restarted run's checkpoint master and its `.xmfindex` would describe
+  different frame lists.** *New with the grouped checkpoint output
+  (`tasks/grouped-io.md` T1), and **latent**: unreachable today.* `CheckpointIO`
+  holds one `Tessera::MeshSeries` per process, constructed empty, so on a restart
+  the master `<prefix>.xmf` is rewritten from scratch and names only the
+  post-restart frames — while Tessera **appends** to the pre-existing
+  `<prefix>.xmfindex`, which then lists the pre-restart frames as well. The two
+  files would disagree about which frames the series contains. Nothing can reach
+  it: `CheckpointIO::read` is a throwing `BEATNIK_NOT_IMPLEMENTED` stub and
+  `RestartReader::load` throws, so `--restart-from` cannot complete. Deliberately
+  not worked around here, because the answer (reopen the series from the
+  `.xmfindex`, or start a new master under a distinct stem) belongs with the
+  restart path rather than being guessed at now: **`tasks/framework.md` T5b owns
+  it**, and it must be resolved in the same change that makes restart work — a
+  restart that completes while this is open produces a master that silently
+  under-reports the run. The per-frame `.h5` files and sidecars are unaffected
+  either way.
 
 - **The ship gate needs a shared filesystem for its scratch directory.** *Not a
   defect in Beatnik; a launch requirement, found when T2d first ran the gate.*

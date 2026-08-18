@@ -1,6 +1,6 @@
 # Grouped HDF5/XDMF checkpoint output
 
-**Status:** T1 DONE, T2 DONE
+**Status:** COMPLETE — T1, T2, T3 all DONE (T3's gate re-run superseded; see the log)
 
 ## Problem
 
@@ -350,7 +350,25 @@ reverting T1's equal-time branch to an unconditional `_series.write()` makes thi
 fail with the `time must be strictly increasing` message rather than passing or
 erroring elsewhere. Restore the branch afterwards.
 
-### T3 — Documentation and the ship-gate re-run — **NOT STARTED**
+### T3 — Documentation and the ship-gate re-run — **DONE** (gate re-run superseded)
+
+**Met, with step 4's gate sweep superseded by an explicit session decision** recorded at
+the top of [the progress log's T1 entry](grouped-io-progress-log.md): this work adds
+light data only and touches no `.h5` dataset, so the 60-launch sweep was **not** run
+here and correctness of frame content is verified separately, outside that session.
+CLAUDE.md's "full sweep as of T4c" stamp is therefore left standing rather than
+restamped as if a sweep had happened.
+
+What was verified: `grep -rn "xmf" README.md` shows the new
+"Checkpoint output: open `<prefix>.xmf`, with the *temporal* reader" subsection at
+line 176, including the file table, the `Xdmf3ReaderT` caveat and the
+`grep -c '<Time Value='` check. README "Known Issues" carries the
+restart-versus-series inconsistency, stated as **new** with this work and **latent**
+(unreachable while `CheckpointIO::read` throws), with `tasks/framework.md` **T5b** named
+as owner. CLAUDE.md "Minimum test set" states that this work adds a `unit` member and no
+gate member and that the tier still has five. `docs/design.md`'s I/O section got a
+one-line pointer to the `Beatnik_IOInterface.hpp` header comment rather than a second
+copy of it, per this task's own step 3.
 
 **Depends on:** T1 **DONE**, T2 **DONE**.
 

@@ -167,3 +167,41 @@ CLAUDE.md's "Minimum test set" should say the `unit` tier gained a member withou
 work. Anything later that adds a `unit` member: the tier is not green at four ranks and
 that is `Beatnik_Test_T2bOperators` by design, so do not read a four-rank `FAIL (5/6)`
 as a regression without checking which member failed.
+
+## T3
+
+**No gate sweep was run, by decision, and CLAUDE.md's stamp was left alone.** The
+decision and its reasoning are under [T1](#t1) above; repeating it here only to make it
+findable from the task that the design says owns it. The consequence worth stating
+plainly for whoever reads CLAUDE.md next: the "full sweep as of T4c" line still means
+T4c, and the `regression` tier's five members have **not** been re-run against the
+grouped-output change. What backs the change instead is T2's `unit` member plus the
+structural argument that no `.h5` dataset is touched — `compare_output.py` reads `.h5`
+datasets only, and the only emitted bytes that changed are `.xmf` text and the new
+`.xmfindex`.
+
+**`docs/design.md` got a pointer, not prose, and that was a judgement call the task
+invited.** Its `## I/O` section is a "*To fill in:*" placeholder, so there was a real
+temptation to fill it in from the header comment. Declined: the
+`Beatnik_IOInterface.hpp` header now carries the schema, the naming, the grouped master
+and the equal-time rule, and a second copy in `docs/design.md` would be the drift the
+task's step 3 warned about. The pointer says explicitly *why* the section stays a
+pointer, so the next reader does not re-litigate it.
+
+**One thing the README subsection states that neither the design nor the header did:**
+the failing reader is named on both sides. `Xdmf3ReaderT` walks a temporal collection and
+`Xdmf3ReaderS` does not, and R1's whole failure mode is that the wrong one opens the
+right file without complaint. Naming only the correct reader would leave someone who
+already picked the wrong one with nothing to recognize.
+
+**No CLI surface changed**, so the README option table was not touched — the convention
+that a changed example argument set means a README edit is satisfied vacuously here. The
+one argument-related finding of this work is not a Beatnik surface change at all but a
+usability fact recorded under T1: `adaptive_mesh_bubble` at its documented defaults
+cannot complete a step in this checkout.
+
+**Affects:** none. `tasks/grouped-io.md` is complete. The one thread that leaves this
+document is the restart-versus-series inconsistency, now in README "Known Issues" and
+owned by `tasks/framework.md` **T5b** — a session implementing T5b must resolve it in the
+same change, because a restart that completes while it is open writes a master that
+silently under-reports the run.

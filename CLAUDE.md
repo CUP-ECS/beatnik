@@ -81,6 +81,12 @@ tuolumne the gate is **60 launches** and takes correspondingly longer to run.
 **All five are green**, the full sweep as of T4c (T4c added no member — its
 tangential relaxation is a `unit`-tier test — and re-ran the gate to show the two
 new `advanceOneStep` call sites perturb nothing).
+The grouped checkpoint output (`tasks/grouped-io.md`) likewise **adds a `unit`
+member and no gate member**, so the tier still has exactly those five: it emits
+additional light data — one master XDMF temporal collection per run — and changes
+no `.h5` dataset, and it is covered by `Beatnik_Test_CheckpointSeries` in the
+`unit` tier. That sweep stamp is therefore still T4c's; no gate sweep was run for
+grouped-io.
 **`BEATNIK_TEST_SCRATCH`
 must name a path on a parallel filesystem**, not a node-local one: the
 checkpoints go through MPI-IO, so a node-local scratch fails every launch that
