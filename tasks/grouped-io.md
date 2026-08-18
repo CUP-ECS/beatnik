@@ -1,6 +1,6 @@
 # Grouped HDF5/XDMF checkpoint output
 
-**Status:** T1 DONE
+**Status:** T1 DONE, T2 DONE
 
 ## Problem
 
@@ -147,8 +147,11 @@ string and an empty vector and no I/O.
   ([../tessera/CMakeLists.txt:117-118](../../tessera/CMakeLists.txt#L117-L118)), so
   the new header needs no install-list edit. **But the installed Tessera in this
   spack environment predates the commit** — T1 step 1 exists for that reason.
-- The `unit` tier has three members; the `regression` tier has five and the gate is
-  60 launches on tuolumne. This work adds one `unit` member and no gate member.
+- The `unit` tier has **six** members as of T2 (five before it) and the `regression` tier
+  has five, with the gate at 60 launches on tuolumne. This work adds one `unit` member
+  and no gate member. The "three members" this line used to claim counted only
+  `BEATNIK_UNIT_TEST_SOURCES` and missed `Beatnik_Test_PythonCompare` and its negative
+  case, which are in the same manifest and the same tier.
 
 ### Callers
 
@@ -253,7 +256,34 @@ final frame appears once, not twice. And the failure direction: the run does **n
 throw `Tessera::MeshSeries::write: time must be strictly increasing`, which is what an
 unguarded port produces at `finalize()`.
 
-### T2 — A `unit`-tier test asserting the master's XDMF text — **NOT STARTED**
+### T2 — A `unit`-tier test asserting the master's XDMF text — **DONE**
+
+**Met, with one stated correction to the criterion's own arithmetic.**
+`tests/unit_tests/Beatnik_Test_CheckpointSeries.cpp` was added and registered, and
+appears in the installed manifest (`exe Beatnik_Test_CheckpointSeries`) after
+`spack install`. Runs, all with `BEATNIK_TEST_SCRATCH` on lustre:
+
+- **1 rank, job `f3T413MkAgo1`** — `[unit] SUMMARY: PASS (6/6 tests)`, with
+  `Beatnik_Test_CheckpointSeries` PASS at 35/35 checks.
+- **4 ranks, job `f3T413VBb5oM`** (`BEATNIK_UNIT_RANKS=4`) —
+  `Beatnik_Test_CheckpointSeries` PASS on **all four ranks** (35/35 on rank 0, 3/3 on
+  the other three, which run only the collective checks). The tier as a whole is
+  `FAIL (5/6)`, and the one failure is **pre-existing and by design**:
+  `Beatnik_Test_T2bOperators` asserts `comm_size == 1` deliberately
+  ([tests/unit_tests/Beatnik_Test_T2bOperators.cpp:188-199](../tests/unit_tests/Beatnik_Test_T2bOperators.cpp#L188-L199)),
+  so the tier can never be green at four ranks and this criterion's "green at four" was
+  never achievable. Nothing was relaxed to accommodate it.
+- **Member count: the tier now has SIX members, not four.** The criterion's "four, not
+  three" counted only `BEATNIK_UNIT_TEST_SOURCES`; the manifest also carries
+  `Beatnik_Test_PythonCompare` and its negative case. Five before, six now.
+
+**Failure direction verified by actually doing it**, not by inspection: the equal-time
+branch was temporarily replaced with an unconditional `_series.write()`, rebuilt, and
+run as job `f3T3yTeaTTom`, where the test failed with
+`Tessera::MeshSeries::write: time must be strictly increasing ... has time 0.200000 and
+the previous frame had 0.200000` — the exact message, not an error elsewhere. The branch
+was then restored (`git diff` against the T1 commit clean) and rebuilt, so what is
+pushed is the guarded version and the two runs above are of that build.
 
 **Depends on:** T1 **DONE**.
 

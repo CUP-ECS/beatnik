@@ -50,6 +50,11 @@ set(BEATNIK_UNIT_TEST_SOURCES
   # at any rank count and the batch wrapper's BEATNIK_UNIT_RANKS=4 run is what
   # checks the position halo exchange between sweeps.
   Beatnik_Test_TangentialRelaxation.cpp
+  # grouped-io T2: the master XDMF temporal collection CheckpointIO::write
+  # maintains -- asserted on the emitted TEXT, which is what takes Paraview out
+  # of the loop (risk R1). Writes to BEATNIK_TEST_SCRATCH, which must name a
+  # parallel filesystem: the frames go through MPI-IO.
+  Beatnik_Test_CheckpointSeries.cpp
   )
 
 # The registered ctest entry runs at ONE rank; the rank sweep is the

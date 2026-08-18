@@ -102,3 +102,68 @@ must be cleared per run for the same reason the T1 script does it, since a lefto
 unreadable. T3 — the gate re-run in its step 4 is superseded by the decision above, and
 its README subsection should state the `Xdmf3ReaderT` requirement and the
 `grep -c '<Time Value='` check, both of which this run exercised.
+
+## T2
+
+**Two counts in the design were wrong, and the corrections are the load-bearing part of
+this entry.**
+
+1. **The `unit` tier had FIVE members, not three, and now has six.** T2's exit criterion
+   says the tier's member count should read "four, not three". That counted only
+   `BEATNIK_UNIT_TEST_SOURCES` in `tests/unit_tests/CMakeLists.txt`. The installed
+   manifest the batch runner walks also carries `Beatnik_Test_PythonCompare` and
+   `Beatnik_Test_PythonCompare_Negative`, registered elsewhere and in the same tier. The
+   1-rank log reads `SUMMARY: PASS (6/6 tests)`. `grouped-io.md`'s "Current state" line
+   was corrected in the same commit.
+2. **The tier cannot be green at four ranks, and never could.** T2's criterion asks for
+   green at one rank and at four. `Beatnik_Test_T2bOperators` **deliberately** asserts
+   `comm_size == 1` and fails at any other rank count — its own comment says a version
+   that quietly passed after checking nothing would be worse. So the four-rank criterion
+   was unachievable before this task and remains so. Recorded rather than worked around:
+   nothing was skipped, relaxed, or made conditional to get a green summary. What was
+   actually verified is the achievable statement — `Beatnik_Test_CheckpointSeries` PASS
+   on all four ranks, job `f3T413VBb5oM`, 35/35 on rank 0 and 3/3 on the others.
+
+**A bug only running revealed, in the test rather than in T1.** The first version's
+`message_names_both` check searched the throw message for
+`baseName( frame_paths[j] )`, and `write()` returns a **path** (`....h5`) while
+`CheckpointIO` names **stems** internally and the message quotes the stem. One check of
+35 failed, in job `f3T3kDWY7uYj`, and the failure was real rather than cosmetic: it is
+exactly the confusion a future caller of `write()` would make. Fixed with an explicit
+`stemOf()` helper that the on-disk existence checks now share, and documented as such at
+its definition — a `.h5`-suffix assumption is worth naming once rather than open-coding
+twice.
+
+**The rank-0/collective split matters and is asserted, not assumed.** The
+decreasing-time `write()` call is made on **every** rank inside the `try`, because
+Beatnik's guard (like Tessera's) runs before any I/O on every rank precisely so the
+throw is symmetric; a rank-0-only throw would leave three ranks in a collective write
+with no partner. Only the text reads are rank-0.
+
+**Two independent witnesses that the equal-time call did not append**, deliberately, so
+that the check does not rest on one parse: the master's `<Time Value=` count is 3, and
+`checkpoint.xmfindex` has 3 lines. `MeshSeries` appends to the `.xmfindex` inside
+`write()`, so a bug that appended to the series but wrote a correct-looking master, or
+vice versa, is caught by one or the other.
+
+**The per-child block check is not a whole-file substring search**, and this is the
+subtle one: a master whose every child named frame 0 would pass a naive
+`text.find( h5name )` for all three frames. The test slices the document at each
+`<Time Value=` and asserts, per block, `present == ( i == j )` over all three
+basenames — which is also the check that would catch risk R2's repeated `h5name`.
+
+**Failure direction, measured.** The equal-time branch was replaced by an unconditional
+`_series.write()`, rebuilt, and run (job `f3T3yTeaTTom`): the test failed with
+`Tessera::MeshSeries::write: time must be strictly increasing ... has time 0.200000 and
+the previous frame had 0.200000`, i.e. the exact message T1 exists to prevent, arriving
+through the recorder's `unexpected exception` path as one failed check rather than as a
+silent zero-check pass — which is what `Recorder::fail` is for. The branch was restored,
+`git diff` against the T1 commit came back clean, and both reported runs above are of
+the rebuilt guarded binary.
+
+**Affects:** T3 — its step 4 gate sweep is superseded (decision recorded under T1), and
+CLAUDE.md's "Minimum test set" should say the `unit` tier gained a member without the
+`regression` tier gaining one, which stays at five. Nothing here changes T3's README
+work. Anything later that adds a `unit` member: the tier is not green at four ranks and
+that is `Beatnik_Test_T2bOperators` by design, so do not read a four-rank `FAIL (5/6)`
+as a regression without checking which member failed.
