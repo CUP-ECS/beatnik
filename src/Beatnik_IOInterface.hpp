@@ -196,12 +196,90 @@
  *     externally-produced file, and `CheckpointHeader::has_material_position`
  *     is always `true` for a Beatnik-written checkpoint.
  *
+ * GROUPED OUTPUT — ONE PARAVIEW DATASET, NOT N
+ * --------------------------------------------
+ * Paraview's XDMF readers are not file-series readers, so N per-frame `.xmf`
+ * sidecars are N unrelated datasets with no time slider over them. Grouping has
+ * to be stated in the light data, and `Tessera::MeshSeries` states it: it writes
+ * each frame exactly as before and additionally maintains **one master `.xmf`**,
+ * an XDMF temporal collection naming every frame with its time, rewritten after
+ * every frame (so a killed run still leaves a valid master over the frames that
+ * exist). `write` therefore routes its frame through a `MeshSeries` member
+ * rather than calling `Tessera::writeMesh` directly.
+ *
+ * A `--checkpoint-dir out --checkpoint-prefix checkpoint` run that takes N
+ * checkpoints leaves, for N *distinct* `(time, step)` pairs:
+ *
+ *   N x `out/checkpoint_t<timekey>_step<step>.h5`   the frames
+ *   N x `out/checkpoint_t<timekey>_step<step>.xmf`  per-frame sidecars
+ *   1 x `out/checkpoint.xmf`                       THE MASTER — open this one
+ *   1 x `out/checkpoint.xmfindex`                  Tessera's restart record
+ *   2 x `out/checkpoint_latest.{h5,xmf}`           symlinks to the newest frame
+ *
+ * **`out/checkpoint.xmf` is the file to open in Paraview, with the *temporal*
+ * XDMF3 reader (`Xdmf3ReaderT`).** Only that reader walks a temporal
+ * collection; the plain XDMF3 reader opens the master and shows a single
+ * timestep, which looks like a broken file and is not one.
+ * `grep -c '<Time Value=' out/checkpoint.xmf` is the check that distinguishes
+ * the two: if it equals N, the file is right and the reader choice was wrong.
+ *
+ * THE EQUAL-TIME RULE, and why it is here rather than in Tessera
+ * -------------------------------------------------------------
+ * `MeshSeries::write` throws when `time` is not *strictly* greater than the
+ * previous frame's. Beatnik legitimately writes the same `(time, step)` twice:
+ * `Solver::finalize()` re-writes the last finite state, which carries the same
+ * time and step as the previous checkpoint whenever the last accepted step also
+ * checkpointed (`Beatnik_Solver.hpp`, "the same filename as `setup`'s startup
+ * checkpoint, written twice"). An unguarded port therefore throws at
+ * `finalize()` on any run whose last step checkpointed. So `write` decides:
+ *
+ *   time > last, or no frame yet   -> `_series.write(...)`; the frame joins the
+ *                                     master.
+ *   time == last AND stem == last  -> the timed `Tessera::writeMesh(...)`
+ *                                     directly. The frame is rewritten (as it
+ *                                     already was before this change) but NOT
+ *                                     appended: the master already names that
+ *                                     exact file at that exact time, so nothing
+ *                                     is lost and a duplicate timestep is kept
+ *                                     off the time slider.
+ *   anything else                  -> **throw**. A decreasing time, or an equal
+ *                                     time under a different name, is
+ *                                     unreachable — `recordLastFiniteState()`
+ *                                     runs immediately before
+ *                                     `checkpointDue()`, so the restored state
+ *                                     is always at or after the last
+ *                                     checkpoint. Reaching it means an
+ *                                     invariant broke, and the loud failure is
+ *                                     the point. Requiring the **stem** to
+ *                                     match as well as the time is what keeps
+ *                                     this branch from masking a future change
+ *                                     that writes a *different* state at the
+ *                                     same `(time, step)`.
+ *
+ * Two consequences worth knowing before they are discovered:
+ *
+ *  - **The per-frame sidecars now carry a `<Time Value=>` child**, because both
+ *    the series and the equal-time branch go through the *timed* `writeMesh`
+ *    overload rather than the timeless one this file used to call. That is a
+ *    change to emitted light data, accepted rather than avoided: it makes a
+ *    single frame self-describing, and nothing reads those sidecars —
+ *    `compare_output.py` reads `.h5` datasets only. No `.h5` dataset changes.
+ *  - **A series is not reopened across a restart.** On a restart the master
+ *    would be rewritten with only the post-restart frames while Tessera appends
+ *    to the pre-existing `.xmfindex`, leaving the two describing different frame
+ *    lists. Unreachable today — `read` below is a throwing stub — and the fix
+ *    belongs with the restart path (framework.md T5b owns it). Recorded in
+ *    README "Known Issues".
+ *
  * FILE NAMING
  * -----------
  * Port of run_adaptive_mesh_bubble.py::checkpoint_time_key (lines 951-952) and
- * ::save_state_checkpoint (lines 986-989). Every save writes **two** files:
+ * ::save_state_checkpoint (lines 986-989). Every save writes a **frame pair**,
+ * plus the two files that are per-run rather than per-frame:
  *
- *   `<prefix>_t<timekey>_step<step:07d>.h5`   and   `<prefix>_latest.h5`
+ *   `<prefix>_t<timekey>_step<step:07d>.h5`  + its `.xmf` sidecar   the frame
+ *   `<prefix>_latest.h5` / `.xmf`                                   symlinks
+ *   `<prefix>.xmf` / `.xmfindex`                    the master, rewritten
  *
  * where `timekey` is `f"{time:012.6f}"` with `-` replaced by `m` and `.` by
  * `p` — e.g. t = 1.5 gives `0001p500000`, t = -0.25 gives `m00000p250000`.
@@ -219,6 +297,12 @@
  * symlinks to the timestamped pair — same directory, so the sidecar's relative
  * reference still resolves — which is O(1) and always consistent.
  * `--restart-from <dir>/<prefix>_latest.h5` follows the link transparently.
+ *
+ * **`<prefix>_latest.xmf` deliberately still names the newest *frame* sidecar,
+ * not the master.** It is half of the "latest checkpoint" pair whose other half
+ * a restart consumes; repointing it at the collection master would break that
+ * pairing, and the master is a third thing beside the pair rather than a newer
+ * version of one of them.
  *
  * WHEN CHECKPOINTS APPEAR
  * -----------------------
@@ -443,6 +527,12 @@ class CheckpointIO
         : _comm( comm )
         , _directory( std::move( directory ) )
         , _prefix( std::move( prefix ) )
+        // Declaration order runs this after `_directory` and `_prefix` have
+        // been moved into, which is why `_series` is declared after them.
+        // `MeshSeries` writes nothing until its first `write()`, so a value
+        // member on a run with no checkpoints costs a string and an empty
+        // vector and no I/O.
+        , _series( masterStem( _directory, _prefix ) )
     {
     }
 
@@ -495,9 +585,14 @@ class CheckpointIO
      *
      * TESSERA MAPPING, in order:
      *   1. rank 0 creates `_directory`; barrier.
-     *   2. `Tessera::writeMesh( mesh, stem )` — collective MPI-IO, owned
+     *   2. `_series.write( mesh, stem, time )` — collective MPI-IO, owned
      *      entities only, dense-renumbered connectivity, all vertex user
-     *      fields, plus the `<stem>.xmf` sidecar rank 0 writes at the end.
+     *      fields, plus the `<stem>.xmf` sidecar rank 0 writes at the end, plus
+     *      the rewritten master `<directory>/<prefix>.xmf` and one appended
+     *      `.xmfindex` line. On the exact `(time, stem)` repeat that
+     *      `Solver::finalize` writes, the timed `Tessera::writeMesh` is called
+     *      directly instead and the series is left alone — see GROUPED OUTPUT
+     *      in the file header.
      *   3. barrier — `writeMesh` closes the file but does not barrier after the
      *      sidecar, and step 4 reopens it.
      *   4. rank 0 reopens `<stem>.h5` read-write with the **default (serial)**
@@ -544,7 +639,55 @@ class CheckpointIO
         // 2. Tessera writes the mesh, the connectivity and the whole vertex
         //    user pack, collectively, owned entities only, dense-renumbered.
         //    Note it takes the STEM and appends `.h5` / `.xmf` itself.
-        Tessera::writeMesh( mesh.tesseraMesh(), stem );
+        //
+        //    Routed through `_series`, so the frame additionally joins the
+        //    master temporal collection `<directory>/<prefix>.xmf` -- see the
+        //    GROUPED OUTPUT section of the file header. `MeshSeries::write`
+        //    throws on a non-increasing time, and Beatnik legitimately writes
+        //    the same `(time, step)` twice (`Solver::finalize` re-writes the
+        //    last finite state), so the equal-time case is handled here rather
+        //    than inside the series.
+        //
+        //    `Real` may be `float` while the series stores `double`; convert
+        //    once into a local so the comparison and the stored value cannot
+        //    disagree.
+        const double time = static_cast<double>( header.time );
+        if ( _series.numFrames() == 0 || time > _last_frame_time )
+        {
+            _series.write( mesh.tesseraMesh(), stem, time );
+            _last_frame_time = time;
+            _last_frame_stem = stem;
+        }
+        else if ( time == _last_frame_time && stem == _last_frame_stem )
+        {
+            // The same frame, written a second time. The master already names
+            // this exact stem at this exact time, so appending it again would
+            // both trip the strictly-increasing rule and put a duplicate
+            // timestep on Paraview's time slider. Rewrite the frame -- today's
+            // documented behaviour is that it is written twice and truncated,
+            // and this change is confined to the light data -- but through the
+            // TIMED `writeMesh` overload, so the sidecar is byte-identical to
+            // the one the series would have written.
+            Tessera::writeMesh( mesh.tesseraMesh(), stem, time );
+        }
+        else
+        {
+            // Unreachable by construction: `recordLastFiniteState()` runs
+            // immediately before `checkpointDue()`, so the state `finalize()`
+            // restores is always at or after the last checkpoint's step, and a
+            // time that is equal carries the same stem. Reaching here means
+            // that invariant broke, which is a bug to be seen and not a shape
+            // to be accommodated.
+            throw std::runtime_error(
+                "Beatnik::CheckpointIO::write: checkpoint time went backwards, "
+                "or repeated with a different filename. Frame '" +
+                stem + "' at time " + std::to_string( time ) +
+                " follows frame '" + _last_frame_stem + "' at time " +
+                std::to_string( _last_frame_time ) +
+                ". This is an invariant break, not a supported input: a "
+                "checkpoint's time must increase, except for the exact "
+                "(time, step) repeat that Solver::finalize writes." );
+        }
 
         // 3. `writeMesh` closes the file and barriers before rank 0 writes the
         //    XDMF sidecar, but does not barrier after it. Step 4 reopens the
@@ -659,6 +802,18 @@ class CheckpointIO
         return _directory.empty() ? base : _directory + "/" + base;
     }
 
+    /// `<directory>/<prefix>`, the stem of the master temporal collection. No
+    /// frame is ever named `<prefix>.h5` -- every frame carries a `_t.._step..`
+    /// field -- so this cannot collide with one, and it is the only `.xmf` in
+    /// the directory with no step in its name, which is Tessera's own "the one
+    /// to open" convention. Computed once, from the constructor's member-init
+    /// list; `checkpointStem()` keeps its own construction.
+    static std::string masterStem( const std::string& directory,
+                                   const std::string& prefix )
+    {
+        return directory.empty() ? prefix : directory + "/" + prefix;
+    }
+
     /// The trailing path component of a stem, for the relative symlink target.
     static std::string baseName( const std::string& path )
     {
@@ -765,6 +920,20 @@ class CheckpointIO
     MPI_Comm _comm;
     std::string _directory;
     std::string _prefix;
+
+    /// The master temporal collection every frame is appended to. Declared
+    /// after `_directory` and `_prefix` so the member-init list's
+    /// `masterStem( _directory, _prefix )` reads them already initialized.
+    Tessera::MeshSeries _series;
+
+    /// The last frame appended to `_series`. **Meaningful only when
+    /// `_series.numFrames() > 0`** -- before the first frame they are the
+    /// zero-initialized defaults and must not be compared against.
+    /// `MeshSeries` exposes `numFrames()` and `masterStem()` but neither the
+    /// last time nor the last stem, so the equal-time guard needs its own copy;
+    /// `_series.numFrames()` remains the only frame counter.
+    double _last_frame_time = 0.0;
+    std::string _last_frame_stem;
 };
 
 } // namespace Beatnik

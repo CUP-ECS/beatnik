@@ -1,6 +1,6 @@
 # Grouped HDF5/XDMF checkpoint output
 
-**Status:** NOT STARTED
+**Status:** T1 DONE
 
 ## Problem
 
@@ -171,7 +171,23 @@ is the index to that.
 
 ## Task sequence
 
-### T1 — `CheckpointIO::write` emits the grouped master through `Tessera::MeshSeries` — **NOT STARTED**
+### T1 — `CheckpointIO::write` emits the grouped master through `Tessera::MeshSeries` — **DONE**
+
+**Met.** Tessera was reinstalled first (R5 confirmed live: the installed prefix had no
+`Tessera_XdmfSeries.hpp` before it), then `spack install` of Beatnik succeeded.
+`scripts/tuolumne/grouped_io_t1.flux` — the new exit-criterion script — ran
+`adaptive_mesh_bubble --steps 4 --checkpoint-every-steps 2 --checkpoint-dir
+/p/lustre5/stewartj/beatnik/grouped_io/grouped_io_t1` at 4 ranks on 1 node with the
+template's rank-to-GPU binding, as **job `f3T3fdHDWBQT`** (`CD`, rc=0). It measured, in
+the log rather than by eye: `CollectionType="Temporal"` count **1**, `<Time Value=`
+count **3**, distinct frame `.h5` count **3** — the frames at
+`(t=0, step 0)`, `(t=0.0045, step 2)` and `(t=0.0075, step 4)`, with `finalize()`'s
+repeat of the last one appearing **once**. `checkpoint.xmfindex` likewise holds exactly
+three lines. The failure direction held: no
+`Tessera::MeshSeries::write: time must be strictly increasing` anywhere in the log.
+Five earlier submissions (`f3T3V6SDq8JB`, `f3T3cdLxTFvf`, `f3T3dQg57dWF`,
+`f3T3eARVtREw`, `f3T3etQ7s1Yj`) failed on the script and the example's defaults, not on
+this change — see the progress log.
 
 **Depends on:** none.
 
