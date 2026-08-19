@@ -73,7 +73,12 @@
       "Bash(bash -lc 'export SPACK_ROOT=/usr/WS2/stewartj/spack; source $SPACK_ROOT/share/spack/setup-env.sh; export BEATNIK_TEST_SCRATCH=/p/lustre5/stewartj/beatnik/gate_scratch; cd /g/g20/stewartj/spack_envs/tuolumne_beatnik/beatnik && flux batch scripts/tuolumne/run_regression_minset.flux')",
       "Bash(regression)",
       "Bash(grep -rn \"48 launches\\\\|four members\\\\|FOUR members\\\\|four `regression`\" --include=\"*.md\" --include=\"*.flux\" --include=\"*.txt\" --include=\"*.cpp\" .)",
-      "Bash(awk '/DynamicRemeshSplit_MPI_SERIAL at 1 ranks/,/DynamicRemeshSplit_MPI_SERIAL at 2 ranks/' beatnik_regression_minset.f3SpT4MZbqMh.log)"
+      "Bash(awk '/DynamicRemeshSplit_MPI_SERIAL at 1 ranks/,/DynamicRemeshSplit_MPI_SERIAL at 2 ranks/' beatnik_regression_minset.f3SpT4MZbqMh.log)",
+      "Bash(ls -l /usr/WS2/stewartj/spack/opt/spack/linux-zen4/tessera-develop-aikc55nribkdcyrjc3c6j2aagxscgya7/include/Tessera_XdmfSeries.hpp)",
+      "Read(//usr/WS2/stewartj/spack/opt/spack/linux-zen4/tessera-develop-aikc55nribkdcyrjc3c6j2aagxscgya7/include/**)",
+      "Bash(flux job *)",
+      "Bash(echo \"rc=$?\")",
+      "Bash(grep -v '_step[0-9]*\\\\.\\\\\\(h5\\\\|xmf\\\\\\)$')"
     ],
     "additionalDirectories": [
       "/tmp",
