@@ -194,7 +194,7 @@ introduces or sharpens.
 | Reference-state re-basing | every pass that moves a vertex or changes connectivity states, in its progress-log entry, whether it calls `AdaptiveMesh::resetReferenceState`, and why. A silent choice here changes every later refinement decision. |
 | Failure behavior | loud. A configuration Beatnik cannot reproduce is rejected before the first step, by method name and task ID, exactly as the four rejections this milestone deletes do. No pass may silently no-op. |
 | Diagnostics that must be numbers | per remesh pass: `splits`, `collapses`, `flips`, `smooth_steps`, `min_quality` before/after, R12's two shape signals, and (T4d6) the gid-space high-water mark. A milestone run that reports zero edits everywhere is M1-R7, not a pass. |
-| Test tier for the milestone comparison | a new **`milestone`** label, at ranks **1 and 4** on SERIAL and HIP, outside the 60-launch ship gate. The `regression` tier keeps exactly its five members; promoting anything into it needs the user's confirmation (CLAUDE.md "Minimum test set"). |
+| Test tier for the milestone comparison | the **`milestone`** label, at ranks **1 and 4** on SERIAL and HIP, outside the 60-launch ship gate. The tier is created by **M0-T1** in [`milestone0.md`](milestone0.md); M1-T1 registers a member in it. The `regression` tier keeps exactly its five members; promoting anything into it needs the user's confirmation (CLAUDE.md "Minimum test set"). |
 | Provenance comments | `// Port of <file>::<fn> (lines N-M)` against the **real** origin, per framework.md. The functions this milestone ports live in `dynamic_remesh.py` and `mesh_quality.py`; cite line ranges, not function names alone. |
 
 ### Deliberate deviations
@@ -707,46 +707,36 @@ reference, never the flip or collapse set (R7).
 
 ---
 
-### M1-T1 — the `milestone` test tier — **NOT STARTED**
+### M1-T1 — register milestone 1 in the `milestone` test tier — **NOT STARTED**
 
-**Depends on:** none. Do it early; it is independent of T4d and of both gold sets.
+**Depends on:** **M0-T1** ([`milestone0.md`](milestone0.md)), which **creates**
+the tier — the CMake wiring, `beatnik_milestone_manifest.txt`, the installed-path
+gold-data rules, `scripts/tuolumne/run_milestone.flux` at ranks 1 and 4 on SERIAL
+and HIP, and the `docs/testing.md` / CLAUDE.md text saying the tier does not gate.
+Milestone 0 lands first and needs the same tier, so it owns it and this task no
+longer builds it. Nothing else here depends on M0.
 
-**Fill in:** [tests/CMakeLists.txt](../tests/CMakeLists.txt) — a third tier
-alongside `regression` and `unit` — and a new
-`scripts/tuolumne/run_milestone.flux`.
+**Fill in:** `BEATNIK_MILESTONE_TEST_SOURCES` and the
+`_beatnik_args_Beatnik_Test_Milestone1Bubble_abs`/`_rel` pair in
+[tests/CMakeLists.txt](../tests/CMakeLists.txt), plus the `install()` rule for the
+M1-G2 gold directory.
 
-**Reference:** the tier comment at the top of `tests/CMakeLists.txt` (lines
-13-45); the standalone regression registration loop (`:309-372`) which is the
-shape to copy; the manifest generation (`:520-575`); the installed-path runner
-[scripts/tuolumne/run_regression_minset.flux](../scripts/tuolumne/run_regression_minset.flux),
-which is already parameterized by `BEATNIK_GATE_LABEL`, `BEATNIK_GATE_BACKENDS`
-and `BEATNIK_GATE_RANKS` but hardcodes `beatnik_gate_manifest.txt`.
+**Reference:** whatever M0-T1 built, and the regression tier's own registration
+loop (`:309-372`) and gold-set `install()` rules (`:500-517`) that M0-T1 copied.
+Read the M0-T1 entry in [`milestone0-progress-log.md`](milestone0-progress-log.md)
+before starting: if M0-T1 departed from its stated plan, this is the task that
+finds out.
 
-**Do:**
+**Do:** add the source, its two argument lists (the gold **directory** and the
+comparator) and the gold-data `install()` rule with its `FATAL_ERROR` — a
+milestone test installed without its gold set is not installed. Change nothing
+about the tier's ranks, backends or manifest format; those are M0-T1's, and
+milestone 1 has no reason to differ.
 
-1. Add `BEATNIK_MILESTONE_TEST_SOURCES`, a `BEATNIK_MILESTONE_TARGETS` global
-   property, `LABELS milestone` on the ctest cases, and
-   `beatnik_milestone_manifest.txt` with the same line format and the same
-   "paths are relative to this file's directory" convention.
-2. Install the manifest and the tier's gold data under
-   `share/Beatnik/tests`, preserving the repo layout, exactly as the regression
-   tier's `install()` rules do — and keep the existing `FATAL_ERROR` pattern: a
-   milestone test installed without its gold set is not installed.
-3. `run_milestone.flux` runs the tier at ranks **1 and 4** on SERIAL and HIP. Do
-   not generalize `run_regression_minset.flux` in place; the gate script is
-   single-sourced against CLAUDE.md's gate definition and must keep saying
-   `regression` × ranks 1-6.
-4. Update [docs/testing.md](../docs/testing.md) and CLAUDE.md's "Minimum test
-   set" to name the third tier and to state that it is **not** part of the gate.
-   The gate stays at five members / 60 launches.
-
-**Exit criterion:** with an empty tier,
-`flux batch scripts/tuolumne/run_milestone.flux` exits **non-zero** with the
-"named no runnable tests" message — the vacuous-pass guard the gate runner
-already has (`run_regression_minset.flux:200-208`) — and
-`ctest -N -L milestone` in a `manual`-mode build tree lists zero tests without
-error. After M1-T2 registers a member, both list exactly it, at two rank counts
-per backend, and `ctest -N -L regression` still lists **60** cases.
+**Exit criterion:** `ctest -N -L milestone` lists the M1-T2 member at two rank
+counts per backend alongside milestone 0's, `flux batch
+scripts/tuolumne/run_milestone.flux` runs it, and `ctest -N -L regression` still
+lists **60** cases.
 
 ---
 
