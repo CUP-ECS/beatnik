@@ -2278,3 +2278,112 @@ the style of its surroundings by hand.
 - **R15** — the trap did not bite: `max|dx|` is 1.2% of the shortest edge at one
   sweep, and the un-projected comparison is a second, independent statement that
   the pass does something.
+
+## T4d reconciliation — the three Tessera gaps landed, and T4d shrank
+
+No code was written. This session read the three landed Tessera headers against
+`framework.md`'s T4d entry, answered its two deferred questions, removed the
+`BLOCKED (upstream)` status, and split the task into T4d1–T4d6.
+
+**All eleven M1 gaps are now closed.** G5d compaction (2026-08-15, green SERIAL
+and HIP at ranks 1–5), G5c edge flip (2026-08-17), G5b edge collapse
+(2026-08-18) — Tessera's own ordering, executed in order. **Nothing in this port
+is blocked upstream any more**, which had not been true since M1.
+
+**T4d is much smaller than the design assumed, and that is the headline.** The
+entry was written expecting to implement a cross-rank owner-decides protocol on
+the Beatnik side. `Tessera::collapseEdges( mesh, halo, edgeMask, policy )` does
+all of it internally in five coordinator rounds: the link condition, the
+duplicate-face test that the vertex link test alone misses (the tetrahedron
+case), the per-face normal-rotation and radius-ratio guards evaluated at the
+vertex coordinator, a deterministic independent-set round, the in-place
+connectivity rewrite, **and `compact()` as its own last step**. So
+`SurfaceMesh::collapseEdges` is a mask-and-report adapter, and — the part most
+likely to be got wrong by someone skimming — **the remesh cycle never calls
+`compact()` explicitly**. The standalone adapter exists for the renumbering
+cadence and for tests only. That is now stated in T4d1 rather than left to be
+inferred from Tessera's header.
+
+**Q2's premise was wrong, not just its answer.** The question asked whether
+`compact()` invalidates face user fields "the way `refine()`/`splitEdges()`
+invalidate edge user fields". It does not, and the analogy cannot hold: compaction
+only ever *removes* entities, so there is no newly minted face for a field to be
+undefined on, and it whole-tuple copies every AoSoA. `flipEdges()` says the same
+thing from the other side — "Level and every face user field ride along with the
+gid". **The hazard is staleness, not invalidation**, and it already has an owner
+(`AdaptiveMesh::resetReferenceState`): a collapse moves a vertex and deletes two
+faces, a flip re-corners two, so T4a's `/faces/u0` and `/faces/u1` survive intact
+while describing a geometry that no longer exists. Each sub-task now has to state
+whether it re-bases. This also finally scopes T4c's deferred question about the
+flip path, which is T4d3's to answer.
+
+**The one genuine gap is the flip gain criterion, and it is not fixable in
+policy.** Beatnik accepts a flip iff `min(q_new) > min(q_old)*(1+g)`;
+`DefaultFlipPolicy` offers only absolute admissibility (`maxNormalDeviation`,
+`minQuality`) and Tessera's flip priority is longest-edge-first, not gain-ordered.
+There is no hook, and adding one destabilises an operation that is green.
+**Resolution: the gain test moves into mask construction**, where Beatnik has the
+quad `(a,b,c,d)` from `buildFaceAdjacency` (G4) at depth 2. Tessera's absolute
+tests then apply on top, so a marked edge can still be refused and shows up as
+`rejectedGeometric` — that is correct, not a bug to chase. The same resolution
+covers all three flip entry points. Written into T4d as *What Tessera does NOT
+supply*, in the imperative, because trying to express it through the policy is
+the obvious wrong first attempt.
+
+**Two preconditions that will silently produce wrong answers if missed.**
+(a) `haloExchange()` must run **before** `collapseEdges()`, because the surviving
+vertex's owner blends from its local copies of both endpoints and one is normally
+a ghost — the opposite order from `splitEdges()`, whose wrapper exchanges after
+(`Beatnik_DynamicRemesh.hpp:873`). (b) `max_collapses_per_pass` (120) is a cap on
+the **mask**, applied by shortest-first truncation before the call; there is no
+per-call cap argument and capping afterwards is not expressible. Halo depth ≥ 2
+is a third precondition but is already met — `SurfaceMesh::halo_depth` is 2, and
+a future session must not lower it.
+
+**Beatnik needs no custom collapse policy.** It uses `DefaultRefinePolicy`
+unchanged (the linear average) and `DefaultCollapsePolicy` at `t = 0.5` is the
+same average, so Tessera's warning that the collapse hooks carry `t` and the
+refine hooks do not — hence a refine policy does not transfer by inheritance —
+does not bite here. It would the moment anyone overrides
+`interpolateVertexField` for the sheet strength, which is why the warning is
+recorded rather than dismissed.
+
+**A new operational concern that did not exist before the gaps landed: the
+gid-space leak.** Gids come from an `MPI_Exscan` onto a monotonically rising
+global count, so split-and-collapse rounds grow the gid *space* without bound
+even at constant mesh size, and several Tessera paths index a dense host array
+sized to the max gid. `compact()` preserves gids and is itself on the leak path;
+`compactAndRenumberGids()` is the mitigation at the cost of a second halo
+rebuild. Choosing the cadence is T4d6. **This is the first thing to suspect if a
+long `--dynamic-remesh` run's memory grows with step count rather than with face
+count** — it will not look like a leak in the mesh.
+
+**Determinism improved rather than degraded, which was not guaranteed.** The
+surviving vertex is `min(gid(a), gid(b))`; collapse and flip priorities are
+`(squared length, EdgeKey)` and contain **no gid**; lengths go through
+`edgeLen2Canonical()`. So the accepted sets are rank-count invariant, which is
+what R2 and R7 wanted from a coarsening operation and is stronger than the design
+assumed it would get.
+
+**Signature correction found while reading, not yet applied.**
+`SurfaceMesh::{collapseEdges, flipEdges}` still take a templated
+`const EdgeListView&` — M1 leftovers. T4a settled the convention (a host
+`const std::vector<char>&` sized `ownedEdgeCount()`), it is also exactly what
+Tessera takes, and T4d1 de-templates both. Anyone writing against the current
+stub signatures is writing against a signature that is about to change.
+
+**Affects:**
+- **T4b, T4c, and M1's gap section** — their "G5b/G5c/G5d are open" statements
+  are now historical. Each has been marked as the historical reason for a
+  decision rather than a current statement of what Tessera supports; the
+  paragraphs were kept, not deleted, because they explain *why* T4b and T4d were
+  split.
+- **T4f** — unchanged in scope, but note `--remesh-tight-collapse-factor`
+  defaults to 0, so the tight profile disables collapse entirely and T4f does not
+  exercise T4d2's path.
+- **R7, R12** — Tessera states R7 independently and in the imperative
+  ("consumers must compare statistics — face count, quality distribution,
+  edge-length histogram — not edit sets"). No change needed; worth knowing the
+  upstream agrees.
+- **The gate** — untouched. No code changed, so the `regression` tier still has
+  five members and CLAUDE.md's "full sweep as of T4c" stamp still stands.
