@@ -24,7 +24,7 @@ python examples/run_adaptive_mesh_bubble.py \
   --adaptive-dt --no-dynamic-remesh --refine-every 0 \
   --source-quadrature vertex \
   --icosphere-subdivisions <L> --steps 2000 \
-  --checkpoint-every-steps 25 --no-video --checkpoint-dir results
+  --checkpoint-every-steps 25 --no-video --checkpoint-dir results<L>
 ```
 
 at `<L>` = 3 and 4 (M0-G1, M0-G2). Every unlisted option is at its `parse_args`
@@ -339,7 +339,9 @@ the vacuous-pass guard at `:201-208`.
    `regression` × ranks 1-6. It must source the resolver first and resolve
    binaries through `beatnik_exe`, and it must honour `BEATNIK_TEST_SCRATCH`
    (**a parallel filesystem** — the checkpoints go through MPI-IO and a
-   node-local scratch fails every multi-node launch, CLAUDE.md).
+   node-local scratch fails every multi-node launch, CLAUDE.md. Use
+   `/p/lustre5/stewartj/beatnik/milestone0/<test_name>` as the I/O directory.
+   Delete and recreate this directory before each run of <test_name>).
 4. Extend the tier comment block, `docs/testing.md` and CLAUDE.md's "Minimum test
    set" to name the third tier and state that it is **not** part of the gate. The
    gate stays at five members / 60 launches.
