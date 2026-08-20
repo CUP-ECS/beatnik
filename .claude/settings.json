@@ -78,7 +78,13 @@
       "Read(//usr/WS2/stewartj/spack/opt/spack/linux-zen4/tessera-develop-aikc55nribkdcyrjc3c6j2aagxscgya7/include/**)",
       "Bash(flux job *)",
       "Bash(echo \"rc=$?\")",
-      "Bash(grep -v '_step[0-9]*\\\\.\\\\\\(h5\\\\|xmf\\\\\\)$')"
+      "Bash(grep -v '_step[0-9]*\\\\.\\\\\\(h5\\\\|xmf\\\\\\)$')",
+      "Bash(python3 -c ' *)",
+      "Bash(awk 'NR>=1557 && NR<=1567{printf \"%d: %s\\\\n\",NR,$0}' examples/run_adaptive_mesh_bubble.py)",
+      "Bash(awk 'NR>=1438 && NR<=1470{printf \"%d: %s\\\\n\",NR,$0}' examples/run_adaptive_mesh_bubble.py)",
+      "Bash(grep -n \"Installing the two test tiers\\\\|_beatnik_t2a_gold\\\\|Manifests for the installed\\\\|^get_property\\\\|install\\(FILES$\\\\|install\\(PROGRAMS\" tests/CMakeLists.txt)",
+      "Read(//p/lustre5/stewartj/beatnik/**)",
+      "Bash(BEATNIK_ENV_DRY_RUN=1 bash -c 'source scripts/lib/beatnik_env.sh')"
     ],
     "additionalDirectories": [
       "/tmp",
