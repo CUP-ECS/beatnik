@@ -21,6 +21,15 @@
 #               must pass before any code change ships, so it requires the
 #               user's explicit confirmation.
 #
+#   milestone   Long end-to-end runs against a multi-thousand-step reference
+#               gold set, at ranks 1 and 4. Structurally identical to
+#               `regression` -- same standalone self-validating binaries, same
+#               manifest line format -- and deliberately NOT part of the ship
+#               gate: these runs are far too long to sit in front of every
+#               change. Created by task M0-T1. A milestone test that fails is a
+#               real failure and gets a README "Known Issues" entry; it is not
+#               a reason to touch the gate.
+#
 #   unit        Utilities, kernels, single-component and single-phase tests.
 #               Diagnostic: useful for locating a fault, but not gating.
 #               A test that is failing or flaky belongs HERE plus an entry in
@@ -32,6 +41,7 @@
 #
 #   ctest -L regression -R SERIAL     # the project-wide ship gate
 #   ctest -L regression -R HIP        # the extra gate on tuolumne
+#   ctest -L milestone                # the long milestone runs, NOT the gate
 #   ctest -L unit                     # all diagnostics, every backend
 #   ctest -L unit -R SERIAL           # diagnostics on one backend
 #
@@ -43,6 +53,10 @@
 # scripts/<system>/run_regression_minset.*:
 #
 #     label `regression`  x  backend SERIAL (+ HIP on tuolumne)  x  ranks 1-6
+#
+# The `milestone` tier is single-sourced the same way and is NOT the gate:
+#
+#     label `milestone`   x  backend SERIAL (+ HIP on tuolumne)  x  ranks 1, 4
 #
 # There is deliberately no CI; the gate is operator-run. See docs/testing.md.
 ############################################################################
@@ -372,6 +386,115 @@ foreach(_src ${BEATNIK_REGRESSION_TEST_SOURCES})
 endforeach()
 
 ##--------------------------------------------------------------------------##
+## milestone tier -- long end-to-end runs. NOT THE SHIP GATE.
+##--------------------------------------------------------------------------##
+# ADDED BY TASK M0-T1, which created the tier. It ships EMPTY: the first member
+# is M0-T3's Beatnik_Test_Milestone0Frozen, and milestone1.md's M1-T1 registers
+# the second. An empty tier is the correct intermediate state here and is not a
+# vacuous pass -- scripts/<system>/run_milestone.* fails loudly when the
+# manifest names nothing runnable, exactly as the gate runner does.
+#
+# Structurally this is the regression loop above, with three differences and no
+# others; keep it that way, because the two tiers must stay comparable:
+#
+#   1. LABELS milestone, and the manifest line goes to BEATNIK_MILESTONE_TARGETS
+#      -> beatnik_milestone_manifest.txt.
+#   2. Ranks 1 and 4, not the gate's 1-6. As with the gate, the rank set is a
+#      property of the TIER, not of a test: it lives in
+#      BEATNIK_MILESTONE_MPI_RANKS here and in BEATNIK_MILESTONE_RANKS in the
+#      runner, never in a per-test list on a manifest line.
+#   3. The gold data is two 81-file sets, installed below.
+#
+# WHY A SEPARATE TIER AND NOT MORE REGRESSION MEMBERS. A milestone member is a
+# 2000-step run at 642 or 2562 vertices; putting one in `regression` would add
+# it to every change's 60-launch gate. The gate stays at five members and 60
+# launches (CLAUDE.md "Minimum test set"), and this tier is run on demand.
+set(BEATNIK_MILESTONE_TEST_SOURCES
+  # None yet. M0-T3 adds Beatnik_Test_Milestone0Frozen.cpp here, together with
+  # its _beatnik_args_<stem>_abs / _rel pair below.
+  )
+
+# The tier's rank sweep, overridable exactly as BEATNIK_TEST_MPI_RANKS is.
+set(BEATNIK_MILESTONE_MPI_RANKS "1;4" CACHE STRING
+  "Rank counts the milestone tier is registered at (default 1;4)")
+
+# Argument lists per test, absolute for ctest and manifest-relative for the
+# installed path, exactly as the regression tier keys them by source stem. An
+# entry is REQUIRED for every source above -- the FATAL_ERROR in the loop is
+# what stops a milestone test from being launched without its gold set.
+#
+# (No entries yet; M0-T3 adds
+#  _beatnik_args_Beatnik_Test_Milestone0Frozen_abs / _rel, naming the gold
+#  DIRECTORY and the comparator, as T2d's pair does.)
+
+# Gold directories for the tier, named once and used by both the install rules
+# and any future argument list, so the two cannot drift.
+set(_beatnik_m0_sub3_dir
+  ${_beatnik_compare_dir}/milestone0-sub3-2000-steps)
+set(_beatnik_m0_sub4_dir
+  ${_beatnik_compare_dir}/milestone0-sub4-2000-steps)
+
+foreach(_src ${BEATNIK_MILESTONE_TEST_SOURCES})
+  get_filename_component(_stem ${_src} NAME_WE)
+
+  if(NOT DEFINED _beatnik_args_${_stem}_abs
+     OR NOT DEFINED _beatnik_args_${_stem}_rel)
+    message(FATAL_ERROR
+      "tests/CMakeLists.txt: no argument lists recorded for milestone test "
+      "'${_stem}'. Set _beatnik_args_${_stem}_abs and _beatnik_args_${_stem}_rel "
+      "above (to \"\" if the test takes none) in the same change that added it.")
+  endif()
+
+  foreach(_device ${BEATNIK_TEST_DEVICES})
+    if(NOT DEFINED _beatnik_space_${_device})
+      message(FATAL_ERROR
+        "tests/CMakeLists.txt: no Kokkos execution space recorded for backend "
+        "'${_device}'. Add it to the _beatnik_space_* table above in the same "
+        "change that added the backend.")
+    endif()
+
+    set(_target ${_stem}_MPI_${_device})
+    set(_gendir ${CMAKE_CURRENT_BINARY_DIR}/milestone_${_device})
+    file(MAKE_DIRECTORY ${_gendir})
+    set(_genfile ${_gendir}/${_stem}_${_device}.cpp)
+    file(WRITE ${_genfile}
+      "// GENERATED by tests/CMakeLists.txt -- do not edit.\n"
+      "#include <Kokkos_Core.hpp>\n"
+      "#define BEATNIK_TEST_EXEC_SPACE ${_beatnik_space_${_device}}\n"
+      "#include \"${_beatnik_compare_dir}/${_src}\"\n")
+
+    add_executable(${_target} ${_genfile})
+    target_link_libraries(${_target} PRIVATE Beatnik MPI::MPI_CXX)
+    target_include_directories(${_target} PRIVATE
+      ${CMAKE_CURRENT_SOURCE_DIR}/unit_tests)
+
+    foreach(_np ${BEATNIK_MILESTONE_MPI_RANKS})
+      add_test(NAME ${_target}_np_${_np} COMMAND
+        ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${_np}
+        ${MPIEXEC_PREFLAGS} $<TARGET_FILE:${_target}> ${MPIEXEC_POSTFLAGS}
+        ${_beatnik_args_${_stem}_abs})
+      set_tests_properties(${_target}_np_${_np} PROPERTIES
+        LABELS milestone
+        PROCESSORS ${_np}
+        ENVIRONMENT OMP_NUM_THREADS=1)
+    endforeach()
+
+    set(_manifest_line "${_target}")
+    if(_beatnik_args_${_stem}_rel)
+      string(REPLACE ";" " " _args_str "${_beatnik_args_${_stem}_rel}")
+      set(_manifest_line "${_target} ${_args_str}")
+    endif()
+    set_property(GLOBAL APPEND PROPERTY BEATNIK_MILESTONE_TARGETS
+      "${_manifest_line}")
+
+    if(Beatnik_INSTALL_TEST_EXECUTABLES)
+      install(TARGETS ${_target}
+              RUNTIME DESTINATION ${CMAKE_INSTALL_DATADIR}/Beatnik/tests)
+    endif()
+  endforeach()
+endforeach()
+
+##--------------------------------------------------------------------------##
 ## Regression-comparison harness (Python)
 ##--------------------------------------------------------------------------##
 # tests/regression_tests/compare_output.py compares a Beatnik HDF5 checkpoint
@@ -514,6 +637,39 @@ if(Beatnik_INSTALL_TEST_EXECUTABLES)
           DESTINATION ${_beatnik_test_install}/regression_tests/direct-solve-10-steps/gold)
   install(FILES ${_beatnik_compare_dir}/direct-solve-10-steps/README.md
           DESTINATION ${_beatnik_test_install}/regression_tests/direct-solve-10-steps)
+
+  # -- the milestone tier's gold sets (M0-G1, M0-G2) --------------------------
+  # Installed HERE, by M0-T1, and not by M0-T3 which adds the test source: the
+  # data is already committed, installing it now is what makes the FATAL_ERROR
+  # guard below meaningful, and it leaves M0-T3 a test-source task only.
+  #
+  # 81 numbered checkpoints each, steps 0-2000 every 25, found by their
+  # `_step%07d.npz` suffix at run time. `checkpoint_latest.npz` sits beside them
+  # in the repo and is DELIBERATELY EXCLUDED from the glob: it duplicates the
+  # final numbered step, it is inert to goldForStep because it carries no
+  # `_step%07d.npz` suffix, and shipping it would put a second copy of the
+  # largest file in every install. Each set's README.md records the per-step
+  # time, minimum-quality and volume-drift series and is installed with it.
+  #
+  # NOTE THE LAYOUT DIFFERENCE, which is why this is two rules and not a reuse
+  # of the T2a one: these READMEs live INSIDE gold/, beside the .npz, whereas
+  # direct-solve-10-steps/README.md sits one level up. Both layouts are
+  # preserved as they are in the repo rather than unified, because the installed
+  # tree mirrors tests/ exactly (see the STRUCTURE IS PRESERVED note above).
+  foreach(_set sub3 sub4)
+    file(GLOB _beatnik_m0_gold
+         ${_beatnik_m0_${_set}_dir}/gold/*_step*.npz)
+    if(NOT _beatnik_m0_gold)
+      message(FATAL_ERROR
+        "tests/CMakeLists.txt: no numbered .npz gold files under "
+        "regression_tests/milestone0-${_set}-2000-steps/gold. A milestone test "
+        "installed without its gold set is not installed.")
+    endif()
+    install(FILES ${_beatnik_m0_gold}
+                  ${_beatnik_m0_${_set}_dir}/gold/README.md
+            DESTINATION
+              ${_beatnik_test_install}/regression_tests/milestone0-${_set}-2000-steps/gold)
+  endforeach()
 endif()
 
 ##--------------------------------------------------------------------------##
@@ -552,6 +708,43 @@ file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/beatnik_gate_manifest.txt
 ${_beatnik_gate_manifest}
 ")
 
+# -- milestone tier: the long runs, NOT the gate --------------------------------
+# Same line format and the same "paths are relative to THIS FILE'S DIRECTORY"
+# convention as the gate manifest, so scripts/<system>/run_milestone.* is the
+# gate runner with a different label, manifest name and rank list -- not a
+# different mechanism. Emitted unconditionally, so an EMPTY tier produces a
+# manifest with zero non-comment lines rather than no file at all: a missing
+# manifest and an empty one are different failures and the runner reports them
+# differently.
+get_property(_beatnik_milestone_targets GLOBAL PROPERTY BEATNIK_MILESTONE_TARGETS)
+if(NOT _beatnik_milestone_targets)
+  set(_beatnik_milestone_targets "")
+endif()
+string(REPLACE ";" "\n" _beatnik_milestone_manifest
+       "${_beatnik_milestone_targets}")
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/beatnik_milestone_manifest.txt
+"# Beatnik milestone-tier manifest — GENERATED by tests/CMakeLists.txt, do not edit.
+#
+# One milestone-tier test per line, in the gate manifest's format:
+#
+#     <target> [args...]
+#
+# Field 1 is the target; the backend is its name suffix and is what the runner
+# filters on. Remaining fields are arguments passed to the binary, and any path
+# among them is relative to THIS FILE'S DIRECTORY.
+#
+# THIS TIER IS NOT THE SHIP GATE. It holds long end-to-end runs against
+# multi-thousand-step reference gold sets and is run on demand, by
+# scripts/<system>/run_milestone.*. The gate is beatnik_gate_manifest.txt.
+#
+# THE RANK SWEEP IS NOT IN THIS FILE, for the same reason it is not in the gate
+# manifest: it is a property of the tier, and the runner applies
+# BEATNIK_MILESTONE_RANKS to every line.
+#
+# Milestone ranks: ${BEATNIK_MILESTONE_MPI_RANKS}
+${_beatnik_milestone_manifest}
+")
+
 # -- unit tier -----------------------------------------------------------------
 # Three line kinds, because the tier is not homogeneous:
 #
@@ -582,6 +775,7 @@ ${_beatnik_unit_manifest}
 if(Beatnik_INSTALL_TEST_EXECUTABLES)
   install(FILES
             ${CMAKE_CURRENT_BINARY_DIR}/beatnik_gate_manifest.txt
+            ${CMAKE_CURRENT_BINARY_DIR}/beatnik_milestone_manifest.txt
             ${CMAKE_CURRENT_BINARY_DIR}/beatnik_unit_manifest.txt
           DESTINATION ${CMAKE_INSTALL_DATADIR}/Beatnik/tests)
 endif()

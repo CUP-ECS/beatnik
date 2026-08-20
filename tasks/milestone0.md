@@ -299,7 +299,7 @@ line is the index of exactly that.
 
 ## Task sequence
 
-### M0-T1 — the `milestone` test tier — **NOT STARTED**
+### M0-T1 — the `milestone` test tier — **DONE**
 
 **Depends on:** none. Do it first or in parallel with the gold sets; it is
 independent of both.
@@ -371,9 +371,30 @@ tree and therefore no `ctest`: with an empty tier, after `spack install`,
 A `manual`-mode checkout checks the same two things with `ctest -N -L milestone`
 (zero cases, no error) and `ctest -N -L regression` (exactly 60).
 
+**Met.** After `spack install` in this `spack`-mode checkout:
+`share/Beatnik/tests/beatnik_milestone_manifest.txt` is installed beside
+`beatnik_gate_manifest.txt` and carries **zero** non-comment lines.
+`beatnik_gate_manifest.txt` carries **fifteen** non-comment lines, not the ten
+this criterion predicted, and the difference is pre-existing and not a gate
+change: `BEATNIK_TEST_DEVICES` on tuolumne is `SERIAL;OPENMP;HIP` (the spec is
+`+rocm +openmp +serial`), so the regression loop — untouched by this task —
+emits five targets on each of *three* backends. The runner's backend filter
+selects only `_SERIAL` and `_HIP`, which is the ten the criterion meant, and the
+gate run below confirms it: 5 x 2 x 6 = 60 launches. `flux batch
+scripts/tuolumne/run_milestone.flux` exited **1** (job `f3TRgG5aCNsq`) with
+`[milestone] FAIL: the manifest named no runnable milestone tests for backends
+'SERIAL HIP'`, the ported vacuous-pass guard, preceded by `no milestone binaries
+for SERIAL` / `... for HIP`. `flux batch
+scripts/tuolumne/run_regression_minset.flux` (job `f3TRgYcw5dfu`) reported
+`[gate] PASS (label=regression)` with exactly **sixty** `[gate] ===` launch
+lines. Both milestone-0 gold sets install: 81 numbered `.npz` plus the `gold/`
+`README.md` under each of
+`share/Beatnik/tests/regression_tests/milestone0-sub{3,4}-2000-steps/gold`, with
+`checkpoint_latest.npz` absent from both, as the glob intends.
+
 ---
 
-### M0-G1 — the level-3 2000-step gold set *(human step, no code)* — **NOT STARTED**
+### M0-G1 — the level-3 2000-step gold set *(human step, no code)* — **DONE**
 
 **Depends on:** none.
 
@@ -413,9 +434,26 @@ check that `--match-eps 1e-9` still resolves this mesh after 2000 steps of
 roll-up, M0-R4); and `vertices.shape == (642, 3)`, `faces.shape == (1280, 3)` in
 every file.
 
+**Met.** 81 numbered checkpoints, `_step0000000` through `_step0002000` every
+25, plus the `checkpoint_latest.npz` that does not count toward them (verified
+bit-identical to the last numbered file, and excluded from M0-T1's install
+glob). No early stop: step 2000 is present and every field is finite in all 81
+files, so **M0-R2 did not fire**. `vertices (642, 3)` / `faces (1280, 3)` in
+every file, and the same nine keys as `initial_conditions/gold.npz` in every
+file, so `FIELD_MAP` needs no edit. The self-compare of
+`checkpoint_t00001p998284_step0002000.npz` against itself at `--rtol 1e-12
+--atol 1e-14` exits 0 with `matching (eps=1e-09): 642/642 unambiguous, ambiguous
+cpp=0 gold=0` and `max|e| = 0` on every field — **M0-R4 has not bitten this
+set**. The 81-row `step / time / min quality / V/V0 - 1` table is in
+[the gold README](../tests/regression_tests/milestone0-sub3-2000-steps/gold/README.md);
+headline numbers: final `time = 1.998284`, min quality falls from `9.749529e-01`
+to a global minimum `3.826563e-02` at step 1700 and recovers to `6.303626e-02`
+at step 2000, and volume drift reaches `+3.352894e-09` — above T2d's
+`kVolumeDriftAbsCap = 1e-9`, as M0-R3 predicted.
+
 ---
 
-### M0-G2 — the level-4 2000-step gold set *(human step, no code)* — **NOT STARTED**
+### M0-G2 — the level-4 2000-step gold set *(human step, no code)* — **DONE**
 
 **Depends on:** none. Independent of M0-G1 — generate them in parallel.
 
@@ -432,6 +470,26 @@ needs answered to say which set is the primary member.
 
 **Exit criterion:** as M0-G1, with `2562/2562` unambiguous vertices in the
 last-file self-compare and `(2562, 3)` / `(5120, 3)` shapes.
+
+**Met.** 81 numbered checkpoints through `_step0002000`, `checkpoint_latest.npz`
+bit-identical to the last of them and not counted, no early stop, all fields
+finite, `vertices (2562, 3)` / `faces (5120, 3)` and the same nine keys in every
+file. The last-file self-compare at `--rtol 1e-12 --atol 1e-14` exits 0 with
+`2562/2562 unambiguous, ambiguous cpp=0 gold=0`. The 81-row table is in
+[the gold README](../tests/regression_tests/milestone0-sub4-2000-steps/gold/README.md);
+final `time = 1.964304`, final min quality `1.242421e-01` (which is also this
+series' global minimum — still falling at step 2000), final volume drift
+`+4.741414e-09`.
+
+**The comparison M0-A1 needs: the frozen level-3 mesh degrades FASTER, not
+slower.** At step 2000 the level-4 minimum quality is ~2x the level-3 one
+(`1.24e-01` vs `6.30e-02`); level 3 first crosses `0.18` at step 1050 against
+level 4's step 1800, and level 3 spends its last ~500 steps below `0.1`, which
+level 4 never reaches. So neither **M0-R2** nor **M0-R6** fired at level 4, and
+M0-A1 cannot pick level 3 as primary on mesh-health grounds. Note the two runs
+do not cover the same physical time (`1.998284` vs `1.964304` after 2000 steps),
+because the adaptive dt is relative to each run's own initial minimum edge
+(`3.457079e-02` vs `1.729575e-02`).
 
 ---
 

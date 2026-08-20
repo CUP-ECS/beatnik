@@ -87,6 +87,14 @@ additional light data — one master XDMF temporal collection per run — and ch
 no `.h5` dataset, and it is covered by `Beatnik_Test_CheckpointSeries` in the
 `unit` tier. That sweep stamp is therefore still T4c's; no gate sweep was run for
 grouped-io.
+There is a third tier, **`milestone`** (created by M0-T1): long end-to-end runs
+against a multi-thousand-step reference gold set, at ranks **1 and 4** on SERIAL
+and HIP, run through `scripts/<system>/run_milestone.<scheduler>` — on tuolumne
+[scripts/tuolumne/run_milestone.flux](scripts/tuolumne/run_milestone.flux). **It
+is not part of the gate** and adding a member to it does not change the gate;
+the gate stays at five members and 60 launches. The tier is **empty** until
+M0-T3 registers its first member, and its runner exits non-zero while it is.
+
 **`BEATNIK_TEST_SCRATCH`
 must name a path on a parallel filesystem**, not a node-local one: the
 checkpoints go through MPI-IO, so a node-local scratch fails every launch that
