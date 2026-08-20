@@ -306,8 +306,7 @@ independent of both.
 
 **Fill in:** [tests/CMakeLists.txt](../tests/CMakeLists.txt) — a third tier
 alongside `regression` and `unit` — a new `scripts/tuolumne/run_milestone.flux`,
-[docs/testing.md](../docs/testing.md), CLAUDE.md's "Minimum test set", and
-[tasks/milestone1.md](milestone1.md)'s M1-T1 entry.
+[docs/testing.md](../docs/testing.md) and CLAUDE.md's "Minimum test set".
 
 **Reference:** the tier comment at [tests/CMakeLists.txt:11-48](../tests/CMakeLists.txt#L11);
 the standalone regression registration loop at
@@ -332,7 +331,15 @@ the vacuous-pass guard at `:201-208`.
 2. Install the manifest and the tier's gold data under `share/Beatnik/tests`,
    preserving the repo layout, exactly as the regression tier's rules do, and
    keep the `FATAL_ERROR` pattern: a milestone test installed without its gold
-   set is not installed.
+   set is not installed. The gold data is both milestone-0 sets — the `.npz`
+   under `tests/regression_tests/milestone0-sub3-2000-steps/gold` and
+   `.../milestone0-sub4-2000-steps/gold`, and each directory's `README.md` —
+   globbed with the same guard as the T2a rule at
+   [tests/CMakeLists.txt:505-517](../tests/CMakeLists.txt#L505). They are
+   installed here rather than by M0-T3, which leaves M0-T3 a test-source task
+   only. The glob excludes `checkpoint_latest.npz` (see M0-G1's exit
+   criterion): it duplicates the final step and shipping it would put a second
+   copy of the largest file in every install.
 3. `run_milestone.flux` runs the tier at ranks **1 and 4** on SERIAL and HIP. Do
    not generalize `run_regression_minset.flux` in place; the gate script is
    single-sourced against CLAUDE.md's gate definition and must keep saying
@@ -345,18 +352,24 @@ the vacuous-pass guard at `:201-208`.
 4. Extend the tier comment block, `docs/testing.md` and CLAUDE.md's "Minimum test
    set" to name the third tier and state that it is **not** part of the gate. The
    gate stays at five members / 60 launches.
-5. Edit `milestone1.md`'s M1-T1 so it depends on M0-T1 and registers a member
-   rather than creating the tier. Leaving it as-is would give two documents
-   claiming ownership of the same CMake block.
 
-**Exit criterion:** with an empty tier,
-`flux batch scripts/tuolumne/run_milestone.flux` exits **non-zero** with the
-"named no runnable tests" message (the guard at
-`run_regression_minset.flux:201-208`, ported), and `ctest -N -L milestone` in a
-`manual`-mode build tree lists zero tests without error. In the same run,
-`ctest -N -L regression` still lists exactly **60** cases and
-`flux batch scripts/tuolumne/run_regression_minset.flux` still reports PASS —
-the check that the third tier took nothing out of the gate.
+**Exit criterion**, in its `spack`-mode form because this checkout has no build
+tree and therefore no `ctest`: with an empty tier, after `spack install`,
+
+- `beatnik_milestone_manifest.txt` is installed beside
+  `beatnik_gate_manifest.txt` under `share/Beatnik/tests` and carries **zero**
+  non-comment lines;
+- `beatnik_gate_manifest.txt` still carries exactly **ten** — the regression
+  tier's five targets on each of SERIAL and HIP;
+- `flux batch scripts/tuolumne/run_milestone.flux` exits **non-zero** with the
+  "named no runnable tests" message (the guard at
+  `run_regression_minset.flux:201-208`, ported);
+- `flux batch scripts/tuolumne/run_regression_minset.flux` still reports PASS
+  with exactly **sixty** `[gate] ===` launch lines — the check that the third
+  tier took nothing out of the gate.
+
+A `manual`-mode checkout checks the same two things with `ctest -N -L milestone`
+(zero cases, no error) and `ctest -N -L regression` (exactly 60).
 
 ---
 
@@ -374,10 +387,12 @@ Expect ~4 minutes of single-core Python (Read this first #3).
 
 **Do:**
 
-1. Generate it. `--checkpoint-every-steps 25` gives 81 files (steps 0, 25, …,
-   2000) if the run completes.
-2. Record in the `README.md`, because M0-D1 and M0-A1 reason about all of them
-   and re-deriving them from 81 files is wasted work: the vertex and face counts
+1. Generate it. `--checkpoint-every-steps 25` gives 81 numbered files (steps 0,
+   25, …, 2000) if the run completes, plus a `checkpoint_latest.npz` duplicating
+   the last of them.
+2. Record in `gold/README.md`, beside the `.npz` files, because M0-D1 and M0-A1
+   reason about all of them and re-deriving them from 81 files is wasted work:
+   the vertex and face counts
    (constant, `642`/`1280` — any change means adaptivity leaked in), the `time`
    series, the per-step minimum triangle quality, the enclosed-volume drift
    series `V/V0 - 1`, and **whether the run stopped early**
@@ -386,9 +401,13 @@ Expect ~4 minutes of single-core Python (Read this first #3).
    `compare_output.py`'s `FIELD_MAP` ([:111-135](../tests/regression_tests/compare_output.py#L111))
    needs no edit.
 
-**Exit criterion:** 81 `.npz` files present — fewer only if the reference itself
-stopped early, in which case the stop step is in the `README.md` and becomes the
-compare-depth ceiling; a self-compare of the **last** file against itself at
+**Exit criterion:** 81 numbered `.npz` checkpoints present — fewer only if the
+reference itself stopped early, in which case the stop step is in the
+`README.md` and becomes the compare-depth ceiling. The `checkpoint_latest.npz`
+beside them does not count toward the 81: it duplicates the last numbered step,
+it is inert to `goldForStep` because it carries no `_step%07d.npz` suffix, and
+M0-T1's install glob excludes it. Also: a self-compare of the **last** numbered
+file against itself at
 `--rtol 1e-12 --atol 1e-14` exits 0 reporting `642/642` unambiguous vertices (the
 check that `--match-eps 1e-9` still resolves this mesh after 2000 steps of
 roll-up, M0-R4); and `vertices.shape == (642, 3)`, `faces.shape == (1280, 3)` in
