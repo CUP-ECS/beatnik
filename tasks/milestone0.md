@@ -1,6 +1,6 @@
 # Milestone 0 — the reference's default physics on a frozen mesh, run long
 
-**Status:** NOT STARTED
+**Status:** IN PROGRESS — M0-T1, M0-G1 and M0-G2 are **DONE**; M0-D1 is next.
 
 ## Problem
 
@@ -148,8 +148,13 @@ it worse:
   by `eps`, not by the mesh.
 - **`dt` does not shrink when the mesh is refined at `t=0`.** The formula is
   `dt = max(dt_min, dt0 * min(1, h_min/h_min^0)^p)` — *relative* to the run's own
-  initial minimum edge — so step counts and physical times are comparable across
-  subdivision levels, and level 4 is not 4× the steps for the same physics.
+  initial minimum edge — so a level-4 run starts at the same `dt0` as a level-2
+  one and level 4 is not 4× the steps for the same physics. It does **not** make
+  the two levels land on the same physical time: `h_min` diverges from `h_min^0`
+  at a level-dependent rate, and 2000 steps reaches `time = 1.998284` at level 3
+  against `1.964304` at level 4 (initial minimum edges `3.457079e-02` and
+  `1.729575e-02`). **Every cross-level comparison is therefore by step, never by
+  time** — and `time` is under test besides.
 - **Against that:** the growth is exponential in principle, so each decade of
   loosened tolerance buys only a roughly *constant* number of extra steps. The
   deepest field agreement ever demonstrated in this port is 10 steps at
@@ -256,9 +261,10 @@ where they are not adaptivity-specific. These are milestone 0's own:
   (T2d measured `5.17e-11` at step 10, level 2), and that is the reference's own
   behavior. Milestone 0 compares the drift against a **measured reference
   series** for its own configuration, and must not reuse T2d's `kGoldVolumeDrift`
-  or its `kVolumeDriftAbsCap = 1e-9` — extrapolated to 2000 steps the drift is
-  of order `1e-8`, which that cap would fail for the right reason at the wrong
-  scale.
+  or its `kVolumeDriftAbsCap = 1e-9`. The gold sets measure the drift at step
+  2000 as `+3.352894e-09` (level 3) and `+4.741414e-09` (level 4) — both above
+  that cap, which would therefore fail for the right reason at the wrong scale.
+  The re-derived blow-up cap is `~1e-8`.
 - **Determinism, if taken, is not a CLI mode.** See the conventions table.
 
 ## Current state
@@ -273,18 +279,27 @@ True at HEAD:
   operators (T2b), the vertex quadrature and direct BR sum (T2c), the RHS, the
   rate-only volume projection, the TVD-RK3 integrator with adaptive dt, the step
   loop, the checkpoint writer and the diagnostics (T2d).
-- **`--icosphere-subdivisions` is plumbed but has never been run at any value
-  other than 2** in either code by anything in this tree. Every test in
-  `tests/regression_tests/` sets `kSubdivisions = 2`.
-- **No `milestone` test tier exists.** `tests/CMakeLists.txt` has exactly two:
-  `regression` (the ship gate, five members, 60 launches) and `unit`. The tier
-  comment block at [tests/CMakeLists.txt:11-48](../tests/CMakeLists.txt#L11)
-  documents both and is the text M0-T1 extends.
+- **`--icosphere-subdivisions` is plumbed but Beatnik has never been run at any
+  value other than 2** by anything in this tree: every test in
+  `tests/regression_tests/` sets `kSubdivisions = 2`. The *reference* has now
+  been run at 3 and 4 (M0-G1, M0-G2), so levels 3 and 4 exist on the Python side
+  only, and Beatnik's step-0 agreement at those levels is unmeasured — which is
+  what M0-D1 step 1 gates on.
+- **The `milestone` tier exists and is empty** (M0-T1): the label, the
+  `BEATNIK_MILESTONE_MPI_RANKS` registration loop
+  ([tests/CMakeLists.txt:437-495](../tests/CMakeLists.txt#L437)),
+  `beatnik_milestone_manifest.txt` with zero non-comment lines,
+  [scripts/tuolumne/run_milestone.flux](../scripts/tuolumne/run_milestone.flux)
+  (which exits non-zero on the empty tier, as intended), and the install rules
+  for **both** milestone-0 gold sets. M0-T3 therefore adds a test source and its
+  `_beatnik_args_<stem>_abs`/`_rel` pair, and nothing else in CMake.
 - **Beatnik's trajectory is decomposition-dependent** (Read this first #2), and
   no test measures by how much: regression test 2's rank sweep asserts agreement
   with *Python* at `1e-10` at each rank count, never Beatnik-vs-Beatnik.
-- **No gold set longer than 20 steps exists.** The two longest are
-  `direct-solve-10-steps` (11 files) and the compiled-in literals of T4a/T4b.
+- **Both 2000-step gold sets exist**, committed and installed: 81 numbered
+  `.npz` each under `tests/regression_tests/milestone0-sub{3,4}-2000-steps/gold`
+  with the generating command and the measured series in each `gold/README.md`
+  (M0-G1, M0-G2). Nothing in Beatnik has yet been compared against either.
 - `CheckpointIO::read`/`RestartReader::load` still throw (T5b). Not needed:
   milestone 0 compares files Beatnik writes against `.npz`, and reads neither.
 
@@ -359,8 +374,10 @@ tree and therefore no `ctest`: with an empty tier, after `spack install`,
 - `beatnik_milestone_manifest.txt` is installed beside
   `beatnik_gate_manifest.txt` under `share/Beatnik/tests` and carries **zero**
   non-comment lines;
-- `beatnik_gate_manifest.txt` still carries exactly **ten** — the regression
-  tier's five targets on each of SERIAL and HIP;
+- `beatnik_gate_manifest.txt` still carries the regression tier's five targets on
+  each backend in `BEATNIK_TEST_DEVICES` — **fifteen** lines on tuolumne, where
+  that list is `SERIAL;OPENMP;HIP`, of which the runner's `_<BACKEND>` filter
+  selects the ten that are the gate;
 - `flux batch scripts/tuolumne/run_milestone.flux` exits **non-zero** with the
   "named no runnable tests" message (the guard at
   `run_regression_minset.flux:201-208`, ported);
@@ -374,13 +391,10 @@ A `manual`-mode checkout checks the same two things with `ctest -N -L milestone`
 **Met.** After `spack install` in this `spack`-mode checkout:
 `share/Beatnik/tests/beatnik_milestone_manifest.txt` is installed beside
 `beatnik_gate_manifest.txt` and carries **zero** non-comment lines.
-`beatnik_gate_manifest.txt` carries **fifteen** non-comment lines, not the ten
-this criterion predicted, and the difference is pre-existing and not a gate
-change: `BEATNIK_TEST_DEVICES` on tuolumne is `SERIAL;OPENMP;HIP` (the spec is
-`+rocm +openmp +serial`), so the regression loop — untouched by this task —
-emits five targets on each of *three* backends. The runner's backend filter
-selects only `_SERIAL` and `_HIP`, which is the ten the criterion meant, and the
-gate run below confirms it: 5 x 2 x 6 = 60 launches. `flux batch
+`beatnik_gate_manifest.txt` carries the expected **fifteen** non-comment lines
+from the regression loop, which this task did not touch — its diff to
+`tests/CMakeLists.txt` is pure addition — and the gate run below confirms the ten
+the runner selects: 5 x 2 x 6 = 60 launches. `flux batch
 scripts/tuolumne/run_milestone.flux` exited **1** (job `f3TRgG5aCNsq`) with
 `[milestone] FAIL: the manifest named no runnable milestone tests for backends
 'SERIAL HIP'`, the ported vacuous-pass guard, preceded by `no milestone binaries
@@ -463,10 +477,9 @@ that directory's `README.md`.
 **Reference:** as M0-G1, at `<L> = 4`. Expect ~50 minutes of single-core Python.
 
 **Do:** as M0-G1, with `2562`/`5120` as the constant counts. Additionally record
-in the `README.md` how the minimum-quality series compares with M0-G1's: this set
-is the one that resolves `eps`, and whether a frozen level-4 mesh degrades
-*faster* than a frozen level-3 one under the same roll-up is the question M0-A1
-needs answered to say which set is the primary member.
+in the `README.md` how the minimum-quality series compares with M0-G1's — this
+set is the one that resolves `eps`, and M0-A1 cannot choose a primary level
+without knowing which frozen mesh survives the roll-up better.
 
 **Exit criterion:** as M0-G1, with `2562/2562` unambiguous vertices in the
 last-file self-compare and `(2562, 3)` / `(5120, 3)` shapes.
@@ -485,11 +498,8 @@ series' global minimum — still falling at step 2000), final volume drift
 slower.** At step 2000 the level-4 minimum quality is ~2x the level-3 one
 (`1.24e-01` vs `6.30e-02`); level 3 first crosses `0.18` at step 1050 against
 level 4's step 1800, and level 3 spends its last ~500 steps below `0.1`, which
-level 4 never reaches. So neither **M0-R2** nor **M0-R6** fired at level 4, and
-M0-A1 cannot pick level 3 as primary on mesh-health grounds. Note the two runs
-do not cover the same physical time (`1.998284` vs `1.964304` after 2000 steps),
-because the adaptive dt is relative to each run's own initial minimum edge
-(`3.457079e-02` vs `1.729575e-02`).
+level 4 never reaches. Neither **M0-R2** nor **M0-R6** fired at level 4. What
+this settles for M0-A1 is under its own entry.
 
 ---
 
@@ -498,36 +508,84 @@ because the adaptive dt is relative to each run's own initial minimum edge
 **Depends on:** M0-G1, M0-G2.
 
 The task that decides whether the milestone's premise holds, and the one that
-answers the determinism question with numbers. It writes **no library code**.
+answers the determinism question with numbers. It writes **no library code** —
+its only C++ is a test-source measurement driver, and every comparison it makes
+is offline in Python.
 
-**Fill in:** `scripts/tuolumne/milestone0_divergence.flux` (a batch script —
-never launch interactively from a login node, CLAUDE.md) and a table of measured
-numbers in `milestone0-progress-log.md`.
+**Fill in:** three artifacts, plus a table of measured numbers in
+`milestone0-progress-log.md`.
+
+1. `tests/regression_tests/Beatnik_Test_Milestone0Run.cpp` and its registration
+   in [tests/CMakeLists.txt](../tests/CMakeLists.txt): a per-backend driver that
+   builds the params, runs, and writes checkpoints, and compares nothing.
+   Registered in **no tier** — no `LABELS`, no ctest case, no manifest line — so
+   neither the gate nor `run_milestone.flux` can pick it up, and installed under
+   `share/Beatnik/tests` so `beatnik_exe` resolves it by name.
+2. `tests/regression_tests/milestone0_ladder.py`: the tabulation helper. It
+   drives `compare_output.py` over a run directory and a gold directory (or two
+   run directories) and emits the per-step, per-field table the progress log
+   carries. A measurement tool, not a test — it is registered nowhere.
+3. `scripts/tuolumne/milestone0_divergence.flux`: the batch script — never launch
+   interactively from a login node, CLAUDE.md.
+
+**Why not `examples/02_adaptive_mesh_bubble`.** It cannot produce the SERIAL half
+of the matrix.
+[examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp:209](../examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp#L209)
+fixes the execution space to `Kokkos::DefaultExecutionSpace`, and the installed
+binary is built from a `+rocm` spec, so `adaptive_mesh_bubble` is HIP-only — and
+no runtime option changes that, both because the space is a compile-time choice
+and because the CLI surface is closed (Conventions). Per-backend binaries exist
+only for **test sources**, through the generated translation unit that pins
+`BEATNIK_TEST_EXEC_SPACE`
+([tests/CMakeLists.txt:437-495](../tests/CMakeLists.txt#L437) for the milestone
+tier, [:323-386](../tests/CMakeLists.txt#L323) for the regression tier). Copy
+that loop's shape for the driver and stop short of the point where it applies a
+label and emits a manifest line.
 
 **Reference:** [scripts/tuolumne/run_regression_minset.flux](../scripts/tuolumne/run_regression_minset.flux)
 for the resolver-sourcing, `beatnik_exe` and scratch conventions;
 [Beatnik_Test_DirectSolve10Steps.cpp:263-306](../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp#L263)
 for the `goldForStep` + `compare_output.py` subprocess pattern; `makeParams()`
-([:307-379](../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp#L307))
-for the mapping from the Python command line to a `SolverParams`, which this
-script's `examples/02_adaptive_mesh_bubble` invocation must match option for
-option except `--icosphere-subdivisions`, `--steps` and
-`--checkpoint-every-steps`.
+([:308-378](../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp#L308))
+for the mapping from the Python command line to a `SolverParams`, which the
+driver's params must match field for field except
+`initial.icosphere_subdivisions` (the level under test), `time.steps = 2000` and
+`checkpoint.every_steps = 25`.
+
+**Environment and queue:** the **dev** spack env — do not set `BEATNIK_USE_PROD`
+— submitted `-q pdebug -t 1h`. The reference's own single-core Python produced
+both gold sets in about 110 minutes total, and an MPI/HIP port slower than that
+would defeat the purpose of the port, so one hour is the budget for the whole
+sweep. A sweep that does not fit it is a **performance finding for the progress
+log**, not a reason to move queues or lengthen the walltime.
 
 **Do, in this order:**
 
 1. **Step 0 first, and treat it as a gate.** For each level, compare Beatnik's
-   step-0 checkpoint against the gold at `--rtol 1e-12 --atol 1e-14`. A failure
-   here is a *generator* disagreement at that subdivision level (Read this first
-   #3), not a divergence measurement, and must be reported as such rather than
-   absorbed into the trend. Record `max|e|` on `vertices` at levels 2, 3 and 4 so
-   the ulp growth with level is a number.
+   step-0 checkpoint against the gold at `--rtol 1e-12 --atol 1e-14`: level 2
+   against [tests/regression_tests/initial_conditions/gold.npz](../tests/regression_tests/initial_conditions/gold.npz)
+   (step 0 at level 2, `162`/`320`, carrying the same nine keys as the two
+   milestone-0 sets), levels 3 and 4 against the `_step0000000.npz` of their own
+   gold directories. A failure here is a *generator* disagreement at that
+   subdivision level (Read this first #3), not a divergence measurement, and must
+   be reported as such rather than absorbed into the trend. Record `max|e|` on
+   `vertices` at levels 2, 3 and 4 so the ulp growth with level is a number.
 2. Run both levels for 2000 steps, checkpointing every 25, at ranks 1 and 4 on
    SERIAL and HIP, into `BEATNIK_TEST_SCRATCH`.
-3. For each checkpointed step, run `compare_output.py` at each of
-   `--rtol 1e-12/1e-10/1e-8/1e-6/1e-4` (`--atol` two decades below) and record
-   the first step at which each fails, plus `max|e|` per field per step. This is
-   the tolerance ladder M0-A1 consumes.
+3. **Build the tolerance ladder by derivation, then confirm it.** For each
+   checkpointed step run `compare_output.py` **once**, at `--rtol 1e-12 --atol
+   1e-14` and not `--quiet`, and harvest the per-field `max|e|` and `max|e|/|g|`
+   it prints
+   ([compare_output.py:445-448](../tests/regression_tests/compare_output.py#L445)).
+   Those two numbers give a candidate first-failing step at each of
+   `--rtol 1e-12/1e-10/1e-8/1e-6/1e-4` (`--atol` two decades below) without
+   re-running the comparator 5× per step. The candidate is **not** the answer:
+   the pass criterion is elementwise `|e| <= atol + rtol*|g|`
+   ([:442](../tests/regression_tests/compare_output.py#L442)) and the worst-`|e|`
+   entry need not be the worst-relative one, so each candidate must be confirmed
+   by two real invocations at that tolerance — the candidate step, which must
+   fail, and the previous checkpointed step, which must pass. Record the
+   confirmed step, not the derived one. This ladder is what M0-A1 consumes.
 4. **Attribute the divergence.** Compare Beatnik at ranks 1 against Beatnik at
    ranks 4, same backend, step by step, at the same ladder. If the
    Beatnik-vs-Beatnik divergence is comparable to the Beatnik-vs-Python
@@ -535,7 +593,11 @@ option except `--icosphere-subdivisions`, `--steps` and
    (Read this first #2) and M0-T2 is worth doing; if it is orders of magnitude
    smaller, the horizon is Python-vs-Beatnik drift and M0-T2 buys nothing.
    **This comparison is the single most valuable number this task produces** —
-   record it as such, per level and per backend.
+   record it as such, per level and per backend. **SERIAL is the clean
+   instrument** here: on HIP a rank-1-vs-rank-4 difference conflates the
+   decomposition order M0-T2 would fix with within-rank GPU nondeterminism it
+   would not, so the HIP number bounds the effect and the SERIAL number isolates
+   it.
 5. Record the volume-drift series `V/V0 - 1` per step for both codes at both
    levels, computed the same way T2d's was
    (`V = (1/6) Σ_f a·(b×c)` over `faces`, offline in NumPy from the `.npz` and
@@ -543,16 +605,24 @@ option except `--icosphere-subdivisions`, `--steps` and
    what distinguishes M0-R2 from M0-R3.
 6. Record the wall time per step and the peak resident memory per rank at level 4
    — what tells M0-A1 whether the asserted depth is affordable at both rank
-   counts on both backends.
+   counts on both backends. Neither is instrumented: nothing in `src/` or in any
+   driver reports a timing or a high-water mark, so the batch script supplies
+   both. Peak resident memory per rank comes from `/usr/bin/time -v` wrapped
+   around the task *inside* `flux run`, so each rank reports its own; wall time
+   comes from the script clocking each launch, with the per-step cost derived
+   from it and the step count. **GPU-side memory is out of scope** — there is no
+   mechanism for it here, and saying so is what stops a later session reading its
+   absence as an oversight.
 
 **Exit criterion:** the progress log carries, as 17-digit literals: the
-per-tolerance first-failing step for each of (level 3, level 4) × (SERIAL, HIP) ×
-(ranks 1, 4) against Python; the same ladder for Beatnik-rank-1 vs
-Beatnik-rank-4; the `max|e|` growth series for `vertices` and `potential`; both
-volume-drift series; and the level-4 wall time and peak memory. The measurement
-**fails** if step 0 does not match at `1e-12` at any level (step 1 above), or if
-the vertex or face count changes at any step in any run — that would mean
-adaptivity leaked into the configuration that exists to exclude it.
+per-tolerance first-failing step — **derived and then confirmed, per step 3** —
+for each of (level 3, level 4) × (SERIAL, HIP) × (ranks 1, 4) against Python; the
+same ladder for Beatnik-rank-1 vs Beatnik-rank-4; the `max|e|` growth series for
+`vertices` and `potential`; both volume-drift series; and the level-4 wall time
+and peak resident memory per rank. The measurement **fails** if step 0 does not
+match at `1e-12` at any level (step 1 above), or if the vertex or face count
+changes at any step in any run — that would mean adaptivity leaked into the
+configuration that exists to exclude it.
 
 ---
 
@@ -585,10 +655,15 @@ user:
 
 **Additional information needed, and which task answers it:** how fast the two
 codes diverge and at what tolerance (**M0-D1** step 3); how much of that is
-Beatnik's own decomposition dependence (**M0-D1** step 4); whether a 2000-step
-level-4 run is affordable at both rank counts on both backends (**M0-D1** step
-6); and whether a frozen level-4 mesh survives the roll-up better or worse than a
-frozen level-3 one (**M0-G1**/**M0-G2** minimum-quality series).
+Beatnik's own decomposition dependence (**M0-D1** step 4); and whether a
+2000-step level-4 run is affordable at both rank counts on both backends
+(**M0-D1** step 6).
+
+The fourth question is **answered**: the frozen **level-3** mesh is the one that
+degrades faster. Final minimum quality is `6.303626e-02` at level 3 against
+`1.242421e-01` at level 4, and level 3 spends its last ~500 steps below `0.1`
+where level 4 never reaches it (M0-G1, M0-G2). So decision 2 cannot pick level 3
+as primary on mesh-health grounds; if it picks level 3, the reason is cost.
 
 **Exit criterion:** this document's `## Problem`, M0-T2 and M0-T3 entries state
 the decided depth, tolerances, primary level, beyond-depth treatment and the
@@ -738,11 +813,16 @@ the minimum-quality series collapsing toward zero. *Distinguished from M0-R1 by:
 the minimum-quality series, which M0-G1 and M0-G2 both record for exactly this
 reason — a quality collapse is M0-R2, a healthy quality series with growing field
 errors is M0-R1. *Do:* the stop step becomes the compare-depth ceiling and is
-recorded in the gold `README.md`; it is not a failure of either code.
+recorded in the gold `README.md`; it is not a failure of either code. **It did
+not fire in either gold set** — neither run stopped early and every field is
+finite in all 162 files — so the ceiling is 2000 steps at both levels on the
+reference side. Beatnik's side is still unmeasured.
 
 **M0-R3 — the volume drift is not the T2d series and looks like a regression.**
-No `projectToVolume` runs here, so drift accumulates linearly and reaches order
-`1e-8` by step 2000 — above T2d's `kVolumeDriftAbsCap = 1e-9`. *Presents as:* the
+No `projectToVolume` runs here, so drift accumulates linearly, and **M0-G1 and
+M0-G2 confirm it**: at step 2000 the reference's drift is several times T2d's
+`kVolumeDriftAbsCap = 1e-9` (Deliberate deviations carries the two numbers and
+the re-derived cap). *Presents as:* the
 new test failing on volume drift at a few hundred steps if T2d's literals were
 reused. *Distinguished from a real conservation bug by:* whether Beatnik's series
 tracks the *Python's own* series, which is what M0-D1 step 5 measures for both
@@ -760,7 +840,10 @@ failing first and by the same magnitude as every other field. *Do:* M0-G1 and
 M0-G2 both check the last file's self-compare for unambiguous pairing, which
 catches it in the gold set rather than in the test; report it as a pairing
 failure with the step index, and do not raise `--match-eps` or `--max-ambiguous`
-without stating what that then cannot detect.
+without stating what that then cannot detect. **It has not bitten the gold
+sets**: both last-file self-compares pair every vertex unambiguously (`642/642`,
+`2562/2562`, `ambiguous cpp=0 gold=0`). Cross-code pairing, where the two
+files' positions differ, is still untested.
 
 **M0-R5 — the icosphere generators disagree more at higher subdivision.** The
 midpoint-normalize ulp differences of Read this first #3 compound across levels,
@@ -779,7 +862,10 @@ nonfinite early at level 4 while level 3 completes — and, because both codes
 share the formula, as a *matching* pair of early stops rather than a
 disagreement. *Do:* if M0-G2 stops early where M0-G1 does not, the level-4 set is
 a `--dt` decision for M0-A1, not a Beatnik bug. Changing `--dt` means
-regenerating that gold set, so decide before generating a third one.
+regenerating that gold set, so decide before generating a third one. **It did not
+fire on the reference side:** M0-G2 completed all 2000 steps, so `--dt` is not a
+decision M0-A1 has to make unless Beatnik itself goes nonfinite at level 4 where
+the reference did not.
 
 **M0-R7 — M0-T2's cost is paid on the production path.** The framework forbids a
 Beatnik-only CLI switch, so a deterministic BR sum is unconditional: an
