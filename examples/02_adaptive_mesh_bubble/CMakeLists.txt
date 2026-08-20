@@ -15,17 +15,24 @@
 # example 01, this one targets the CURRENT solver API and builds unconditionally
 # under Beatnik_ENABLE_EXAMPLES=ON.
 #
-# It BUILDS but does not yet RUN to completion: every library body is a stub
-# that throws std::logic_error. `--help` works and a real invocation parses its
-# arguments and then dies in the first stub. That is why no ctest case is
-# registered here — a test asserting "throws logic_error" would have to be
-# deleted the moment the solver starts working, and a test asserting success
-# cannot pass yet.
+# It BUILDS and RUNS. The solver integrates: task T2d landed the RHS, the volume
+# projection and the TVD-RK3 integrator, and T4a/T4b landed indicator-driven
+# refinement and split-only dynamic remeshing. What is still stubbed are the
+# follow-on mesh-quality passes (T4d, T4e) and the circulation field filter
+# (T5c); `Solver::requireSupportedConfiguration` rejects a configuration that
+# needs one of those before the first step, naming the option to change and the
+# task that owns it. The DEFAULT configuration is currently one of those, because
+# `--isotropic-cleanup` defaults on — so a real invocation either integrates to
+# completion or exits with that message, never dies in an unnamed stub.
 #
-# WHEN THE SOLVER LANDS: register the end-to-end regression cases here, against
-# the committed gold files under tests/regression_tests/gold/. Those cases go in
-# the `regression` tier, which is the ship gate, so adding them requires the
-# user's explicit confirmation (CLAUDE.md "Minimum test set").
+# The end-to-end regression cases are NOT registered here. They live in
+# tests/CMakeLists.txt as standalone self-validating binaries under
+# tests/regression_tests/, each with its own gold set (e.g.
+# tests/regression_tests/direct-solve-10-steps/gold/), so that the gate runs one
+# binary per case across the backend x rank sweep rather than shelling out to
+# this driver. Those cases are in the `regression` tier, which is the ship gate,
+# so adding one requires the user's explicit confirmation (CLAUDE.md "Minimum
+# test set").
 #
 # The accepted arguments are documented in the top-level README.md and in
 # InputFile.hpp::printSchema, and all three must be updated together.
