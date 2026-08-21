@@ -817,17 +817,50 @@ regression loop is untouched.
 
 ### The tier run
 
-**PENDING at the time this section was written.** Milestone job
-**`f3Td7rshE3y1`** (`beatnik_milestone.f3Td7rshE3y1.log`) and gate job
-**`f3Td82RoqczB`** (`beatnik_regression_minset.f3Td82RoqczB.log`) were submitted
-back to back and are the two halves of M0-T3's exit criterion: eight
-`[milestone] ===` launches with zero `[FAIL]` lines, and sixty `[gate] ===`
-launches with `[gate] PASS`. A session picking this up should read those two logs
-and `flux job status` for both job IDs — **not** `flux job attach`, which
-forwards SIGTERM and already destroyed one M0-D1 sweep — then record the measured
-wall times, the comparator share and the peak resident memory per rank from the
-`[m0t3] COST` lines here, and mark M0-T3 **DONE** in `milestone0.md` with its
-**Met.** paragraph.
+Two jobs, submitted back to back, and they are the two halves of M0-T3's exit
+criterion.
+
+**The gate half is MET.** Job **`f3Td82RoqczB`**
+(`beatnik_regression_minset.f3Td82RoqczB.log`) exited **0** with exactly
+**sixty** `[gate] ===` launch lines and `[gate] PASS (label=regression)`. That is
+the `spack`-mode form of "`ctest -N -L regression` lists 60 cases", exactly as
+M0-T1's exit criterion was met, and it is the check that the milestone tier's two
+new members took nothing out of the gate.
+
+**The milestone half is PENDING at the time this section was written.** Job
+**`f3Td7rshE3y1`** (`beatnik_milestone.f3Td7rshE3y1.log`), submitted from the
+repo root against the reverted (`BEATNIK_M0_FORCE_DYNAMIC_REMESH 0`) install.
+What it must show: **eight** `[milestone] ===` launch lines — two members x
+{SERIAL, HIP} x ranks {1, 4} — with **zero** `[FAIL]` lines and
+`[milestone] PASS (label=milestone)`, and eight `[PASS]
+Beatnik_Test_Milestone0Frozen` tallies.
+
+**To finish M0-T3 from here:**
+
+1. `flux job status f3Td7rshE3y1` — it blocks until the job completes, exits with
+   the job's own status, works on an already-finished job and can be re-run as
+   often as you like. The harness's ten-minute command timeout will cut the wait
+   on a ~40-minute job; the job is unaffected, so just re-run it. **Never `flux
+   job attach`** — it forwards SIGTERM and that is what destroyed M0-D1's first
+   sweep (`f3TSvQtWhW8f`), leaving a log that read exactly like a completed run.
+2. Read `beatnik_milestone.f3Td7rshE3y1.log`. **Finishing is not succeeding:** a
+   job killed at the 60m wall leaves the queue looking like one that passed, which
+   is M0-R8. Check the launch-line count, the `[FAIL]` count and the final
+   `[milestone] PASS`/`FAIL` line, not just the exit status.
+3. Record the cost here from the eight `[m0t3] COST level=.. space=.. np=..
+   steps=.. wall=.. comparator=.. peak_rss_kb=..` lines — the wall time, the
+   comparator's share of it and the worst-rank peak resident memory, per launch.
+   Those are the numbers M1-T1 needs to size the tier's walltime again.
+4. Mark M0-T3 **DONE** in `milestone0.md` with a **Met.** paragraph naming the
+   three job IDs (`f3Td7rshE3y1` the tier, `f3Td82RoqczB` the gate,
+   `f3Td5AJiqAfq` the forced-remesh failure direction), the launch counts and both
+   failure-direction demonstrations, and set that document's `## Status` to say
+   milestone 0 is complete.
+
+If the tier run instead comes back red, it is a real failure and gets a README
+"Known Issues" entry — it is never a reason to touch the gate, and per this task's
+constraints the response is to report what failed verbatim rather than to
+substitute a shallower depth, a looser tolerance or one member instead of two.
 
 **Affects:** **M1-T1** in `milestone1.md`, which registers the tier's next
 member: the tier is no longer empty, so M1-T1 adds a **third** source stem and a

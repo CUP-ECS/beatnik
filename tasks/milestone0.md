@@ -4,18 +4,21 @@
 M0-T2 is **DECLINED**. **M0-T3 is written, built and submitted; only its exit
 criterion is outstanding.**
 
-To finish it: read `milestone0-progress-log.md` under `## M0-T3` — everything the
-task decided is recorded there — then read the two logs its last sub-section
-names, `beatnik_milestone.f3Td7rshE3y1.log` (job **`f3Td7rshE3y1`**, the tier's
-eight launches) and `beatnik_regression_minset.f3Td82RoqczB.log` (job
-**`f3Td82RoqczB`**, the 60-launch gate). Check both with
-`flux job status <jobid>` — **never `flux job attach`**, which forwards SIGTERM
-and already killed one M0-D1 sweep. The criterion is eight `[milestone] ===`
-launches with zero `[FAIL]` lines and `[milestone] PASS`, plus sixty
-`[gate] ===` launches with `[gate] PASS`. Both failure directions are **already
-demonstrated** (job `f3Td5AJiqAfq`); see the log entry. Then record the `[m0t3]
-COST` numbers in the log, mark M0-T3 **DONE** below with its **Met.** paragraph,
-and set this line to say milestone 0 is complete.
+Three of the four things its exit criterion asks for are **already in hand**: the
+60-launch gate still passes (job `f3Td82RoqczB`, `[gate] PASS` with exactly sixty
+`[gate] ===` lines), and **both** failure directions are demonstrated — the
+step-0-gold negative case exits exactly 1 inside the test, and a build with
+`--dynamic-remesh` forced fails on the constant-entity-count assertion of step 4
+at both levels, both backends and both rank counts (job `f3Td5AJiqAfq`). What is
+outstanding is the tier's own run: job **`f3Td7rshE3y1`**,
+`beatnik_milestone.f3Td7rshE3y1.log`, eight launches, submitted and in flight.
+
+**To finish:** read `milestone0-progress-log.md` under `## M0-T3` — every decision
+this task made is recorded there, and its last sub-section, "The tier run",
+carries the four numbered steps that close the task, the exact
+`flux job status f3Td7rshE3y1` waiting protocol (**never `flux job attach`**,
+which forwards SIGTERM and already killed one M0-D1 sweep), and the M0-R8 warning
+that a job killed at the 60m wall leaves the queue looking like a pass.
 
 ## Problem
 
