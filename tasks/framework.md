@@ -174,8 +174,15 @@ What is still a stub:
   `--redistribute-every` branch, and with it the volume projection. The editing-family
   question that blocked all of Phase 4 is **settled** (Phase 4, *The
   editing-family question — RESOLVED*): T4b, T4c, T4e and T4f are implementable
-  against Tessera as it stands, and only **T4d** — coarsening, flips and
-  isotropic cleanup — still waits on Tessera's G5b/G5c/G5d.
+  against Tessera as it stands, and **T4d** — coarsening, flips and isotropic
+  cleanup — no longer waits on anything either. **Tessera's G5b, G5c and G5d all
+  landed in August 2026**, so every one of the eleven M1 gaps is closed and
+  **nothing in this port is blocked upstream**. T4d is split into T4d1–T4d6 and
+  its design has **moved to [`milestone1.md`](milestone1.md)** — read that for
+  what Tessera supplies (much more than the task assumed) and for the one thing
+  it does not (a gain hook on the flip policy). T4d is also the whole remaining
+  gap between this port and the reference's default rising-bubble configuration,
+  which is what that document is scoped to.
 - **`--remesh-tight-after >= 0` is rejected.** The sixteen `--remesh-tight-*`
   options parse and populate a distinct `RemeshParams`, but nothing selects it,
   so a run past the switch time would otherwise keep remeshing at the baseline
@@ -1277,11 +1284,14 @@ the five real passes and then *recovers* to `0.673`, never approaching
 face→edge accessor are all T4a's, and this task must not re-invent them).
 
 The default configuration. `dynamic_remesh.py` is three thirds — split, collapse,
-flip — and **only the split third is expressible against Tessera today** (G5b,
-G5c, G5d are open; see M1's gap section). This task is the split third and the
-sizing field that drives it; T4d is the rest. Splitting them this way is
-deliberate: the sizing field, the gradation smoothing and the pass structure are
-the bulk of `dynamic_remesh.py` and none of it is blocked.
+flip — and at the time this task was written **only the split third was
+expressible against Tessera** (G5b, G5c, G5d were open). This task is the split
+third and the sizing field that drives it; T4d is the rest. Splitting them this
+way was deliberate: the sizing field, the gradation smoothing and the pass
+structure are the bulk of `dynamic_remesh.py` and none of it was blocked.
+*(G5b/G5c/G5d have since landed — see M1's gap section and T4d. This paragraph is
+the historical reason for the split, not a current statement of what Tessera
+supports.)*
 
 **Fill in:**
 - `Beatnik_DynamicRemesh.hpp` — the target-length (sizing) field from the
@@ -1319,7 +1329,8 @@ and the new rule must be run as a fifth family in
 three edit sites are named in R12).
 
 **Explicitly out of scope, and why:**
-- Collapse and flip → **T4d**, blocked upstream.
+- Collapse and flip → **T4d** (blocked upstream when this was written; the three
+  Tessera gaps have since landed and T4d is unblocked).
 - **The nonlocal proximity query → T4e.** This document called it "the hardest
   single item in the port" and treated it as blocking. It is not: both switches
   that reach it, `DynamicRemeshParams.use_proximity` and `.surgical_proximity`,
@@ -1541,44 +1552,25 @@ the ship gate stays at five members / 60 launches — showing:
 
 ---
 
-### T4d — Coarsening, flips, and isotropic cleanup — **BLOCKED (upstream)**
+### T4d — Coarsening, flips, and isotropic cleanup — **MOVED to `milestone1.md`**
 
-**Depends on:** T4b, T4c, **and Tessera G5b (edge collapse), G5c (edge flip) and
-G5d (compaction)** — all three `NOT STARTED` in `../tessera/tasks/`
-(`edge-collapse.md`, `edge-flip.md`, `mesh-compaction.md`), with Tessera's own
-ordering being compaction → flip → collapse. **This task cannot start until they
-land**, and that is the only thing standing between Phase 4 and the reference's
-full behaviour.
+**The design for T4d and its six sub-tasks T4d1–T4d6 now lives in
+[`milestone1.md`](milestone1.md)**, which is the document that owns the
+reference's default rising-bubble configuration — the only configuration T4d is
+needed for. The IDs are unchanged, because four `requireSupportedConfiguration`
+messages and several header comments name "task T4d" in text a user reads at a
+failed run.
 
-**Fill in:** `Beatnik_MeshInterface.hpp::{collapseEdges, flipEdges, compact}`;
-the collapse and flip thirds of `Beatnik_DynamicRemesh.hpp`
-(`collapseShortEdges`, `flipEdgesForQuality`) **and `tangentialSmooth`**, which
-was assigned to no task until T4b assigned it here — it is a port of
-`dynamic_remesh.py::tangential_smooth_vertices`, *not* of
-`mesh_solver.py::improve_mesh_quality_tangential` (that one is T4c), and it runs
-inside the same `if changed or needs_quality_repair` block as the flips;
-`Beatnik_MeshQuality.hpp::{improveConnectivityByFlips, valenceEqualizingFlips,
-isotropicCleanup}`; the `requireSupportedConfiguration` rejections T4a and T4b
-added. Note `tangentialSmooth` moves vertices and changes no connectivity, so
-unlike the other two it is **not** blocked on a Tessera gap — it is here only
-because it is unreachable while the flips are.
-← *Python:* `dynamic_remesh.py::{collapse_short_edges, flip_edges_for_quality,
-tangential_smooth_vertices}`,
-`mesh_quality.py` (44-167),
-`mesh_solver.py::improve_mesh_connectivity_by_edge_flips` (1704-1772)
+What that document adds beyond what this section held: the exact milestone
+command line and the derivation that T4d is the *whole* remaining gap for it, the
+Python/Beatnik divergence measurement its acceptance criterion is gated on, the
+new `milestone` test tier, and three reference details this section stated
+imprecisely (the collapse priority is a *normalized* length; `flip_edges_for_quality`
+does not rebuild its edge map; `tangential_smooth_vertices` carries an
+all-or-nothing quality guard that `MeshQuality::relaxTangential` does not).
 
-**Additional information needed, to be answered against Tessera when the three
-land, not now:** whether `collapseEdges` supplies the two-phase owner-decides
-protocol for the link condition and the geometric safety test across a rank
-boundary, or leaves it to the caller; and whether `compact()` invalidates the
-face user fields the way `refine()`/`splitEdges()` invalidate edge user fields.
-
-**Exit criterion:** a default-configuration run completes 50 steps at ranks 1
-and 4; volume drift below `1e-10`; the minimum triangle quality stays above
-`--remesh-min-quality` for the whole run; and with `--isotropic-cleanup` a run
-that reaches a tightening roll-up does not die on the "curvature sliver", with
-the valence histogram staying concentrated at 6. Compare **statistics** against
-the Python, never the flip or collapse set (R7).
+Still owned here and not duplicated there: risks R2, R4, R7, R12, R13 and R14,
+and the Phase 4 conventions above.
 
 ---
 
@@ -2026,32 +2018,38 @@ all three, so `DefaultRefinePolicy` is used unchanged.
 
 #### Gaps — what Tessera does NOT provide
 
-*Of the eleven recorded at M1, **eight closed Tessera-side** (branch
-`conforming-refinement`) — G1, G2, G3, G4, G5a, G6, G7,
-G8 — via the calls in the "Added since M1" table above. Only G5b, G5c and G5d
-remain open, and they are what still blocks T4d.*
+*Of the eleven recorded at M1, **all eleven have now closed Tessera-side** — G1,
+G2, G3, G4, G5a, G6, G7, G8 on branch `conforming-refinement` via the calls in
+the "Added since M1" table above, and **G5d, G5c, G5b in August 2026**. **No
+Tessera gap blocks any Beatnik task.***
 
-**G5 — No topological edit except the face-mask refine. — PARTIALLY CLOSED.**
+**G5 — No topological edit except the face-mask refine. — CLOSED.**
   - **G5a — caller-driven edge split. — DONE.** `splitEdges( mesh, halo,
     edgeMask )` bisects exactly the marked edges, the owner deciding, every
     incident face becoming 2, 3 or 4 children — **conforming on exit with no
     closure and no 2:1 pass**. This is `split_selected_edges` directly.
-  - **G5b — edge collapse. — OPEN.** Does not exist at any level. The data model
-    has no coarsening path, so neither the link condition nor a cross-rank
-    owner-decides protocol has anywhere to attach. Tessera task
-    `../tessera/tasks/edge-collapse.md` (NOT STARTED, largest of the eleven; hard
-    dependency on halo depth ≥ 2, which has landed).
-  - **G5c — edge flip. — OPEN.** Does not exist. Needs both incident faces, so a
-    correct one needs the edge-coordinator machinery — which
-    `buildFaceAdjacency` (G4) now exposes, so the prerequisite is met.
-    `../tessera/tasks/edge-flip.md` (NOT STARTED).
-  - **G5d — compaction. — OPEN.** Prerequisite of collapse rather than a
-    consequence of it in Tessera's own ordering.
-    `../tessera/tasks/mesh-compaction.md` (NOT STARTED).
-**What the three open gaps actually block, restated after the Phase 4 design
-settled:** the split third of `dynamic_remesh.py` is expressible today and is
-**T4b**; the collapse and flip thirds, and every flip in `mesh_quality.py`, are
-**T4d** and wait on G5b/G5c/G5d. Nothing else in Phase 4 is blocked.
+  - **G5b — edge collapse. — DONE (2026-08-18).**
+    `Tessera::collapseEdges( mesh, halo, edgeMask, policy )`,
+    `Tessera_EdgeCollapse.hpp`. It supplies the link condition, the geometric
+    safety tests, a deterministic independent-set round **and** the compaction,
+    all internally — see T4d's *The two open questions, answered against the
+    landed code*. Requires halo depth ≥ 2, which Beatnik already runs at.
+    `../tessera/tasks/edge-collapse.md`.
+  - **G5c — edge flip. — DONE (2026-08-17).**
+    `Tessera::flipEdges( mesh, halo, edgeMask, policy )`, `Tessera_EdgeFlip.hpp`.
+    Decides at the edge coordinator, as the M1 note predicted it would have to.
+    Its policy is *absolute* admissibility only, with **no gain hook** — the one
+    genuine gap left for Beatnik, resolved in T4d by moving the gain test into
+    mask construction. `../tessera/tasks/edge-flip.md`.
+  - **G5d — compaction. — DONE (2026-08-15).** `Tessera::compact( mesh, halo )`
+    and `Tessera::compactAndRenumberGids( mesh, halo )`, `Tessera_Compact.hpp`.
+    Green on SERIAL **and HIP** at ranks 1–5. Note `compact()` preserves gids and
+    is itself on the gid-space leak path; the renumbering variant is the
+    mitigation, and choosing its cadence is T4d6.
+**What this unblocks:** the split third of `dynamic_remesh.py` was already
+expressible and is **T4b**; the collapse and flip thirds, and every flip in
+`mesh_quality.py`, are **T4d**, which is now **UNBLOCKED** and split into
+T4d1–T4d6. Nothing in Phase 4 is blocked upstream any more.
 
 #### What Beatnik must implement itself (and legitimately may)
 

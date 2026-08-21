@@ -37,10 +37,13 @@
  *
  * CURRENT BEHAVIOR
  * ----------------
- * Every solver body is a stub. A real invocation parses its arguments, prints
- * the resolved configuration, and then dies with a `std::logic_error` naming
- * the first unimplemented routine — which is the intended state of this
- * framework and the thing to check when picking up the next task.
+ * The solver integrates (tasks T2d, T4a, T4b). The still-unported passes are
+ * the mesh-quality ones (T4d, T4e) and the circulation field filter (T5c), and
+ * a configuration that needs one of them is rejected by
+ * `Solver::requireSupportedConfiguration` before the first step, with a message
+ * naming the option to change and the task that owns it. The DEFAULT
+ * configuration is one of those today, because `--isotropic-cleanup` defaults
+ * on; that message is the thing to read when picking up the next task.
  */
 
 #include <Beatnik_Config.hpp>
@@ -231,9 +234,11 @@ int main( int argc, char* argv[] )
         }
         catch ( const std::exception& e )
         {
-            // Every unimplemented routine throws std::logic_error("<Class>::"
-            // "<method> not implemented"), so at this stage of the port that
-            // message names the next thing to write.
+            // An unsupported configuration is rejected before the first step
+            // with a message naming the option to change and the task that owns
+            // the missing pass; a still-unported routine reached directly
+            // throws std::logic_error("<Class>::<method> not implemented"), so
+            // that message names the next thing to write.
             if ( rank == 0 )
                 std::cerr << "adaptive_mesh_bubble: error: " << e.what()
                           << std::endl;

@@ -4,6 +4,7 @@ spack-env
 data
 .DS_Store
 *.log
+__pycache__
 
 # Per-checkout build/run profile overrides. profile.defaults.sh IS committed.
 scripts/**/profile.local.sh
