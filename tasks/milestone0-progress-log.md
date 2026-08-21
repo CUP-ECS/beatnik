@@ -507,3 +507,166 @@ and ~1293 s, so a level-4 member is a ~30-minute tier run and comfortably inside
 budget for that. `makeParams()` in `Beatnik_Test_Milestone0Run.cpp` is the
 `SolverParams` M0-T3 needs, already written and already exercised for 2000 steps
 at both levels.
+
+## M0-A1
+
+Documentation only: no build, no run, no comparator invocation, no source file
+touched. Every number below comes from `## M0-D1` (sweep job `f3TT4psJ8it7`) or
+from a `gold/README.md`; nothing was re-measured, and nothing could have been —
+a fresh measurement outside that job's provenance would not be comparable to the
+table it landed in.
+
+### The four decisions, and the alternative each one rejected
+
+**1. Depth and tolerance: flat, all 81 checkpointed steps through step 2000, at
+`--rtol 1e-10 --atol 1e-12`, at both levels.**
+
+*Rejected: a per-step tolerance table.* M0-D1's ladder has **no failing step** at
+`1e-10/1e-12` in any of the twelve comparisons — two levels x two backends x two
+rank counts against Python, plus the four rank-1-vs-rank-4 pairs — and at that
+rung no step even *permits* a failure, so the bound is proved from the
+comparator's own printed `max|e|` / `max|e|/|g|` pair rather than sampled. A
+table whose every row carries the same number is not a table.
+
+*Rejected: a per-level depth.* The ladder's "none" is identical at level 3 and
+level 4, so there is nothing for a per-level depth to express. (The levels do
+*not* reach the same physical time at step 2000 — `1.998284` against `1.964304` —
+which is why the depth is in steps and never in time; see `## M0-G1, M0-G2,
+M0-T1`.)
+
+*Rejected: asserting at `1e-12/1e-14`.* It would stop at step **1325** (level 3
+SERIAL np1; 1350 at np4, 1325 on HIP at both rank counts) or step **775** (level
+4 SERIAL at both rank counts and HIP np1; 800 at HIP np4). Since `1e-10` has no
+failing step through 2000, the tight rung buys nothing the loose one does not
+already have and costs 675-1225 steps of asserted depth. The headroom at the
+asserted rung is about two decades: peak `vertices` `max|e|` is
+`8.53317416726895317e-13` (level 3 SERIAL) and `3.17634807345257286e-13` (level
+4 SERIAL, peaking at step **1400** and falling to `1.31783473023006081e-13` by
+step 2000).
+
+**2. Level 3 is the primary member; level 4 is a second member.**
+
+*Rejected: level 4 as a recorded measurement only, asserted by nothing.* Level 4
+is the set that resolves `eps = 0.025` (initial minimum edge `1.729575e-02`
+against `3.457079e-02`) and the healthier frozen mesh — final minimum quality
+`1.242421e-01` against level 3's `6.303626e-02`, and level 3 spends its last ~500
+steps below `0.1` where level 4 never reaches it. Leaving the trustworthy
+resolution regime unasserted while asserting the marginal one was the wrong way
+round.
+
+*Rejected: level 4 as primary.* Two measurements put level 3 first. **Agreement:**
+level 4 diverges *earlier* at the tight rung, step 775 against 1325 — the
+opposite of the mesh-health ordering, and the agreement-based reason "level 3
+primary" previously lacked. **Cost:** level 3's four tier launches are
+`166.842830` s of solve (`8.198673` HIP np1 + `29.301308` HIP np4 + `43.165985`
+SERIAL np4 + `86.176564` SERIAL np1) against level 4's `1722.066143` s
+(`18.626937` + `38.864910` + `375.156870` + `1289.417426`), a factor of ~10.3.
+Both are affordable — that is why level 4 is still a member — but the cheaper and
+later-diverging one is the primary.
+
+*Consequence handed to M0-T3, and not acted on here:* two members do **not** fit
+`run_milestone.flux`'s `# flux: -t 30m`
+([scripts/tuolumne/run_milestone.flux:5](../scripts/tuolumne/run_milestone.flux#L5)).
+Level 4's four launches alone are `22` + `45` + `382` + `1293` = **1742 s of
+launch wall, 29.0 minutes**, before level 3's ~167 s of solve and its own startup
+and I/O. **M0-T3 raises that walltime.** This task did not edit the script:
+`scripts/` is out of its scope, and the raise belongs in the change that adds the
+second member.
+
+**3. Beyond-depth comparison is moot, not declined.**
+
+The design asked for a reason if the answer was "not at all", because
+beyond-depth structural comparison is nearly free here — connectivity is frozen,
+so counts, `time`, volume drift and minimum quality cost almost nothing. The
+answer is that **the question does not arise**: decision 1's depth is the entire
+gold set (81 of 81 checkpointed steps, step 0 through 2000), so there is no step
+beyond the depth to compare. It is recorded as moot rather than as "none" so a
+later reader does not read a declined-but-cheap check where there is no check to
+decline.
+
+**4. M0-T2 is DECLINED.**
+
+*Rejected: taking M0-T2.* M0-D1 step 4 is the criterion, and it answers on the
+shared field set. Peak `vertices` `max|e|` over the 81 steps,
+Beatnik-rank-1-vs-rank-4 against Beatnik-vs-Python:
+
+| level, backend | vs Python | rank1-vs-rank4 | ratio |
+| --- | --- | --- | --- |
+| 3, SERIAL | `8.53317416726895317e-13` | `3.88578058618804789e-14` | **21.96x** |
+| 4, SERIAL | `3.17634807345257286e-13` | `1.23678844943242439e-13` | **2.57x** |
+
+Beatnik's own decomposition dependence is **21.96x** below the Python drift at
+level 3 SERIAL and **2.57x** below it at level 4 SERIAL. Removing it buys at most
+a factor of ~2.6 in `max|e|` — one to two hundred extra steps at the `1e-12` rung
+— and **nothing at the asserted `1e-10` rung, where there is no failing step for
+determinism to push out.** So M0-R7 is **not paid**: no unconditional
+`Allgatherv` of `7N` doubles per RK stage and no `O(N)` per-rank source storage
+on the production path, on a path whose scaling future is the FMM (T3a), which is
+not bit-compared anyway.
+
+*Rejected: reading the naive Beatnik-vs-Beatnik ladder as the criterion.* Read
+over the full shared field set it gives step **475** (level 3 SERIAL) against
+1325 vs Python, which would make decomposition the binding constraint and M0-T2
+mandatory. That reading is wrong: the binding field at every such rung is
+`sheet_vector`, which the reference's `.npz` does not carry, so the two horizons
+are over different field sets. M0-D1 found and corrected this inside itself; the
+apples-to-apples per-field comparison is the table above.
+
+*Rejected: declining on SERIAL evidence while leaving HIP a doubt.* Peak
+rank-1-vs-rank-4 `vertices` `max|e|` is `5.77315972805081401e-14` on HIP against
+`3.88578058618804789e-14` on SERIAL at level 3, and `1.22235555011229735e-13`
+against `1.23678844943242439e-13` at level 4 — **HIP is within 1.5x of SERIAL and
+at level 4 marginally below it.** Within-rank GPU nondeterminism therefore adds
+essentially nothing on top of cross-rank summation order, and is **not** what is
+being declined.
+
+**Scope of the decline.** It is on **milestone-0 evidence only** — this
+configuration, these two levels, these rank counts, this 2000-step horizon, and
+the `1e-10` rung M0-A1 asserts. It is **not** a finding that determinism has no
+value: `doc/PARALLELIZATION.tex` §"What must NOT change" item 3 still says what it
+says, and a future task may retake M0-T2 on other grounds — a deeper horizon, a
+tighter rung, higher rank counts, or a bit-reproducibility requirement that is
+not about agreeing with the reference. Retaking it is a new decision entry with
+its own measurement, not a reversal of this one.
+
+### Volume drift, restated for M0-T3 because it is a literal it must not get wrong
+
+`kGoldVolumeDriftRtol = 1e-3` is **reused** unchanged: Beatnik's drift tracks the
+reference's to `2.758331e-05` relative, worst case over all 81 steps of all eight
+runs (`sub3_Serial_np4` @ step 1975; the level-4 worst is `1.831088e-05`), a
+**36x** margin. `kVolumeDriftAbsCap` is **re-derived to `~1e-8`** and T2d's `1e-9`
+must not be reused: the reference's own drift reaches
+`3.35289418451623078e-09` at level 3 and `4.74141392814431128e-09` at level 4
+(M0-R3). T2d's `kGoldVolumeDrift` is not imported at all — the reference series
+for this configuration comes from the two `gold/README.md` tables.
+
+### Verified
+
+Nothing was built or run — correctly, for a decision task. What was checked is
+that the four decisions now appear as numbers in `milestone0.md`: `## Problem`
+carries the depth, the flat tolerance, the primary level, the moot beyond-depth
+treatment and the M0-T2 verdict with its 21.96x / 2.57x; `## Read this first`
+item 2's exponential-growth and "where `1e-10` breaks is unknown" claims are
+**corrected in place** rather than annotated, since M0-D1 measured the growth as
+power-law-like and non-monotone at level 4; M0-T2 is marked **DECLINED** with its
+numbers and its entry intact; and M0-T3 carries the depth, the tolerance, both
+members, the walltime raise, the volume-drift literals and the absent
+`sheet_vector`.
+
+**Affects:** **M0-T2** — **DECLINED, do not start it.** The entry stays in
+`milestone0.md` for its design and its exit criterion; it is not pending work,
+and no task depends on it. **M0-T3** — its specification is now fixed, and it is
+the only task left. Depth **2000 steps / all 81 checkpoints**, tolerance
+**`--rtol 1e-10 --atol 1e-12` flat** (no per-step table, so its Do step 2's
+non-flat branch is dead), **two members** with level 3 primary and level 4
+second, **no beyond-depth comparison** (its Do step 5 has nothing to do), it must
+**raise `run_milestone.flux`'s `-t 30m`** on the 1742 s + ~167 s numbers above,
+it **reuses `kGoldVolumeDriftRtol = 1e-3`** and **re-derives
+`kVolumeDriftAbsCap` to `~1e-8`** while importing neither of T2d's literals, and
+it can assert only the seven fields the gold `.npz` carries — `vertices`,
+`potential`, `remesh_material_position`, `faces`, `time`, `initial_volume`,
+`initial_min_edge` — because there is **no `sheet_vector`** in it.
+**M0-R8** — satisfied on the design side: the depth is a number in
+`milestone0.md` in three places and in this entry, so lowering it in a header
+later is visible as a contradiction rather than a silent green. **M1-T1** in
+`milestone1.md` — unaffected.

@@ -1,8 +1,11 @@
 # Milestone 0 — the reference's default physics on a frozen mesh, run long
 
-**Status:** IN PROGRESS — M0-T1, M0-G1, M0-G2 and M0-D1 are **DONE**; M0-A1 is
-next, and every measurement it depends on is in
-`milestone0-progress-log.md` under `## M0-D1`.
+**Status:** IN PROGRESS — M0-T1, M0-G1, M0-G2, M0-D1 and M0-A1 are **DONE**;
+M0-T2 is **DECLINED**. M0-T3 is the only task left: write the `milestone`-tier
+test comparing all **81** checkpointed steps through step **2000** at
+`--rtol 1e-10 --atol 1e-12`, at **level 3 (primary)** and **level 4 (second
+member)**. Every number it needs is in `milestone0-progress-log.md` under
+`## M0-D1` and `## M0-A1`.
 
 ## Problem
 
@@ -35,8 +38,20 @@ python examples/run_adaptive_mesh_bubble.py \
 
 at `<L>` = 3 and 4 (M0-G1, M0-G2). Every unlisted option is at its `parse_args`
 default. Acceptance is `tests/regression_tests/compare_output.py` over the
-per-step checkpoints, at a depth and a tolerance ladder that M0-D1 **measures**
-and M0-A1 **records**.
+per-step checkpoints, at a depth and a tolerance ladder that M0-D1 **measured**
+and M0-A1 **fixed**: **all 81 checkpointed steps, step 0 through step 2000 —
+the entire gold set — at `--rtol 1e-10 --atol 1e-12`, flat, the same tolerance
+at every compared step and at both levels.** No per-step table and no per-level
+depth: M0-D1 proved from the comparator's own printed bounds that no
+checkpointed step fails at that rung at either level, on either backend, at
+either rank count. **Level 3 is the primary member and level 4 is a second
+member**, both asserted. **Beyond-depth comparison is moot**, not declined —
+the depth is the whole gold set, so no checkpointed step lies beyond it and
+there is nothing left to compare structurally or statistically. The determinism
+question is settled too: **M0-T2 is DECLINED**, because Beatnik's own
+decomposition dependence in peak `vertices` `max|e|` is **21.96x** below the
+Python drift at level 3 SERIAL and **2.57x** below it at level 4 SERIAL, and at
+the asserted `1e-10` rung there is no failure for determinism to push out.
 
 What exists now is the same comparison at **10 steps** and **162 vertices**:
 `tests/regression_tests/direct-solve-10-steps` and
@@ -93,7 +108,7 @@ is unreachable in **both** codes, which is why the command neither passes it nor
 negates it — matching `direct-solve-10-steps/README.md`, whose command does the
 same.
 
-### 2. Answer to the brief's question: yes, much deeper than 500 steps — but the depth is still a measurement, and for a different reason than milestone 1's
+### 2. Answer to the brief's question: yes, much deeper than 500 steps — the measurement is in, and the depth is the whole 2000-step gold set
 
 Removing AMR removes **three** of milestone 1's four divergence mechanisms
 outright, and it changes the *character* of the fourth's failure:
@@ -161,18 +176,28 @@ it worse:
   against `1.964304` at level 4 (initial minimum edges `3.457079e-02` and
   `1.729575e-02`). **Every cross-level comparison is therefore by step, never by
   time** — and `time` is under test besides.
-- **Against that:** the growth is exponential in principle, so each decade of
-  loosened tolerance buys only a roughly *constant* number of extra steps. The
-  deepest field agreement ever demonstrated in this port is 10 steps at
-  `--rtol 1e-10` (T2d, level 2), with the volume drift agreeing to two ulps of
-  the drift itself. Where `1e-10` breaks is unknown.
+- **And the growth turned out to be mild.** The expectation here was exponential
+  amplification, on which each decade of loosened tolerance buys only a roughly
+  *constant* number of extra steps. **M0-D1 measured it and that is not what
+  happens.** Peak `vertices` `max|e|` against Python goes from one ulp
+  (`5.55111512312578270e-17` at step 0) to `8.53317416726895317e-13` at step
+  2000 at level 3 SERIAL — four decades over 2000 steps, power-law-like, not
+  exponential. At level 4 it is not even monotone: it peaks at
+  `3.17634807345257286e-13` at step **1400** and falls back to `1.3e-13` by step
+  2000. The deepest field agreement previously demonstrated in this port was 10
+  steps at `--rtol 1e-10` (T2d, level 2); the answer to "where does `1e-10`
+  break" is that **it does not break through step 2000** at either level, on
+  either backend, at either rank count.
 
-**Therefore this document asserts no step count.** The gold sets run to 2000
-steps, M0-D1 measures the first failing step at each of five tolerances *and*
-separately measures how much of the disagreement is Beatnik-vs-Beatnik across
-rank counts, and M0-A1 records the decision. If M0-D1 shows the horizon is set by
-Beatnik's own decomposition dependence rather than by Python-vs-Beatnik drift,
-M0-T2 fixes that — see item 4.
+**Therefore this document asserts the full 2000 steps at `--rtol 1e-10 --atol
+1e-12`**, flat, at both levels — see `## Problem` and M0-A1. The gold sets run to
+2000 steps; M0-D1 measured the first failing step at each of five tolerances
+*and* separately measured how much of the disagreement is Beatnik-vs-Beatnik
+across rank counts; M0-A1 recorded the decision. The `1e-12/1e-14` rung is the
+only one with content — it stops at step 1325 (level 3) or 775 (level 4) — and it
+is not the asserted rung. The horizon is **not** set by Beatnik's own
+decomposition dependence, so **M0-T2 is DECLINED** and its conditional does not
+fire.
 
 ### 3. Why more faces, quantitatively — and why level 4 and not level 5
 
@@ -235,8 +260,8 @@ Four strands, in order of *risk*:
 3. **Measure** (M0-D1) and **decide** (M0-A1). This is where the milestone's
    premise is confirmed or replaced, and where the determinism question is
    settled with numbers instead of argument.
-4. **Fix determinism if the measurement says to** (M0-T2, conditional), then
-   **assert it** (M0-T3).
+4. **Fix determinism if the measurement says to** (M0-T2, conditional — it said
+   **no**, so M0-T2 is **DECLINED**), then **assert it** (M0-T3).
 
 ### Conventions
 
@@ -670,7 +695,36 @@ configuration that exists to exclude it.
 
 ---
 
-### M0-A1 — fix the compare depth, the tolerance ladder, and the determinism decision — **NOT STARTED**
+### M0-A1 — fix the compare depth, the tolerance ladder, and the determinism decision — **DONE**
+
+**Met.** Four decisions, each recorded here, in `## Problem`, and in the M0-T2
+and M0-T3 entries, with the measurement it rests on in
+`milestone0-progress-log.md` under `## M0-A1`.
+
+1. **Depth and tolerance: flat, all 81 checkpointed steps through step 2000, at
+   `--rtol 1e-10 --atol 1e-12`, at both levels.** No per-step table, no
+   per-level depth. Rests on M0-D1's ladder: at that rung **no checkpointed step
+   fails through 2000** in any of the twelve comparisons, and the bound is
+   *proved* from the comparator's own printed bounds rather than sampled. A
+   `1e-12/1e-14` assertion was rejected: it stops at step **1325** (level 3) or
+   **775** (level 4).
+2. **Level 3 is the primary member; level 4 is a second member, not a recorded
+   measurement only.** Level 4 resolves `eps` and is the healthier frozen mesh
+   (final minimum quality `1.242421e-01` against level 3's `6.303626e-02`), so
+   leaving it asserted by nothing was rejected. Level 3 is primary on agreement
+   and cost: it diverges *later* at the tight rung (1325 against 775) and its
+   four tier launches are `166.842830` s of solve against level 4's
+   `1722.066143` s.
+3. **Beyond-depth comparison is moot, not declined.** The decided depth is the
+   entire gold set, so no checkpointed step lies beyond it and there is nothing
+   to compare — the question does not arise rather than being answered "no".
+4. **M0-T2 is DECLINED.** Rests on M0-D1 step 4: Beatnik's own decomposition
+   dependence in peak `vertices` `max|e|` is **21.96x** below the Python drift at
+   level 3 SERIAL and **2.57x** below it at level 4 SERIAL, and at the asserted
+   `1e-10` rung there is no failure for determinism to push out. HIP is within
+   1.5x of SERIAL, so within-rank GPU nondeterminism is not what is being
+   declined, and M0-R7's `Allgatherv` of `7N` doubles per RK stage is therefore
+   not paid.
 
 **Depends on:** M0-D1.
 
@@ -716,11 +770,42 @@ rejected and the measurement that rejected it.
 
 ---
 
-### M0-T2 — a decomposition-independent trajectory — **NOT STARTED (CONDITIONAL)**
+### M0-T2 — a decomposition-independent trajectory — **DECLINED**
 
-**Depends on:** M0-D1, M0-A1. **Do not start this task until M0-A1 has decided to
-take it** — the user's instruction is measure first, then decide, and the cost is
-real.
+**Declined by M0-A1, on M0-D1's step-4 numbers. Do not start it.** The entry
+below is kept because the design of the change, its cost and its exit criterion
+are what a future task would need if it is ever retaken on other grounds — not
+because it is pending.
+
+The numbers the decline rests on, all from `## M0-D1`. Peak `vertices` `max|e|`
+over the 81 checkpointed steps, Beatnik-rank-1-vs-rank-4 against
+Beatnik-vs-Python on the shared field set:
+
+| level, backend | vs Python | rank1-vs-rank4 | ratio |
+| --- | --- | --- | --- |
+| 3, SERIAL | `8.53317416726895317e-13` | `3.88578058618804789e-14` | **21.96x** |
+| 4, SERIAL | `3.17634807345257286e-13` | `1.23678844943242439e-13` | **2.57x** |
+
+So Beatnik's own decomposition dependence is **21.96x** below the Python drift at
+level 3 and **2.57x** below it at level 4 — M0-D1 step 4's "orders of magnitude
+smaller" branch at level 3, and merely "comparable" at level 4. Removing it would
+buy at most a factor of ~2.6 in `max|e|`, worth on the order of one to two
+hundred extra steps at the `1e-12` rung and **nothing at all at the asserted
+`1e-10` rung, where no step fails through 2000** — there is no failure for
+determinism to push out. **HIP is within 1.5x of SERIAL** (peak rank-1-vs-rank-4
+`vertices` `max|e|` `5.77315972805081401e-14` HIP against
+`3.88578058618804789e-14` SERIAL at level 3, and `1.22235555011229735e-13` HIP
+against `1.23678844943242439e-13` SERIAL at level 4, where HIP is marginally
+*below* SERIAL), so within-rank GPU nondeterminism is **not** the thing being
+declined: it adds essentially nothing on top of cross-rank summation order.
+**M0-R7 is therefore not paid** — no `Allgatherv` of `7N` doubles per RK stage
+and no `O(N)` per-rank source storage on the production path.
+
+The decline is on **milestone-0 evidence only**. It is not a finding that
+determinism has no value; see the progress log's `## M0-A1`.
+
+**Depended on:** M0-D1, M0-A1 — both **DONE**, and M0-A1's decision was **not to
+take this task**.
 
 **Fill in:** `BRSolverDirect::ringAccumulate` and its two callers
 ([src/Beatnik_BRSolverDirect.hpp:240-300](../src/Beatnik_BRSolverDirect.hpp#L240)),
@@ -790,12 +875,44 @@ for an oversight.
 
 ### M0-T3 — the milestone-0 comparison test — **NOT STARTED**
 
-**Depends on:** M0-T1, M0-G1, M0-G2, M0-A1, and M0-T2 if M0-A1 took it.
+**Depends on:** M0-T1, M0-G1, M0-G2, M0-A1 — all **DONE**. **Not** on M0-T2,
+which M0-A1 declined; nothing here waits on it.
+
+**What M0-A1 decided, as numbers — this is the specification, not a suggestion:**
+
+- **Depth: all 81 checkpointed steps, step 0 through step 2000** (`time.steps =
+  2000`, `checkpoint.every_steps = 25`), the entire gold set, at **both** levels.
+- **Tolerance: `--rtol 1e-10 --atol 1e-12`, flat** — the same at every compared
+  step and at both levels. **There is no per-step table**, so Do step 2's
+  "where the ladder is not flat" branch does not apply. The headroom to put in
+  the comment beside the literal is M0-D1's peak `max|e|`:
+  `8.53317416726895317e-13` (`vertices`, level 3 SERIAL) and
+  `3.17634807345257286e-13` (level 4 SERIAL, peak at step 1400, not at 2000).
+- **Members: two.** Level 3 is the **primary** member; level 4 is a **second
+  member**, asserted identically and not merely measured.
+- **Beyond-depth comparison is moot** — the depth is the whole gold set, so no
+  checkpointed step lies beyond it. Do step 5 below therefore has nothing to do.
+- **The gold `.npz` carries no `sheet_vector`.** The assertable fields are
+  exactly `vertices`, `potential`, `remesh_material_position`, `faces`, `time`,
+  `initial_volume`, `initial_min_edge`. A Beatnik-vs-Python test cannot assert on
+  `sheet_vector` however much it would like to (M0-D1 step 4).
 
 **Fill in:** `tests/regression_tests/Beatnik_Test_Milestone0Frozen.cpp`,
 registered in the `milestone` tier with the gold **directory** and the comparator
 as its arguments — one registration per level, or one target parameterized by its
-argument list, whichever keeps `_beatnik_args_<stem>_abs`/`_rel` honest.
+argument list, whichever keeps `_beatnik_args_<stem>_abs`/`_rel` honest. Two
+members means two argument lists either way.
+
+**And raise `run_milestone.flux`'s walltime — this task's step, not M0-A1's.**
+[scripts/tuolumne/run_milestone.flux:5](../scripts/tuolumne/run_milestone.flux#L5)
+is `# flux: -t 30m`, and **two members do not fit it.** From M0-D1 step 6, the
+level-4 member's four tier launches are `22`, `45`, `382` and `1293` s of launch
+wall — **1742 s, 29.0 minutes, on their own** — and the level-3 member adds
+`166.842830` s of solve (`8.198673` + `29.301308` + `43.165985` + `86.176564`) on
+top, before startup and I/O. The binding launch is SERIAL at 1 rank at level 4,
+`1289.417426` s of solve at `0.644709` s/step. Raise the walltime with those
+numbers in the commit message; a 30m cap would kill the second member partway and
+M0-R8 is exactly the failure mode where a truncated run reads as a shorter pass.
 
 **Reference:** [tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp](../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp)
 end to end. It is this test at 10 steps and level 2, and most of it transfers
@@ -809,24 +926,36 @@ literals.
 **Do:**
 
 1. `makeParams()` is the milestone-0 command line: T2a's params with
-   `icosphere_subdivisions` from the level under test, `time.steps` from M0-A1's
-   decided depth, and `checkpoint.every_steps = 25`.
-2. Compare every checkpointed step up to the decided depth at the decided
-   tolerances. Where the ladder is not flat, put the per-step tolerance in a
-   compiled-in table **with the measured `max|e|` beside it as a comment**, so a
-   later session can see the headroom rather than re-measure it.
+   `icosphere_subdivisions` **3** for the primary member and **4** for the second,
+   `time.steps = 2000` (M0-A1's decided depth) and `checkpoint.every_steps = 25`.
+   `makeParams()` in `Beatnik_Test_Milestone0Run.cpp` is already this
+   `SolverParams` and is already exercised for 2000 steps at both levels.
+2. Compare **all 81** checkpointed steps at `--rtol 1e-10 --atol 1e-12`. The
+   ladder is flat, so this is one pair of literals and not a table — put M0-D1's
+   peak `max|e|` beside them as a comment
+   (`8.53317416726895317e-13` at level 3, `3.17634807345257286e-13` at level 4,
+   both on `vertices`) so a later session can see the ~2 decades of headroom
+   rather than re-measure it.
 3. Replace T2d's volume-drift literals with this configuration's own measured
-   series from M0-D1 step 5, at a stated relative tolerance, and re-derive the
-   absolute blow-up cap for a 2000-step drift (deliberate deviations). Do not
-   import `kGoldVolumeDrift` or `kVolumeDriftAbsCap`.
+   series from M0-D1 step 5 and the two `gold/README.md` tables. **Reuse
+   `kGoldVolumeDriftRtol = 1e-3`**: it survives re-derivation with a **36x**
+   margin, since Beatnik's drift tracks the reference's to `2.758331e-05`
+   relative, worst case over all 81 steps of all eight runs. **Re-derive
+   `kVolumeDriftAbsCap` to `~1e-8`**, because the drift reaches
+   `4.74141392814431128e-09` at level 4 and `3.35289418451623078e-09` at level 3,
+   both above T2d's `1e-9` (M0-R3). Do **not** import T2d's `kGoldVolumeDrift` or
+   its `kVolumeDriftAbsCap`.
 4. Assert the entity counts are **constant and equal to the generator's** at
    every compared step, with an `MPI_Allreduce` over owned counts rather than a
    number read from Tessera — the check that adaptivity did not leak in, and the
    thing that makes the frozen-connectivity premise a test rather than a claim.
-5. If M0-A1 chose beyond-depth statistical comparison, assert those quantities
-   for the remaining steps: counts, `time`, volume drift, minimum quality.
+5. **Nothing.** There is no beyond-depth regime: M0-A1's depth is the whole gold
+   set, so the counts, `time`, volume drift and minimum quality are asserted at
+   every checkpointed step by steps 2-4 and there are no remaining steps to
+   compare statistically.
 6. Report the wall time and the peak memory in the test's output; they are what
    tells the next session whether a deeper depth is affordable.
+7. Raise `run_milestone.flux`'s `-t 30m`, per the paragraph above.
 
 **Exit criterion:** `flux batch scripts/tuolumne/run_milestone.flux` reports PASS
 at ranks 1 and 4 on SERIAL and HIP with zero `[FAIL]` lines, for both levels, and
