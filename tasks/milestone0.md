@@ -1,6 +1,8 @@
 # Milestone 0 — the reference's default physics on a frozen mesh, run long
 
-**Status:** IN PROGRESS — M0-T1, M0-G1 and M0-G2 are **DONE**; M0-D1 is next.
+**Status:** IN PROGRESS — M0-T1, M0-G1, M0-G2 and M0-D1 are **DONE**; M0-A1 is
+next, and every measurement it depends on is in
+`milestone0-progress-log.md` under `## M0-D1`.
 
 ## Problem
 
@@ -14,8 +16,12 @@ Beatnik reproduce the reference's evolution?* and *does Beatnik reproduce the
 reference's mesh edits?* — and only the second one needs T4d. Milestone 0 answers
 the first, alone, and it needs **no new solver code to run**.
 
-The Beatnik-side command is `examples/02_adaptive_mesh_bubble`; the reference side
-is
+On the Beatnik side, `examples/02_adaptive_mesh_bubble`'s command line **is** the
+configuration — it is the argument surface these flags name — but **no
+milestone-0 task runs that binary.** Both the tasks that execute this
+configuration build it as a `SolverParams` instead: M0-D1 in its own measurement
+driver (`Beatnik_Test_Milestone0Run.cpp`, which also explains why the example
+cannot be used — it is HIP-only) and M0-T3 in its test. The reference side is
 
 ```
 python examples/run_adaptive_mesh_bubble.py \
@@ -299,7 +305,9 @@ True at HEAD:
 - **Both 2000-step gold sets exist**, committed and installed: 81 numbered
   `.npz` each under `tests/regression_tests/milestone0-sub{3,4}-2000-steps/gold`
   with the generating command and the measured series in each `gold/README.md`
-  (M0-G1, M0-G2). Nothing in Beatnik has yet been compared against either.
+  (M0-G1, M0-G2). **M0-D1 has compared Beatnik against both**, over the whole
+  2000 steps at ranks 1 and 4 on SERIAL and HIP; no test asserts it yet — that is
+  M0-T3.
 - `CheckpointIO::read`/`RestartReader::load` still throw (T5b). Not needed:
   milestone 0 compares files Beatnik writes against `.npz`, and reads neither.
 
@@ -503,7 +511,43 @@ this settles for M0-A1 is under its own entry.
 
 ---
 
-### M0-D1 — measure the divergence horizon, and attribute it — **NOT STARTED**
+### M0-D1 — measure the divergence horizon, and attribute it — **DONE**
+
+**Met.** The full matrix was measured in one `-q pdebug -t 1h` sweep (job
+`f3TT4psJ8it7`, 1939 s of the 3600 s cap) with a new no-tier driver
+[tests/regression_tests/Beatnik_Test_Milestone0Run.cpp](../tests/regression_tests/Beatnik_Test_Milestone0Run.cpp),
+a new offline tabulator
+[tests/regression_tests/milestone0_ladder.py](../tests/regression_tests/milestone0_ladder.py)
+and
+[scripts/tuolumne/milestone0_divergence.flux](../scripts/tuolumne/milestone0_divergence.flux);
+all numbers are in `milestone0-progress-log.md` under `## M0-D1`. What was
+verified: **step 0 matches at `1e-12` at levels 2, 3 and 4** with the same single
+ulp of absolute error at every level, so **M0-R5 did not fire and the generators
+do not diverge with subdivision depth**; the vertex and face counts held at every
+one of the 81 checkpointed steps of all eight 2000-step runs, in both the
+driver's own per-step integer check and the comparator's structural line, so
+**adaptivity did not leak in**; and **at `--rtol 1e-10 --atol 1e-12` no
+checkpointed step fails through 2000 in any of the twelve comparisons** — two
+levels x two backends x two rank counts against Python, plus the four
+rank-1-vs-rank-4 pairs — with that bound *proved* by the comparator's own printed
+bounds rather than sampled. The `1e-12/1e-14` rung is where the ladder has
+content: first failing step **1325-1350** at level 3 and **775-800** at level 4,
+confirmed by real invocations, and level 4 therefore diverges *earlier* than level
+3 even though M0-G1/M0-G2 found its mesh the healthier one. The attribution
+needed a correction to mean anything — the reference's `.npz` carries no
+`sheet_vector`, so a Beatnik-vs-Beatnik comparison is over a strictly larger field
+set than a Beatnik-vs-Python one — and on the shared fields **Beatnik's own
+decomposition dependence is 10-22x below the Python drift at level 3 and within
+2.6x at level 4**, with SERIAL and HIP agreeing to within 1.5x, so within-rank GPU
+nondeterminism adds essentially nothing to cross-rank summation order. Both codes'
+volume-drift and minimum-quality series agree to `2.758331e-05` and
+`6.643130e-12` relative respectively, worst case over every step and run; no run
+stopped early, so **M0-R2 and M0-R6 did not fire on Beatnik's side either** and
+every vertex paired unambiguously at every step, so **M0-R4 did not bite** the
+cross-code pairing that M0-G1/M0-G2 left untested. Level-4 cost: `18.6` s (HIP,
+1 rank) to `1289.4` s (SERIAL, 1 rank) of solve wall, peak resident set
+`705000`-`1019096` kB per rank; GPU-side memory is out of scope. The measurement
+recommends **not** taking M0-T2 — M0-A1 decides.
 
 **Depends on:** M0-G1, M0-G2.
 
@@ -755,7 +799,7 @@ argument list, whichever keeps `_beatnik_args_<stem>_abs`/`_rel` honest.
 
 **Reference:** [tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp](../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp)
 end to end. It is this test at 10 steps and level 2, and most of it transfers
-verbatim: `makeParams()` (`:307-379`), `goldForStep()` (`:263-286`),
+verbatim: `makeParams()` (`:308-378`), `goldForStep()` (`:263-286`),
 `runComparator()` (`:289-306`), the three R9 partition discriminators (`:92-104`
 for what they are and why the third one stops working once positions evolve —
 note the polyhedral-deficit literal at `:180` is **level-2 specific** and must be
@@ -816,7 +860,9 @@ errors is M0-R1. *Do:* the stop step becomes the compare-depth ceiling and is
 recorded in the gold `README.md`; it is not a failure of either code. **It did
 not fire in either gold set** — neither run stopped early and every field is
 finite in all 162 files — so the ceiling is 2000 steps at both levels on the
-reference side. Beatnik's side is still unmeasured.
+reference side. **M0-D1 measured Beatnik's side and it did not fire there
+either:** no run stopped early, and the minimum-quality series tracks the
+reference's to `6.643130e-12` relative at every step of all eight runs.
 
 **M0-R3 — the volume drift is not the T2d series and looks like a regression.**
 No `projectToVolume` runs here, so drift accumulates linearly, and **M0-G1 and
@@ -842,8 +888,10 @@ catches it in the gold set rather than in the test; report it as a pairing
 failure with the step index, and do not raise `--match-eps` or `--max-ambiguous`
 without stating what that then cannot detect. **It has not bitten the gold
 sets**: both last-file self-compares pair every vertex unambiguously (`642/642`,
-`2562/2562`, `ambiguous cpp=0 gold=0`). Cross-code pairing, where the two
-files' positions differ, is still untested.
+`2562/2562`, `ambiguous cpp=0 gold=0`). **M0-D1 tested cross-code pairing too,
+where the two files' positions differ, and it holds**: every step of all twelve
+comparisons reports `ambiguous cpp=0 gold=0` at the default `--match-eps 1e-9`,
+including step 2000 at level 4.
 
 **M0-R5 — the icosphere generators disagree more at higher subdivision.** The
 midpoint-normalize ulp differences of Read this first #3 compound across levels,

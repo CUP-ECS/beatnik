@@ -141,3 +141,369 @@ plus its `_beatnik_args_<stem>_abs`/`_rel` pair (the `FATAL_ERROR` fires without
 it) and nothing else in CMake. **M1-T1** in `milestone1.md` — unaffected; the
 tier is as its entry expects (label `milestone`, ranks 1 and 4, SERIAL and HIP,
 gate untouched), so it still only has to register its member.
+
+## M0-D1
+
+The measurement, in three artifacts and two jobs. **The milestone's premise
+holds, with room to spare: at `--rtol 1e-10 --atol 1e-12` — the tolerance
+regression test 2 already passes at — Beatnik matches the reference at every one
+of the 81 checkpointed steps out of 2000, at both levels, on both backends, at
+both rank counts. All twelve comparisons. M0-R1 did not fire.** What the 2000
+steps do bound is the `1e-12/1e-14` rung, and that is where the ladder has
+content.
+
+### Decisions (as given to this task, and honored)
+
+- **The driver is `tests/regression_tests/Beatnik_Test_Milestone0Run.cpp`,
+  registered in NO tier**: no `LABELS`, no `add_test`, no manifest line. Its
+  CMake loop (`tests/CMakeLists.txt`, "Measurement drivers -- IN NO TIER") is the
+  milestone tier's loop stopped short of the point where it labels and emits a
+  manifest line, and it deliberately has no argument-list table or `FATAL_ERROR`
+  guard: a driver's arguments come from the batch script, because there is no
+  manifest line for them to live on. Verified after `spack install`: the gate
+  manifest still has **15** non-comment lines, the milestone manifest still
+  **0**, and `grep Milestone0Run` over both finds nothing. `examples/
+  02_adaptive_mesh_bubble` is unusable here as the task states — `adaptive_mesh_
+  bubble.cpp:209` fixes the space to `Kokkos::DefaultExecutionSpace` and the
+  installed binary is `+rocm`, so it is HIP-only and the SERIAL half of the
+  matrix has no other driver.
+- **The driver runs and checkpoints only; every comparison is offline in Python**
+  (`tests/regression_tests/milestone0_ladder.py`). It knows no tolerance and
+  loads no gold file. What it does assert, because it is cheap there and
+  unrecoverable afterwards, is the global vertex and face count **every step**,
+  the two carried scalars at 17 digits, and that the step budget was reached.
+- **Dev spack env** (`BEATNIK_USE_PROD` unset, and the script *refuses* to run
+  with it set), `-q pdebug -t 1h`. The sweep took **1939 s of the 3600 s cap** —
+  it fits, comfortably, so there is no performance finding to write up here.
+- **The ladder is derived from the `max|e|` / `max|e|/|g|` pair the comparator
+  already prints, then confirmed with real invocations.** Every number below is
+  the confirmed one; the derived one is carried beside it because the gap between
+  them is large and is the interesting part (see "What only running revealed").
+- **Peak resident memory from `/usr/bin/time -v` inside `flux run`**, so each
+  rank reports its own; wall time from the script clocking each launch, with the
+  driver's own `MPI_Wtime` solve time beside it. **GPU-side memory is out of
+  scope** — there is no mechanism for it here.
+
+### Provenance
+
+`beatnik@develop` in `~/spack_envs/tuolumne_beatnik` (dev), spec `+rocm +openmp
++serial amdgpu_target=gfx942 build_type=RelWithDebInfo %cce`, install hash
+`4bhhtbd`, at commit `66293f5` plus this task's additions. Sweep job
+**`f3TT4psJ8it7`** (`beatnik_m0div.f3TT4psJ8it7.log`), timing probe job
+`f3TSuF7DFxAB`. Binding on every launch, exactly `run_milestone.flux:195-203`:
+`--ntasks=<np> --nodes=$(( (np+3)/4 )) --exclusive --gpus-per-task=1
+--cores-per-task=24 --setopt=mpibind=verbose:1`. Ranks 1 and 4 are both one
+node at tuolumne's 4-ranks-per-node. Offline tabulation artifacts (JSON + text
+for all 12 ladders, 8 growth series and 10 drift/quality series) are under
+`/p/lustre5/stewartj/beatnik/milestone0/analysis`.
+
+### Step 1 — the step-0 generator gate. **PASSES at all three levels; M0-R5 did not fire.**
+
+At `--rtol 1e-12 --atol 1e-14`, level 2 against `initial_conditions/gold.npz` and
+levels 3 and 4 against their own `_step0000000.npz`. `RESULT: match`, exit 0,
+full unambiguous pairing at every level, and identical on SERIAL and HIP.
+
+| level | `vertices` `max|e|` | `max|e|/|g|` | `potential` `max|e|` |
+| --- | --- | --- | --- |
+| 2 (162 v) | `5.55111512312578270e-17` | `2.916908e-15` | `0` |
+| 3 (642 v) | `5.55111512312578270e-17` | `9.017655e-15` | `0` |
+| 4 (2562 v) | `5.55111512312578270e-17` | `4.639184e-14` | `0` |
+
+**The absolute disagreement does not grow with subdivision level at all** — it is
+the same single ulp of 0.5 at every level. What grows is only the *relative* max,
+and only because deeper subdivision puts coordinates closer to zero. M0-R5's
+premise — that midpoint-normalize ulps compound across levels — is therefore
+**not** what happens: `detail::normalize3`'s reciprocal-multiply and NumPy's
+divide differ by at most one ulp per coordinate and that does not accumulate
+through the 1->4 splits. No per-level step-0 tolerance is needed; `1e-12` covers
+all three.
+
+### Steps 2 and 3 — the tolerance ladder against Python
+
+81 checkpointed steps per run, `derived / confirmed` first-failing step. `--atol`
+is two decades below `--rtol` on every rung.
+
+| level, backend, ranks | `1e-12` | `1e-10` | `1e-8` | `1e-6` | `1e-4` |
+| --- | --- | --- | --- | --- | --- |
+| 3, SERIAL, 1 | 475 / **1325** | — / **none** | — / none | — / none | — / none |
+| 3, SERIAL, 4 | 475 / **1350** | — / **none** | — / none | — / none | — / none |
+| 3, HIP, 1 | 450 / **1325** | — / **none** | — / none | — / none | — / none |
+| 3, HIP, 4 | 450 / **1325** | — / **none** | — / none | — / none | — / none |
+| 4, SERIAL, 1 | 450 / **775** | — / **none** | — / none | — / none | — / none |
+| 4, SERIAL, 4 | 450 / **775** | — / **none** | — / none | — / none | — / none |
+| 4, HIP, 1 | 450 / **775** | — / **none** | — / none | — / none | — / none |
+| 4, HIP, 4 | 450 / **800** | — / **none** | — / none | — / none | — / none |
+
+"none" means **no checkpointed step through 2000 fails**, and at those four rungs
+it is not merely unconfirmed: no step even *permits* a failure, so the bound is
+proved rather than sampled. A dash means there was no candidate to confirm.
+
+Two things to read off this. **The rank count barely moves the horizon** (1325 vs
+1350, 775 vs 800 — one checkpoint interval), and **the backend does not move it
+at all** at three of the four (level, ranks) pairs. And **level 4 diverges
+earlier than level 3** at the tight rung, 775 against 1325, which is the opposite
+of the mesh-health ordering M0-G1/M0-G2 found: the finer mesh is the healthier
+one and the faster-diverging one.
+
+### Step 4 — the attribution. **Decomposition dependence is NOT what sets the horizon.**
+
+The single most valuable number this task produces, and it needed a correction
+before it meant anything (see below). Beatnik rank 1 against Beatnik rank 4, same
+level, same backend:
+
+| level, backend | `1e-12` | `1e-10` | field that binds at `1e-12` |
+| --- | --- | --- | --- |
+| 3, SERIAL | 375 / **475** | 1025 / **none** | `sheet_vector` (375) |
+| 3, HIP | 400 / **425** | — / **none** | `sheet_vector` (400) |
+| 4, SERIAL | 350 / **350** | 1025 / **none** | `sheet_vector` (350) |
+| 4, HIP | 325 / **350** | 1100 / **none** | `sheet_vector` (325) |
+
+Read naively this says Beatnik-vs-Beatnik gives out *before* Beatnik-vs-Python
+(475 against 1325), which would make decomposition the binding constraint and
+M0-T2 mandatory. **That reading is wrong, and the reason is a field-set
+asymmetry nothing in the design had noticed:** the reference's `.npz` carries
+nine keys and **`sheet_vector` is not one of them**. So a Beatnik-vs-Python
+comparison compares `{vertices, potential, remesh_material_position, time,
+initial_volume, initial_min_edge, faces}` and a Beatnik-vs-Beatnik comparison of
+two `.h5` files compares **all of those plus `sheet_vector`**.
+`compare_output.py` compares whatever is present in both, which is correct — but
+it means the two horizons are over different field sets, and `sheet_vector` is
+the field that binds every Beatnik-vs-Beatnik rung above.
+
+On the **shared** field set the ordering reverses, and decisively. Derived
+first-failing step at `1e-12/1e-14`, per field:
+
+| comparison | `vertices` | `potential` |
+| --- | --- | --- |
+| L3 vs Python (SERIAL / HIP) | 475 / 450 | 650 / 650 |
+| L3 rank1-vs-rank4 (SERIAL / HIP) | **675 / 900** | **1400 / 1350** |
+| L4 vs Python (SERIAL / HIP) | 450 / 450 | 525 / 525 |
+| L4 rank1-vs-rank4 (SERIAL / HIP) | **725 / 600** | **875 / 1275** |
+
+and in magnitude, peak `max|e|` over the 81 steps:
+
+| level, backend | field | vs Python | rank1-vs-rank4 | ratio |
+| --- | --- | --- | --- | --- |
+| 3, SERIAL | `vertices` | `8.53317416726895317e-13` | `3.88578058618804789e-14` | **21.96x** |
+| 3, SERIAL | `potential` | `1.93782490054417167e-13` | `1.31838984174237339e-14` | **14.70x** |
+| 3, HIP | `vertices` | `9.26592136352155649e-13` | `5.77315972805081401e-14` | **16.05x** |
+| 3, HIP | `potential` | `2.10338690909139814e-13` | `2.11775041947248610e-14` | **9.93x** |
+| 4, SERIAL | `vertices` | `3.17634807345257286e-13` | `1.23678844943242439e-13` | **2.57x** |
+| 4, SERIAL | `potential` | `4.51583215266282423e-14` | `2.38697950294408656e-14` | **1.89x** |
+| 4, HIP | `vertices` | `3.28848059893971367e-13` | `1.22235555011229735e-13` | **2.69x** |
+| 4, HIP | `potential` | `4.60464999463283675e-14` | `1.82076576038525673e-14` | **2.53x** |
+
+**So: at level 3 Beatnik's own decomposition dependence is an order of magnitude
+below the Python drift — M0-D1 step 4's "orders of magnitude smaller" branch, and
+M0-T2 buys nothing. At level 4 the two are within a factor of 2.6 — "comparable"
+— so there M0-T2 would buy at most a factor of ~2.6 in `max|e|`.** At the
+observed growth rate that is worth on the order of one to two hundred extra
+steps at the `1e-12` rung and *nothing at all* at `1e-10`, where there is no
+failure to push out. The recommendation to M0-A1 is therefore **do not take
+M0-T2**; the decision is M0-A1's.
+
+**SERIAL is the clean instrument and it says the same thing HIP does.** Peak
+rank-1-vs-rank-4 `vertices` `max|e|` is `3.89e-14` (SERIAL) against `5.77e-14`
+(HIP) at level 3, and `1.237e-13` against `1.222e-13` at level 4 — HIP is
+*within 1.5x of, and at level 4 marginally below,* SERIAL. Within-rank GPU
+nondeterminism therefore adds essentially nothing on top of cross-rank summation
+order, which was not a given and is worth having as a number.
+
+### Step 5 — the growth series, the volume drift, the minimum quality
+
+`max|e|` on `vertices` and `potential`, at **full double precision** rather than
+the comparator's printed `%.6e`: `milestone0_ladder.py growth` recomputes them
+through `compare_output.quantized_lexsort` — imported, so the pairing is the
+comparator's own. Beatnik np1 against Python:
+
+| step | L3 SERIAL `vertices` | L3 SERIAL `potential` | L4 SERIAL `vertices` | L4 SERIAL `potential` |
+| --- | --- | --- | --- | --- |
+| 0 | `5.55111512312578270e-17` | `0` | `5.55111512312578270e-17` | `0` |
+| 25 | `6.66133814775093924e-16` | `1.90819582357448780e-17` | `6.66133814775093924e-16` | `2.08166817117216851e-17` |
+| 100 | `1.55431223447521916e-15` | `1.94289029309402395e-16` | `1.99840144432528177e-15` | `1.87350135405495166e-16` |
+| 200 | `2.66453525910037570e-15` | `5.13478148889134900e-16` | `3.05311331771918049e-15` | `6.24500451351650554e-16` |
+| 400 | `6.88338275267597055e-15` | `3.49720252756924310e-15` | `7.66053886991358013e-15` | `3.77475828372553224e-15` |
+| 600 | `1.45439216225895507e-14` | `8.32667268468867405e-15` | `6.15063555642336723e-14` | `1.77080572427712468e-14` |
+| 800 | `2.83106871279414918e-14` | `1.27675647831893002e-14` | `1.52988732793346571e-13` | `2.85327317328665231e-14` |
+| 1000 | `5.33462163332387718e-14` | `1.59525170850827180e-14` | `2.01505478969465912e-13` | `3.55618312575245454e-14` |
+| 1325 | `8.82627304576999450e-14` | `2.58335020042466112e-14` | `2.88213897192690638e-13` | `4.11337630623620498e-14` |
+| 1600 | `2.79221090693226870e-13` | `5.68694397129476670e-14` | `2.87436741075453028e-13` | `3.79141162909490959e-14` |
+| 2000 | `8.53317416726895317e-13` | `1.93782490054417167e-13` | `1.31783473023006081e-13` | `3.05588887528074338e-14` |
+
+**The growth is not exponential** — over 2000 steps `vertices` goes from one ulp
+to `8.5e-13`, four decades in 2000 steps, which is power-law-like, not the
+exponential amplification "Read this first" #2 assumed. **And at level 4 it is
+not even monotone:** it peaks at `3.17634807345257286e-13` at **step 1400** and
+falls back to `1.3e-13` by step 2000. A first-failing step is therefore a real
+statement about a rung but *not* a proxy for "how far apart the codes are"; the
+peak is. `sheet_vector` (rank-1-vs-rank-4 only) peaks at
+`9.53459533548084437e-13` @1750 (L3 SERIAL) and `3.18478576843972405e-12` @1650
+(L4 HIP) — roughly an order of magnitude above `vertices`, which is why it binds.
+
+`time` at step 2000: `|e|` = `1.334043986389588e-12` (L3 SERIAL vs Python),
+`1.4492851363456793e-12` (L3 HIP), `3.597122599785507e-14` (L4 SERIAL),
+`2.8199664825478976e-14` (L4 HIP). The adaptive dt tracks as "Read this first"
+#2 predicted it would: `MPI_MIN` is order-independent.
+
+**Volume drift `V/V0 - 1`, both codes.** Level 3, step 2000: reference
+`3.35289418451623078e-09`, Beatnik `3.35298433462583034e-09` (SERIAL np1),
+`3.35298611098266974e-09` (SERIAL np4), `3.35298566689345989e-09` (HIP np1),
+`3.35298167009057124e-09` (HIP np4). Level 4, step 2000: reference
+`4.74141392814431128e-09`, Beatnik `4.74149830509418280e-09` (SERIAL np1),
+`4.74150074758483697e-09` (SERIAL np4), `4.74149941531720742e-09` (HIP np1),
+`4.74150074758483697e-09` (HIP np4). Intermediate points, level 3 / level 4
+reference: step 25 `1.54374513172683692e-10` / `1.59270374666675707e-10`, step 500
+`2.40471798029773254e-09` / `2.88076495991163029e-09`, step 1000
+`3.05862224436737051e-09` / `4.64355776053082536e-09`, step 1500
+`3.27790927734383786e-09` / `4.69385197376936958e-09`.
+
+**Beatnik's drift tracks the reference's to `2.758331e-05` relative, worst case
+over all 81 steps and all eight runs** (`sub3_Serial_np4` @ step 1975; the level-4
+worst is `1.831088e-05`). That is a factor of **36 tighter than T2d's
+`kVolumeDriftRtol = 1e-3`**, so M0-T3 can reuse that relative tolerance
+unchanged with a wide margin — while `kVolumeDriftAbsCap = 1e-9` must **not** be
+reused, exactly as M0-R3 says: the drift reaches `4.74e-09` at level 4, and the
+re-derived cap is `~1e-8`.
+
+**Minimum quality tracks to `6.643130e-12` relative, worst case over all steps
+and runs.** Level 3 global minimum `3.826562959465268e-02` at step 1700 (Beatnik
+SERIAL np1) against the reference's `3.826562959474448e-02` at the same step;
+level 4's minimum is its step-2000 value, `1.24242126647961221e-01` against
+`1.24242126647510803e-01`. **No Beatnik run stopped early and every entity count
+held**, so **M0-R2 and M0-R6 did not fire on Beatnik's side either** and the
+compare-depth ceiling is 2000 steps on both sides at both levels.
+
+**M0-R4 did not bite.** Every one of the 972 cross-code and cross-rank
+comparisons paired every vertex unambiguously — `ambiguous cpp=0 gold=0`
+throughout, at the default `--match-eps 1e-9`, at both levels and at step 2000.
+Cross-code pairing, which M0-G1/M0-G2 left untested, is therefore now tested.
+
+**The counts never changed.** All 81 steps of all eight runs report
+`(642, 1280)` or `(2562, 5120)` and nothing else, both in the driver's per-step
+integer check and in the comparator's structural line. Adaptivity did not leak
+into the configuration that exists to exclude it.
+
+### Step 6 — cost
+
+Level 4, 2000 steps, from job `f3TT4psJ8it7`. "solve" is the driver's own
+`MPI_Wtime` around the step loop; "launch" is the script's clock around
+`flux run` and carries startup and I/O.
+
+| backend, ranks | solve (s) | s/step | launch (s) | peak RSS per rank (kB) |
+| --- | --- | --- | --- | --- |
+| HIP, 1 | `18.626937` | `0.009313` | 22 | 851068 |
+| HIP, 4 | `38.864910` | `0.019432` | 45 | 1015732 / 1016188 / 1017676 / 1019096 |
+| SERIAL, 4 | `375.156870` | `0.187578` | 382 | 708172 / 708404 / 709276 / 710792 |
+| SERIAL, 1 | `1289.417426` | `0.644709` | 1293 | 705000 |
+
+Level 3 for scale: HIP np1 `8.198673` s, HIP np4 `29.301308` s, SERIAL np4
+`43.165985` s, SERIAL np1 `86.176564` s; peak RSS 850088 kB (HIP np1), ~707 MB
+per rank on SERIAL. **The whole ten-launch sweep took 1939 s of the 3600 s
+pdebug cap** against the reference's ~110 minutes of single-core Python for the
+two gold sets, so the port is roughly 3x faster than the reference on the
+worst-case configuration and ~350x faster on the best.
+
+Two cost facts worth carrying to M0-A1. **HIP gets *slower* with more ranks**
+(0.0093 -> 0.0194 s/step at level 4) — 2562 vertices does not fill one MI300A, so
+four ranks add ring communication to a device that was already idle; the
+crossover is above level 4. **SERIAL scales the other way and nearly ideally**
+(0.645 -> 0.188, 3.4x on 4 ranks), which is what an O(N^2/P) direct sum with no
+device to saturate should do. Memory is flat in the rank count on SERIAL
+(~705 MB/rank at 1 and 4 ranks), so the direct BR ring's `O(N/P)` source
+storage is nowhere near the footprint at this size — the footprint is Kokkos and
+the runtime, not the problem. Any depth M0-A1 asserts is affordable at every
+point of this matrix; the binding cost is SERIAL np1 at level 4 at 21.5 minutes,
+which is a *milestone*-tier cost and not a gate cost.
+
+### Departures from the stated **Do** steps, and what running forced
+
+- **`milestone0_ladder.py` grew a third subcommand, `growth`, that the task did
+  not ask for.** The comparator prints `max|e|` as `%.6e`, six significant
+  digits — enough to place a rung, but it throws away most of a growth series
+  that the exit criterion wants at 17 digits. `growth` recomputes `max|e|` in
+  NumPy at full precision **through `compare_output.quantized_lexsort`**, imported
+  rather than reimplemented, so the vertex pairing is the comparator's own and
+  the two cannot disagree about which vertex is which. Without it the `vertices`
+  and `potential` series in step 5 would be a 6-digit table.
+- **`pair` also grew a "derived first-failing step BY FIELD" table**, for the
+  field-set asymmetry above. The ladder is a minimum over fields and therefore
+  cannot say *what* gave out; without the per-field breakdown the
+  Beatnik-vs-Beatnik horizon reads as decomposition dependence when it is
+  `sheet_vector`, a field the Python cannot see. That mistake was made and
+  corrected inside this task, which is why the tool now reports the compared
+  field set unprompted in all three subcommands.
+- **The restricted Beatnik-vs-Beatnik ladder is DERIVED ONLY, never confirmed,
+  and cannot be.** `compare_output.py` compares every field present in both files
+  and the CLI surface is closed (Conventions), so there is no invocation that
+  compares two `.h5` files while ignoring `sheet_vector`. The confirmed
+  Beatnik-vs-Beatnik numbers in step 4's first table are over the full shared
+  field set; the per-field table beside them is the apples-to-apples comparison
+  and is derived. Both are reported as what they are.
+- **A timing probe job came first** (`f3TSuF7DFxAB`, the same script under
+  `BEATNIK_M0_MODE=probe`, 25 steps per row). The sweep script's deadline guard
+  needs a per-row wall-time estimate, and inventing one risks the outcome the
+  task names as the worst possible: a job killed at the 1h wall that leaves a
+  truncated checkpoint series a tabulator would happily consume. The probe cost
+  76 s and its measured per-step costs are the estimates now in the script.
+- **`flux job attach` forwards a SIGTERM to the job, and that killed the first
+  full sweep** (`f3TSvQtWhW8f`) two rows from the end — the attaching client hit
+  a 10-minute cap in the calling harness, took a SIGTERM, and the job died with
+  it at 1447 s. The log looked exactly like a completed sweep up to the cut. The
+  sweep was re-run from scratch as `f3TT4psJ8it7` rather than patched up with the
+  two missing rows, because a measurement assembled from two jobs is not the
+  measurement the provenance block claims. **Attach only under a timeout longer
+  than the job, or poll `flux jobs --filter=active`.** M0-T1's log entry says
+  attach "works and exits with the job's own status", which is true and
+  incomplete; this is the missing half.
+- **Offline artifacts live on lustre, not `/tmp`.** `/tmp` on tuolumne is
+  node-local tmpfs and successive shells land on different login nodes, so an
+  analysis directory under `/tmp` silently vanishes mid-task. It did. Everything
+  is now under `/p/lustre5/stewartj/beatnik/milestone0/analysis`.
+- **`grep` is `ugrep` in this environment and does not preserve argument order
+  across multiple files.** A two-file `grep -h` gave interleaved output that read
+  as evidence for the exact opposite of the field-set finding above. Read one
+  file at a time when the order carries meaning.
+
+### Verified
+
+`spack install` clean; three per-backend driver binaries installed
+(`_MPI_SERIAL`, `_MPI_OPENMP`, `_MPI_HIP`) and named by no manifest. Sweep job
+`f3TT4psJ8it7` exited **0** with `launched=10 skipped=0`, 81 checkpoints from
+each of the eight 2000-step runs and 1 from each level-2 step-0 run, and **22**
+`[PASS] Beatnik_Test_Milestone0Run` tallies (1+1+1+4+1+4+4+1+4+1) with zero
+`FAIL`, zero `STOPPED EARLY` and zero `ENTITY COUNTS CHANGED`. All twelve
+`milestone0_ladder.py pair` runs and all ten `series` runs exited 0.
+`milestone0_ladder.py series` over the committed level-3 gold reproduces
+M0-G1's own table exactly — final drift `3.3528941845162308e-09`, final minimum
+quality `6.303625774911138e-02`, global minimum `3.826562959474448e-02` at step
+1700 — which is what validates the tool against a number measured independently
+before it existed.
+
+**Affects:** **M0-A1** — every input it was waiting on is now measured. The
+compare depth can be **2000 steps, the full gold set, at `--rtol 1e-10 --atol
+1e-12`**, at both levels and every point of the matrix, with the margin proved
+rather than sampled; a `1e-12` assertion would have to stop at 775 (level 4) or
+1325 (level 3) and buys nothing. **The determinism decision is: do not take
+M0-T2** — decomposition dependence is 10-22x below the Python drift at level 3
+and within 2.6x at level 4, so eliminating it moves no rung that matters, and
+M0-R7's `Allgatherv` cost would be paid for nothing. M0-A1 should also record
+that `kVolumeDriftRtol = 1e-3` survives re-derivation with 36x margin (worst
+`2.758331e-05`) while `kVolumeDriftAbsCap` must move to `~1e-8`, and that
+**level 4 diverges *earlier* than level 3** at the tight rung — so with mesh
+health favouring level 4 (M0-G1/M0-G2) and agreement favouring level 3, "level 3
+primary" now has an agreement-based reason it previously lacked.
+**M0-T2** — **conditional, and the condition is not met.** Do not start it.
+**M0-T3** — four things it must not get wrong. (1) The gold `.npz` has **no
+`sheet_vector`**, so a Beatnik-vs-Python test cannot assert on that field however
+much it would like to; the fields available are `vertices`, `potential`,
+`remesh_material_position`, `faces`, `time`, `initial_volume`,
+`initial_min_edge`. (2) Assert at `1e-10`/`1e-12` to step 2000, with these
+measured `max|e|` values in the comment beside the literal. (3) Reuse
+`kVolumeDriftRtol = 1e-3`, re-derive `kVolumeDriftAbsCap` to `~1e-8`, and take
+the reference drift series from the two `gold/README.md` tables. (4) Its cost is
+the step-6 table: at level 4 the tier's four launches are ~22 s, ~45 s, ~382 s
+and ~1293 s, so a level-4 member is a ~30-minute tier run and comfortably inside
+`run_milestone.flux`'s `-t 30m` only if level 3 is not also in the same job —
+budget for that. `makeParams()` in `Beatnik_Test_Milestone0Run.cpp` is the
+`SolverParams` M0-T3 needs, already written and already exercised for 2000 steps
+at both levels.
