@@ -388,11 +388,29 @@ endforeach()
 ##--------------------------------------------------------------------------##
 ## milestone tier -- long end-to-end runs. NOT THE SHIP GATE.
 ##--------------------------------------------------------------------------##
-# ADDED BY TASK M0-T1, which created the tier. It ships EMPTY: the first member
-# is M0-T3's Beatnik_Test_Milestone0Frozen, and milestone1.md's M1-T1 registers
-# the second. An empty tier is the correct intermediate state here and is not a
-# vacuous pass -- scripts/<system>/run_milestone.* fails loudly when the
-# manifest names nothing runnable, exactly as the gate runner does.
+# ADDED BY TASK M0-T1, which created the tier. It shipped EMPTY and M0-T3 filled
+# it: the tier now has exactly TWO members, both milestone 0's, and
+# milestone1.md's M1-T1 registers the third.
+#
+#   Beatnik_Test_Milestone0Frozen    2000 TVD-RK3 timesteps of the reference's
+#                                    default physics on a frozen mesh at
+#                                    --icosphere-subdivisions 3, compared against
+#                                    the M0-G1 gold set at all 81 checkpointed
+#                                    steps at --rtol 1e-10 --atol 1e-12.
+#                                    M0-A1's PRIMARY member.
+#   Beatnik_Test_Milestone0FrozenL4  the same test at subdivisions 4 against the
+#                                    M0-G2 gold set. Three lines of source: it
+#                                    #defines BEATNIK_M0_LEVEL 4 and #includes
+#                                    the file above, so the assertion body exists
+#                                    once and every per-level literal is
+#                                    re-derived inside it.
+#
+# TWO SOURCE STEMS, NOT ONE TARGET WITH TWO ARGUMENT LISTS. The loop below keys
+# arguments by source stem, one list per source, and each member needs its own
+# gold DIRECTORY. Two stems give two honest _abs / _rel pairs and leave this loop
+# exactly as M0-T1 wrote it; one stem with two lists would have to teach the loop
+# to carry more than one per source, and an argument list naming the wrong
+# level's gold set is precisely what its FATAL_ERROR exists to prevent.
 #
 # Structurally this is the regression loop above, with three differences and no
 # others; keep it that way, because the two tiers must stay comparable:
@@ -410,8 +428,10 @@ endforeach()
 # it to every change's 60-launch gate. The gate stays at five members and 60
 # launches (CLAUDE.md "Minimum test set"), and this tier is run on demand.
 set(BEATNIK_MILESTONE_TEST_SOURCES
-  # None yet. M0-T3 adds Beatnik_Test_Milestone0Frozen.cpp here, together with
-  # its _beatnik_args_<stem>_abs / _rel pair below.
+  # M0-T3: milestone 0 at subdivision 3 -- the primary member.
+  Beatnik_Test_Milestone0Frozen.cpp
+  # M0-T3: the same test at subdivision 4 -- the second member.
+  Beatnik_Test_Milestone0FrozenL4.cpp
   )
 
 # The tier's rank sweep, overridable exactly as BEATNIK_TEST_MPI_RANKS is.
@@ -422,17 +442,35 @@ set(BEATNIK_MILESTONE_MPI_RANKS "1;4" CACHE STRING
 # installed path, exactly as the regression tier keys them by source stem. An
 # entry is REQUIRED for every source above -- the FATAL_ERROR in the loop is
 # what stops a milestone test from being launched without its gold set.
-#
-# (No entries yet; M0-T3 adds
-#  _beatnik_args_Beatnik_Test_Milestone0Frozen_abs / _rel, naming the gold
-#  DIRECTORY and the comparator, as T2d's pair does.)
 
 # Gold directories for the tier, named once and used by both the install rules
-# and any future argument list, so the two cannot drift.
+# and the argument lists below, so the two cannot drift.
 set(_beatnik_m0_sub3_dir
   ${_beatnik_compare_dir}/milestone0-sub3-2000-steps)
 set(_beatnik_m0_sub4_dir
   ${_beatnik_compare_dir}/milestone0-sub4-2000-steps)
+
+# M0-T3, both members. Each takes the gold DIRECTORY for ITS OWN LEVEL (not a
+# single file): it compares one checkpoint per checkpointed step and finds each
+# step's gold file by its `_step%07d.npz` suffix rather than by rebuilding the
+# name from a time -- the time is what is under test. Same shape as T2d's pair
+# above. **The level in the path must match the level the source compiles at**
+# (BEATNIK_M0_LEVEL, 3 by default and 4 in the L4 stem): a mismatch is a
+# structural comparator failure at step 0, not a subtle one, but it is still the
+# mistake this table exists to keep visible.
+set(_beatnik_args_Beatnik_Test_Milestone0Frozen_abs
+  ${_beatnik_m0_sub3_dir}/gold
+  ${_beatnik_compare_dir}/compare_output.py)
+set(_beatnik_args_Beatnik_Test_Milestone0Frozen_rel
+  regression_tests/milestone0-sub3-2000-steps/gold
+  ${_beatnik_rel_compare_py})
+
+set(_beatnik_args_Beatnik_Test_Milestone0FrozenL4_abs
+  ${_beatnik_m0_sub4_dir}/gold
+  ${_beatnik_compare_dir}/compare_output.py)
+set(_beatnik_args_Beatnik_Test_Milestone0FrozenL4_rel
+  regression_tests/milestone0-sub4-2000-steps/gold
+  ${_beatnik_rel_compare_py})
 
 foreach(_src ${BEATNIK_MILESTONE_TEST_SOURCES})
   get_filename_component(_stem ${_src} NAME_WE)

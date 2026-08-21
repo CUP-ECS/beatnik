@@ -15,9 +15,15 @@ does not cover.
   gate. Run it on demand with `ctest -L milestone`, or through the wrapper
   `scripts/<system>/run_milestone.<scheduler>` — on tuolumne
   [scripts/tuolumne/run_milestone.flux](../scripts/tuolumne/run_milestone.flux).
-  Created by task M0-T1; **empty until M0-T3 registers its first member**, and
-  the wrapper exits non-zero while it is, exactly as the gate wrapper does for
-  an empty gate. Its rank sweep comes from `BEATNIK_MILESTONE_MPI_RANKS`
+  Created by task M0-T1 and filled by M0-T3, which registered its **two**
+  members: `Beatnik_Test_Milestone0Frozen` (2000 frozen-mesh timesteps at
+  `--icosphere-subdivisions 3` against the M0-G1 gold set, all 81 checkpointed
+  steps at `--rtol 1e-10 --atol 1e-12`) and `Beatnik_Test_Milestone0FrozenL4`
+  (the same at subdivisions 4 against M0-G2). Two members x two backends x two
+  rank counts is **eight launches**, about 35 minutes on tuolumne, which is what
+  the wrapper's `-t 40m` is sized for. The wrapper still exits non-zero if the
+  manifest names nothing runnable, exactly as the gate wrapper does for an empty
+  gate. Its rank sweep comes from `BEATNIK_MILESTONE_MPI_RANKS`
   (default `1;4`) for ctest and `BEATNIK_MILESTONE_RANKS` in the wrapper.
   A `milestone` failure is a real failure: fix it or record it in README
   "Known Issues" — it is never a reason to change the gate.

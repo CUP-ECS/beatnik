@@ -670,3 +670,171 @@ it can assert only the seven fields the gold `.npz` carries — `vertices`,
 `milestone0.md` in three places and in this entry, so lowering it in a header
 later is visible as a contradiction rather than a silent green. **M1-T1** in
 `milestone1.md` — unaffected.
+
+## M0-T3
+
+The milestone-0 comparison test, in two source stems and one assertion body.
+**This section was written with the tier's first full run still in flight** and
+is completed at the bottom under "The tier run"; the sub-sections above it were
+all settled before that job was submitted.
+
+### Decisions (as given to this task, and honored)
+
+- **Two members, two source stems, one body.**
+  `Beatnik_Test_Milestone0Frozen.cpp` carries the whole test with the subdivision
+  level in `BEATNIK_M0_LEVEL`, defaulting to **3** (M0-A1's primary member);
+  `Beatnik_Test_Milestone0FrozenL4.cpp` is a documented header plus
+  `#define BEATNIK_M0_LEVEL 4` and `#include` of the first. Two stems is what
+  keeps `_beatnik_args_<stem>_abs`/`_rel` honest — each member names its **own**
+  gold directory — and it left the milestone registration loop at
+  `tests/CMakeLists.txt` **completely untouched**, which one stem with two
+  argument lists could not have done.
+- **Every per-level literal is re-derived, never transferred.** Entity counts
+  `642`/`1920`/`1280` (level 3) and `2562`/`7680`/`5120` (level 4); the two
+  carried scalars; the polyhedral deficit `kVolumeOverSphere`
+  (`9.91393842629754940e-01` at level 3, `9.97839171610598097e-01` at level 4 —
+  T2d's `0.96616074859858714` is the *subdivision-2* value and is at
+  `Beatnik_Test_DirectSolve10Steps.cpp:182`, not `:180` as milestone0.md said,
+  now corrected); the final `time`; and the 81-entry reference volume-drift
+  series.
+- **One flat pair of tolerance literals**, `kRtol = "1e-10"` / `kAtol = "1e-12"`,
+  with M0-D1's peak `max|e|` beside them (`8.53317416726895317e-13` level 3
+  SERIAL at step 2000; `3.17634807345257286e-13` level 4 SERIAL at step **1400**,
+  falling to `1.31783473023006081e-13` by 2000). No table: M0-A1's ladder is
+  flat.
+- **`kVolumeDriftRtol = 1e-3` reused, `kVolumeDriftAbsCap` re-derived to `1e-8`.**
+  Neither of T2d's `kGoldVolumeDrift` nor its `1e-9` cap is imported. Note the
+  symbol name: milestone0.md's M0-T3 entry said to reuse `kGoldVolumeDriftRtol`
+  and **there is no such symbol** — T2d's is `kVolumeDriftRtol` at
+  `Beatnik_Test_DirectSolve10Steps.cpp:244`. The value and the instruction were
+  right, the name was not; milestone0.md is corrected.
+- **No CLI option added**, and the gold-set `install()` rules and the tier's
+  manifest were left exactly as M0-T1 wrote them.
+
+### The reference volume-drift series: 17 digits, from the `.npz` rather than the table
+
+milestone0.md said to take the reference drift series from each `gold/README.md`
+table, and those tables print `V/V0 - 1` at **seven** significant digits, which
+the Conventions' "17-digit literals" rule cannot be satisfied from. **Departure:**
+the 81 literals per level were regenerated at full precision with
+`milestone0_ladder.py series` over the same committed `.npz` the tables were
+computed from — the tool M0-D1 wrote and validated against M0-G1's independently
+measured table — and they reproduce each README's 7-digit column at every one of
+the 81 steps. Spot values, which are also the ones `## M0-D1` and `## M0-A1`
+quote independently: level 3 step 25 `1.54374513172683692e-10`, step 500
+`2.40471798029773254e-09`, step 2000 `3.35289418451623078e-09`; level 4 step 500
+`2.88076495991163029e-09`, step 1000 `4.64355776053082536e-09`, step 1500
+`4.69385197376936958e-09`, step 2000 `4.74141392814431128e-09`. The provenance
+comment in the source says exactly this.
+
+### What the entity-count assertion actually is
+
+milestone0.md's Do step 4 asks for an `MPI_Allreduce` over **owned** counts
+rather than a number read from Tessera. Both are in, and they are different
+checks rather than a belt-and-braces duplicate:
+
+- **Every step**, Tessera's own `globalVertexCount()` / `globalFaceCount()`
+  against the generator's — cheap, integer, and the thing that catches
+  adaptivity leaking in at the step it leaks.
+- **At every compared step**, `MPI_Allreduce(MPI_SUM)` over
+  `ownedVertexCount()` / `ownedEdgeCount()` / `ownedFaceCount()` against
+  `V`/`E`/`F` — R9 discriminator 1, a second independent path to the same number,
+  and the one that would catch owned sets that stopped partitioning the global
+  ones while the global counts stayed right.
+
+### Step 0 is a compared step
+
+M0-A1's depth is 81 checkpoints, steps 0 **through** 2000. `Solver::setup()`
+writes step 0 unconditionally (`src/Beatnik_Solver.hpp`, the `writeCheckpoint()`
+at the end of `setup()`), so the test compares `lastCheckpointPath()` against the
+step-0 gold *before* the step loop. Without that the depth would be 80 files, not
+81, and the M0-D1 step-1 generator gate — the check that the two icospheres agree
+at this subdivision level at all — would not be in the test.
+
+### The two failure directions, and how each is demonstrated
+
+- **A detected mismatch, not a load error.** The negative case is inside the test:
+  the final state is compared against the **step-0** gold and must exit **exactly
+  1**. Exit 2 (could not load) is a vacuous pass and is rejected as such. It
+  therefore runs on every one of the tier's eight launches rather than being a
+  one-off demonstration.
+- **A build with `--dynamic-remesh` forced fails on the constant-entity-count
+  assertion of step 4.** `BEATNIK_M0_FORCE_DYNAMIC_REMESH`, a build-time define
+  defaulting to **0**, switches `makeParams()` to T4b's accepted split-only
+  remesh set at `--remesh-every 4` with the sizing field tightened to
+  `h_max 1e-3 / h_min 1e-4` so splits are certain at 642 and 2562 vertices. It is
+  a define and not an option because milestone0.md's conventions close the CLI
+  surface, and it is kept in the source so the demonstration is reproducible from
+  one line rather than from a reconstruction of this session.
+
+  **Demonstrated**, job **`f3Td5AJiqAfq`** (built with the define at 1, then
+  reverted and rebuilt): the runner reported `[milestone] FAIL` and every one of
+  the eight launches failed with
+  `ENTITY COUNTS CHANGED at step 4: vertices 942 (expected 642), faces 1880
+  (expected 1280)` at level 3 and `vertices 2862 (expected 2562), faces 5720
+  (expected 5120)` at level 4, on SERIAL and HIP at ranks 1 and 4. Crucially it
+  failed **there** and not earlier: `step 0 comparator exit 0` on all eight, so
+  the gold-directory resolution, the manifest-relative argument pair, the lustre
+  scratch and the comparator plumbing were all proved by the same job — and the
+  negative case still returned `exit 1`, so the run had moved the surface by step
+  4.
+
+### The walltime, and the number M0-A1's estimate did not carry
+
+M0-A1 handed this task a raise from `-t 30m` justified by level 4's four launches
+at `22 + 45 + 382 + 1293 = 1742` s (29.0 min) plus level 3's `166.842830` s of
+solve — about 32 minutes of measured run wall, for which the task specified 40m.
+**The forced-remesh job measured what that estimate omitted:** each launch spawns
+**83** `compare_output.py` invocations (81 compared steps plus the negative case),
+and on-node they cost ~`0.65` s each (`comparator=1.10`-`1.55` s for the two
+invocations that build reaches, on every backend and both levels). That is
+~54 s per launch and **~7 minutes over the eight launches**, which puts the tier
+at ~39.5 min against a 40m cap — about 1% of margin, and M0-R8 is precisely the
+failure where a run killed at the wall leaves the queue looking like a shorter
+pass. **Raised to `-t 60m` with the user's decision**, the same cap M0-D1's own
+sweep ran under in `pdebug`. The script comment carries all three numbers.
+
+The test reports the split itself, so a later session sizing a third member does
+not have to re-derive it: `[m0t3] COST level=.. space=.. np=.. steps=..
+wall=.. comparator=.. peak_rss_kb=..`, one greppable line per launch, with peak
+resident memory from `getrusage(RUSAGE_SELF).ru_maxrss` reduced by `MPI_MAX` so
+the number is the worst rank's. **GPU-side memory stays out of scope**, as it was
+for M0-D1 — there is no mechanism for it here.
+
+### Verified before the tier run
+
+`spack install` clean in the **dev** env (`BEATNIK_USE_PROD` unset), twice: once
+with `BEATNIK_M0_FORCE_DYNAMIC_REMESH` at 1 for the failure-direction
+demonstration and once with it back at 0, and the installed binary was checked to
+no longer carry the forced build's banner string before the real job was
+submitted. `beatnik_milestone_manifest.txt` carries **six** non-comment lines —
+two members x `SERIAL;OPENMP;HIP`, of which the runner's `_<BACKEND>` filter
+selects the four that are the tier — each naming its own level's gold directory
+and the comparator, manifest-relative. `beatnik_gate_manifest.txt` still carries
+**fifteen**: the diff to `tests/CMakeLists.txt` is confined to the milestone
+tier's source list, its argument-list table and its comment block, and the
+regression loop is untouched.
+
+### The tier run
+
+**PENDING at the time this section was written.** Milestone job
+**`f3Td7rshE3y1`** (`beatnik_milestone.f3Td7rshE3y1.log`) and gate job
+**`f3Td82RoqczB`** (`beatnik_regression_minset.f3Td82RoqczB.log`) were submitted
+back to back and are the two halves of M0-T3's exit criterion: eight
+`[milestone] ===` launches with zero `[FAIL]` lines, and sixty `[gate] ===`
+launches with `[gate] PASS`. A session picking this up should read those two logs
+and `flux job status` for both job IDs — **not** `flux job attach`, which
+forwards SIGTERM and already destroyed one M0-D1 sweep — then record the measured
+wall times, the comparator share and the peak resident memory per rank from the
+`[m0t3] COST` lines here, and mark M0-T3 **DONE** in `milestone0.md` with its
+**Met.** paragraph.
+
+**Affects:** **M1-T1** in `milestone1.md`, which registers the tier's next
+member: the tier is no longer empty, so M1-T1 adds a **third** source stem and a
+third `_beatnik_args_<stem>_abs`/`_rel` pair, and it must **raise
+`run_milestone.flux`'s walltime again** — the tier is already ~40 minutes of the
+60m cap, and the per-launch comparator cost (~0.65 s x one invocation per
+compared step) is the term that estimate has to include. The pattern for a
+member that differs from an existing one only in a compile-time constant is
+`Beatnik_Test_Milestone0FrozenL4.cpp`: a stem that `#define`s and `#include`s,
+never a copy of the assertion body.

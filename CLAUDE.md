@@ -92,8 +92,12 @@ against a multi-thousand-step reference gold set, at ranks **1 and 4** on SERIAL
 and HIP, run through `scripts/<system>/run_milestone.<scheduler>` — on tuolumne
 [scripts/tuolumne/run_milestone.flux](scripts/tuolumne/run_milestone.flux). **It
 is not part of the gate** and adding a member to it does not change the gate;
-the gate stays at five members and 60 launches. The tier is **empty** until
-M0-T3 registers its first member, and its runner exits non-zero while it is.
+the gate stays at five members and 60 launches. It has **two** members, both
+registered by M0-T3: `Beatnik_Test_Milestone0Frozen` (2000 frozen-mesh timesteps
+at `--icosphere-subdivisions 3` against the M0-G1 gold set, all 81 checkpointed
+steps at `--rtol 1e-10 --atol 1e-12`) and `Beatnik_Test_Milestone0FrozenL4` (the
+same at subdivisions 4 against M0-G2) — **eight launches**, and about 35 minutes
+under the runner's `-t 40m`.
 
 **`BEATNIK_TEST_SCRATCH`
 must name a path on a parallel filesystem**, not a node-local one: the

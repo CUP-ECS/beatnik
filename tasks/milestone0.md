@@ -1,11 +1,21 @@
 # Milestone 0 — the reference's default physics on a frozen mesh, run long
 
 **Status:** IN PROGRESS — M0-T1, M0-G1, M0-G2, M0-D1 and M0-A1 are **DONE**;
-M0-T2 is **DECLINED**. M0-T3 is the only task left: write the `milestone`-tier
-test comparing all **81** checkpointed steps through step **2000** at
-`--rtol 1e-10 --atol 1e-12`, at **level 3 (primary)** and **level 4 (second
-member)**. Every number it needs is in `milestone0-progress-log.md` under
-`## M0-D1` and `## M0-A1`.
+M0-T2 is **DECLINED**. **M0-T3 is written, built and submitted; only its exit
+criterion is outstanding.**
+
+To finish it: read `milestone0-progress-log.md` under `## M0-T3` — everything the
+task decided is recorded there — then read the two logs its last sub-section
+names, `beatnik_milestone.f3Td7rshE3y1.log` (job **`f3Td7rshE3y1`**, the tier's
+eight launches) and `beatnik_regression_minset.f3Td82RoqczB.log` (job
+**`f3Td82RoqczB`**, the 60-launch gate). Check both with
+`flux job status <jobid>` — **never `flux job attach`**, which forwards SIGTERM
+and already killed one M0-D1 sweep. The criterion is eight `[milestone] ===`
+launches with zero `[FAIL]` lines and `[milestone] PASS`, plus sixty
+`[gate] ===` launches with `[gate] PASS`. Both failure directions are **already
+demonstrated** (job `f3Td5AJiqAfq`); see the log entry. Then record the `[m0t3]
+COST` numbers in the log, mark M0-T3 **DONE** below with its **Met.** paragraph,
+and set this line to say milestone 0 is complete.
 
 ## Problem
 
@@ -316,14 +326,16 @@ True at HEAD:
   been run at 3 and 4 (M0-G1, M0-G2), so levels 3 and 4 exist on the Python side
   only, and Beatnik's step-0 agreement at those levels is unmeasured — which is
   what M0-D1 step 1 gates on.
-- **The `milestone` tier exists and is empty** (M0-T1): the label, the
-  `BEATNIK_MILESTONE_MPI_RANKS` registration loop
-  ([tests/CMakeLists.txt:437-495](../tests/CMakeLists.txt#L437)),
-  `beatnik_milestone_manifest.txt` with zero non-comment lines,
+- **The `milestone` tier exists and has two members** — created empty by M0-T1
+  (the label, the `BEATNIK_MILESTONE_MPI_RANKS` registration loop,
+  `beatnik_milestone_manifest.txt`,
   [scripts/tuolumne/run_milestone.flux](../scripts/tuolumne/run_milestone.flux)
-  (which exits non-zero on the empty tier, as intended), and the install rules
-  for **both** milestone-0 gold sets. M0-T3 therefore adds a test source and its
-  `_beatnik_args_<stem>_abs`/`_rel` pair, and nothing else in CMake.
+  and the install rules for **both** milestone-0 gold sets) and filled by M0-T3
+  with `Beatnik_Test_Milestone0Frozen` (level 3) and
+  `Beatnik_Test_Milestone0FrozenL4` (level 4), which share one assertion body.
+  Two members x two backends x two rank counts is **eight launches**, and the
+  runner's walltime is `-t 40m`. The gate is untouched at five members and 60
+  launches.
 - **Beatnik's trajectory is decomposition-dependent** (Read this first #2), and
   no test measures by how much: regression test 2's rank sweep asserts agreement
   with *Python* at `1e-10` at each rank count, never Beatnik-vs-Beatnik.
@@ -873,7 +885,7 @@ for an oversight.
 
 ---
 
-### M0-T3 — the milestone-0 comparison test — **NOT STARTED**
+### M0-T3 — the milestone-0 comparison test — **IN PROGRESS** (written, built, submitted; exit criterion outstanding — see `## Status`)
 
 **Depends on:** M0-T1, M0-G1, M0-G2, M0-A1 — all **DONE**. **Not** on M0-T2,
 which M0-A1 declined; nothing here waits on it.
@@ -919,9 +931,9 @@ end to end. It is this test at 10 steps and level 2, and most of it transfers
 verbatim: `makeParams()` (`:308-378`), `goldForStep()` (`:263-286`),
 `runComparator()` (`:289-306`), the three R9 partition discriminators (`:92-104`
 for what they are and why the third one stops working once positions evolve —
-note the polyhedral-deficit literal at `:180` is **level-2 specific** and must be
-re-derived per level), and the per-step `time` assertion against 17-digit
-literals.
+note the polyhedral-deficit literal `kVolumeOverSphere` at `:182` is **level-2
+specific** and must be re-derived per level), and the per-step `time` assertion
+against 17-digit literals.
 
 **Do:**
 
@@ -938,7 +950,9 @@ literals.
    rather than re-measure it.
 3. Replace T2d's volume-drift literals with this configuration's own measured
    series from M0-D1 step 5 and the two `gold/README.md` tables. **Reuse
-   `kGoldVolumeDriftRtol = 1e-3`**: it survives re-derivation with a **36x**
+   `kVolumeDriftRtol = 1e-3`** (T2d's symbol, at
+   [Beatnik_Test_DirectSolve10Steps.cpp:244](../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp#L244);
+   there is no `kGoldVolumeDriftRtol`): it survives re-derivation with a **36x**
    margin, since Beatnik's drift tracks the reference's to `2.758331e-05`
    relative, worst case over all 81 steps of all eight runs. **Re-derive
    `kVolumeDriftAbsCap` to `~1e-8`**, because the drift reaches

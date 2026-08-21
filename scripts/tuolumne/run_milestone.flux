@@ -2,7 +2,7 @@
 # flux: --job-name=beatnik_milestone
 # flux: --nodes=1
 # flux: --exclusive
-# flux: -t 30m
+# flux: -t 60m
 # flux: --output={{name}}.{{jobid}}.log
 # flux: -q pdebug
 ############################################################################
@@ -42,6 +42,19 @@
 # a position to change what the gate means.
 #
 # --nodes=1 covers the 4-rank case at tuolumne's 4-ranks-per-node.
+#
+# THE WALLTIME IS MEASURED, NOT GUESSED (M0-T3, raised from 30m). M0-D1 step 6
+# clocked the level-4 member's four tier launches at 22 + 45 + 382 + 1293 s =
+# 1742 s (29.0 min) of launch wall, and the level-3 member adds 167 s of solve
+# (8.2 + 29.3 + 43.2 + 86.2) plus its own startup and I/O -- about 32 minutes of
+# measured work for the two members. On top of that each launch spawns 83
+# compare_output.py invocations (81 compared steps plus the negative case),
+# measured on-node at ~0.65 s each = ~7 minutes over the eight launches, which
+# M0-A1's 40m estimate did not carry. 30m would have killed the second member
+# partway and 40m left ~1% of margin -- and M0-R8 is exactly the failure mode
+# where a truncated run reads as a shorter pass, so this is 60m -- the same cap
+# M0-D1's own sweep ran under in pdebug. Raise it again,
+# with the measurement, if a third member lands.
 ############################################################################
 
 set -u
@@ -210,12 +223,12 @@ ${_lines}
 EOF
     done
 
-    # A manifest that named nothing runnable is not a pass. THE TIER IS EMPTY
-    # UNTIL M0-T3 REGISTERS ITS FIRST MEMBER, so this guard is what this script
-    # is expected to hit today, and hitting it is the correct outcome -- an
-    # empty tier reporting PASS is the failure mode the gate runner's identical
-    # guard exists to prevent, and it would be worse here, where the tier's
-    # whole purpose is a comparison nobody else runs.
+    # A manifest that named nothing runnable is not a pass. The tier has had two
+    # members since M0-T3, so hitting this guard now means something is wrong --
+    # an install without +testing, or target names without the expected
+    # _<BACKEND> suffix. An empty tier reporting PASS is the failure mode the
+    # gate runner's identical guard exists to prevent, and it would be worse
+    # here, where the tier's whole purpose is a comparison nobody else runs.
     if [ "${_ranks_run}" -eq 0 ]; then
         echo "[milestone] FAIL: the manifest named no runnable" \
              "${BEATNIK_MILESTONE_LABEL} tests for backends" \
@@ -229,11 +242,13 @@ fi
 ##--------------------------------------------------------------------------##
 ## Report
 ##--------------------------------------------------------------------------##
-# The milestone tier has ZERO members as of M0-T1, which created it. M0-T3 adds
-# Beatnik_Test_Milestone0Frozen (2000 steps of the frozen-mesh configuration
-# against the M0-G1/M0-G2 gold sets, to the depth M0-D1 measures and M0-A1
-# records), and milestone1.md's M1-T1 adds the second. Until then this script
-# exits non-zero through the guard above, by design.
+# The milestone tier has TWO members as of M0-T3:
+# Beatnik_Test_Milestone0Frozen (2000 steps of the frozen-mesh configuration at
+# --icosphere-subdivisions 3 against the M0-G1 gold set, all 81 checkpointed
+# steps at --rtol 1e-10 --atol 1e-12) and Beatnik_Test_Milestone0FrozenL4 (the
+# same at subdivisions 4 against M0-G2). Two members x {SERIAL, HIP} x ranks
+# {1, 4} = EIGHT launches. milestone1.md's M1-T1 adds the third member. The gate
+# is unaffected and stays at five members and 60 launches.
 if [ "${_milestone_rc}" -eq 0 ]; then
     echo "[milestone] PASS (label=${BEATNIK_MILESTONE_LABEL})"
 else
