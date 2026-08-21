@@ -827,7 +827,60 @@ the `spack`-mode form of "`ctest -N -L regression` lists 60 cases", exactly as
 M0-T1's exit criterion was met, and it is the check that the milestone tier's two
 new members took nothing out of the gate.
 
-**The milestone half is PENDING at the time this section was written.** Job
+**The milestone half is MET.** Job **`f3Td7rshE3y1`** came back `COMPLETED` after
+**37.25 min** of the 60m cap, with exactly **eight** `[milestone] ===` launch
+lines — both members x {SERIAL, HIP} x ranks {1, 4} — **zero** `[FAIL]` lines and
+`[milestone] PASS (label=milestone)`. It is not M0-R8: each of the eight launches
+carries **81** `comparator exit 0` lines (the whole gold set, step 0 through step
+2000), `step 0 comparator exit 0`, and the in-test negative case
+`NEGATIVE case, final state vs the step-0 gold: exit 1` — the detected-mismatch
+direction, not exit 2. Per-rank tallies are `2337/2337` checks on rank 0 and
+`2172/2172` on the others (the difference is the comparator invocations, which
+only rank 0 makes).
+
+**The cost, from the eight `[m0t3] COST` lines** — the numbers M1-T1 needs to size
+the tier's walltime again:
+
+| level | space | np | wall (s) | comparator (s) | s/step | worst-rank peak RSS (kB) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 3 | Serial | 1 | `120.939298` | `35.974838` | `0.060470` | `704272` |
+| 3 | Serial | 4 | `77.767782` | `35.462679` | `0.038884` | `708096` |
+| 4 | Serial | 1 | `1324.510988` | `36.285307` | `0.662255` | `708644` |
+| 4 | Serial | 4 | `409.246860` | `36.132166` | `0.204623` | `710896` |
+| 3 | HIP | 1 | `41.848757` | `34.916752` | `0.020924` | `850392` |
+| 3 | HIP | 4 | `63.463393` | `35.618029` | `0.031732` | `1017004` |
+| 4 | HIP | 1 | `51.270562` | `34.837122` | `0.025635` | `851148` |
+| 4 | HIP | 4 | `73.493593` | `35.875890` | `0.036747` | `1018896` |
+
+Total in-test wall **`2162.542`** s (36.0 min) against the job's 37.25 min, so
+startup, the tier wrapper and the scratch teardown cost ~1.2 min in total. Three
+things in that table are worth carrying forward:
+
+- **The binding launch is still level 4 SERIAL at 1 rank**, `1324.510988` s —
+  61% of the tier on its own, and `0.662255` s/step against M0-D1's
+  `0.644709`, so the estimate held to 2.7%.
+- **The comparator is a fixed ~`35`-`36` s per launch**, not the ~54 s the
+  forced-remesh job's on-node ~`0.65` s x 83 predicted; the real cost is
+  ~`0.43` s per invocation. It is essentially independent of level, backend and
+  rank count, which makes it a flat **~4.7 min** over the eight launches and the
+  term that dominates the two cheap HIP level-3 launches (`34.9` of `41.8` s).
+- **Peak RSS is `704272`-`1018896` kB per rank**, within M0-D1's
+  `705000`-`1019096` kB, and HIP at 4 ranks is the high-water mark on both
+  levels. GPU-side memory stays out of scope.
+
+One cosmetic wart, recorded so a later session does not read it as a bug: the
+per-rank `FINAL` note prints the `MPI_MAX`-reduced comparator seconds beside the
+*local* invocation count, so non-zero ranks say `comparator 35.8759 s in 0
+invocation(s)`. The `[m0t3] COST` line, which is what this table is built from, is
+rank 0's and is consistent.
+
+**Superseded, and fixed in the same change:** CLAUDE.md's "Minimum test set" and
+`docs/testing.md` both said the tier was "about 35 minutes under `-t 40m`" —
+written before the walltime was raised to 60m. Both now carry the measured 37.25
+min against `-t 60m` and this job's ID.
+
+Job **`f3Td7rshE3y1`**'s pre-run description follows; it is what the run above
+confirmed. Job
 **`f3Td7rshE3y1`** (`beatnik_milestone.f3Td7rshE3y1.log`), submitted from the
 repo root against the reverted (`BEATNIK_M0_FORCE_DYNAMIC_REMESH 0`) install.
 What it must show: **eight** `[milestone] ===` launch lines — two members x
@@ -835,32 +888,20 @@ What it must show: **eight** `[milestone] ===` launch lines — two members x
 `[milestone] PASS (label=milestone)`, and eight `[PASS]
 Beatnik_Test_Milestone0Frozen` tallies.
 
-**To finish M0-T3 from here:**
-
-1. `flux job status f3Td7rshE3y1` — it blocks until the job completes, exits with
-   the job's own status, works on an already-finished job and can be re-run as
-   often as you like. The harness's ten-minute command timeout will cut the wait
-   on a ~40-minute job; the job is unaffected, so just re-run it. **Never `flux
-   job attach`** — it forwards SIGTERM and that is what destroyed M0-D1's first
-   sweep (`f3TSvQtWhW8f`), leaving a log that read exactly like a completed run.
-2. Read `beatnik_milestone.f3Td7rshE3y1.log`. **Finishing is not succeeding:** a
-   job killed at the 60m wall leaves the queue looking like one that passed, which
-   is M0-R8. Check the launch-line count, the `[FAIL]` count and the final
-   `[milestone] PASS`/`FAIL` line, not just the exit status.
-3. Record the cost here from the eight `[m0t3] COST level=.. space=.. np=..
-   steps=.. wall=.. comparator=.. peak_rss_kb=..` lines — the wall time, the
-   comparator's share of it and the worst-rank peak resident memory, per launch.
-   Those are the numbers M1-T1 needs to size the tier's walltime again.
-4. Mark M0-T3 **DONE** in `milestone0.md` with a **Met.** paragraph naming the
-   three job IDs (`f3Td7rshE3y1` the tier, `f3Td82RoqczB` the gate,
-   `f3Td5AJiqAfq` the forced-remesh failure direction), the launch counts and both
-   failure-direction demonstrations, and set that document's `## Status` to say
-   milestone 0 is complete.
-
-If the tier run instead comes back red, it is a real failure and gets a README
-"Known Issues" entry — it is never a reason to touch the gate, and per this task's
-constraints the response is to report what failed verbatim rather than to
-substitute a shallower depth, a looser tolerance or one member instead of two.
+**How it was closed**, kept because the waiting protocol is the part worth
+reusing: `flux job status f3Td7rshE3y1` — it blocks until the job completes,
+exits with the job's own status, works on an already-finished job and can be
+re-run as often as you like when the harness's ten-minute command timeout cuts
+the wait; the job is unaffected. **Never `flux job attach`** — it forwards
+SIGTERM and that is what destroyed M0-D1's first sweep (`f3TSvQtWhW8f`), leaving
+a log that read exactly like a completed run. Then the log was read for the
+launch-line count, the `[FAIL]` count and the final `[milestone] PASS` line
+rather than the exit status alone, because a job killed at the wall leaves the
+queue looking like one that passed (M0-R8) — the 81-per-launch comparator count
+above is what rules that out here. M0-T3 is then **DONE** in `milestone0.md`, and
+milestone 0 with it. Nothing went red, so no README "Known Issues" entry was
+needed; had it, the response would have been to report the failure verbatim
+rather than substitute a shallower depth, a looser tolerance or one member.
 
 **Affects:** **M1-T1** in `milestone1.md`, which registers the tier's next
 member: the tier is no longer empty, so M1-T1 adds a **third** source stem and a

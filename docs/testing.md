@@ -20,8 +20,10 @@ does not cover.
   `--icosphere-subdivisions 3` against the M0-G1 gold set, all 81 checkpointed
   steps at `--rtol 1e-10 --atol 1e-12`) and `Beatnik_Test_Milestone0FrozenL4`
   (the same at subdivisions 4 against M0-G2). Two members x two backends x two
-  rank counts is **eight launches**, about 35 minutes on tuolumne, which is what
-  the wrapper's `-t 40m` is sized for. The wrapper still exits non-zero if the
+  rank counts is **eight launches** and a **measured 37.25 minutes** on tuolumne
+  (M0-T3's tier run, job `f3Td7rshE3y1`), which is what the wrapper's `-t 60m` is
+  sized for — 36.0 min of it is in-test wall and ~4.7 min of that is the 664
+  `compare_output.py` invocations. The wrapper still exits non-zero if the
   manifest names nothing runnable, exactly as the gate wrapper does for an empty
   gate. Its rank sweep comes from `BEATNIK_MILESTONE_MPI_RANKS`
   (default `1;4`) for ctest and `BEATNIK_MILESTONE_RANKS` in the wrapper.

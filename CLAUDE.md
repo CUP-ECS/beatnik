@@ -96,8 +96,9 @@ the gate stays at five members and 60 launches. It has **two** members, both
 registered by M0-T3: `Beatnik_Test_Milestone0Frozen` (2000 frozen-mesh timesteps
 at `--icosphere-subdivisions 3` against the M0-G1 gold set, all 81 checkpointed
 steps at `--rtol 1e-10 --atol 1e-12`) and `Beatnik_Test_Milestone0FrozenL4` (the
-same at subdivisions 4 against M0-G2) — **eight launches**, and about 35 minutes
-under the runner's `-t 40m`.
+same at subdivisions 4 against M0-G2) — **eight launches**, and a measured
+**37.25 minutes** under the runner's `-t 60m` (M0-T3's tier run, job
+`f3Td7rshE3y1`, all green).
 
 **`BEATNIK_TEST_SCRATCH`
 must name a path on a parallel filesystem**, not a node-local one: the

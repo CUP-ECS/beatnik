@@ -1,24 +1,19 @@
 # Milestone 0 — the reference's default physics on a frozen mesh, run long
 
-**Status:** IN PROGRESS — M0-T1, M0-G1, M0-G2, M0-D1 and M0-A1 are **DONE**;
-M0-T2 is **DECLINED**. **M0-T3 is written, built and submitted; only its exit
-criterion is outstanding.**
+**Status:** **COMPLETE.** M0-T1, M0-G1, M0-G2, M0-D1, M0-A1 and M0-T3 are all
+**DONE**; M0-T2 is **DECLINED**. Milestone 0's end state is reached: the
+`milestone` tier carries two members comparing Beatnik against the two 2000-step
+reference gold sets over all 81 checkpointed steps at `--rtol 1e-10 --atol 1e-12`,
+green at ranks 1 and 4 on SERIAL and HIP (job `f3Td7rshE3y1`, eight launches, zero
+`[FAIL]`), with the 60-launch gate untouched and still passing (job
+`f3Td82RoqczB`) and both failure directions demonstrated (in-test negative case,
+plus job `f3Td5AJiqAfq`). The tier costs a measured **37.25 minutes** of its
+`-t 60m` cap.
 
-Three of the four things its exit criterion asks for are **already in hand**: the
-60-launch gate still passes (job `f3Td82RoqczB`, `[gate] PASS` with exactly sixty
-`[gate] ===` lines), and **both** failure directions are demonstrated — the
-step-0-gold negative case exits exactly 1 inside the test, and a build with
-`--dynamic-remesh` forced fails on the constant-entity-count assertion of step 4
-at both levels, both backends and both rank counts (job `f3Td5AJiqAfq`). What is
-outstanding is the tier's own run: job **`f3Td7rshE3y1`**,
-`beatnik_milestone.f3Td7rshE3y1.log`, eight launches, submitted and in flight.
-
-**To finish:** read `milestone0-progress-log.md` under `## M0-T3` — every decision
-this task made is recorded there, and its last sub-section, "The tier run",
-carries the four numbered steps that close the task, the exact
-`flux job status f3Td7rshE3y1` waiting protocol (**never `flux job attach`**,
-which forwards SIGTERM and already killed one M0-D1 sweep), and the M0-R8 warning
-that a job killed at the 60m wall leaves the queue looking like a pass.
+The next milestone is [`milestone1.md`](milestone1.md), whose M1-T1 registers the
+tier's third member; `milestone0-progress-log.md`'s `## M0-T3` **Affects:** line
+carries what M0-T3 changed for it, and its per-launch cost table is what M1-T1
+sizes the walltime from.
 
 ## Problem
 
@@ -336,9 +331,9 @@ True at HEAD:
   and the install rules for **both** milestone-0 gold sets) and filled by M0-T3
   with `Beatnik_Test_Milestone0Frozen` (level 3) and
   `Beatnik_Test_Milestone0FrozenL4` (level 4), which share one assertion body.
-  Two members x two backends x two rank counts is **eight launches**, and the
-  runner's walltime is `-t 40m`. The gate is untouched at five members and 60
-  launches.
+  Two members x two backends x two rank counts is **eight launches**, a measured
+  **37.25 min**, and the runner's walltime is `-t 60m` (raised by M0-T3). The gate
+  is untouched at five members and 60 launches.
 - **Beatnik's trajectory is decomposition-dependent** (Read this first #2), and
   no test measures by how much: regression test 2's rank sweep asserts agreement
   with *Python* at `1e-10` at each rank count, never Beatnik-vs-Beatnik.
@@ -888,7 +883,39 @@ for an oversight.
 
 ---
 
-### M0-T3 — the milestone-0 comparison test — **IN PROGRESS** (written, built, submitted; exit criterion outstanding — see `## Status`)
+### M0-T3 — the milestone-0 comparison test — **DONE**
+
+**Met.** Three jobs, and between them every clause of the exit criterion.
+
+- **The tier: job `f3Td7rshE3y1`** (`beatnik_milestone.f3Td7rshE3y1.log`),
+  `COMPLETED` in **37.25 min** of the runner's raised `-t 60m`, with exactly
+  **eight** `[milestone] ===` launch lines — `Beatnik_Test_Milestone0Frozen`
+  (level 3) and `Beatnik_Test_Milestone0FrozenL4` (level 4) x {SERIAL, HIP} x
+  ranks {1, 4} — **zero** `[FAIL]` lines and `[milestone] PASS (label=milestone)`.
+  Each launch compared all **81** checkpointed steps at `--rtol 1e-10 --atol
+  1e-12` with `comparator exit 0` on every one, so this is not M0-R8: the depth
+  in the log is the depth in the header. Per-launch cost, peak RSS and the
+  comparator's flat ~`35` s share are tabulated in
+  `milestone0-progress-log.md` under `## M0-T3`; the binding launch is level 4
+  SERIAL at 1 rank, `1324.510988` s at `0.662255` s/step, within 2.7% of M0-D1's
+  estimate.
+- **The gate: job `f3Td82RoqczB`**, `[gate] PASS (label=regression)` with exactly
+  **sixty** `[gate] ===` launch lines — the `spack`-mode form of `ctest -N -L
+  regression` listing 60 cases, and the check that two new milestone members took
+  nothing out of the gate.
+- **Failure direction 1 — a detected mismatch, not a load error.** Inside the
+  test, on every one of the eight launches: `NEGATIVE case, final state vs the
+  step-0 gold: exit 1`. Exit 2 would be a vacuous pass and is rejected as such.
+- **Failure direction 2 — `--dynamic-remesh` forced: job `f3Td5AJiqAfq`**, built
+  with `BEATNIK_M0_FORCE_DYNAMIC_REMESH 1` and then reverted. All eight launches
+  failed on the constant-entity-count assertion of **step 4**
+  (`vertices 942 (expected 642)` at level 3, `2862 (expected 2562)` at level 4)
+  after `step 0 comparator exit 0` — so it failed on the mesh changing and not on
+  plumbing.
+
+CLAUDE.md's "Minimum test set" and `docs/testing.md` are corrected in the same
+change: both said "about 35 minutes under `-t 40m`", written before this task
+raised the walltime.
 
 **Depends on:** M0-T1, M0-G1, M0-G2, M0-A1 — all **DONE**. **Not** on M0-T2,
 which M0-A1 declined; nothing here waits on it.
