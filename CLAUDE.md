@@ -150,3 +150,19 @@ spans more than one node. Tiers, the installed-path runners and CI:
   bit us on 2026-06-24: a reinstall during a live 64-node run SIGBUS-killed it.
   Reinstalling the *dev* env while a prod job runs is fine — they are separate
   install prefixes.
+
+## Math in markdown
+Write math with KaTeX delimiters, not Doxygen ones:
+- Inline: `$ ... $`  — NOT `\f$ ... \f$`
+- Display: `$$ ... $$` on their own lines, blank line above and below — NOT `\f[ ... \f]`
+
+`\f[`/`\f$` are Doxygen-only. In a plain markdown reader (VSCode preview,
+GitHub, mdBook) they don't open a math region, so the body is parsed as prose
+and CommonMark strips the backslash from every escaped punctuation character —
+`\;` becomes `;`, `\,` becomes `,`, `\_` disappears — leaving unreadable output.
+
+KaTeX delimiter rules worth respecting:
+- No space just inside the delimiters: `$x + y$`, not `$ x + y $`.
+- Don't put a digit immediately after a closing `$`.
+- Keep inline math on one line.
+- For a literal dollar sign in prose, escape it: `\$`.
