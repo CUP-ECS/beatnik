@@ -2387,3 +2387,199 @@ stub signatures is writing against a signature that is about to change.
   upstream agrees.
 - **The gate** — untouched. No code changed, so the `regression` tier still has
   five members and CLAUDE.md's "full sweep as of T4c" stamp still stands.
+
+## T3a — Canopy survey
+
+**T3a is NOT DONE.** Nothing was implemented. `FarFieldSolver::{setSources,
+evaluateCurl, evaluateDot}` and both `BRSolverFMM` methods are still
+`BEATNIK_NOT_IMPLEMENTED`, no code changed, and the gate is untouched — five
+`regression` members, 60 launches, CLAUDE.md's "full sweep as of T4c" stamp
+still stands. This session answered T3a's "Additional information needed" list
+and nothing else. **Do not read the survey as a finished adapter.**
+
+`../canopy` was opened for the first time (read-only, commit `baeb9c7`) and not
+modified. Nothing under `~/research-bridges/zmodel-steve/zmodel3d-amr/` was
+touched. Nothing was built, submitted or run: no `spack install`, no `flux
+batch`, no `ctest`, no binary invoked.
+
+### Where the answers live, and the decisions that fixed that
+
+Recording the decisions taken as given at the start of the session, so they are
+not reopened:
+
+- The findings live in [tasks/canopy.md](canopy.md), written in a generic
+  third-person voice for the **Canopy** repository — it is meant to be copied to
+  `../canopy/tasks/` and read by people with no knowledge of this project, so it
+  names neither Beatnik nor the Python reference nor any path in this checkout,
+  and cites only Canopy by file and line. Verified mechanically: `grep -rniE
+  "beatnik|tessera|zmodel|research-bridges" tasks/canopy.md` returns nothing.
+  `tasks/framework.md`'s T3a section carries a pointer plus only the
+  port-specific consequences. **There is no second copy of the answers** — do
+  not paraphrase canopy.md back into framework.md.
+- **No new CLI option was proposed anywhere, for any gap.** The Conventions
+  table (`framework.md:75`) forbids it. Every Canopy shortfall found is either a
+  task in canopy.md or accepted by name; the `FmmParams` fields T3a must add
+  (`max_depth`, a compile-time expansion order) are internal parameters, not CLI
+  surface.
+- `../canopy` was read-only for the session. Ten needed Canopy changes became
+  tasks **C1**–**C10** in canopy.md rather than edits.
+- The design of T3a itself was left alone: not restructured, not split, and its
+  exit criterion not pre-committed to a tolerance. It cannot be — see C1/C5
+  below.
+
+The companion log `tasks/canopy-progress-log.md` exists with no entries, in the
+same generic voice.
+
+### The five answers, in Beatnik terms
+
+1. **Generic kernel? No — one fixed Laplace `1/r`.** `LaplaceKernel` is the only
+   kernel and `Solver::kernel_type` is a typedef, not a template parameter, so
+   there is nothing to specialize. What *is* exposed is `NComps` simultaneous
+   independent charge components, and Canopy's own header names our use case:
+   "3 for Biot-Savart via three parallel Laplace solves."
+   **The softening is the identical functional form**, not merely the same role:
+   Canopy's P2P applies Plummer softening `r² → r² + eps²` and accumulates
+   `-Σ q δ/(r²+eps²)^{3/2}`, which is exactly `FarFieldInterface`'s
+   `δ/(b+r²)^{3/2}` with `eps = sqrt(blob())`, negated. So the hypothesis written
+   into `Beatnik_FarFieldInterface.hpp` without Canopy open was **right**.
+   **But only the near field is softened** — the multipole far field expands the
+   bare `1/r`, and closeness is handled by a floor that pushes pairs within
+   `near_softening_factor · eps` out of M2L into P2P. That makes R6's second
+   paragraph *worse* than it was written, not better: the far field does not
+   expand a softened kernel at all, so beyond the floor there is a **systematic
+   bias independent of expansion order**, ≈`1.5 eps²/R²` on the gradient (three
+   times the potential bound Canopy's README quotes). With `eps = 0.025`,
+   reaching `1e-6` fidelity needs an exclusion radius of ~30 on a domain of
+   extent 1 — i.e. the whole domain becomes near field. **No setting of
+   `near_softening_factor` gives T3b's hoped-for `1e-6`.**
+2. **Cross-product contraction: not foldable into the kernel, but not three
+   separate solves either.** `NComps = 3` with `compute_gradient` returns the
+   full 3×3 tensor `T_cj = -Σ q_c δ_j/(r²+eps²)^{3/2}` per target from one
+   traversal and one ghost exchange. `evaluateCurl` is then `u_i = -ε_ijk T_kj`
+   and `evaluateDot` is `-tr T` — both purely local contractions, no extra
+   communication. But they take *different* sources (sheet strength vs. surface
+   gradient), so `surface-riesz` is a **second** `solve()` over the same tree,
+   not a reuse of the same tensor. Neither evaluation uses the potential, which
+   Canopy nonetheless always allocates, zeroes and accumulates.
+3. **Tree reuse across RK3 stages: no, and the cheap path is not cheap.**
+   `solve()` after motion *without* a maintenance call does not fail — it
+   silently uses stale leaf membership and a stale near/far partition. The
+   cheapest legitimate path, `migrate()`, performs a full global tree build (one
+   `MPI_Allreduce` per octree level plus host-side assembly of a
+   globally-replicated cell list), a host `unordered_set` pass over every cell
+   key, a redistribution, then builds the tree *again*. On a deforming surface
+   `auto_maintain` will pick `Rebalance` — not `Migrate` — nearly every stage,
+   because any change in the cell-key set escalates it; `Rebalance` adds a
+   Zoltan2 repartition plus a serial host-side dual-tree traversal executed on
+   every rank. Three times per step.
+   And every maintenance path **re-decomposes and permutes**: Canopy migrates
+   particles across ranks, its post-migration order is documented as
+   unspecified, and it carries no particle identity. So the T2c ring's model —
+   sources stay on their owning rank, results land on owned vertices in place —
+   does not survive contact with Canopy. Whatever T3a does, it needs its own
+   reverse exchange per stage until Canopy **C2** lands.
+4. **`ncrit`/`mac_theta`/`max_depth`.** `ncrit` maps directly (runtime; 64 is
+   fine; refinement tests the *global* count). `mac_theta` maps as a runtime
+   value but the predicate is a different one — Canopy uses the exafmm spherical
+   MAC `Rθ > √3(h_A+h_B)`, not a Barnes-Hut opening angle — so 0.3 transfers its
+   *direction* (conservative) and not its meaning. `order` **does not map at
+   all**: Canopy's `P_ORDER` is a template parameter, so `--br-treecode-order 2`
+   is unreachable at runtime, and 2 would be useless anyway (Canopy validates at
+   8). `max_depth` has no `FmmParams` counterpart, is required, has no default,
+   and throws above 19 (64-bit Morton key).
+   **Do the structured values carry over to a sheet? Unknown, and unmeasurable
+   by reading.** Every accuracy figure Canopy carries was measured on a *uniform
+   or clustered volumetric random* distribution with `softening = 0`: `1e-3` at
+   `P=8` for the `NComps=3`-plus-gradient case, `1e-2`–`3e-2` for the
+   `MultiSolve` suite. There is **no** surface/manifold test and **no** measured
+   accuracy with softening enabled at all. A sheet also needs a *deeper* tree
+   than a volume for the same count (`log₄` not `log₈` leaves), which is why the
+   depth-19 ceiling is worth checking rather than assuming. That measurement is
+   Canopy **C5**, and it is the finding that "this can only be answered by
+   compiling and running something."
+5. **`Rebalance` dreg-cache (Canopy #22): fixed, and does not affect this path.**
+   `TreePartitioner::migrate_particles` no longer routes through
+   `Cabana::Distributor`; it packs tuples into one persistent registered buffer
+   per direction, so concurrent NIC registrations are O(1) regardless of peer
+   count, and the patched Cabana fork is no longer needed. This mattered more
+   than the README entry implied, because per (3) `Rebalance` is our *common*
+   path, not a rare one. One residual is scaling only: peer discovery is an
+   `MPI_Alltoall` of `comm_size` ints per `Rebalance`, i.e. three per timestep.
+   The other two open Canopy defects: the FP32 fused-M2L failure at ≥2 ranks
+   does **not** affect us (we run double); the `SingleSolve` np=4 failure
+   **does** — it is exactly the `NComps=3`-plus-gradient path, it is out of
+   Canopy's regression gate, and 4 is one of our gate rank counts.
+
+### treecode.md Open question 3
+
+`tasks/treecode.md` was **not opened** this session — that was an explicit
+instruction, on the grounds that evaluating Canopy against the treecode method
+is a separate task. Its **Open question 3** ("Does Canopy's FMM already subsume
+this? Deliberately unexamined, `../canopy` was not opened") is nonetheless now
+answerable in the part that depended on opening Canopy:
+
+- Canopy is a real FMM — upward sweep, M2L, downward sweep, local expansions —
+  not a Barnes-Hut treecode, so it is a strictly different operator set, and R6
+  stands.
+- **It does not subsume the treecode on the axis that matters, and the reason is
+  new.** The treecode survey's §1 measured the reference treecode at ~`1e-3`
+  relative velocity with an error that does not shrink with `N`. Canopy has an
+  error that likewise does not shrink — but with *expansion order* rather than
+  `N`, and for a different reason: it is the softening bias of an unsoftened
+  far-field expansion, and at our `eps` it plateaus at the `1e-2`–`1e-3` level
+  unless the near field swallows the domain. So the two methods are not ordered
+  by accuracy the way "FMM beats treecode" would suggest; they have comparable
+  *achievable* accuracy on this kernel until Canopy **C1** is resolved.
+- What is still genuinely open there — the operator-by-operator cost comparison,
+  and whether a Barnes-Hut path is worth keeping as an alternative — is
+  unaffected by this survey and stays open.
+
+Whoever next edits `treecode.md` should fold the two bullets above into Open
+question 3 rather than re-deriving them.
+
+**Affects:**
+
+- **T3a** — no longer blocked on unknowns; blocked on *decisions*. Its
+  "Additional information needed" list is replaced by a pointer to
+  `tasks/canopy.md` plus the port-specific consequences. Before implementing:
+  `FmmParams` must gain a `max_depth` and a resolution for `order` (Canopy's is
+  compile-time), both inside `FmmParams` and **not** as CLI options; the adapter
+  must own a reverse exchange, because Canopy will re-decompose and permute the
+  sources on every stage and returns no identity; and `setSources` must map onto
+  `setup`/`auto_maintain` — not onto a tree the adapter can hold across stages —
+  with the knowledge that calling `solve()` without maintaining is *silently*
+  wrong rather than loud. T3a is gated behind Canopy **C1** and **C5** for any
+  accuracy claim and behind **C6** for correctness at 4 ranks, which is a gate
+  rank count.
+- **T3b** — **do not use `--rtol 1e-6`.** The framework's parenthetical
+  "(expect `--rtol 1e-6`)" is not reachable: the far-field softening bias is
+  ~`1.5 eps²/R²` on the gradient, independent of expansion order, and driving it
+  to `1e-6` requires an exclusion radius ~1200·eps, which is larger than the
+  domain. Expect `1e-2`–`1e-3`, pin the number from Canopy **C5**'s measurement
+  on a *sheet* with softening on, and do not tune it against the direct solver
+  until C1 has decided whether the bias is fixed or accepted. Also, per T2d's
+  completion entry, do not import `kGoldVolumeDrift`; the FMM moves the drift and
+  the reference must be measured again.
+- **T4e** — the "reuse Canopy's FMM tree for the proximity query" option is
+  **eliminated as written**. There is no exposed tree query, the cell list is a
+  globally-replicated host structure rebuilt from scratch by every maintenance
+  path, and the particles it indexes are Canopy's re-decomposed and permuted
+  copies with no identity back to our vertices. Reusing it would mean a reverse
+  exchange per query on top of a structure we do not control the lifetime of.
+  T4e should assume its own proximity structure.
+- **The treecode findings document** — Open question 3 is answered in the part
+  that required opening Canopy; see the section above. The cost comparison is
+  untouched.
+- **R6** — strengthened, and its mechanism corrected. The FMM does not expand a
+  softened kernel; it expands the bare one and excludes close pairs. The
+  concern is therefore not just that an accuracy claim taken on the initial
+  sphere is optimistic near self-contact — it is that there is an
+  order-independent bias everywhere in the far field, and the near-contact
+  regime is the one place Canopy handles *correctly* (the floor forces those
+  pairs to the softened P2P kernel).
+- **R5** — unchanged in substance: `surface-riesz` + `fmm` still has no gold
+  file. What this survey adds is that it is a *second* Canopy solve with
+  different charges over the same tree, so it roughly doubles the far-field cost
+  of a step rather than sharing one traversal.
+- **The gate** — untouched. No code changed: five `regression` members, 60
+  launches, and the T4c sweep stamp still stands.

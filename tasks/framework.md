@@ -797,25 +797,47 @@ proximity query, not a requirement. Phase 3 remains the right next step for
 `FarFieldSolver::{setSources, evaluateCurl, evaluateDot}`;
 `Beatnik_BRSolverFMM.hpp`: both methods.
 
-**This task opens `../canopy`.** First task permitted to.
+**This task opens `../canopy`.** First task permitted to. **The survey is
+done** — the questions that used to stand here are answered in
+[tasks/canopy.md](canopy.md), written in a Canopy-facing generic voice for
+copying into `../canopy/tasks/`. Read it before designing the adapter; it is the
+only copy of the answers. What follows is only what is specific to *this* port
+and has no place in that document:
 
-**Additional information needed before a fine-grained design can be tasked:**
-- What Canopy exposes: a generic three-component kernel evaluation, or fixed
-  Laplace/Coulomb kernels only? The BR kernel is a **softened** `1/r²` field
-  (`δ/(b+r²)^{3/2}`), not the bare one — Canopy's existing
-  `near_softening_factor` (see README, FMM tuning) suggests softening is already
-  a first-class concept there, but its exact form must be checked against
-  `ZModelParams::blob()`.
-- Whether the cross-product contraction can be folded into the kernel or must be
-  applied to three separate scalar solves.
-- Whether the tree can be reused across RK3 stages, or must be rebuilt when
-  sources move.
-- How Canopy's `ncrit`/`mac_theta`/`max_depth` map onto `FmmParams`. The README
-  already records validated values for the *structured* solver
-  (`mac_theta 0.4`, `max_depth 19` hard max, `ncrit 64`); whether they carry over
-  to an unstructured surface is unknown.
-- Whether the existing `Rebalance` dreg-cache issue (README "Known Issues",
-  Canopy #22) affects this path.
+- **The kernel form matches exactly.** Canopy's near field is Plummer softening,
+  `r² → r² + eps²`, so `FarFieldSolver`'s `δ/(b+r²)^{3/2}` is Canopy's softened
+  gradient with `eps = sqrt(ZModelParams::blob())` — `sqrt(eps²)` under `Length`,
+  `sqrt(eps)` under `Matlab`. No conversion, no reinterpretation. Set
+  `FmmConfig::softening` explicitly so Canopy's auto-softening never engages, and
+  negate: Canopy's gradient is `-K`, and the `1/4π` (or `-1/4π²`) is applied in
+  the adapter as `FarFieldInterface` already promises. Both `evaluateCurl` and
+  `evaluateDot` are contractions of the *gradient*, never the potential.
+- **`FmmParams` as it stands is not sufficient.** `mac_theta` and `ncrit` map
+  through as runtime values (`mac_theta 0.3` is conservative under Canopy's
+  spherical MAC too, though the number carries no meaning across from the
+  treecode's opening angle). `order` **cannot** map: Canopy's `P_ORDER` is a
+  template parameter, so the default `2` is unreachable at runtime and would be
+  catastrophically inaccurate anyway — Canopy validates at 8. And `FmmParams` has
+  **no `max_depth`**, which Canopy requires with no default and a hard ceiling of
+  19. Filling those in is part of T3a; per the Conventions table (`:75`) it is
+  done inside `FmmParams`, never with a new CLI option.
+- **Three re-entries per step is the binding constraint.** `computeInterfaceVelocity`
+  is called once per RK3 stage with the sources moved between calls, so the
+  adapter pays Canopy's inter-evaluation maintenance three times per step — and
+  Canopy's cheapest such path is still a full global tree build plus a
+  redistribution, which on a deforming surface will almost always escalate to
+  `Rebalance`. Every such call also re-decomposes and permutes, and Canopy keeps
+  no particle identity, so the results do not come home to the owning vertex on
+  the owning rank without an adapter-side reverse exchange per stage.
+- **Gated behind Canopy work.** T3a can be *implemented* today, but it cannot
+  meet an accuracy claim below the softening-bias plateau (Canopy task **C1**)
+  and has no measured tolerance for a sheet at all (Canopy **C5**). The
+  three-component-plus-gradient path it depends on is outside Canopy's own
+  regression gate and wrong at 4 ranks (Canopy **C6**) — note 4 is a gate rank
+  count here. **C2** and **C3** decide whether the per-stage cost is acceptable;
+  **C4** bounds what any cross-solver tolerance can claim. The `Rebalance`
+  dreg-cache issue (Canopy #22) is **fixed** in the surveyed tree and does not
+  affect this path.
 
 **Exit criterion:** a `unit` test comparing `BRSolverFMM` against
 `BRSolverDirect` on the same surface, agreeing to the FMM's advertised
