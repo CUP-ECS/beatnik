@@ -152,6 +152,15 @@ spans more than one node. Tiers, the installed-path runners and CI:
   install prefixes.
 
 ## Math in markdown
+
+**The destination decides the syntax.** Math written *into a file* under this
+repo follows the KaTeX rules below. Math written *in a session reply* follows
+[Math in a session reply](#math-in-a-session-reply) instead — the two renderers
+have nothing in common, and using file syntax in chat produces unreadable output
+for the user.
+
+### Math in a markdown file
+
 Write math with KaTeX delimiters, not Doxygen ones:
 - Inline: `$ ... $`  — NOT `\f$ ... \f$`
 - Display: `$$ ... $$` on their own lines, blank line above and below — NOT `\f[ ... \f]`
@@ -166,3 +175,41 @@ KaTeX delimiter rules worth respecting:
 - Don't put a digit immediately after a closing `$`.
 - Keep inline math on one line.
 - For a literal dollar sign in prose, escape it: `\$`.
+
+### Math in a session reply
+
+Session replies are rendered as **GitHub-flavored markdown with no math
+extension**. There is no KaTeX, no MathJax, no `$`-delimited math region. A `$`
+is a literal dollar sign and everything between the dollars is shown verbatim,
+backslashes and all — so `$b_\emptyset, b_{e_a}$` reaches the user as exactly
+those characters, which is worse than having written nothing.
+
+**Write math in a session reply as plain Unicode text.** Do not use `$`, `$$`,
+`\f$`, `\f[`, `\(`, or any LaTeX macro.
+
+- Use the Unicode character, not its macro: `∂ ∇ Σ Π ∫ ≈ ≠ ≤ ≥ × ⋅ ⊗ ± → ∞ √ ∈`,
+  and Greek directly (`α β γ δ ε θ λ μ π ρ σ τ φ ω Δ Ω`). `…` for `\ldots`,
+  `∅` for `\emptyset`.
+- Superscripts have Unicode forms — `⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻ⁿ` — so `r²`, `w⁻¹`, `10⁻¹⁰`.
+  Subscripts are patchier (`₀₁₂₃₄₅₆₇₈₉₊₋ₐₑᵢⱼₖₗₘₙₚₛₜ` exist; most letters do
+  not), so fall back to an underscore inside backticks: `` `b_{p+q}` ``.
+- When Unicode runs out — a fraction, an exponent that is itself an expression,
+  a multi-line derivation — put the whole expression in a **fenced code block**
+  with no language tag. Monospace and preserved spacing carry more meaning than
+  a mangled LaTeX string, and nothing inside a fence is reinterpreted:
+
+  ```
+  φ(r) = (|r|² + b)^(-1/2),   K(r) = -∇φ(r)
+  ∂_a P_m = -(2m+1) r_a P_{m+1},   P_m = w^(-(2m+1)/2)
+  ℓ_p^A = Σ_q (-1)^|q| b_{p+q}(R) · M_q^B
+  ```
+- **Backtick any identifier containing `_` or `*` when it appears in prose.**
+  Outside a fence, GFM reads `M_q^B ... c_B` as an italic span and eats both
+  underscores. This is the most common way plain-text math gets silently
+  corrupted in a reply.
+- Numbers with exponents: `2.0e-2` or `2.0×10⁻²`, never `$2\times10^{-2}$`.
+
+The same rule applies when quoting math *out of* a repo file into a reply:
+translate the KaTeX to Unicode rather than pasting the delimiters through. And
+when writing math *into* a file, use KaTeX even if the reply that describes the
+change spells it in Unicode.
