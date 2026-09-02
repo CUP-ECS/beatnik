@@ -801,42 +801,210 @@ backends; README states the measured speedup and the vertex count above which
 
 ---
 
-### X1 — External precondition: a softened far field in Canopy — **NOT STARTED, NOT IMPLEMENTED HERE**
+### X1 — External precondition: a blob-aware far field in Canopy — **NOT STARTED, NOT IMPLEMENTED HERE**
 
 **Depends on:** T5 (which measures how much it is needed).
 
-This task is **not** Beatnik work and this document does not design it. It
-exists so the dependency is named, its acceptance test is stated in Beatnik's
-terms, and no session mistakes its absence for an oversight.
+This task is **not** Beatnik work and Beatnik does not own its implementation.
+It is recorded here so the dependency is named, the design is no longer an open
+question that a session has to re-derive, and its acceptance test is stated in
+Beatnik's terms.
 
-**Where the work lives:** [tasks/canopy0.md](canopy0.md) **C1**, whose option
-set and cost are in **F6** and **F8** of that document. The short version: the
-solid-harmonic addition theorems require harmonicity, the Plummer potential is
-not harmonic, so a softened far field is a **second expansion basis** alongside
-the existing one — plus real-valued storage through both sweeps, and a re-keyed
-M2L operator cache, since softening introduces the absolute length scale
-$\sqrt b$ that the cache's documented "no physical width enters" property
-(`canopy/src/Canopy_DownwardSweep.hpp:1075`) depends on not existing.
+**Where the work lives:** [tasks/canopy0.md](canopy0.md) **C1**, with the option
+set and cost in **F6** and **F8** of that document.
 
-**What Beatnik requires of it, and what it does not:**
+**Provenance of everything below:** the reference code's author supplied the
+derivation by mail; the thread is `canopy-questions.md` at the repository root
+(untracked — the load-bearing content is reproduced here so this task stands
+without it).
 
-- The kernel Canopy's far field expands must be
-  $\delta\,(b+r^2)^{-3/2}$ with the **same** $b$ P2P uses, so
-  `near_softening_factor` becomes unnecessary rather than load-bearing.
+#### Why it cannot be a patch to Canopy's existing M2L
+
+The impossibility is **specific to the solid-harmonic (Greengard-Rokhlin)
+basis**, which is what Canopy uses. There, the expansion functions are
+$r^n Y_{nm}$ and $Y_{nm}/r^{n+1}$, and M2M/M2L/L2L *are* the addition theorems
+(Greengard Thms 5.22, 5.23, 5.26, cited at
+`canopy/src/Canopy_LaplaceKernel.hpp:273`, `:373`, `:688`) — identities that hold
+**because** those functions are harmonic. The Plummer potential is not:
+$\nabla^2(r^2+b)^{-1/2} = -3b\,(r^2+b)^{-5/2} \neq 0$. The leading blob
+correction is isotropic and $\sim r^{-3}$, and the only isotropic harmonic
+functions in 3D are $\mathrm{const}$ and $1/r$, so **no** finite solid-harmonic
+expansion of a single source represents it, at any order. This is why the fix is
+a different far-field operator and not a modification of the one Canopy has —
+i.e. a **second expansion basis** alongside the existing one, plus real-valued
+storage through both sweeps and a re-keyed M2L operator cache, since softening
+introduces the absolute length scale $\sqrt b$ that the cache's documented "no
+physical width enters" property (`canopy/src/Canopy_DownwardSweep.hpp:1075`)
+depends on not existing.
+
+#### The recipe: a Cartesian-Taylor blob-aware FMM (Duan-Krasny)
+
+In a **Cartesian-Taylor** basis the expansion functions are plain monomials
+$(x-c)^p/p!$ and the coefficients are ordinary partial derivatives of the single
+scalar
+
+$$
+\varphi(r) = (|r|^2 + b)^{-1/2}, \qquad K(r) = \frac{r}{(|r|^2+b)^{3/2}} = -\nabla\varphi(r).
+$$
+
+Multivariate Taylor expansion requires only smoothness, not harmonicity — and
+with $b > 0$, $\varphi$ is smooth **everywhere**, better behaved than $1/r$. So
+the whole FMM structure goes through with $b$ sitting inertly inside
+$w = |r|^2 + b$ at every derivative order. Blob-awareness costs nothing
+structurally; that is exactly why the reference treecode's far field is accurate
+where Canopy's harmonic M2L is not.
+
+**The ladder.** With $P_m = w^{-(2m+1)/2}$ (so $P_0 = \varphi$), every derivative
+in the reference implementation follows from one identity:
+
+$$
+\partial_a P_m = -(2m+1)\, r_a\, P_{m+1},
+$$
+
+because $\partial_a w = 2r_a$. Differentiating never leaves the ladder: it
+advances $m$ and drops an $r_a$. Writing $b_k = \partial^k\varphi$ for a
+multi-index $k$:
+
+$$
+\begin{aligned}
+b_\varnothing &= P_0, \\
+b_{e_a} &= -r_a P_1, \\
+b_{e_a+e_b} &= -\delta_{ab} P_1 + 3 r_a r_b P_2, \\
+b_{e_a+e_b+e_c} &= 3(\delta_{ab} r_c + \delta_{ac} r_b + \delta_{bc} r_a) P_2 - 15 r_a r_b r_c P_3 .
+\end{aligned}
+$$
+
+The reference treecode's `K`, `dK`, `ddK` arrays in `_expansion_batch` are
+exactly minus these, shifted by one index — i.e. it **already computes the
+blob-aware coefficient tensors to order 2**.
+
+**Arbitrary order**, without hand-expansion, by solving
+$w\,\partial_i\varphi = -r_i\varphi$ order by order:
+
+$$
+w\, b_{k+e_i} = -r_i b_k - k_i b_{k-e_i} - 2\sum_j k_j r_j b_{k+e_i-e_j} - \sum_j k_j (k_j-1)\, b_{k+e_i-2e_j},
+$$
+
+with any $b$ carrying a negative component identically zero. Order $|k|+1$ comes
+from orders $|k|$ and $|k|-1$; $b$ enters only through the leading $w$. Divide by
+$k!$ where these fold into moments.
+
+**The vector-valued kernel peels off.** With $[K\times\gamma]_i =
+\epsilon_{ilm} K_l \gamma_m$ and $K_l = -\partial_l\varphi$, the far field is
+**three scalar-$\varphi$ passes**, one per strength component $\gamma_m$,
+recombined by $\epsilon_{ilm}$ at the end. Everything else is then the ordinary
+Cartesian-Taylor FMM for a scalar kernel — which is the same bilinearity Beatnik
+already relies on in **Approach** to do the cross product as local
+post-processing.
+
+**The operators**, and how they divide:
+
+- **P2M / moments** — unchanged from the treecode. $M_q^B = \sum_{j\in B}
+  d_j^q/q!\; s_j$ about box centre $c_B$ with $d = y - c_B$; the reference's
+  `_build` already computes the order 0/1/2 moments $G, D, Q$.
+- **M2M and L2L** — **kernel-independent**, plain binomial Taylor shifts by the
+  centre offset $s$. They never see $\varphi$, so there is nothing to derive:
+  $M_q^{\rm parent} = \sum_{q'\le q} \frac{s^{q-q'}}{(q-q')!} M_{q'}^{\rm child}$
+  and $\ell_p^{\rm child} = \sum_{p'\ge p} \frac{s^{p'-p}}{(p'-p)!}
+  \ell_{p'}^{\rm parent}$. Identical to any Cartesian FMM.
+- **M2L** — the **only** genuinely new, kernel-touching operator. For a
+  well-separated pair $B \to A$ with $R = c_A - c_B$,
+
+  $$
+  \ell_p^A = \sum_q (-1)^{|q|}\, b_{p+q}(R) \cdot M_q^B ,
+  $$
+
+  with $b_n(R) = \partial^n\varphi(R)$ from the ladder above, evaluated **once
+  per box pair** rather than per target. The blob rides in $w = |R|^2 + b$, so
+  the translation is regularized automatically at every order.
+- **L2P / evaluate** — $u(x) = \sum_p \frac{(x-c_A)^p}{p!} \ell_p^A$ per scalar
+  pass, then $\epsilon_{ilm}$ across the three.
+
+**The reuse shortcut, and why treecode → FMM is a small delta.** A treecode is
+P2M + M2P: it evaluates the expansion directly at each target.
+`_expansion_batch(R, G, D, Q, blob, order)` **already is** the $p=0$ local
+coefficient $\ell_0$ — the value at the box centre. Keep it as $\ell_0$, add the
+$p \ge 1$ coefficients (same ladder, one or two more $m$'s), and add the
+box-to-box translations. That is what converts $O(N\log N)$ into $O(N)$; the
+blob-aware moments and coefficient tensors are already written.
+
+**The one delicate point** is the sign and normalization convention between the
+moment definition and the $(-1)^{|q|}$ multiplier. The stated verification is
+concrete and cheap: confirm $\ell_0$ reproduces `_expansion_batch` for a single
+source box and target box **before** deriving any higher-order coefficient.
+
+#### The option set, and which one this points at
+
+Four routes were named, least to most effort. The numbers below are the
+reference author's, at Beatnik's $\varepsilon = 0.025$, and they quantify the
+$\sim\!12\varepsilon \approx 0.30$ required separation that the **Problem**
+section's table measures the consequence of. Keeping $k$ blob-correction orders
+makes the residual $(\varepsilon/R)^{2(k+1)}$: $k=1$ pulls the required
+separation to $\approx 4\varepsilon \approx 0.09$, $k=2$ to
+$\approx 2.5\varepsilon$, back inside ordinary FMM well-separatedness.
+
+1. **Quick unblock, no change to Canopy's core.** Keep the bare-$1/r^2$ far
+   field and add a separate 1-2 term Cartesian-Taylor **blob correction pass over
+   the box pairs of the octree Canopy already builds**. One term makes the
+   residual $(\varepsilon/R)^4$ and shrinks the regularization near field from
+   $\sim\!0.30$ to $\sim\!0.09$, recovering $O(N)$ immediately.
+   **This is not the approach rejected in "Deliberate deviations".** That bullet
+   rejects a *per-pair direct summation* of
+   $[K_{\rm soft} - K_{\rm bare}]$ over near pairs, which is algebraically the
+   near-field floor by another name. A box-level correction applied through M2L
+   is a different object and is not covered by that rejection.
+2. **Cartesian-Taylor blob-aware FMM** — the recipe above. Recommended as the
+   permanent fix on reuse grounds: moments and coefficient tensors exist, M2L is
+   the only new code, and the far field is regularized at every order by
+   construction.
+3. **Black-box FMM** (Fong & Darve, *JCP* **228**, 2009). Chebyshev interpolation
+   of the kernel per box; kernel-independent, so it takes
+   $r(r^2+b)^{-3/2}$ directly with no singular/harmonic split, and the
+   interpolation order is the far-field knob. Least new derivation.
+4. **Kernel-independent FMM** (Ying, Biros & Zorin, *JCP* **196**, 2004),
+   equivalent-density form. Also black-box, more to stand up, very robust.
+
+The recommendation given was 1 to unblock, then 2 or 3 for the permanent fix
+depending on how much is hand-derived versus interpolated.
+
+#### What Beatnik requires of it, and what it does not
+
+- The kernel Canopy's far field expands must be $\delta\,(b+r^2)^{-3/2}$ with the
+  **same** $b$ P2P uses, so `near_softening_factor` becomes unnecessary rather
+  than load-bearing.
 - Beatnik requires **no interface change**: `FmmConfig`, `setup`, `solve`,
   `auto_maintain` and the gradient's shape and sign all stay as they are. If the
   work changes any of them, T2's adapter is the only Beatnik file that moves.
-- Beatnik does **not** require $10^{-6}$ from a low-order Cartesian-Taylor
-  basis, which canopy0.md F6(d) shows is out of reach. It requires whatever
+  Option 1 in particular is invisible at the interface.
+- Beatnik does not care which of the four routes is taken. It requires whatever
   $\tau_A$ claim A asserts, and **T5** is what states that number.
+
+#### The open question that only measurement settles
+
+Order $p=2$ was stated to be enough **at standard FMM admissibility** ($R
+\gtrsim 2$-$3$ box widths) — but that claim is about beating the
+**regularization** problem, not about reaching direct-solve tolerance. A
+blob-aware far field removes the $2\times10^{-2}$ *kernel-bias* plateau of the
+**Problem** table and replaces it with a **truncation** plateau set by the
+Cartesian-Taylor order and the MAC; canopy0.md **F6(d)** puts $10^{-6}$ out of
+reach for a low-order Cartesian-Taylor basis. The two statements are answers to
+different questions and neither supersedes the other. If **T5**'s $\tau_A$ target
+demands more than the order-2 basis delivers, the routes are higher order (the
+recurrence above supplies it) or option 3, whose order is a tunable knob.
+
+Cost note for whoever picks the order: the number of Cartesian multi-indices at
+order $p$ is $\binom{p+3}{3}$, times three scalar passes for the cross product.
+Cheap at $p=2$; the growth in $p$ is the reason harmonic FMM exists at all.
 
 **Exit criterion**, which is the acceptance test in Beatnik's terms and the only
 part of this task Beatnik owns: **T4**'s test passes at ranks 1-6 with
 $\tau_A \le 10^{-10}$ and with `near_softening_factor = 0` (the floor disabled
 entirely), and **T6**'s claim A passes at $10^{-10}$ at all 81 states at both
 levels. Passing with the floor disabled is the discriminator: it is what
-distinguishes a far field that carries the softening from one that merely avoids
-the pairs where it matters.
+distinguishes a far field that carries the blob from one that merely avoids the
+pairs where it matters. A route that clears the discriminator but lands above
+$10^{-10}$ has still removed the kernel bias — record the achieved figure and
+what binds it, and do not disable the discriminator to accommodate it.
 
 ## Known risks
 
