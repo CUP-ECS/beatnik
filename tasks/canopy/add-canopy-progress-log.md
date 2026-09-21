@@ -70,9 +70,9 @@ both existing milestone-0 test sources, `tests/CMakeLists.txt`,
 Canopy: `src/Canopy_Solver.hpp` (the public API and `FmmConfig`), and targeted
 reads of `Canopy_P2P.hpp`, `Canopy_CommunicationPlan.hpp` and `README.md`'s
 Known Issues. The far-field contract and the two bases were taken from
-`tasks/canopy/abstract-solver-backend.md` rather than from the headers, and the
+`../../../canopy/tasks/abstract-solver-backend.md` rather than from the headers, and the
 basis-independent findings — maintenance cost, the knob semantics, the open
-defects — from `tasks/canopy0.md`, which read those headers in full. **T2** is
+defects — from `../../../canopy/tasks/canopy0.md`, which read those headers in full. **T2** is
 the task that first opens them directly.
 
 The `origin/develop-canopy` branch, which is the structured-mesh predecessor of
@@ -104,7 +104,7 @@ recorded because the argument will otherwise be had again:
 - **It is the wrong side of the basis's cost curve.** A Cartesian-Taylor
   truncation buys 0.24-0.48 decades per order at standard admissibility, 0.82-1.06
   at Beatnik's `mac_theta = 0.3`, while the DOF count grows as
-  $\binom{p+3}{3}\sim p^3/6$ (`tasks/canopy/canopy-kernel-rec.md`, "Convergence
+  $\binom{p+3}{3}\sim p^3/6$ (`../../../canopy/tasks/canopy-kernel-rec.md`, "Convergence
   per DOF"). $10^{-3}$ is estimated at $p = 2$-$4$ and 10-35 DOF per cell;
   $10^{-6}$ wants $p \approx 11$-$24$ and 364-2925. The target sits where the
   basis is cheap, one decade before it stops being.
@@ -166,3 +166,158 @@ unmeasured. **T6** — both claims, and claim B's shape, follow from the
 trajectory-comparison impossibility; do not start it from a reading in which the
 existing member plus a flag would have worked. **X1** — the machinery evidence is
 why a disappointing **T5** would point at the basis rather than at Canopy.
+
+## Canopy's Cartesian-Taylor basis lands (no Beatnik task)
+
+Canopy built `CartesianTaylorBasis` and measured it. Nothing in Beatnik changed;
+the design document was reconciled against the new material and several of its
+estimates are now measurements. Recorded here because the estimates this log
+carries above are among the things superseded, and this log's own rule is that a
+number here outranks an estimate in the design.
+
+**Read as measured, not estimated**, and all from
+`../../../canopy/tasks/cartesian-taylor-basis.md` T1-T5 (DONE) and its progress
+log. Every figure below is on 8640 particles in a **volumetric cube**,
+`ncrit = 8`, `max_depth = 6`, `replication_depth = 2`, `softening = 0.025`,
+`near_softening_factor = 0`, four solves with `migrate / rebalance / migrate`
+between them, ranks 1-6, against a direct softened sum — not on a sheet, which
+is why **T5** still has to measure Beatnik's geometry.
+
+| arm | potential | gradient |
+| --- | --- | --- |
+| $\theta=0.3$, $p=3$ | $1.9263\times10^{-5}$ | $7.0718\times10^{-4}$ |
+| $\theta=0.3$, $p=2$ | $2.655\times10^{-4}$ | $8.996\times10^{-3}$ |
+| $\theta=0.5$, $p=2$ | $9.9667\times10^{-4}$ | $1.8652\times10^{-2}$ |
+| $\theta=0.3$, `LaplaceKernel`, `near_softening_factor = 0` | $1.894\times10^{-2}$ | $5.168\times10^{-2}$ |
+
+**The estimate this log recorded above is superseded.** "$10^{-3}$ is estimated
+at $p = 2$-$4$ and 10-35 DOF per cell" was on the potential and on a
+decades-per-order model with an unmeasured constant. Two things corrected it.
+The constant is now measured, $c\approx1$ in half-widths ($1.062$, $0.987$,
+$0.939$ at $R/w=8,16,32$). And the quantity is wrong: Beatnik reads the
+**gradient**, which truncates one order before the potential because
+$\nabla$ of a degree-$p$ Taylor local is degree $p-1$, so the model for what
+Beatnik needs is $(\theta/2\sqrt3)^{p}$ and not $(\theta/2\sqrt3)^{p+1}$. That
+is measured rather than argued: the ratio of absolute errors came out $29.47$
+and $218.5$ against $1/W = 29.88$ and $223.7$ on two domains 12-fold apart in
+scale, where a source-side loss would have given $1/R$ ($2.59$ and $19.4$). The
+reference treecode has no target-side expansion at all
+(`_expansion_batch` is evaluated at `rv = target - node.center`,
+`treecode.py:121-126`), so its documented order-2 **velocity** figure is the
+same truncation order as Canopy's order-2 **potential**. Beatnik's production
+order is therefore **3**, not 2, and T1 compiles that default.
+
+**Three things the design now states that a session should not re-derive.**
+
+- **The operator cache retains nothing on a moving distribution.** Zero keys
+  retained at every one of 336 builds, 3.9x the cached key count constructed
+  over four solves, drift a smooth 0.18-0.40% per build. Mechanism:
+  `key_needs_level = true` plus a root box recomputed from the particles on
+  every maintenance path, including `migrate`. There is no Beatnik-side knob —
+  the six bounding-box tolerances pad by fractions of the box's own width, so a
+  padded box drifts too.
+- **The far field is not automatically live.** At $\theta=0.3$ the near field
+  covers about 105 occupied leaves of a 2-manifold, so a meaningful far field
+  needs $N \gg 105\cdot\texttt{ncrit}$ — $N \gg 6720$ at `ncrit = 64`. Neither
+  milestone-0 level clears that at the default, and 642 vertices clears it at no
+  `ncrit` at all. An all-P2P solve agrees with `BRSolverDirect` to round-off and
+  reads as success, which is why every accuracy figure from here on carries its
+  P2P pair fraction.
+- **Realized key counts are close to the cap.** 25438 unique M2L keys at
+  $\theta=0.3$ against `M2L_OP_COUNT_CAP = 32768`, 7374 at $\theta=0.5$, 246 and
+  0 fallback pairs, on 2941 cells. Canopy saw the $\theta=0.3$ table saturate
+  the cap outright once the trajectory was amplified.
+
+**One upstream item is now a hard gate.** Canopy's derivative ladder has
+closed-form oracles only to $|k|=3$ and a finite-difference oracle run at
+$|k|=4$ and nowhere else, while the M2L evaluates $b_{p+q}$ to $|p+q|=2p$. At
+$p=3$ that is $|k|=6$. Canopy's R8 is marked **LIVE** and its **T6** is NOT
+STARTED. **T5** and **T6** here are gated on it at $p\ge3$. Canopy's own $p=3$
+arm passing is not evidence — that arm is precisely what the oracle does not
+cover.
+
+**Also settled, in passing:** Canopy's runtime API is unchanged by the far-field
+abstraction (`setup`, `solve`, `auto_maintain`, `num_local_particles`,
+`potential`, `gradient` all as the design describes); `FmmConfig::softening`
+defaults to $-1.0$, which selects distribution-based auto-softening rather than
+failing, and additionally disables `near_softening_factor`; and the np=4 defect
+is narrower than recorded — `CartesianTaylorSolve` drives `NComps = 3`, compares
+the gradient and passes at ranks 1-6, though at a different basis, order,
+softening and distribution than `SingleSolve`.
+
+**The copies of Canopy's design documents under `tasks/canopy/` are gone.** They
+had drifted — the local `abstract-solver-backend.md` was 955 lines against
+canopy's 2537 — and a stale copy of an upstream document is worse than no copy.
+Cite `../../../canopy/tasks/<file>` instead.
+
+**Affects:** **T1** — `order` defaults to 3 and its comment must say why the
+reference's 2 does not transfer; `ncrit` stays 64 but carries the
+$N\gg105\cdot\texttt{ncrit}$ constraint; `softening` must be set explicitly
+positive. **T2** — the dispatch set starts at the production order 3, and the
+config builder throws on a non-positive `softening` because Canopy's sentinel
+is not an error there. **T4** — must run at an `ncrit` that makes the far field
+live and assert the P2P fraction; `order = 2` becomes a third, intermediate
+point in the order-knob negative case. **T5** — gated on Canopy's T6 at
+$p\ge3$; `ncrit` is a scan axis rather than a background; potential and
+gradient are reported separately at every point. **T6** — inherits that gate,
+and its L3 member's claim A is largely a P2P comparison and must say so.
+**T8** — the operator-cache question is answered and step 2 measures the cost of
+the rebuild rather than whether one happens.
+
+## Canopy's ladder validation lands (no Beatnik task)
+
+Canopy's T6 is **DONE** and its R8 is closed for $p = 3$. The hard gate the
+previous entry put on **T5** and **T6** is lifted; nothing in this document now
+waits on upstream work. Recorded because the previous entry's `Affects:` line
+said those two tasks were gated, and a session reading only that line would
+still believe it.
+
+**What was measured** (`../../../canopy/tasks/cartesian-taylor-basis.md` T6,
+job `f3Ze8yUzNVSo`, all 12 bodies green). The finite-difference oracle now runs
+at $|k| = 4 \ldots 6$, each degree with its own Richardson step divisor located
+by an eleven-point scan from $L/2$ to $L/64$ — the floors turned out to sit at
+*different* $h$ per degree, $L/24$ at 4 and 5 and $L/16$ at 6, so carrying
+$L/32$ over would have been wrong:
+
+| $\vert k\vert$ | divisor | tolerance | achieved worst | margin |
+| --- | --- | --- | --- | --- |
+| 4 | $L/24$ | $4\times10^{-6}$ | $3.080\times10^{-7}$ | 13.0x |
+| 5 | $L/24$ | $3\times10^{-4}$ | $2.531\times10^{-5}$ | 11.9x |
+| 6 | $L/16$ | $2\times10^{-2}$ | $1.184\times10^{-3}$ | 16.9x |
+
+No tolerance was widened. Perturbing one recurrence coefficient by 0.1% put all
+three degrees over their own bounds — 6500x, 913x, 142x — so 5 and 6 are
+exercised and not merely enumerated. $|k| = 4$ came out *sharper* than it
+shipped ($3.080\times10^{-7}$ against $7.321\times10^{-7}$), because the
+eleven-point scan found a floor the original four-point scan straddled.
+
+**Two details that bear on Beatnik specifically.** The oracle's sample set now
+permanently carries $b = 6.25\times10^{-4}$ — which is Beatnik's
+$\varepsilon^2$ at $\varepsilon = 0.025$ — and the interior scales
+$|r|/\sqrt b \in \{9.276, 15.46, 74.2\}$, so the band is sampled from the
+inside rather than bracketed by 1.0 and 100.0. The worst deviation at both
+$|k| = 5$ and $|k| = 6$ falls at that $b$. And the growth in achieved deviation,
+about 40x per degree, tracks the roundoff floor of a $|k|$-th difference rather
+than the ladder's conditioning — so it is the oracle losing resolution, not the
+recurrence losing accuracy. R8's predicted failure mode is visible and bounded
+rather than merely absent.
+
+**What did not close.** R8 remains open above $p = 3$: $p = 4$ reaches
+$|k| = 8$ and the oracle stops at 6. Canopy's 1-D stencils now **abort loudly**
+on an order they do not carry, replacing a `default:` branch that silently
+reused the order-4 stencil — so the gap fails visibly if someone raises $p$,
+which is why this is a constraint on adoption rather than a hazard. Beatnik's
+**T2** dispatch set reaches $p = 5$ and **T5** scans it, so the scan will
+produce points at $|k| = 8$ and $|k| = 10$ that nothing covers. Those are
+reportable measurements; none may become the production order without another
+degree of upstream oracle.
+
+**Affects:** **T5** — the hard gate is gone; its **Depends on** is T4 alone,
+and the residual constraint is that a scan point above $p=3$ may be measured
+but not adopted (step 6). **T6** — no upstream gate; the production order is
+validated. **T2** — the dispatch set's orders 4 and 5 are marked scan-only on
+the dispatch. **R11** — retargeted from "Beatnik ships on unchecked arithmetic"
+to "a scan point above $p=3$ is promoted to production"; **R10** — the contrast
+it draws is now between one conditional that never fired and one that landed.
+Nothing else changes: $\tau_A$, the production order 3, the `ncrit` constraint
+and the operator-cache findings all stand.

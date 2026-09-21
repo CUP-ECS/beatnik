@@ -1,7 +1,9 @@
 # Canopy as Beatnik's far-field Birkhoff-Rott solver
 
 **Status:** NOT STARTED — every task below is NOT STARTED. The findings and the
-measured numbers are complete.
+measured numbers are complete, and no upstream work gates the sequence: Canopy's
+derivative ladder is validated at the production order. One narrow constraint
+remains inside **T5**, on scan points above it (**R11**).
 
 ## Problem
 
@@ -31,7 +33,7 @@ levels.
 
 Canopy's far field is a **basis**, selected by a template parameter on `Solver`
 and `createSolver`; the contract every basis satisfies is specified in
-[abstract-solver-backend.md](abstract-solver-backend.md). Two bases ship:
+[abstract-solver-backend.md](../../../canopy/tasks/abstract-solver-backend.md). Two bases ship:
 
 | Basis | Expands | Coefficients | Accuracy knob |
 | --- | --- | --- | --- |
@@ -49,9 +51,19 @@ being asked to treat most of the domain as near field. `CartesianTaylorBasis`
 expands the softened kernel itself, at every order, and takes
 `near_softening_factor = 0`.
 
+That configuration is demonstrated rather than projected. Canopy drives a
+four-solve pipeline on this basis at ranks 1-6 at `near_softening_factor = 0`
+with an explicit `softening = 0.025` — Beatnik's own $\varepsilon$ — and
+reproduces a direct softened sum
+([cartesian-taylor-basis.md](../../../canopy/tasks/cartesian-taylor-basis.md)
+T4). The measured figures are in [Current state](#canopy) and they are what sets
+this document's production order.
+
 The two bases are not equally validated for this problem and the selection is
-not a preference: **T4** and **T5** measure both, and the solid-harmonic basis
-with the floor disabled is **T4**'s negative case.
+not a preference: **T4** and **T5** measure both on Beatnik's own geometry, and
+the solid-harmonic basis with the floor disabled is **T4**'s negative case —
+the configuration Canopy measured missing the same comparison by three orders on
+the potential and by $5.2\times10^{-2}$ on the gradient.
 
 ### The fidelity target, and where it comes from
 
@@ -70,33 +82,137 @@ at.
 The comparison is closer than a shared tolerance. The reference treecode expands
 the **same** softened kernel in the **same** Cartesian-Taylor basis, to order 2 —
 its `K`, `dK`, `ddK` tensors in `_expansion_batch` are the order-0/1/2 derivative
-tensors of $\varphi$, and Canopy's basis is unit-tested against them
-([abstract-solver-backend.md](abstract-solver-backend.md) T12). What differs is
-the traversal (FMM's M2M/M2L/L2L against the treecode's M2P, i.e. $O(N)$ against
-$O(N\log N)$) and the acceptance criterion. So `FmmParams::order` and
-`--br-treecode-order` finally denote the same quantity — the Cartesian Taylor
-truncation order — while `mac_theta` still does not, because Canopy's predicate
-is the exafmm spherical MAC and the reference's is a Barnes-Hut opening angle
-([canopy0.md](canopy0.md) F4).
+tensors of $\varphi$, and Canopy's basis is unit-tested against exactly that
+contraction
+([cartesian-taylor-basis.md](../../../canopy/tasks/cartesian-taylor-basis.md) T3,
+whose $|p|=1$ check asserts the local coefficients against the reference's
+$K/dK/ddK$). What differs is the traversal, the acceptance criterion, and — the
+one that costs an order — whether there is a target-side expansion at all.
 
-**The order that target needs is an estimate until T5 measures it.** Canopy
-accepts M2L iff $R\theta>\sqrt3\,(h_A+h_B)$ with $h$ a half-width
-(`canopy/src/Canopy_CommunicationPlan.hpp:338-352`), so equal-size cells are
-accepted only beyond $R/w>2\sqrt3/\theta$. A Cartesian-Taylor truncation at order
-$p$ has relative error $\sim(cw/R)^{p+1}$ with $c\in[1,\sqrt3]$
-([canopy-kernel-rec.md](canopy-kernel-rec.md), "Convergence per DOF"):
+#### Three knobs, three different ways of not transferring
 
-| `mac_theta` | $R/w$ accepted | decades per order | $p$ for $10^{-3}$ | DOF/cell $\binom{p+3}{3}$ |
-| --- | --- | --- | --- | --- |
-| 0.3 (`FmmParams` default) | $>11.5$ | 0.82-1.06 | 2-3 | 10-20 |
-| 0.5 (Canopy default) | $>6.9$ | 0.60-0.84 | 3-4 | 20-35 |
+`FmmParams` copies the reference's three defaults exactly: `mac_theta` 0.3,
+`order` 2, `ncrit` 64 (`treecode.py:101-103`). None of the three carries the
+reference's behaviour across unchanged, and each fails differently.
 
-So the target is expected to land at $p=2$-$4$, which is cheap — and $p=2$ is
-already `FmmParams::order`'s default. This is a model, not a measurement: the
-error constant, the sheet's anisotropic leaf occupancy and the depth-mismatched
-cell pairs an adaptive tree realizes are all outside it. **T5** measures the
-curve and picks the production order; nothing may be compiled into a test before
-it does.
+`treecode.py` is in the reference implementation's repository, not in this one
+or in Canopy's: `~/research-bridges/zmodel-steve/zmodel3d-amr/zmodel3d/`. No
+task depends on having it — [treecode.md](../treecode.md) is the in-tree record
+of what it does — but the line numbers below are against that file.
+
+**`mac_theta` is a different predicate.** The reference accepts iff
+`node.radius < theta * s`, with $s$ the distance from the **target point** to the
+source node center and `node.radius` the source node's **actual particle-cloud
+radius** (`treecode.py:31`, `:124`) — no target box, and the contents' extent
+rather than the cell's. Canopy accepts iff $R\theta>\sqrt3\,(h_A+h_B)$ with $h$ a
+geometric half-width (`CommunicationPlan::mac_satisfied`,
+`canopy/src/Canopy_CommunicationPlan.hpp:338-352`). No $\theta$ makes the two the
+same set. Beatnik keeps $\theta=0.3$ and accepts Canopy's predicate;
+**Deliberate deviations** records why reshaping it is not attempted.
+
+**`order` is the same quantity and not the same accuracy.** Both now denote the
+Cartesian Taylor truncation order $p$, which `mac_theta` never did. But the
+reference is a treecode: `_expansion_batch` is evaluated at
+`rv = target - node.center`, the offset to the **actual target point**
+(`treecode.py:121-126`), so its only truncation is on the source side. An FMM
+accumulates the far field into a local expansion about the **target box center**
+and evaluates that instead, which truncates a second time. Canopy's L2P gradient
+is analytic,
+
+$$
+\partial_a u(x) \;=\; \sum_p \frac{a^{p-e_a}}{(p-e_a)!}\,\ell_p^A ,
+\qquad a = x - c_A ,
+$$
+
+and differentiating a degree-$p$ polynomial leaves a degree-$(p{-}1)$ one. So at
+order $p$ the potential is accurate to order $p$ and **the gradient only to
+$p-1$**. Beatnik reads only the gradient — both contractions in
+[The physics maps onto one Canopy solve](#the-physics-maps-onto-one-canopy-solve-exactly)
+are contractions of $T_{cj}$, and the potential is never used — so **the reference's
+order-2 velocity is Canopy's order-3 gradient**, and Beatnik's production order
+is **3**.
+
+That is measured, not inferred. The fingerprint of a target-side loss is the
+ratio of the absolute errors, $1/W$ with $W$ the target cell half-width, where a
+source-side loss would give $1/R$: Canopy measured $29.47$ against $1/W=29.88$
+and $218.5$ against $223.7$ on two domains differing 12-fold in scale, while
+$1/R$ at the MAC edge was $2.59$ and $19.4$
+([cartesian-taylor-basis-progress-log.md](../../../canopy/tasks/cartesian-taylor-basis-progress-log.md)
+§T4).
+
+**`ncrit` is the same quantity feeding a wider near field**, which is
+[The far field has to be live to be measured](#the-far-field-has-to-be-live-to-be-measured).
+
+#### The order that reaches the target
+
+Canopy accepts equal-size cells only beyond $R/w>2\sqrt3/\theta$ with $w$ a
+half-width (`canopy/src/Canopy_CommunicationPlan.hpp:338-352`), and a
+Cartesian-Taylor truncation at order $p$ leaves a relative error
+$\sim(cw/R)^{p+1}$ on the potential and $\sim(cw/R)^{p}$ on the gradient. Canopy
+measured $c\approx1$ in half-widths directly — $1.062$, $0.987$ and $0.939$ at
+$R/w=8$, $16$, $32$
+([cartesian-taylor-basis.md](../../../canopy/tasks/cartesian-taylor-basis.md) T3)
+— so the model for the quantity Beatnik reads is
+$\epsilon_{\rm grad}\approx(\theta/2\sqrt3)^{p}$:
+
+| `mac_theta` | $R/w$ accepted | gradient at $p=2$ | at $p=3$ | at $p=4$ | $p$ for $10^{-3}$ | DOF/cell $\binom{p+3}{3}$ |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0.3 (the reference's, and Beatnik's) | $>11.55$ | $7.5\times10^{-3}$ | $6.5\times10^{-4}$ | $5.6\times10^{-5}$ | **3** | 20 |
+| 0.5 (Canopy's own default) | $>6.93$ | $2.1\times10^{-2}$ | $3.0\times10^{-3}$ | $4.3\times10^{-4}$ | 4 | 35 |
+
+The model is confirmed at all three points Canopy has measured on a volumetric
+cloud, within 20% throughout: $9.0\times10^{-3}$ against $7.5\times10^{-3}$ at
+$(\theta,p)=(0.3,2)$, $7.07\times10^{-4}$ against $6.5\times10^{-4}$ at
+$(0.3,3)$, and $1.87\times10^{-2}$ against $2.1\times10^{-2}$ at $(0.5,2)$.
+
+$p=3$ is therefore the production order and the smallest that reaches $\tau_A$ at
+Beatnik's $\theta$. **It is still a model on Beatnik's geometry**: it is
+evaluated at an idealized equal-cell pairing on a volumetric cloud, and the
+sheet's anisotropic leaf occupancy and the depth-mismatched cell pairs an
+adaptive tree realizes are outside it. **T5** measures the curve on real
+milestone-0 states and picks the production order; nothing may be compiled into a
+test before it does.
+
+#### The far field has to be live to be measured
+
+At $\theta$ the near field reaches $\sqrt3/\theta$ **cell widths** — $5.77$ at
+$\theta=0.3$. Beatnik's sources are a 2-manifold, so the leaves the surface
+occupies form a two-dimensional grid and that neighbourhood covers
+$\pi(\sqrt3/\theta)^2\approx105$ of them. A surface of $N$ vertices at leaf
+occupancy `ncrit` refines until a cell holds `ncrit`, reaching $N/\texttt{ncrit}$
+occupied leaves in $\log_4$ rather than $\log_8$ levels
+([canopy0.md](../../../canopy/tasks/canopy0.md) F4), so a far field that carries
+any of the field at all needs
+
+$$
+N \;\gg\; \pi\,(\sqrt3/\theta)^2 \cdot \texttt{ncrit} ,
+$$
+
+which at $\theta=0.3$ and the reference's `ncrit = 64` is $N\gg6720$. Milestone-0
+is 642 and 2562 vertices. **A comparison run at the default `ncrit` on either
+level compares two direct sums**, passes at any order and measures nothing — the
+trap [treecode.md](../treecode.md) §1 documents on the treecode side, here with a
+number on it. Canopy met the same wall and answered it by pairing 8640 particles
+with `ncrit = 8` rather than by lowering the particle count
+(`canopy/tests/tstCartesianTaylorSolve.hpp:96-107`).
+
+`FmmParams::ncrit` stays at the reference's 64, which is the right default at
+production vertex counts and wrong only at milestone-0's. **T4**, **T5** and
+**T6** each run at an `ncrit` satisfying the bound at their vertex count, and
+each **asserts** the far field is live through the P2P pair fraction rather than
+assuming it. Two consequences follow and neither is a defect in this work:
+
+- At 2562 vertices the bound needs $\texttt{ncrit}\lesssim24$; `ncrit = 8` gives
+  320 occupied leaves against 105, a factor of 3, which is live but not
+  generous.
+- At 642 vertices it has **no solution**: `ncrit = 8` gives 80 occupied leaves,
+  still inside the 105-leaf near field, and lower values degenerate the tree.
+  The 642-vertex level cannot exercise a far field at $\theta=0.3$ under any
+  `ncrit`. That is a property of the mesh — the reference is barely engaging
+  there too, which is why its $1.6\times10^{-3}$ at 642 is its *worst* of the
+  three sizes in [treecode.md](../treecode.md) §1. **T6**'s L3 member therefore
+  carries claim B and a claim A that is mostly a P2P comparison, and says so;
+  the far-field accuracy claim rests on the L4 member.
 
 ### Why not tighter than $10^{-3}$
 
@@ -110,15 +226,18 @@ perturbation injected at **every** evaluation is thirteen orders above the seed
 that already exhausts the tightest rung, so the FMM-driven and direct-driven
 trajectories decorrelate long before step 2000 — the same conclusion
 [treecode.md](../treecode.md) §1 reaches for the reference treecode, and for the
-same reason. Chasing $10^{-10}$ instead would want $p\approx11$-24 and 364-2925
-DOF per cell ([canopy-kernel-rec.md](canopy-kernel-rec.md)), for a trajectory
-comparison that still would not pass.
+same reason. Chasing $10^{-10}$ instead would want $p\approx11$-24 on the potential and one
+order more on the gradient Beatnik actually reads — 364-2925 DOF per cell
+([canopy-kernel-rec.md](../../../canopy/tasks/canopy-kernel-rec.md)) — for a
+trajectory comparison that still would not pass.
 
 The consequence shapes **T6**: its two claims are a per-evaluation bound and a
 stability-plus-divergence-horizon measurement, not one loosened gold comparison.
 
-**Out of scope.** Any change to Canopy (**X1** names the one conditional
-dependency and its acceptance test; it does not design it). Any new CLI option —
+**Out of scope.** Any change to Canopy — including any reshaping of its
+acceptance criterion (**X1** names the one conditional dependency and its
+acceptance test; it does not design it), and the fix for the operator cache
+[Current state](#canopy) records as emptying on every build. Any new CLI option —
 the surface is closed, and every knob this work needs is already parsed
 ([examples/02_adaptive_mesh_bubble/InputFile.hpp:444-470](../../examples/02_adaptive_mesh_bubble/InputFile.hpp#L444-L470)).
 `Face` and `Triangle3` source quadrature, which still throw
@@ -162,11 +281,17 @@ are two `solve()` calls over one tree, which Canopy supports directly —
 
 Under `CartesianTaylorBasis` the far-field gradient is **analytic**: L2P
 differentiates the local Taylor expansion in closed form rather than by central
-difference ([abstract-solver-backend.md](abstract-solver-backend.md) T12), so the
-gradient carries no finite-difference step-size error and no third error
-component for **T5**'s scan to disentangle. The solid-harmonic basis retains its
-finite-difference L2P; that difference is one of the things **T5** measures
-between the two.
+difference
+([cartesian-taylor-basis.md](../../../canopy/tasks/cartesian-taylor-basis.md),
+"The far field is three scalar passes"), so the gradient carries no
+finite-difference step-size error and no third error component for **T5**'s scan
+to disentangle. What it does carry is one order less accuracy than the same
+solve's potential, which is why the production order is 3 and not the
+reference's 2 — see
+[The order that reaches the target](#the-order-that-reaches-the-target). The
+solid-harmonic basis retains its finite-difference L2P and pays the same order
+loss on top of the step-size error; that difference is one of the things **T5**
+measures between the two.
 
 $1/4\pi$ and `br_sign` on the velocity, and $-1/4\pi^2$ unsigned on the Riesz
 scalar, are applied exactly once, in the adapter, matching `BRSolverDirect`
@@ -184,7 +309,9 @@ explicitly unspecified (`canopy/src/Canopy_TreePartitioner.hpp:576-580`), and
 nothing in `canopy/src/` carries a caller-supplied identity through it. The
 far-field abstraction did not change this: the tree builder, partitioner, MAC,
 dual-tree traversal and communication plan are basis-blind and identical for both
-bases ([abstract-solver-backend.md](abstract-solver-backend.md), "Out of scope").
+bases
+([abstract-solver-backend.md](../../../canopy/tasks/abstract-solver-backend.md),
+"Out of scope").
 
 The round trip is therefore Beatnik's job, and it is the **tag-reverse
 handshake** proven on the `origin/develop-canopy` branch
@@ -299,8 +426,8 @@ tuned to whatever the code did.
 | Enums over bools | A mode selector is an enum or tag type, never a bool or a magic number. |
 | Comments | Units, sign convention, and which side of a difference is which, on the declaration. The sign of Canopy's gradient output and the direction of $\delta$ are the two most misread things on this path and must be stated at every boundary they cross. |
 | Provenance | Any routine derived from `origin/develop-canopy`'s `src/FmmBRSolver.hpp`, from Canopy, or from the reference Python cites the file and line range on the routine. |
-| Accuracy claims | Every stated tolerance names the source distribution, the rank counts, **the basis**, `order`, `ncrit`, `max_depth`, `mac_theta`, `softening` and `near_softening_factor` it was measured at. A bare tolerance is not a claim and may not be compiled into a test. |
-| Citing Canopy | Cite Beatnik by `file:line`. Cite Canopy by **symbol name** — `FmmConfig::near_softening_factor`, `Solver::auto_maintain` — with a line number only where the symbol is in a file the far-field abstraction does not restructure (`Canopy_P2P.hpp`, `Canopy_CommunicationPlan.hpp`, `Canopy_TreeBuilder.hpp`, `Canopy_TreePartitioner.hpp`). A stale line number into a restructured header points at unrelated code and is worse than no citation. |
+| Accuracy claims | Every stated tolerance names **which field it is on — potential or gradient** — plus the source distribution, the rank counts, **the basis**, `order`, `ncrit`, `max_depth`, `mac_theta`, `softening`, `near_softening_factor` and the realized P2P pair fraction. The two fields differ by a full order at fixed `order`, so a figure without its field named is unreadable, and a figure without its P2P fraction may be a direct sum wearing an FMM's name. A bare tolerance is not a claim and may not be compiled into a test. |
+| Citing Canopy | Cite Beatnik by `file:line`. Cite Canopy **source** by symbol name — `FmmConfig::near_softening_factor`, `Solver::auto_maintain` — with a line number only where the symbol is in a file the far-field abstraction does not restructure (`Canopy_P2P.hpp`, `Canopy_CommunicationPlan.hpp`, `Canopy_TreeBuilder.hpp`, `Canopy_TreePartitioner.hpp`). A stale line number into a restructured header points at unrelated code and is worse than no citation. Cite Canopy **design documents** by relative path into `../../../canopy/tasks/`; this repository keeps no copy of them, so a citation that resolves inside `tasks/canopy/` is stale by construction. |
 | Test tier | New correctness tests are `unit` unless a task says otherwise. **The gate does not change**: it stays at five `regression` members and 60 launches (CLAUDE.md "Minimum test set"). The two new members go in the `milestone` tier, which is not the gate. |
 | Formatting | Do not run clang-format, `clangformat.sh` or `cabana-format`. Match the surrounding style by hand. |
 
@@ -332,11 +459,26 @@ tuned to whatever the code did.
   unwriteable.
 - **`auto_maintain` rather than `setup` per evaluation.** `setup` every stage is
   simpler and always correct, but pays a full global tree build plus repartition
-  three times per timestep ([canopy0.md](canopy0.md) F3(b)).
+  three times per timestep ([canopy0.md](../../../canopy/tasks/canopy0.md) F3(b)).
   develop-canopy measured `auto_maintain` returning the cheapest `Migrate`
   action for all 14 calls of a five-step run with results identical to the
   setup-every-step baseline. **T8** measures whether that holds on a deforming
-  surface, where canopy0.md F3(c) predicts `Rebalance` instead.
+  surface, where [canopy0.md](../../../canopy/tasks/canopy0.md) F3(c) predicts
+  `Rebalance` instead. Note what the choice no longer buys: under
+  `CartesianTaylorBasis` even the cheapest `Migrate` rebuilds the whole M2L
+  operator table, because every maintenance path recomputes the root box and so
+  clears the cache — see [Current state](#canopy). The remaining argument for
+  `auto_maintain` is the tree build and the repartition, not the operators.
+- **No attempt to reshape Canopy's acceptance criterion.** Matching the
+  reference's MAC would mean a target-point, cloud-radius predicate inside
+  `CommunicationPlan`, which is shared by both bases, and it would not repay the
+  work. $\theta$ can already be widened to reproduce the reference's acceptance
+  *radius* — about $\theta=0.735$ once the target-box term is accounted for —
+  and doing so costs $p=5$ for $10^{-3}$ on the gradient, 56 DOF per cell and a
+  derivative ladder to $|k|=10$, against $p=3$, 20 DOF and $|k|=6$ at
+  $\theta=0.3$. The target-side expansion is what makes an FMM an FMM, and it is
+  paid for in both the acceptance radius and the gradient's order; Beatnik takes
+  Canopy's predicate at the reference's $\theta$ and pays in order instead.
 - **No attempt to correct the kernel on Beatnik's side.** Handing Canopy a bare
   far field and adding
   $\sum_{r<R_c}[K_{\rm soft}-K_{\rm bare}]\times S_s$ by direct summation is
@@ -399,44 +541,128 @@ Cited by symbol, per the conventions table.
   `createSolver`, **defaulted to the solid-harmonic `LaplaceKernel`**. The
   contract a basis satisfies — its traits, its five operators, its three-stage
   M2L, its auxiliary tables and its overflow policy — is specified in
-  [abstract-solver-backend.md](abstract-solver-backend.md).
-- `CartesianTaylorBasis` expands $\varphi(r)=(r^2+b)^{-1/2}$ directly, in real
-  coefficients, $\binom{p+3}{3}$ per cell per component. It requires
-  `Scalar = double` by `static_assert`, its L2P gradient is analytic, and its
-  operator keys carry the tree level, so its operator table is larger than the
-  solid-harmonic basis's by roughly the number of occupied depths.
-- The M2L operator table is bounded by
+  [abstract-solver-backend.md](../../../canopy/tasks/abstract-solver-backend.md).
+  The runtime API Beatnik calls is unchanged by the abstraction:
+  `setup<PositionIdx, ChargeIdx>(particles, count_before_migration)`,
+  `solve<PositionIdx, ChargeIdx>(particles, compute_gradient)`,
+  `auto_maintain<PositionIdx, ChargeIdx>(particles)`, `num_local_particles()`,
+  `potential()`, `gradient()`.
+- **`CartesianTaylorBasis` is built and measured**, in
+  [cartesian-taylor-basis.md](../../../canopy/tasks/cartesian-taylor-basis.md)
+  T1-T6, all **DONE**. It expands $\varphi(r)=(r^2+b)^{-1/2}$ directly, in real
+  coefficients, $\binom{p+3}{3}$ per cell per component; requires
+  `Scalar = double` by `static_assert`; has an analytic L2P gradient; and its
+  operator keys carry the tree level (`key_needs_level = true`), so its operator
+  table is larger than the solid-harmonic basis's by roughly the number of
+  occupied depths.
+- **What it was measured at**, on 8640 particles in a volumetric cube,
+  `ncrit = 8`, `max_depth = 6`, `replication_depth = 2`, `softening = 0.025`,
+  `near_softening_factor = 0`, four solves with `migrate / rebalance / migrate`
+  between them, ranks 1-6, against a direct softened sum:
+
+  | arm | potential | gradient |
+  | --- | --- | --- |
+  | $\theta=0.3$, $p=3$ | $1.9263\times10^{-5}$ | $7.0718\times10^{-4}$ |
+  | $\theta=0.3$, $p=2$ | $2.655\times10^{-4}$ | $8.996\times10^{-3}$ |
+  | $\theta=0.5$, $p=2$ | $9.9667\times10^{-4}$ | $1.8652\times10^{-2}$ |
+
+  and `LaplaceKernel` at the same `near_softening_factor = 0` and the same
+  positive `softening` missing it by three orders on the potential
+  ($1.894\times10^{-2}$) and reaching $5.168\times10^{-2}$ on the gradient. This
+  is a volumetric cloud, not a sheet; **T5** is what measures the same curve on
+  Beatnik's geometry.
+- **The derivative ladder is validated to $|k|=6$, which is $2p$ at the
+  production order.** Above the closed forms at $|k|\le3$ the oracle is a
+  Richardson-extrapolated finite difference, and the M2L reaches $b_{p+q}$ at
+  $|p+q|=2p$, so $p=3$ needs $|k|=6$. Canopy measured it, per degree, each with
+  its own Richardson step divisor located by an eleven-point scan rather than
+  carried over:
+
+  | $\vert k\vert$ | divisor | tolerance | achieved worst | margin |
+  | --- | --- | --- | --- | --- |
+  | 4 | $L/24$ | $4\times10^{-6}$ | $3.080\times10^{-7}$ | 13.0x |
+  | 5 | $L/24$ | $3\times10^{-4}$ | $2.531\times10^{-5}$ | 11.9x |
+  | 6 | $L/16$ | $2\times10^{-2}$ | $1.184\times10^{-3}$ | 16.9x |
+
+  No tolerance was widened to pass a degree, and perturbing one recurrence
+  coefficient by $0.1\%$ pushed all three above their own bounds (6500x, 913x,
+  142x), so degrees 5 and 6 are exercised rather than enumerated. **The sample
+  set is Beatnik's own band**: $b=6.25\times10^{-4}$ is $\varepsilon^2$ at
+  $\varepsilon=0.025$, and the interior scales $|r|/\sqrt b \in
+  \{9.276, 15.46, 74.2\}$ are now permanent — the worst deviation at both
+  $|k|=5$ and $|k|=6$ falls at that $b$. The achieved deviation grows about 40x
+  per degree, which tracks the roundoff floor of a $|k|$-th difference rather
+  than the ladder's conditioning, so it is oracle resolution and not recurrence
+  error ([cartesian-taylor-basis.md](../../../canopy/tasks/cartesian-taylor-basis.md)
+  T6; its R8 is closed for $p=3$). **It remains unvalidated above $p=3$** —
+  $p=4$ would need $|k|=8$ — and the oracle's 1-D stencils now abort loudly on
+  an order they do not carry rather than silently reusing a lower one. That
+  bounds **T5**'s scan, not the production path; see **R11**.
+- **The M2L operator cache retains nothing on a moving distribution.**
+  `set_root_half_width` clears the **entire** cache whenever the root half-width
+  changes and does so only for a `key_needs_level` basis
+  (`canopy/src/Canopy_DownwardSweep.hpp:406-416`);
+  `Solver::_push_root_half_width` runs immediately before every one of the three
+  `_downward.setup()` calls, and `TreeBuilder::build` recomputes the root box
+  from the particles on **every** maintenance path — `migrate` included
+  (`canopy/src/Canopy_TreeBuilder.hpp:608-621`). There is no `FmmConfig` knob
+  that pins the box: the six bounding-box tolerances pad it by fractions of its
+  own width, so a padded box drifts too. Canopy measured the consequence and it
+  is total: **zero keys retained at every one of 336 builds**, 3.9x the cached
+  key count constructed over four solves, with the drift a smooth 0.18-0.40% per
+  build so that a power-of-two tolerance would not fire either
+  ([cartesian-taylor-basis.md](../../../canopy/tasks/cartesian-taylor-basis.md)
+  T5 and R6). Beatnik's surface deforms every RK stage. The magnitude on
+  Beatnik's tree is **T8** step 2; the fix is Canopy's and is out of scope.
+- **The M2L operator table** is bounded by
   `min(M2L_OP_COUNT_CAP, byte_budget / bytes_per_key)`, with
   `M2L_OP_COUNT_CAP = 32768` and the byte budget an `FmmConfig` field defaulting
-  to 2 GB. Keys beyond the cap route to a per-pair translate fallback — different
-  arithmetic, slower, not wrong — and `total_fallback_pair_count()` reports how
-  many pairs took it. At $p\le4$ the per-key operator is $\le9.8$ KB
-  ([canopy-kernel-rec.md](canopy-kernel-rec.md), "Memory"), so the **count cap
-  binds first** and the byte budget is not the constraint.
-- Operators are held in a cache keyed by the canonicalized M2L key and the
-  kernel parameters, persisting across topology changes; only the key→index map
-  is rebuilt when the interaction list is invalidated. For a deforming surface at
-  fixed $b$ that is a cost win, and **T8** is where it shows up.
-- `FmmConfig::near_softening_factor` still exists and still forces close pairs
-  into P2P. Beatnik sets it to 0 under `CartesianTaylorBasis`; it is meaningful
-  only under the solid-harmonic basis.
-- `FmmConfig::softening` is a **length**; Beatnik's `blob()` is a squared length
+  to 2 GB. Keys beyond the cap route to a per-pair translate fallback —
+  different arithmetic, slower, and asserted equal to the table path
+  ([cartesian-taylor-basis.md](../../../canopy/tasks/cartesian-taylor-basis.md)
+  T3) — and `total_fallback_pair_count()` reports how many pairs took it. At
+  $p\le4$ the per-key operator is $\le9.8$ KB
+  ([canopy-kernel-rec.md](../../../canopy/tasks/canopy-kernel-rec.md),
+  "Memory"), so the **count cap binds first** and the byte budget is not the
+  constraint. Realized counts on the cloud above, at np=1: **25438** unique keys
+  at $\theta=0.3$ and 7374 at $\theta=0.5$, on 2941 cells, with 246 and 0
+  fallback pairs. Canopy also observed the $\theta=0.3$ table *saturating* the
+  32768 cap once the trajectory was amplified, so the cap is a live constraint
+  at this $\theta$ rather than a distant one. This is **R6**.
+- `FmmConfig::near_softening_factor` still exists, defaults to **4.0**, and
+  still forces close pairs into P2P. Beatnik sets it to 0 under
+  `CartesianTaylorBasis`; it is meaningful only under the solid-harmonic basis,
+  and it has **no effect at all unless `softening > 0`**.
+- **`FmmConfig::softening` defaults to $-1.0$, which selects distribution-based
+  auto-softening** at first `setup()` — an effective $\varepsilon$ that moves
+  with the particle distribution. It is a **length**; Beatnik's `blob()` is a
+  squared length
   ([src/Beatnik_Params.hpp:125-128](../../src/Beatnik_Params.hpp#L125-L128)).
+  Leaving it defaulted is not a fallback but a silent substitution of a
+  different kernel, and it additionally disables `near_softening_factor`. It
+  must be set explicitly positive; `build_m2l_operators` aborts loudly on
+  `softening <= 0`, which covers only the zero-or-negative case and not the
+  auto-softening one.
 - `solve()` after motion without maintenance is silently wrong, `migrate()` is
   not cheap, and a deforming surface picks `Rebalance` essentially every stage
-  ([canopy0.md](canopy0.md) F3(a)-(c)). None of this is basis-dependent and none
-  of it changed.
+  ([canopy0.md](../../../canopy/tasks/canopy0.md) F3(a)-(c)). None of this is
+  basis-dependent and none of it changed.
 - Zoltan2's `multijagged` is non-deterministic across runs, so the far-field path
   is not bitwise reproducible run to run at fixed rank count
-  ([canopy0.md](canopy0.md) F3(c)).
-- Canopy's three-component gradient path — the one this work rests on — is
-  labelled `unit`, not `regression`, and fails at exactly 4 ranks
-  (`SingleSolve.PotentialNComps3`, `max_pot_rel_err = 0.00207` against a
-  $10^{-3}$ budget, `canopy/README.md:368-370`). Beatnik's gate and milestone
-  tier both run at 4 ranks. This is **R4**.
-- No Canopy test gives any rank zero particles ([canopy0.md](canopy0.md) F5), and
-  no Canopy test measures accuracy on a non-volumetric source distribution
-  ([canopy0.md](canopy0.md) F4). Both gaps are on this path.
+  ([canopy0.md](../../../canopy/tasks/canopy0.md) F3(c)).
+- **The np=4 defect is narrower than it was.** `SingleSolve.PotentialNComps3`
+  and `SingleSolve.PotentialAndGradientNComps3` still fail at exactly 4 ranks
+  (`max_pot_rel_err = 0.00207` against a $10^{-3}$ budget,
+  `canopy/README.md:562-588`), under `LaplaceKernel` at $P=8$ and
+  `softening = 0`. But `CartesianTaylorSolve` drives `NComps = 3` with the
+  gradient compared and **passes at ranks 1-6**, which is the closest existing
+  proxy for Beatnik's configuration. Beatnik's gate and milestone tier both run
+  at 4 ranks. This is **R4**.
+- No Canopy test gives any rank zero particles
+  ([canopy0.md](../../../canopy/tasks/canopy0.md) F5), and no Canopy test
+  measures accuracy on a non-volumetric source distribution
+  ([canopy0.md](../../../canopy/tasks/canopy0.md) F4) — `CartesianTaylorSolve`
+  is a volumetric cube. Both gaps are on this path.
 
 ## Progress log
 
@@ -485,29 +711,46 @@ develop-canopy's `makeCanopyConfig` for the full mapping it needed
    non-zero value is meaningful only under `FarFieldBasis::SolidHarmonic` —
    under `CartesianTaylor` the far field already carries the blob, so the floor
    only moves work into P2P and slows the solve without improving it.
-5. Restate `order`'s comment: it is the basis's order knob, and under
-   `CartesianTaylor` it is the Cartesian Taylor truncation order $p$ — the same
-   quantity `--br-treecode-order` denotes in the reference. Correct the
-   `FmmParams` doc comment
+5. **Raise `order`'s default from 2 to 3**, and restate its comment. It is the
+   basis's order knob, and under `CartesianTaylor` it is the Cartesian Taylor
+   truncation order $p$ — the same *quantity* `--br-treecode-order` denotes in
+   the reference, and not the same *accuracy*. The declaration must say why the
+   two differ: the reference is a treecode with no target-side expansion, so its
+   order-2 velocity has the truncation order of an FMM's order-2 potential,
+   which is an FMM's order-3 gradient, and Beatnik reads only the gradient. Give
+   the measured figures — $8.996\times10^{-3}$ at $p=2$ against
+   $7.0718\times10^{-4}$ at $p=3$, both at $\theta=0.3$ — so the default is
+   traceable to a measurement rather than to a preference. `--br-treecode-order`
+   still overrides, so a Python command line that passes 2 explicitly still gets
+   2. Correct the `FmmParams` doc comment
    ([src/Beatnik_Params.hpp:132-140](../../src/Beatnik_Params.hpp#L132-L140)) and
    the CLI comment
    ([examples/02_adaptive_mesh_bubble/InputFile.hpp:478-479](../../examples/02_adaptive_mesh_bubble/InputFile.hpp#L478-L479)),
    both of which say the treecode numbers do not mean the same thing to the two
-   algorithms. That is true of `mac_theta` and no longer true of `order`; say
-   which is which rather than deleting the warning.
-6. Choose and document a `max_depth` default. It has no counterpart in the
+   algorithms; say per knob which way each fails to transfer rather than
+   deleting the warning.
+6. **Leave `ncrit` at 64** and state the constraint that makes it right only at
+   production vertex counts: under Canopy's MAC the near field reaches
+   $\sqrt3/\theta$ cell widths, which on a 2-manifold is
+   $\pi(\sqrt3/\theta)^2\approx105$ occupied leaves at $\theta=0.3$, so a live far
+   field needs $N\gg105\cdot\texttt{ncrit}$ — $N\gg6720$ at this default. Below
+   that the solve is a direct sum with FMM bookkeeping, silently and at full
+   accuracy. Put the inequality on the declaration, not the conclusion, so it
+   re-evaluates at a different `mac_theta`. See
+   [The far field has to be live to be measured](#the-far-field-has-to-be-live-to-be-measured).
+7. Choose and document a `max_depth` default. It has no counterpart in the
    treecode knob set, is bounded at 19 by the `uint64_t` Morton key
    (`canopy/src/Canopy_TreeBuilder.hpp:176-181`), and sets the finest cell width
    as (root box width) / $2^{\rm max\_depth}$. Two forces pull against each
    other and both belong in the comment: a sheet reaches
    $N/\texttt{ncrit}$ leaves in $\log_4$ rather than $\log_8$ levels, so it wants
-   depth ([canopy0.md](canopy0.md) F4); and every occupied depth multiplies
+   depth ([canopy0.md](../../../canopy/tasks/canopy0.md) F4); and every occupied depth multiplies
    `CartesianTaylorBasis`'s realized operator-key count, which the 32768-key cap
    bounds. develop-canopy ran 19 and hit a depth-driven finite-difference blow-up
    at roll-up — a mechanism the analytic Taylor L2P removes, so that particular
    reason to fear 19 does not transfer. State the reasoning for whatever is
    chosen.
-7. **Do not add a `softening` member that duplicates `eps`.** Canopy's
+8. **Do not add a `softening` member that duplicates `eps`.** Canopy's
    `softening` is a length and Beatnik's `blob()` is a squared length —
    $\varepsilon^2$ under `Length` and $\varepsilon$ under `Matlab`
    ([src/Beatnik_Params.hpp:125-128](../../src/Beatnik_Params.hpp#L125-L128)) — so
@@ -518,17 +761,22 @@ develop-canopy's `makeCanopyConfig` for the full mapping it needed
    $\varepsilon$ in the softening length, and under `CartesianTaylor` that value
    goes into the far field's own $w=r^2+b$ rather than only into P2P, so the
    error is no longer confined to close pairs.
-8. `FmmParams` must not be constructible into a state that builds an arbitrary
+9. `FmmParams` must not be constructible into a state that builds an arbitrary
    Canopy tree. Since every Beatnik member is default-initialized, this reduces
    to giving `ncrit` and `max_depth` defensible values and validating them where
    the adapter builds the `FmmConfig`.
-9. Update README's parameter documentation in the same change.
+10. Update README's parameter documentation in the same change.
 
 **Exit criterion:** `spack install` succeeds; a `FmmParams` default-constructed
 and passed through the adapter's config builder yields an `FmmConfig` whose every
-member is initialized (asserted by **T4**'s test, which is where a runnable check
-first exists); README lists every new member with its default. No new CLI option
-appears in `--help`.
+member is initialized, whose `softening` is positive rather than Canopy's
+auto-softening sentinel, and whose `near_softening_factor` is 0 (all asserted by
+**T4**'s test, which is where a runnable check first exists); `FmmParams`
+default-constructs with `order == 3`, `mac_theta == 0.3` and `ncrit == 64`;
+README lists every new member with its default and states why `order` departs
+from `--br-treecode-order`'s 2 while `mac_theta` and `ncrit` do not. No new CLI
+option appears in `--help`, and `--br-treecode-order 2` still yields
+`order == 2`.
 
 ---
 
@@ -603,19 +851,31 @@ changes, [README.md](../../README.md).
    `Distributor` is rebuilt every evaluation; caching it across `Migrate`-action
    evaluations is a named future optimization, not part of this task.
 4. Build the `FmmConfig` from `FmmParams` plus `ZModelParams::blob()` per T1
-   step 7, and validate it: throw naming the offending member if `ncrit` or
-   `max_depth` is non-positive, or `max_depth > 19`.
+   step 8, and validate it: throw naming the offending member if `ncrit` or
+   `max_depth` is non-positive, or `max_depth > 19`. **Set `softening` to
+   $\sqrt{\texttt{blob()}}$ explicitly and throw if it is not strictly
+   positive.** `FmmConfig::softening` defaults to $-1.0$, which selects
+   distribution-based auto-softening at first `setup()`: an effective
+   $\varepsilon$ that moves with the particle distribution, is not Beatnik's,
+   and additionally disables `near_softening_factor`. Canopy aborts on
+   `softening <= 0` inside `build_m2l_operators`, which catches zero and
+   negative values but *not* the sentinel, since the sentinel is replaced before
+   the operators are built. The check has to be here.
 5. Dispatch `(FmmParams::basis, FmmParams::order)` onto an enumerated set of
    instantiations, **naming the Canopy basis explicitly in every one**. Start
-   with the set the measurement needs — at minimum `CartesianTaylor` at every
-   order **T5** will scan, plus one `SolidHarmonic` instantiation so **T4**'s
-   negative case and **T5**'s comparison can be built — and throw naming the
-   supported set for anything else. Add a `static_assert` or equivalent that no
+   with the set the measurement needs — at minimum `CartesianTaylor` at orders
+   0 and 2 through 5 (0 for **T4**'s monopole-only negative case, 3 for the
+   production path, and the neighbours **T5** scans either side of it), plus one
+   `SolidHarmonic` instantiation so **T4**'s negative case and **T5**'s
+   comparison can be built — and throw naming the supported set for anything
+   else. Note on the dispatch that 4 and 5 are **scan-only**: Canopy's
+   derivative-ladder oracle stops at $|k|=6$, so those orders are measurable but
+   not adoptable as the production order (**R11**). Add a `static_assert` or equivalent that no
    instantiation relies on Canopy's defaulted basis parameter; a silently
    solid-harmonic solve is **R2**.
 6. Every rank must enter every collective the same number of times per
    evaluation, **including a rank that owns zero sources**. Canopy has no test
-   for a zero-particle rank ([canopy0.md](canopy0.md) F5) and Beatnik's
+   for a zero-particle rank ([canopy0.md](../../../canopy/tasks/canopy0.md) F5) and Beatnik's
    decomposition can produce one. Do not branch the collective sequence on a
    local count.
 7. `#include <Canopy_Solver.hpp>` and every Canopy-typed member sit behind
@@ -709,13 +969,26 @@ made.
    non-zero sheet strength. At step 0 the sheet strength is identically zero
    (`--initial-potential-strength 0`), so a step-0 comparison is vacuous — the
    test must assert the strength is non-zero before comparing.
-2. Construct both BR solvers and evaluate **both on that same state**, then
+2. **Choose the vertex count and `ncrit` together so the far field is live**,
+   and assert that it is. At $\theta=0.3$ a 2-manifold's near field covers about
+   105 occupied leaves, so the comparison needs $N/\texttt{ncrit}\gg105$; the
+   default `ncrit = 64` gives 10 leaves at 642 vertices and 40 at 2562, both of
+   which make this test a comparison of two direct sums that passes at any
+   order. Use subdivision level 4 (2562 vertices) with `ncrit = 8` — 320
+   occupied leaves — and **assert the measured P2P pair fraction is below a
+   stated bound** rather than assuming it. Record the chosen pair and the
+   realized fraction in the log; if no affordable pair clears the bound, that is
+   the finding and **T5** inherits it. See
+   [The far field has to be live to be measured](#the-far-field-has-to-be-live-to-be-measured).
+3. Construct both BR solvers and evaluate **both on that same state**, then
    assert max relative and max absolute velocity error against a budget whose
    value and full qualification list are recorded in the log.
-3. Three negative cases, because each proves a different thing and a comparison
+4. Three negative cases, because each proves a different thing and a comparison
    that has only ever seen agreeing data has not been tested:
    - **The order knob is live.** `order = 0` (monopole-only Taylor) must exceed
-     the budget while the production order passes. This is what makes the error a
+     the budget while the production order 3 passes, and `order = 2` must land
+     between them — roughly an order above 3's error, which is the signature of
+     the gradient truncating at $p$ rather than $p+1$. This is what makes the error a
      truncation rather than a bias, and it is the property the whole basis choice
      rests on.
    - **The basis selector is live.** `FarFieldBasis::SolidHarmonic` with
@@ -725,14 +998,14 @@ made.
    - **The blob reaches the far field.** Perturbing the softening length handed
      to Canopy must change the FMM velocity. Under a bare-kernel far field it
      would not, which is the cheapest available proof that $b$ is inside $w$.
-4. Rank counts 1-6, since that is the gate's sweep and Canopy's
-   three-component gradient path is known wrong at exactly 4
-   (`canopy/README.md:368-370`). If 4 ranks fails, that is the finding: record
+5. Rank counts 1-6, since that is the gate's sweep and Canopy's
+   three-component gradient path is known wrong at exactly 4 under
+   `LaplaceKernel` (`canopy/README.md:562-588`). If 4 ranks fails, that is the finding: record
    it, and do not widen the budget to accommodate it — see **R4**.
-5. Include a variant where at least one rank owns zero sources, if the
+6. Include a variant where at least one rank owns zero sources, if the
    decomposition can be made to produce one at these vertex counts; if it
    cannot, say so in the log rather than leaving the case silently uncovered.
-6. Assert the FMM result is finite everywhere, and that the global source count
+7. Assert the FMM result is finite everywhere, and that the global source count
    Canopy reports equals the global owned vertex count — the cheap independent
    check on the round trip (**R3**).
 
@@ -747,7 +1020,17 @@ softening length — rather than merely exiting non-zero.
 
 ### T5 — Measure the achievable far-field fidelity, and publish it — **NOT STARTED**
 
-**Depends on:** T4. **This task produces every number later tasks key off.**
+**Depends on:** T4. Canopy's derivative ladder is validated at $|k|=2p$ through
+$p=3$, so the production order and everything below it are unblocked
+([Current state](#canopy)). **Scan points at $p\ge4$ are not**: $p=4$ reaches
+$|k|=8$ and Canopy's oracle stops at 6. Those points may be measured and
+reported — the arithmetic is very likely fine and the curve is worth having —
+but **none may be adopted as the production order** until Canopy extends the
+oracle to that degree, because a silent recurrence error there would present as
+exactly the plateau **R1** describes and be attributed to truncation. Step 6
+below states the consequence.
+
+**This task produces every number later tasks key off.**
 
 **Fill in:** a measurement driver under `tests/regression_tests/` registered in
 the "Measurement drivers — IN NO TIER" section
@@ -757,7 +1040,7 @@ script under `scripts/tuolumne/`;
 [README.md](../../README.md).
 
 **Reference:** the convergence model this must confirm or correct, with its
-constants ([canopy-kernel-rec.md](canopy-kernel-rec.md), "Convergence per DOF"
+constants ([canopy-kernel-rec.md](../../../canopy/tasks/canopy-kernel-rec.md), "Convergence per DOF"
 and "Memory"); the acceptance predicate that sets $R/w$
 (`canopy/src/Canopy_CommunicationPlan.hpp:338-352`); the reference treecode's own
 accuracy at the same two mesh sizes ([treecode.md](../treecode.md) §1); the
@@ -772,34 +1055,57 @@ ladder, which is the instrument step 6 reuses
    dispatched set, `mac_theta`, `ncrit`, `max_depth`, and both values of
    `basis`. Report max relative and max absolute velocity error against
    `BRSolverDirect` on the **same** state, and the fraction of pairs Canopy
-   handled in P2P.
-2. **Read the scan as a scan.** Under `CartesianTaylor` the error should fall
-   with `order` at the rate the table in **Problem** predicts and then flatten
-   into Canopy's own floating-point floor; under `SolidHarmonic` it should
+   handled in P2P. **Every point carries its P2P fraction or it is not a
+   point**: at the default `ncrit` neither milestone-0 level has a live far
+   field, so a scan that does not vary `ncrit` measures the direct sum at every
+   order. `ncrit` is therefore a scan axis and not a fixed background, and the
+   scan must state for each level the `ncrit` at which the far field first
+   carries a stated fraction of the field.
+2. **Report potential and gradient error separately at every point.** They
+   differ by a full order at fixed `order` — the target-side L2P truncation
+   explained in [The order that reaches the target](#the-order-that-reaches-the-target)
+   — and Beatnik reads only the gradient. A scan that reports one number per
+   point cannot be read against the reference's documented figure, which is a
+   source-side-only velocity and so corresponds to the *potential* column.
+3. **Read the scan as a scan.** Under `CartesianTaylor` the gradient error
+   should fall with `order` at the rate
+   $\epsilon_{\rm grad}\approx(\theta/2\sqrt3)^{p}$ predicts — confirmed within
+   20% at three points on a volumetric cloud, see
+   [The order that reaches the target](#the-order-that-reaches-the-target) — and
+   then flatten into Canopy's own floating-point floor; under `SolidHarmonic` it should
    plateau well above that regardless of order, because the bias is in the
    kernel rather than the truncation. Two curves of different *shape* is the
    finding; two curves of the same shape means the basis selector is not doing
    what it claims. Record which regime each observed level is in.
-3. Confirm or correct the decades-per-order table in **Problem**. It is a model
-   with an unmeasured constant, evaluated at an idealized equal-cell geometry;
-   the realized $R/w$ distribution on a thin bubble surface with depth-mismatched
-   cell pairs is what actually sets the rate. A measured rate far *better* than
+4. Confirm or correct the error model in **Problem**. Its constant $c\approx1$
+   was measured on a volumetric cloud at idealized equal-cell separations; the
+   realized $R/w$ distribution on a thin bubble surface with depth-mismatched
+   cell pairs is what actually sets the rate, and no Canopy test has ever
+   measured accuracy on a non-volumetric distribution
+   ([canopy0.md](../../../canopy/tasks/canopy0.md) F4). A rate differing from
+   the model in *exponent* rather than in constant would mean the sheet's
+   geometry changes which term dominates, and is the finding. A measured rate far *better* than
    the model most likely means the far field never engaged, which at these vertex
    counts is easy to hit by accident and which [treecode.md](../treecode.md) §1
    documents as the same trap on the treecode side — check the P2P pair fraction
    before believing it.
-4. Measure the operator table: the realized key count `n_unique_ops`, the bytes
+5. Measure the operator table: the realized key count `n_unique_ops`, the bytes
    it occupies, and `total_fallback_pair_count()`, at each `max_depth` and
    `order` in the scan. `CartesianTaylorBasis` keys carry the tree level, so the
    count scales with occupied depth against a 32768-key cap; a non-zero fallback
    count means some pairs took different arithmetic and the accuracy number is
    a mixture. This is **R6**.
-5. Record $\tau_A$ — the best max relative velocity error achieved at an
+6. Record $\tau_A$ — the best max relative velocity error achieved at an
    affordable order and P2P fraction, with its full qualification list — in the
    log, and publish the validated parameter set and the achieved fidelity in
    README. State the production `order` and why it was chosen over the next one
-   up and the next one down.
-6. Measure the **divergence horizon** claim B needs: run the milestone-0
+   up and the next one down. If the measured production order differs from T1's
+   compiled default of 3, changing that default is part of this task and README
+   moves with it — **except upward past 3**, which needs Canopy's oracle
+   extended to $|k|=2p$ first. If the scan says $p=4$ is wanted, record the
+   figure, leave the default at 3, and say in the log that the raise is pending
+   that extension rather than pending a Beatnik change.
+7. Measure the **divergence horizon** claim B needs: run the milestone-0
    configuration FMM-driven and direct-driven to 2000 steps and report, as a
    ladder, the first step at which the two exceed each rung. This is M0-D1's
    measurement with a per-evaluation perturbation as the seed instead of a
@@ -808,9 +1114,11 @@ ladder, which is the instrument step 6 reuses
    asserts against `kRefVolumeDrift` and needs a measured bound.
 
 **Exit criterion:** the log carries the full scan with every entry's
-qualification list; a stated $\tau_A$ and production parameter set; the operator
-key-count and fallback-count table from step 4; and the divergence-horizon ladder
-and volume-drift bound from step 6. README carries the validated parameter set
+qualification list, a separate potential and gradient column at every point, and
+a P2P pair fraction at every point; a stated $\tau_A$ and production parameter
+set, including the `ncrit` at which each subdivision level first has a live far
+field; the operator key-count and fallback-count table from step 5; and the
+divergence-horizon ladder and volume-drift bound from step 7. README carries the validated parameter set
 and the achieved fidelity for the gradient. The task is complete whichever value
 $\tau_A$ takes — if it is above $10^{-3}$ at every affordable order, that is the
 finding, and **X1** is what it implies.
@@ -819,8 +1127,10 @@ finding, and **X1** is what it implies.
 
 ### T6 — The two milestone-tier FMM members — **NOT STARTED**
 
-**Depends on:** T5 (for $\tau_A$, the horizon envelope and the volume-drift
-bound) and T4 (for the comparison harness).
+**Depends on:** T5 (for $\tau_A$, the horizon envelope, the volume-drift bound
+and the per-level `ncrit`) and T4 (for the comparison harness). No upstream gate:
+Canopy's derivative ladder is validated at $|k|=6$, which is $2p$ at the
+production order.
 
 **Fill in:** `tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp` and
 `Beatnik_Test_Milestone0FmmL4.cpp` (new),
@@ -862,7 +1172,17 @@ count and launch count), [README.md](../../README.md).
    carried scalars, the polyhedral deficit, the final `time` and the 81-entry
    reference volume-drift series all differ, and the existing members' blocks
    are the values to reuse (they are that level's, already re-derived).
-2. **Claim A.** Drive the trajectory with `BRSolverDirect` — the run must stay
+2. **Claim A.** Use T5's per-level `ncrit`, and report the realized P2P pair
+   fraction in each member's log so a reader can see how much far field the
+   claim actually exercised. At 2562 vertices there is an `ncrit` that makes it
+   live; **at 642 there is none** — the near field covers about 105 occupied
+   leaves at $\theta=0.3$ and the level has at most 80 even at `ncrit = 8` — so
+   the L3 member's claim A is largely a P2P comparison and must say so on the
+   assertion rather than present itself as a far-field bound. It is still worth
+   asserting: it is the round trip, the tag handshake and the contraction under
+   test, all of which are rank-count-dependent and none of which the L4 member
+   covers at L3's decomposition. The far-field accuracy claim rests on L4.
+   Drive the trajectory with `BRSolverDirect` — the run must stay
    bit-identical to the existing member, so the 81 gold comparisons run at
    `--rtol 1e-10 --atol 1e-12` unchanged and prove the trajectory is the right
    one. At each of the 81 checkpointed steps, additionally evaluate the FMM
@@ -965,7 +1285,7 @@ qualification list; and a `--bernoulli-scalar-mode surface-riesz
 user approves an entry).
 
 **Reference:** what `migrate()` actually costs, per call
-([canopy0.md](canopy0.md) F3(b)); the prediction that a deforming surface picks
+([canopy0.md](../../../canopy/tasks/canopy0.md) F3(b)); the prediction that a deforming surface picks
 `Rebalance` rather than `Migrate` essentially every stage, and that a plan
 rebuild is a serial host-side dual-tree traversal executed on every rank (F3(c),
 citing `canopy/src/Canopy_CommunicationPlan.hpp:549-665`); develop-canopy's
@@ -982,12 +1302,23 @@ convention `BEATNIK_SCOPED_TIMER_DETAILED` and the action-histogram destructor
    across pack, forward distribute, forward migrate, `auto_maintain`, `solve`,
    contract, reverse distribute, reverse migrate, scatter. Nine of these per
    timestep is the cost model that decides whether this path is worth running.
-2. Report how much of `solve` is operator construction. Canopy's operator cache
-   is keyed by geometry and persists across topology changes, so a `Rebalance`
-   rebuilds the key→index map but not the operators themselves; on a deforming
-   surface at fixed $b$ the per-key build should amortize to near zero after the
-   first few hundred steps. Whether it does is the difference between
-   `Rebalance`-every-stage being affordable and not.
+2. Report how much of `solve` is operator construction, per maintenance action.
+   The cache does **not** amortize here and the measurement is of how much that
+   costs, not of whether it happens: `CartesianTaylorBasis` sets
+   `key_needs_level = true`, every maintenance path recomputes the root box from
+   the particles, and `set_root_half_width` then clears the entire operator
+   cache — so every `Migrate`, `Rebalance` and `Rebuild` rebuilds the whole
+   table. Canopy measured zero keys retained across 336 builds on a moving
+   distribution
+   ([cartesian-taylor-basis.md](../../../canopy/tasks/cartesian-taylor-basis.md)
+   T5 and R6). Report `m2l_op_keys_built_count()` per build against
+   `m2l_op_cache_size()`, so the log states the retention on **Beatnik's** tree
+   rather than inheriting Canopy's; a non-zero retention here would mean
+   Beatnik's root box is not drifting, which is itself worth knowing. This
+   share, times nine evaluations per timestep, is what decides whether the far
+   field is affordable at all, and if it dominates then the fix is Canopy's
+   (out of scope) and belongs in the log as a sized request rather than as a
+   Beatnik workaround.
 3. Measure `fmm` against `direct` wall-clock per step at several vertex counts,
    and report the **P2P pair fraction** alongside — with
    `near_softening_factor = 0` the near field is set by `ncrit` and the MAC
@@ -1020,23 +1351,25 @@ acceptable P2P fraction, together with the realized operator-key count. This tas
 fires if either bound is exceeded: the order needed is outside the dispatched
 set and extending it is unaffordable, or the key count at that order and
 `max_depth` pushes `total_fallback_pair_count()` off zero because
-`CartesianTaylorBasis` keys carry the tree level against a 32768-key cap. A
-Cartesian-Taylor expansion buys 0.24-0.48 decades per order at standard
-admissibility and 0.82-1.06 at Beatnik's `mac_theta = 0.3`, while its DOF count
-grows as $\binom{p+3}{3}\sim p^3/6$ — so the basis is cheap in the band this work
+`CartesianTaylorBasis` keys carry the tree level against a 32768-key cap, which
+Canopy has already been measured at 78% of. On the gradient a Cartesian-Taylor
+expansion buys $\log_{10}(2\sqrt3/\theta)$ decades per order — 1.06 at Beatnik's
+`mac_theta = 0.3` and 0.47 at standard admissibility — while its DOF count grows
+as $\binom{p+3}{3}\sim p^3/6$, so the basis is cheap in the band this work
 targets and expensive an order of magnitude below it
-([canopy-kernel-rec.md](canopy-kernel-rec.md), "Convergence per DOF").
+([canopy-kernel-rec.md](../../../canopy/tasks/canopy-kernel-rec.md),
+"Convergence per DOF").
 
 **Where the work would live:** a black-box (Chebyshev interpolation) basis in
 Canopy, on the same far-field contract, designed in
-[canopy-bbFMM.md](canopy-bbFMM.md). It converges geometrically in the
+[canopy-bbFMM.md](../../../canopy/tasks/canopy-bbFMM.md). It converges geometrically in the
 interpolation order rather than algebraically, and softening helps rather than
 hurts — $b>0$ moves the kernel singularity off the real axis, which can only
 increase the convergence rate. Its cost is memory: the per-key operator is
 1.1 MB at $n=6$ against `CartesianTaylorBasis`'s 9.8 KB at $p=4$, so it is only
 representable in the compressed shared-basis form, which is why it is its own
 design and not a variant of this one
-([canopy-kernel-rec.md](canopy-kernel-rec.md), "Memory").
+([canopy-kernel-rec.md](../../../canopy/tasks/canopy-kernel-rec.md), "Memory").
 
 **What Beatnik requires of it, and what it does not.** No interface change:
 `FmmConfig`, `setup`, `solve`, `auto_maintain` and the gradient's shape and sign
@@ -1064,9 +1397,15 @@ eventually, one into Canopy's floating-point floor and one into a kernel bias.
 by** where it stopped and by the second curve: **T5** step 1 scans both bases, and
 a `CartesianTaylor` curve that plateaus at the same level as the `SolidHarmonic`
 curve is not a truncation plateau at all — it is the selector not selecting.
-**Do:** no tolerance may be compiled into any test before **T5** has been read,
-and every tolerance carries the qualification list the conventions table
-requires, which now includes the basis.
+A third reading is available here and is the cheapest to hit: **the far field
+never engaged.** At the default `ncrit` neither milestone-0 level has one, and a
+solve that is entirely P2P agrees with `BRSolverDirect` to round-off at every
+order — a flat curve at $10^{-15}$ rather than at $10^{-3}$, which reads as
+success. **Distinguished by** the P2P pair fraction, which every scan point and
+every test must report. **Do:** no tolerance may be compiled into any test
+before **T5** has been read; every tolerance carries the qualification list the
+conventions table requires, which now includes the basis, the field it is on and
+the P2P fraction.
 
 **R2 — the adapter silently gets the solid-harmonic far field.** Canopy's basis
 template parameter is defaulted to `LaplaceKernel`, so an instantiation that omits
@@ -1086,11 +1425,15 @@ everywhere by a factor that changes with the rank count — the same signature a
 the R9 ghost-emission bug the quadrature warns about
 ([src/Beatnik_SourceQuadrature.hpp:216-220](../../src/Beatnik_SourceQuadrature.hpp#L216-L220)).
 **T4**'s rank sweep is what catches it, which is why 1-6 and not just 1, and
-**T4** step 6's global-count check is the cheap independent discriminator.
+**T4** step 7's global-count check is the cheap independent discriminator.
 
-**R4 — Canopy's np=4 defect is absorbed into Beatnik's budget.** Canopy's
-three-component gradient path fails at exactly 4 ranks at $2\times$ over a
-$10^{-3}$ budget (`canopy/README.md:368-370`). Beatnik's gate runs at 4 ranks and
+**R4 — Canopy's np=4 defect is absorbed into Beatnik's budget.** `SingleSolve`'s
+three-component gradient bodies fail at exactly 4 ranks at $2\times$ over a
+$10^{-3}$ budget (`canopy/README.md:562-588`), under `LaplaceKernel` at $P=8$
+with `softening = 0`. The evidence is narrower than it was —
+`CartesianTaylorSolve` drives `NComps = 3`, compares the gradient and passes at
+ranks 1-6 — but that is a different basis, order, softening and distribution, so
+it bounds the defect rather than retiring it. Beatnik's gate runs at 4 ranks and
 the milestone tier runs at 1 and 4, and Beatnik's own $\tau_A$ is $10^{-3}$ — the
 same order as the defect, so this would not present as an obvious outlier. An
 error that appears at exactly one rank count is a decomposition-bug signature,
@@ -1102,7 +1445,7 @@ field.** Canopy's `solve()` uses the leaf membership, communication plan and P2P
 neighbour lists cached by the *last* setup or maintenance call, so a particle
 that has moved out of its leaf still contributes to its old leaf's multipole and
 still gets its old leaf's near-field list. Nothing raises
-([canopy0.md](canopy0.md) F3(a)). This is the single most dangerous property of
+([canopy0.md](../../../canopy/tasks/canopy0.md) F3(a)). This is the single most dangerous property of
 the API for this consumer, because the three RK stages each move every source.
 **T2** must call maintenance before every `solve()`, unconditionally, and must
 not add a "the positions barely moved" fast path — that precondition can only be
@@ -1112,11 +1455,15 @@ checked upstream.
 arithmetic.** `CartesianTaylorBasis` keys carry the tree level, so the realized
 key count scales with the number of occupied depths against a 32768-key cap;
 a thin sheet at a generous `max_depth` is exactly the shape that reaches it.
+The cap is closer than it looks: Canopy measured 25438 keys at $\theta=0.3$ on
+8640 particles at `ncrit = 8` — 78% of the cap — and saw the table saturate it
+outright once the trajectory was amplified, while $\theta=0.5$ on the same cloud
+needed only 7374. Beatnik runs at $\theta=0.3$, which is the expensive end.
 Overflow is not an error: those pairs route to a per-pair translate that is
 slower and bitwise different, with one warning. **Presents as:** an accuracy
 number that is a mixture of two code paths, and a speedup worse than the pair
 counts predict. **Distinguished by** `total_fallback_pair_count()`, which
-**T5** step 4 reports at every scan point. **Do:** if it is non-zero at the
+**T5** step 5 reports at every scan point. **Do:** if it is non-zero at the
 production configuration, lower `max_depth` or the order before touching the cap,
 and record which and why — the byte budget is not the binding constraint at
 $p\le4$ and raising it will not help.
@@ -1133,11 +1480,11 @@ claim B does not rest on one.
 
 **R8 — claim B's horizon envelope is set from a single run of a
 non-reproducible path.** Zoltan2's partition is non-deterministic across runs
-([canopy0.md](canopy0.md) F3(c)), so two FMM-driven runs of the same deck take
+([canopy0.md](../../../canopy/tasks/canopy0.md) F3(c)), so two FMM-driven runs of the same deck take
 different summation orders and diverge from each other as well as from the
 direct path. An envelope measured once will be tripped by the noise.
 **Presents as:** **T6**'s horizon assertion failing intermittently, on no code
-change. **Do:** **T5** step 6 must measure the horizon more than once and set the
+change. **Do:** **T5** step 7 must measure the horizon more than once and set the
 envelope from the *earliest* observed horizon with margin, and the log must
 record the run-to-run spread separately from the direct-versus-FMM gap. A single
 number with no spread beside it is not a usable envelope.
@@ -1151,9 +1498,51 @@ measure the tier run and set `-t` and the queue from it; if the honest number is
 unwieldy, splitting claim A and claim B into separate members is the fallback, at
 the cost of a third 2000-step trajectory per level.
 
-**R10 — progress stalls waiting on X1.** Every task is independent of it, and
-**T6** lands with whatever $\tau_A$ **T5** measures. The failure mode is a session
-reading **X1** as a gate on the whole document. It is not: it is a conditional
-that the current estimate says will not fire, and the deliverable without it is a
-working, measured, bounded-error fast path at the reference implementation's own
-fidelity.
+**R10 — progress stalls waiting on an upstream task.** Two upstream items appear
+in this document and they are not the same kind of thing, which is the confusion
+to avoid. **X1** is a conditional nobody expects to fire: every task is
+independent of it, **T6** lands with whatever $\tau_A$ **T5** measures, and the
+deliverable without it is a working, measured, bounded-error fast path at the
+reference implementation's own fidelity. Canopy's ladder validation (**R11**)
+was the other, and it has landed: the ladder is checked at $|k|=6$, which is
+$2p$ at the production order, so **no task here waits on anything upstream**.
+What survives of it binds only which scan point may become the production order,
+not whether any task may run. A session that reads either item as a gate on the
+sequence has misread it.
+
+**R11 — a scan point above $p=3$ is promoted to the production order.** The
+derivative ladder is validated at $|k|=2p$ through $p=3$ and no further;
+**T2**'s dispatch set reaches $p=5$ and **T5** scans it, so the scan produces
+points at $|k|=8$ and $|k|=10$ that no oracle covers. The recurrence divides by
+$w$ and weights terms by $k_j(k_j-1)$, so a conditioning loss would be worst at
+small $|r|/\sqrt b$ — Beatnik's own band, which is why the measured margins
+matter: 13.0x, 11.9x and 16.9x at degrees 4, 5 and 6, at $b=\varepsilon^2$ and
+$|r|/\sqrt b$ sampled from inside the band rather than bracketing it. Nothing
+suggests it degrades at 8 or 10. **Presents as:** an error curve that keeps
+falling above $p=3$ at a rate slightly off the model, or one that stops falling
+there — both indistinguishable from **R1**'s truncation plateau, and neither
+attributable without an oracle. **Do:** report those points as measurements and
+do not adopt one as the production order; **T5** step 6 states it, and the
+raise is an upstream request for another degree of oracle, not a Beatnik
+change. Canopy's stencils abort loudly on an order they do not carry, so the
+extension fails visibly rather than producing a mis-differenced reference.
+
+**R12 — the operator rebuild dominates and the far field is never faster.**
+Every maintenance call empties the M2L operator table, unconditionally and by
+construction, because the basis is level-keyed and the root box is recomputed
+from the particles at every build. Beatnik calls maintenance nine times per
+timestep on a surface that deforms continuously, so the table is rebuilt nine
+times per timestep, at 25438 keys and 20 DOF per cell at the production
+configuration. **Presents as:** correct results throughout and `fmm` slower than
+`direct` at every vertex count **T8** measures — the crossover simply never
+arriving. **Distinguished from** an ordinary constant-factor loss by **T8** step
+2's per-build key count: a rebuild cost shows as `m2l_op_keys_built_count()`
+climbing by the full cache size at every build. **Do:** it is not a correctness
+risk and no Beatnik task fixes it. If **T8** finds it dominant, the log records
+the measured share as a sized request against Canopy — plausibly keying the
+cache on the physical $R$ rather than on the level, which
+[cartesian-taylor-basis.md](../../../canopy/tasks/cartesian-taylor-basis.md) R6
+names — and README states the crossover as "none found, bounded by operator
+reconstruction" rather than reporting a speedup that does not exist. Do not
+respond by lowering `max_depth` to shrink the table: that trades a cost problem
+for an accuracy one and **T5** owns `max_depth`.
