@@ -722,13 +722,22 @@ develop-canopy's `makeCanopyConfig` for the full mapping it needed
    $7.0718\times10^{-4}$ at $p=3$, both at $\theta=0.3$ — so the default is
    traceable to a measurement rather than to a preference. `--br-treecode-order`
    still overrides, so a Python command line that passes 2 explicitly still gets
-   2. Correct the `FmmParams` doc comment
+   2. Three places state or qualify the default and all three move together.
+   Correct the `FmmParams` doc comment
    ([src/Beatnik_Params.hpp:132-140](../../src/Beatnik_Params.hpp#L132-L140)) and
    the CLI comment
    ([examples/02_adaptive_mesh_bubble/InputFile.hpp:478-479](../../examples/02_adaptive_mesh_bubble/InputFile.hpp#L478-L479)),
    both of which say the treecode numbers do not mean the same thing to the two
    algorithms; say per knob which way each fails to transfer rather than
-   deleting the warning.
+   deleting the warning. Then correct the schema line `printSchema` emits
+   ([examples/02_adaptive_mesh_bubble/InputFile.hpp:1098](../../examples/02_adaptive_mesh_bubble/InputFile.hpp#L1098)),
+   which reads `-> FMM expansion order (2)`. `order` is the one knob where the
+   "option names and defaults match the Python script exactly" promise genuinely
+   breaks, and the schema is where a user reads it, so that line must carry
+   **both** numbers — the Python's 2 and Beatnik's 3 — rather than overwriting
+   one with the other. `printSchema` mirrors the option table and README moves
+   with it in the same change
+   ([:1015-1022](../../examples/02_adaptive_mesh_bubble/InputFile.hpp#L1015-L1022)).
 6. **Leave `ncrit` at 64** and state the constraint that makes it right only at
    production vertex counts: under Canopy's MAC the near field reaches
    $\sqrt3/\theta$ cell widths, which on a 2-manifold is
@@ -784,8 +793,10 @@ option appears in `--help`, and `--br-treecode-order 2` still yields
 
 **Depends on:** T1.
 
-**This is the task that first opens `../canopy`.** T1 must not, and no earlier
-task may name a Canopy type. Every Canopy reading decision, every signature that
+**This is the task that first names a Canopy type in Beatnik code.** T1 reads
+`canopy/src/Canopy_Solver.hpp` to derive its defaults and its comments, but names
+no Canopy type, includes no Canopy header and holds no Canopy object; no task
+before this one may. Every Canopy reading decision, every signature that
 Canopy's actual API forces, and every departure from the interface as it stands
 today is recorded in the log by this task.
 
