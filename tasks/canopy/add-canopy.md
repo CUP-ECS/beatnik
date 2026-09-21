@@ -1,18 +1,21 @@
 # Canopy as Beatnik's far-field Birkhoff-Rott solver
 
-**Status:** IN PROGRESS — **T1** is **DONE**; every task from **T2** on is NOT
-STARTED. The findings and the measured numbers are complete, and no upstream work
+**Status:** IN PROGRESS — **T1** and **T2** are **DONE**; every task from **T3**
+on is NOT STARTED. The findings and the measured numbers are complete, and no upstream work
 gates the sequence: Canopy's derivative ladder is validated at the production
 order. One narrow constraint remains inside **T5**, on scan points above it
 (**R11**).
 
 ## Problem
 
-`--br-approximation fmm` throws. `BRSolverFMM::computeInterfaceVelocity` and
-`::computeSurfaceRieszScalar` are `BEATNIK_NOT_IMPLEMENTED` stubs
-([src/Beatnik_BRSolverFMM.hpp:113-154](../../src/Beatnik_BRSolverFMM.hpp#L113-L154)),
-and so is every method of the adapter behind them
-([src/Beatnik_FarFieldInterface.hpp:125-188](../../src/Beatnik_FarFieldInterface.hpp#L125-L188)).
+`--br-approximation fmm` throws, and after **T2** exactly one layer is
+responsible for that. `BRSolverFMM::computeInterfaceVelocity` and
+`::computeSurfaceRieszScalar` are still `BEATNIK_NOT_IMPLEMENTED` stubs
+([src/Beatnik_BRSolverFMM.hpp:116-158](../../src/Beatnik_BRSolverFMM.hpp#L116-L158)) —
+**T3** and **T7** own them — while the adapter beneath them is real and
+Canopy-backed
+([src/Beatnik_FarFieldInterface.hpp](../../src/Beatnik_FarFieldInterface.hpp)).
+The throw is therefore in the BR solver, not in the far field.
 `fmm` is nevertheless the **default**
 ([src/Beatnik_Params.hpp:107](../../src/Beatnik_Params.hpp#L107)), so the default
 far-field path is the one that throws. The only working Birkhoff-Rott evaluator
@@ -499,13 +502,15 @@ tuned to whatever the code did.
   [:153](../../src/Beatnik_BRSolverFMM.hpp#L153)) via `BEATNIK_NOT_IMPLEMENTED`
   ([src/Beatnik_Types.hpp:86](../../src/Beatnik_Types.hpp#L86)). It throws rather
   than returning a wrong field, which is the safe direction.
-- `FarFieldSolver`'s three methods throw the same way
-  ([src/Beatnik_FarFieldInterface.hpp:129](../../src/Beatnik_FarFieldInterface.hpp#L129),
-  [:156](../../src/Beatnik_FarFieldInterface.hpp#L156),
-  [:187](../../src/Beatnik_FarFieldInterface.hpp#L187)). The header states outright
-  that Canopy had not been read when it was written, and its `setSources` /
-  `evaluateCurl` split does not match Canopy's `setup` / `auto_maintain` /
-  `solve` split — **T2** owns the signature change.
+- `FarFieldSolver`'s three methods are **real and Canopy-backed** (**T2**).
+  `setSources` / `evaluateCurl` / `evaluateDot` are gone, replaced by
+  `evaluateVelocity`, `evaluateRieszScalar` and `diagnostics()`
+  ([src/Beatnik_FarFieldInterface.hpp](../../src/Beatnik_FarFieldInterface.hpp)); the
+  adapter owns the type-erased six-arm dispatch, the persistent Canopy
+  `Solver`, the `FmmConfig` builder and the tag-reverse round trip.
+  `--br-approximation fmm` nevertheless still throws, from `BRSolverFMM`'s two
+  virtuals, until **T3** and **T7** call into it. In a `~canopy` build the two
+  evaluations throw `std::runtime_error` naming `+canopy` instead.
 - **No Beatnik header includes a Canopy header.** The build already finds and
   links Canopy under `+canopy`
   ([CMakeLists.txt:79-81](../../CMakeLists.txt#L79), [src/CMakeLists.txt:78-79](../../src/CMakeLists.txt#L78-L79)),
@@ -824,7 +829,7 @@ progress log's `## T1`.
 
 ---
 
-### T2 — `FarFieldSolver` backed by Canopy: the adapter and the round trip — **NOT STARTED**
+### T2 — `FarFieldSolver` backed by Canopy: the adapter and the round trip — **DONE**
 
 **Depends on:** T1.
 
@@ -1070,6 +1075,54 @@ edited because the change is reverted. Further:
 `grep -n "CartesianTaylorBasis\|LaplaceKernel" src/Beatnik_FarFieldInterface.hpp`
 shows a basis named on every one of the six dispatch arms. No behavioral claim is
 made by this task — **T4** is where correctness is first checked.
+
+**Met.** Both builds are green and both greps pass.
+
+*What was verified.* `spack install` succeeds with `+canopy` — 29 CXX objects
+from a cleaned build directory, `adaptive_mesh_bubble.cpp.o` among them — and
+all six arms are genuinely emitted, not merely written: `nm -C` on the
+installed `adaptive_mesh_bubble` finds 289 defined symbols for each of
+`CartesianTaylorBasis<double, p, 3>` at $p = 0, 2, 3, 4, 5$ and 290 for
+`LaplaceKernel<double, 3, 3>`. That is a consequence of a departure recorded
+in the log: the arm is selected in `FarFieldSolver`'s **constructor** rather
+than at the first evaluation, so the dispatch switch is instantiated even
+though `BRSolverFMM`'s virtuals still throw and nothing yet calls an
+evaluation. `spack install` succeeds again with the development environment's
+Beatnik spec flipped to `~canopy`: the installed `Beatnik_Config.hpp` carries
+`/* #undef BEATNIK_ENABLE_CANOPY */`, the binary holds **zero** `Canopy::`
+symbols, and with a temporary explicit instantiation of
+`FarFieldSolver<Kokkos::HIP, Kokkos::HIPSpace>` added to the example driver
+every member instantiates — constructor, both evaluations, `diagnostics()`,
+`params()` and `throwNoCanopy` — and the binary carries the
+`std::runtime_error` text naming `Beatnik_ENABLE_CANOPY=ON, spack '+canopy'`.
+The temporary instantiation and the spec flip were both reverted and `+canopy`
+reinstalled; the committed
+[systems/tuolumne/spack.yaml](../../systems/tuolumne/spack.yaml) snapshot was
+not edited. `grep -n "include.*Canopy_\|Canopy::" src/*.hpp src/*.in` names
+only `Beatnik_FarFieldInterface.hpp`, and
+`grep -n "CartesianTaylorBasis\|LaplaceKernel" src/Beatnik_FarFieldInterface.hpp`
+shows a basis named on all six arms.
+
+*The exit criterion could not be met as written, and a one-line CMake fix was
+needed.* `Beatnik_ENABLE_CANOPY` was set from `Canopy_FOUND` alone, so
+`~canopy` — which passes only `-DBeatnik_REQUIRE_CANOPY=OFF` — installed a
+`+canopy` binary in any environment that has Canopy installed, this one
+included. The macro in [CMakeLists.txt](../../CMakeLists.txt) now keys
+`Beatnik_ENABLE_*` off `Beatnik_REQUIRE_*`, whose default is still `_FOUND`.
+The log records the diagnosis.
+
+*What was **not** verified, and is not claimed.* **Nothing was run.** No
+binary was invoked, no job was submitted, no test was executed, and no
+tolerance, budget, speedup or accuracy figure is asserted anywhere in this
+change. The adapter's arithmetic — the two contractions, the two prefactors,
+the sign of Canopy's gradient, and above all the tag-reverse round trip — is
+checked by **compilation only**. **T4** is where any of it is first executed
+and where **R3**'s dropped-or-duplicated-source failure mode is actually
+caught; the round trip's own validity check and the `FarFieldDiagnostics`
+global particle count exist to make that cheap, but neither has ever been
+exercised. The one measured number here is a compile cost: on tuolumne the six
+arms take the project from 30 to 78 CPU-minutes over the same 29 translation
+units, a factor of 2.6.
 
 ---
 

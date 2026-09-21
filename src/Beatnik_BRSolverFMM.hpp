@@ -95,9 +95,11 @@ class BRSolverFMM : public BRSolverBase<ExecutionSpace, MemorySpace>
      * (lines 96-...) — see the file header on why this is a replacement rather
      * than a port.
      *
-     * Sequence: generate sources from the quadrature, hand them to
-     * `FarFieldSolver::setSources`, then `evaluateCurl` at the owned vertices,
-     * then apply `br_sign`. The \f$1/4\pi\f$ is applied inside `evaluateCurl`.
+     * Sequence: generate sources from the quadrature, then
+     * `FarFieldSolver::evaluateVelocity` with them. The \f$1/4\pi\f$ and
+     * `br_sign` are both applied inside that call, and the tree maintenance
+     * the evaluation needs is decided inside it too, so nothing here knows
+     * about Canopy's lifecycle.
      *
      * @note The FMM's accuracy is controlled by the acceptance criterion, and
      *       the kernel it expands is the **softened** \f$1/r^2\f$ field, not
@@ -106,9 +108,10 @@ class BRSolverFMM : public BRSolverBase<ExecutionSpace, MemorySpace>
      *       acceptance criterion tuned on the bare kernel is optimistic there.
      *       Recorded as risk R6 in `tasks/framework.md`.
      *
-     * @note MPI. Collective, inside Canopy. The tree rebuild also carries a
-     *       bounding-box `MPI_Allreduce` and a source redistribution — see
-     *       `FarFieldSolver::setSources`.
+     * @note MPI. Collective, inside Canopy, and every rank must call it the
+     *       same number of times per step. Beyond Canopy's own collectives the
+     *       adapter runs the round trip that maps Beatnik's decomposition onto
+     *       Canopy's — see `FarFieldSolver::evaluateVelocity`.
      */
     void computeInterfaceVelocity( mesh_type& mesh,
                                    const geometry_type& geometry,
@@ -130,8 +133,9 @@ class BRSolverFMM : public BRSolverBase<ExecutionSpace, MemorySpace>
      * @brief Surface Riesz scalar by fast multipole.
      *
      * Same source generation, but through
-     * `SourceQuadratureBase::generateGradient` and `FarFieldSolver::evaluateDot`
-     * with the \f$-1/4\pi^2\f$ normalization.
+     * `SourceQuadratureBase::generateGradient` and
+     * `FarFieldSolver::evaluateRieszScalar` with the \f$-1/4\pi^2\f$
+     * normalization, which that call applies and `br_sign`, which it does not.
      *
      * The Python explicitly refuses this combination
      * (`mesh_solver.py:605` raises for `treecode`), so there is no gold file
@@ -152,6 +156,23 @@ class BRSolverFMM : public BRSolverBase<ExecutionSpace, MemorySpace>
         (void)scalar;
         BEATNIK_NOT_IMPLEMENTED( "BRSolverFMM", "computeSurfaceRieszScalar" );
     }
+
+    /**
+     * @brief The far-field adapter, for its diagnostics.
+     *
+     * `_far_field` is private and `BRSolverBase`'s two virtuals return `void`,
+     * so without this a test holding a `BRSolverFMM` could not read what
+     * Canopy actually did — the maintenance action, the global particle count,
+     * the P2P pair fraction, the M2L operator counts, or the basis, order and
+     * softening in force — without naming a Canopy type itself, which the
+     * adapter contract forbids. `FarFieldDiagnostics` names none, so this
+     * hands back a Beatnik POD.
+     *
+     * Valid to call before any evaluation: the diagnostics are
+     * default-constructed until one has run, and in a `~canopy` build they
+     * stay that way because both evaluations throw.
+     */
+    const far_field_type& farField() const { return *_far_field; }
 
   private:
     MPI_Comm _comm;

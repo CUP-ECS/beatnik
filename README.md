@@ -284,7 +284,7 @@ interchangeable**, and the three differ in *how* they fail to transfer:
 | CLI option | `FmmParams` member | Default | Transfers from the treecode? |
 | --- | --- | --- | --- |
 | `--br-treecode-theta` | `mac_theta` | 0.3 | **Yes.** Same opening angle; the Python's value is kept. |
-| `--br-treecode-order` | `order` | **3** (Python: 2) | **Quantity yes, accuracy no** — see below. |
+| `--br-treecode-order` | `order` | **3** (Python: 2) | **Quantity yes, accuracy no** — see below. Only the built orders are accepted; see *Which basis and order are built*. |
 | `--br-treecode-ncrit` | `ncrit` | 64 | **Yes**, but only at production vertex counts — see below. |
 
 `order` is the one place the "names and defaults match exactly" promise breaks.
@@ -313,7 +313,7 @@ The FMM-only members, none of which has a CLI option:
 
 | `FmmParams` member | Default | Canopy `FmmConfig` member | What it is |
 | --- | --- | --- | --- |
-| `basis` | `FarFieldBasis::CartesianTaylor` | none (a template parameter) | Which far-field basis the adapter instantiates. `CartesianTaylor` expands the desingularized kernel directly and is the validated production path; `SolidHarmonic` expands the bare $1/r$ and carries a kernel bias no order removes. |
+| `basis` | `FarFieldBasis::CartesianTaylor` | none (a template parameter) | Which far-field basis the adapter instantiates. `CartesianTaylor` expands the desingularized kernel directly and is the validated production path; `SolidHarmonic` expands the bare $1/r$ and carries a kernel bias no order removes, and is built at order 3 only. |
 | `max_depth` | 10 | `max_depth` | Hard **cap** on tree depth, not a target — the tree stops at `ncrit` occupancy well before it. Canopy bounds it at 19. |
 | `near_softening_factor` | **0** | `near_softening_factor` (4.0) | Multiple of the softening length inside which pairs are forced out of the far field. Meaningful only under `SolidHarmonic`; under `CartesianTaylor` the far field already carries the blob, so a non-zero floor only moves work into the near-field sum. |
 | `ncrit_tol` | 0.10 | `ncrit_tol` (0.10) | Coarsening hysteresis on `ncrit`, as a fraction of it: children merge only below `ncrit · (1 - ncrit_tol)`. Damps split/merge thrashing on a surface that deforms every RK stage. |
@@ -333,6 +333,35 @@ fallback, and which additionally disables `near_softening_factor`.
 `01_rising_bubble` (`rocketrig`) and documented separately above; they do not
 reach `FmmParams`.
 
+###### Which basis and order are built
+
+Canopy's basis and order are C++ *template* parameters, not configuration
+fields, so the adapter
+([src/Beatnik_FarFieldInterface.hpp](src/Beatnik_FarFieldInterface.hpp)) can
+only offer an explicitly enumerated set of instantiations. Six are built:
+
+| `basis` | `order` | Why it is built |
+| --- | --- | --- |
+| `cartesian-taylor` | 0 | Monopole-only negative control. |
+| `cartesian-taylor` | 2 | One order below production. |
+| `cartesian-taylor` | **3** | **The production path**, and the default. |
+| `cartesian-taylor` | 4, 5 | **Scan-only.** Measurable, but above the order at which Canopy's derivative ladder is validated, so neither may be adopted as the production order. |
+| `solid-harmonic` | 3 | Contrast arm, at equal order to the production path. |
+
+Any other pair — `--br-treecode-order 1`, `6`, or a `solid-harmonic` run at
+anything but 3 — throws at solver construction with a message naming the
+supported set. Nothing is silently rounded and no basis is silently
+substituted. Each arm instantiates Canopy's entire pipeline in every
+translation unit that creates a BR solver, so the set is deliberately small;
+on tuolumne the six roughly **2.6x** the project's compile CPU time
+(78 against 30 CPU-minutes over 29 translation units).
+
+The FMM path additionally requires **`--source-quadrature vertex`**, and
+rejects any other rule at the first evaluation. The round trip that maps
+Beatnik's mesh decomposition onto Canopy's own carries one integer per source,
+which is only well defined while source, target and output row are the same
+row — true for the vertex rule and for no other.
+
 ## Dependencies and Build Notes
 
 Beatnik depends on the following packages in all configurations:
@@ -344,7 +373,7 @@ Beatnik depends on the following packages in all configurations:
   1. A high-performance **GPU-aware** MPI implementation such as OpenMPI, MPICH, or MVAPICH
   1. GTest 1.10+ when `Beatnik_ENABLE_TESTING=ON`
   1. **Tessera**, which provides the unstructured triangle surface and its HDF5 mesh I/O. Required by the adaptive-mesh solver.
-  1. **Canopy**, which provides the fast multipole far-field solver. Optional: `Beatnik_ENABLE_CANOPY` follows from whether it is found, and without it `--br-approximation fmm` is refused at run time with a clear message while `direct` still works.
+  1. **Canopy**, which provides the fast multipole far-field solver. Optional: `Beatnik_ENABLE_CANOPY` follows `Beatnik_REQUIRE_CANOPY`, which defaults to whether Canopy was found, so `-DBeatnik_REQUIRE_CANOPY=OFF` (spack `~canopy`) genuinely compiles it out even on a machine that has it installed. Without it `--br-approximation fmm` is refused at run time with a clear message while `direct` still works.
   1. Python 3 with `numpy` and `h5py`, only for the gold-file regression comparison (`tests/regression_tests/compare_output.py`). Absent, those two ctest cases are skipped with a status message.
 
 ### Tessera and Canopy

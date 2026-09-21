@@ -70,10 +70,18 @@ macro(Beatnik_add_dependency)
   option(
     Beatnik_REQUIRE_${BEATNIK_DEPENDENCY_OPTION}
     "Require Beatnik to build with ${BEATNIK_DEPENDENCY_PACKAGE} support" ${BEATNIK_DEPENDENCY_PACKAGE}_FOUND)
+  # Beatnik_ENABLE_* follows Beatnik_REQUIRE_*, NOT <Package>_FOUND. The two
+  # agree whenever the option is left at its default, since that default IS
+  # _FOUND -- but an explicit -DBeatnik_REQUIRE_<PKG>=OFF has to mean "do not
+  # use it", and keying ENABLE off _FOUND made that impossible: any build tree
+  # that could see the package (a spack environment carrying it as a root spec,
+  # say) defined the C macro and compiled the dependency in anyway.
   if(Beatnik_REQUIRE_${BEATNIK_DEPENDENCY_OPTION})
     find_package( ${BEATNIK_DEPENDENCY_PACKAGE} ${BEATNIK_DEPENDENCY_VERSION} REQUIRED COMPONENTS ${BEATNIK_DEPENDENCY_COMPONENTS} )
+    set(Beatnik_ENABLE_${BEATNIK_DEPENDENCY_OPTION} ON)
+  else()
+    set(Beatnik_ENABLE_${BEATNIK_DEPENDENCY_OPTION} OFF)
   endif()
-  set(Beatnik_ENABLE_${BEATNIK_DEPENDENCY_OPTION} ${${BEATNIK_DEPENDENCY_PACKAGE}_FOUND})
 endmacro()
 
 # Optional dependency: Canopy

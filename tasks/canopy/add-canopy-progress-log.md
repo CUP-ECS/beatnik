@@ -471,3 +471,254 @@ every `FmmConfig` member initialized, `softening` positive rather than the
 sentinel, `near_softening_factor` 0. **T5** — owns revising `max_depth` from
 measurement, and the byte budget is not a scan axis. Nothing about `mac_theta`,
 `ncrit`'s liveness inequality, τ_A or the production order changed.
+
+## T2
+
+The adapter is real. `Beatnik_FarFieldInterface.hpp` went from 200 lines of
+stubs to ~1300 lines holding the six-arm type-erased dispatch, the `FmmConfig`
+builder, the tag-reverse round trip and the diagnostics. `spack install` is
+green on `+canopy` (29 CXX objects from a cleaned build directory) and green
+again on `~canopy`. **Nothing was run** — no binary, no job, no test — and no
+accuracy, tolerance or speedup number is claimed. The only measurement here is
+a compile cost.
+
+**Decisions taken as given by the task, recorded so they are not reopened.**
+The three signatures are `evaluateVelocity`, `evaluateRieszScalar` and
+`diagnostics()`, with no `targets` argument and concrete (not templated) views;
+the `TODO(types)` comments are gone rather than carried forward.
+`FarFieldDiagnostics` is the third signature and `BRSolverFMM` gained
+`const far_field_type& farField() const` in the same change. The P2P pair
+fraction is computed in the adapter — Canopy has no such counter, and its
+public `P2P` surface is `num_ghost_particles()`, `ghost_positions()` and
+`ghost_charges()` and nothing else. The dispatch is a type-erased pimpl over an
+abstract `Impl` with one `ImplFor<FarField, P_ORDER>` per arm: `CartesianTaylor`
+at 0, 2, 3, 4, 5 and one `SolidHarmonic` at 3. A non-`Vertex`
+`source_quadrature` is rejected in the adapter with `std::runtime_error` naming
+the quadrature in force.
+
+### The exit criterion was not reachable as written: `~canopy` did not disable Canopy
+
+This is the finding of the task. `spack install` with the environment's Beatnik
+spec flipped to `~canopy` produced a binary with **2263 `Canopy::` symbols** and
+an installed `Beatnik_Config.hpp` carrying `#define BEATNIK_ENABLE_CANOPY`.
+
+The mechanism, from the archived `CMakeCache.txt`. The spack package maps the
+variant to `-DBeatnik_REQUIRE_CANOPY=OFF` and to dropping the `depends_on`, and
+both did happen — the cache holds `Beatnik_REQUIRE_CANOPY:BOOL=OFF` and no
+Canopy path appears anywhere in `CMAKE_PREFIX_PATH`. But `Canopy_FOUND` was
+still true, because the *environment view* is searched and canopy is a root
+spec of this environment, so `find_package(Canopy QUIET)` resolved
+`Canopy_DIR` to `<env>/.spack-env/view/share/cmake/Canopy`. And
+`Beatnik_add_dependency` ended with
+
+```cmake
+set(Beatnik_ENABLE_${OPT} ${${PACKAGE}_FOUND})
+```
+
+so `Beatnik_REQUIRE_CANOPY=OFF` meant "do not insist on finding it" and never
+"do not use it". There was **no way at all** to build `~canopy` on a machine
+that has Canopy installed — not via the spack variant, and not via
+`-DBeatnik_ENABLE_CANOPY=OFF` either, since that line is a normal `set()` that
+overrides any cache entry in the same scope. Since that is exactly the build
+half of T2's exit criterion, the criterion was untestable as written on this
+system and, in an environment shaped like this one, so is README's claim that a
+`~canopy` build refuses `fmm` at run time.
+
+**Fixed in [CMakeLists.txt](../../CMakeLists.txt), in this change**, by keying
+`Beatnik_ENABLE_*` off `Beatnik_REQUIRE_*`:
+
+```cmake
+if(Beatnik_REQUIRE_${OPT})
+  find_package(... REQUIRED ...)
+  set(Beatnik_ENABLE_${OPT} ON)
+else()
+  set(Beatnik_ENABLE_${OPT} OFF)
+endif()
+```
+
+Behavior is unchanged in every case except the broken one: `Beatnik_REQUIRE_*`
+still defaults to `${PACKAGE}_FOUND`, so a plain `cmake ..` with Canopy present
+still enables it and one without it still disables it; `+canopy` with Canopy
+missing still fails at configure. Only an *explicit* OFF changed meaning, and it
+changed to what it says. This is a top-level-CMakeLists edit that T2's "Fill in"
+list does not name, so it is called out here and in T2's **Met.** paragraph
+rather than buried: it is one line of logic and trivially revertible, and the
+alternative was shipping T2 with half its exit criterion unverified. README's
+Canopy dependency bullet was corrected in the same change. Left alone
+deliberately: the `option()` default is written `${PACKAGE}_FOUND` rather than
+`${${PACKAGE}_FOUND}`, so the cache holds the literal string `Canopy_FOUND` and
+works only because `if()` re-dereferences it. It is self-correcting and was not
+touched.
+
+### "Compiles under `~canopy`" needed more than a green build
+
+A `~canopy` build instantiates `FarFieldSolver` **nowhere**:
+`Beatnik_CreateBRSolver.hpp` preprocesses out the `new BRSolverFMM<...>` line,
+which is the class's only construction site, so the template is parsed and
+definition-checked but never instantiated — `nm` found zero `FarFieldSolver`
+symbols. That is weaker than the criterion's "compiling and throwing". Closed by
+temporarily adding
+
+```cpp
+template class Beatnik::FarFieldSolver<Kokkos::DefaultExecutionSpace,
+    Kokkos::DefaultExecutionSpace::memory_space>;
+```
+
+to the example driver and rebuilding: every member instantiated (constructor,
+both evaluations, `diagnostics()`, `params()`, `throwNoCanopy`), zero `Canopy::`
+symbols, and the `std::runtime_error` text naming
+`Beatnik_ENABLE_CANOPY=ON, spack '+canopy'` present in the binary. The
+instantiation was removed and `+canopy` reinstalled. **This gap reopens the
+moment someone edits the guarded half of the header**, because nothing in the
+tree instantiates it; a one-line instantiation in a `~canopy`-guarded unit test
+would close it permanently and is left for **T4**.
+
+### Where the implementation departed from T2's Do steps
+
+- **The arm is selected in the constructor, not at the first evaluation**
+  (step 5 says "constructed once on the first evaluation"). Two reasons, and the
+  first is the important one. Lazily, `makeImpl` is instantiated only when an
+  evaluation is instantiated — and `BRSolverFMM`'s virtuals still throw, so
+  nothing calls one until **T3**. The six arms would not have been compiled by
+  this task at all, and the `+canopy` half of the exit criterion would have
+  proved almost nothing. Eagerly, the switch is instantiated from
+  `BRSolverFMM`'s constructor and all six arms are emitted, which `nm` confirms.
+  Second, an unsupported `(basis, order)` now fails at solver construction
+  rather than at the first Runge-Kutta stage. The Canopy `Solver` itself is
+  still constructed lazily, at the first evaluation, because `FmmConfig` needs
+  `sqrt(ZModelParams::blob())` and `ZModelParams` does not reach the
+  constructor — so "constructed once and persistent" still holds of the thing
+  that matters, the tree and the communication plan.
+- **The forward distributor validates itself, and a stale round trip falls back
+  to `setup()`.** Step 3 describes the reuse branch unconditionally, which is
+  right for develop-canopy's fixed grid and wrong here: refinement, coarsening
+  and mesh load balancing all change how many owned vertices a rank has and what
+  a given index means, and `--dynamic-remesh` is on by default. A stale tag map
+  does not fail loudly — an unclaimed row gets `-1`, which `Cabana::Distributor`
+  documents as "drop this element", so the source would vanish from the global
+  sum silently. `buildForwardDistributor` therefore reports whether every row
+  was claimed exactly once with no out-of-range claim; that flag is
+  `MPI_LAND`-reduced and the sequence falls back to a full `setup()` when any
+  rank says no. Cost is one small allreduce and one reduction over work already
+  being done. The branch is on the *reduced* value, so step 8's rule — never
+  branch the collective sequence on a local count — holds.
+- **A round-trip completeness check on the reverse leg**, likewise not in the
+  steps: the scatter counts out-of-range tags and the evaluation compares the
+  returned tuple count against the owned source count, both folded into the one
+  allreduce below, and throws on any mismatch across the communicator. The
+  conventions table's "never return a truncated or best-effort field" is what
+  motivates it; **R3** is what it is aimed at.
+- **One `MPI_Allreduce` of five `long long` values, not five allreduces.** The
+  global particle count, the P2P pair count, the two M2L pair counts and the
+  round-trip error count are all sums over the same communicator at the same
+  point, so they travel together.
+- **One tuple layout serves both contractions.** The `Output` member is
+  `Real[3]` and the Riesz scalar uses component 0 only, wasting two doubles per
+  particle. The alternative was a second AoSoA type, a second tag definition and
+  a second round trip, which is the more expensive kind of cost.
+- **A softening-stability guard.** `ZModelParams` arrives at every evaluation,
+  but Canopy fixes the softening at `Solver` construction and pushes it into the
+  M2L operator tables, so a later evaluation presenting a different `blob()`
+  would silently run a different kernel in the far field than in the near field.
+  The adapter holds the value and throws on a change. The comparison is exact
+  and safe to be: the value is `sqrt(eps*eps)` recomputed from the same struct.
+- **A `toString( FarFieldDiagnostics::Maintenance )`**, which no step asks for,
+  on the same one-table-per-enum rule T1 followed for `FarFieldBasis`.
+- **`mac_theta` is not validated** even though Canopy documents `0 < theta < 1`.
+  Step 4 names `ncrit`, `max_depth` and `softening` and the option surface is
+  closed, so the scope was not widened.
+- **Validation is split across two places** and deliberately: `ncrit` and
+  `max_depth` are checked in the constructor, because they need no
+  `ZModelParams` and the earliest failure is the best one, while `softening` is
+  checked in `buildConfig` at the first evaluation, because that is the first
+  moment `blob()` exists.
+
+### What the Canopy headers turned out to say
+
+- **`Solver::gradient()`'s type is arm-independent.** `gradient_view_type` is
+  `Kokkos::View<Scalar*[NComps][3], MemorySpace>`, which at `Scalar = double`,
+  `NComps = 3` is the same type for every basis and order. So are
+  `TreeBuilder<MS,ES>` and `CommunicationPlan<MS,ES>`. Only `DownwardSweep`
+  carries the basis. `Impl` therefore exposes `gradient()`, `builder()` and
+  `commPlan()` as concrete types and only `readDiagnostics` is genuinely
+  arm-dependent — which is what lets the pack, both contractions, the whole
+  round trip and the P2P pair count be written **once** in the outer class
+  instead of six times. This is the single biggest simplification available on
+  this path and it is not obvious from the design document.
+- **`FmmConfig` has no `order` and no `basis`, as T1 recorded**, and confirmed
+  here: `P_ORDER` and the `template <class, int, int> class FarField` parameter
+  are both on `Solver` and on `createSolver`. `LaplaceKernel<Scalar, P, NComps>`
+  and `CartesianTaylorBasis<Scalar, P_ORDER, NComps>` both match that
+  template-template signature, so one `ImplFor` template covers both bases.
+- **The R2 guard that is actually available is weaker than "assert no arm relies
+  on the default".** `ImplFor` asserts
+  `is_same<solver_type::kernel_type, FarField<Real, P_ORDER, NCOMPS>>`, which
+  fires if the `FarField` argument is ever dropped from the `Solver`
+  instantiation — for five of the six arms. For the `SolidHarmonic` arm it is
+  satisfiable by an omission, because that arm *is* Canopy's default. No
+  compile-time construct can distinguish an explicitly written `LaplaceKernel`
+  from a defaulted one. What bounds the risk is that `Canopy::Solver` is named
+  in exactly one place in Beatnik, inside `ImplFor`, so there is one site where
+  the argument could be dropped and the assert covers it for every arm whose
+  basis is not the default. Recorded on the declaration.
+- **`Canopy::MortonKey` is `uint64_t`** and `CellInfo` carries `global_count`
+  per cell, globally replicated, so the P2P pair count is a host-side
+  `unordered_map<MortonKey, long long>` over `builder().cells()` and a walk of
+  `commPlan().p2p_plan().neighbor_lists`, which is keyed on this rank's **owned**
+  leaves only — hence no double counting across ranks.
+- **Nothing in the Canopy headers contradicted the design document.** The
+  gradient's sign and shape, `setup`'s "count BEFORE migration" contract,
+  `auto_maintain`'s three-way return, the `-1` auto-softening sentinel, the
+  `r2 < 1e-24` P2P skip and the accessor set are all as described.
+
+### The compile-time cost of the six arms
+
+Measured as a controlled pair: two full builds of the **same 29 translation
+units**, each from a `spack clean beatnik` so CMake reconfigured and no object
+was reused, on tuolumne's login node.
+
+| build | wall | **CPU (user)** |
+| --- | --- | --- |
+| `~canopy` (no Canopy at all) | 3m43 | **30m25** |
+| `+canopy` (six arms) | 8m29 | **77m59** |
+
+**+47.5 CPU-minutes, a factor of 2.56.** CPU time is the figure to quote; the
+login node is shared and wall time is correspondingly noisy — an earlier run of
+the identical `+canopy` work came in at 8m35 / 78m31, which is a useful
+cross-check on the CPU number and a warning about the wall one. Each arm
+instantiates `TreeBuilder`, `TreePartitioner`, `CommunicationPlan`,
+`UpwardSweep`, `DownwardSweep` and `P2P`, in every translation unit that creates
+a BR solver, and `nm -C` finds **289** defined symbols per `CartesianTaylor` arm
+and **290** for the `SolidHarmonic` one in the installed
+`adaptive_mesh_bubble`. So a seventh arm costs roughly 8 CPU-minutes of build
+per translation-unit set, which is the number to weigh when **T5** wants another
+scan point.
+
+**Affects:** **T3** — the surface to call is `evaluateVelocity( sources,
+strengths, params, velocity )` after `quadrature.generate`, with no `targets`
+argument, no separate `setSources`, no `blob` argument and no `br_sign` to
+apply afterwards; the adapter also rejects a non-`Vertex` quadrature, so T3's
+own error handling need not. **T4** — `BRSolverFMM::farField().diagnostics()`
+is the read path, and the fields are named in `FarFieldDiagnostics`; note which
+are `global_` (reduced) and which `local_` (this rank only), because they are
+not interchangeable. T4 is also the first execution of *anything* here: the
+round trip, both contractions, both prefactors and the `~canopy` instantiation
+gap above are all unexercised, and T4's rank sweep at 1-6 is what makes the
+self-validating forward distributor and the round-trip completeness throw
+worth anything. Its negative case at `order = 0` is built, and so is the
+`SolidHarmonic` arm at 3. **T5** — the scan axes it may set are
+`(basis, order)` over the six built arms and nothing else; a seventh arm is one
+line plus roughly 8 CPU-minutes of build, and the dispatch says so.
+`p2p_pair_fraction`, `global_m2l_fallback_pair_count` and
+`local_m2l_unique_op_count` are already computed at every evaluation, so no
+scan point needs new plumbing to report its qualification list. **T7** — the
+Riesz path is `evaluateRieszScalar`, which applies `-1/4pi^2` and deliberately
+does **not** apply `br_sign`; it is a second `solve()` on the same tree, not a
+re-read. **T8** — the `MaintenanceAction` histogram it wants is one field per
+evaluation (`FarFieldDiagnostics::maintenance`) and `local_m2l_op_keys_built`
+is the per-build rebuild signature R12 asks for; the adapter adds two
+`Cabana::Distributor` builds plus a claim migrate, one `MPI_LAND` and one
+five-value `MPI_SUM` per evaluation on top of Canopy's own, and the fallback to
+`setup()` on a changed source set is a cost that lands on every remeshing step.
+Also for **T8**: the six arms' 2.56x compile cost is measured above and is the
+maintenance-policy input that section wants.
