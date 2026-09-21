@@ -55,7 +55,6 @@
       "Read(//p/lustre5/stewartj/beatnik/t4b/**)",
       "Bash(cat)",
       "Bash(python3 /p/lustre5/stewartj/beatnik/t4b/analyze_ref.py)",
-      "Bash(sed -i 's|checkpoint_\\\\*.npz|checkpoint_t*.npz|' analyze_ref.py)",
       "Bash(python3 analyze_ref.py)",
       "Bash(mkdir -p /p/lustre5/stewartj/beatnik/t4b/ref_default)",
       "Bash(nohup timeout 5400 python3 examples/run_adaptive_mesh_bubble.py --steps 20 --source-quadrature vertex --br-approximation direct --dynamic-remesh --remesh-every 1 --remesh-collapse-factor 0 --remesh-max-collapses 0 --remesh-smooth-iters 0 --remesh-flip-min-gain 1e12 --no-isotropic-cleanup --checkpoint-every-steps 1 --no-video --checkpoint-dir /p/lustre5/stewartj/beatnik/t4b/ref_default)",
