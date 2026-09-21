@@ -475,8 +475,26 @@ inline OptionTable buildOptionTable( ClArgs& cl )
     XV( "br-cluster-count" );
     XV( "br-near-radius" );
     XV( "br-near-factor" );
-    // Treecode tunables, mapped nominally onto the FMM. The numbers do not mean
-    // the same thing to the two algorithms — see Beatnik_BRSolverFMM.hpp.
+    // Treecode tunables, mapped onto the FMM. The numbers do not transfer
+    // uniformly, and each of the three fails differently — see the per-member
+    // comments on `FmmParams` (Beatnik_Params.hpp) for the reasoning:
+    //   theta  transfers. Same opening angle in both algorithms; the
+    //          reference's 0.3 is kept, and it is the expensive end of
+    //          Canopy's range.
+    //   order  same quantity, NOT the same accuracy. The reference treecode
+    //          has no target-side expansion, so its order-2 velocity has the
+    //          truncation order of an FMM's order-2 potential — an FMM's
+    //          order-3 gradient, which is the only thing Beatnik reads.
+    //          `FmmParams::order` therefore defaults to 3, not 2; a value
+    //          given here still overrides, and 2 misses Beatnik's 1e-3 target
+    //          by an order.
+    //   ncrit  transfers, but is only right at production vertex counts: a
+    //          live far field needs N >> pi*(sqrt3/theta)^2 * ncrit, i.e.
+    //          N >> 6720 at these defaults. Below that the FMM is a direct
+    //          sum with bookkeeping, silently and at full accuracy.
+    // The FMM-only knobs (basis, max_depth, the softening floor, the
+    // partitioner and bounding-box tolerances, the operator byte budget) have
+    // no CLI option by design; they are defaulted in `FmmParams`.
     t["br-treecode-theta"] = { OptionArity::Value,
                                [&fmm]( const std::vector<std::string>& v ) {
                                    fmm.mac_theta = parseDoubleValue(
@@ -1095,7 +1113,13 @@ inline void printSchema( std::ostream& os )
 "                                       local/clustered/treecode map to `fmm`\n"
 "                                       with a warning.\n"
 "  --br-treecode-theta FLOAT            -> FMM acceptance criterion (0.3)\n"
-"  --br-treecode-order INT              -> FMM expansion order (2)\n"
+"  --br-treecode-order INT              -> FMM basis order. Python 2,\n"
+"                                       Beatnik 3: an FMM's order-p\n"
+"                                       gradient truncates one order\n"
+"                                       before this treecode's order-p\n"
+"                                       velocity, and Beatnik reads only\n"
+"                                       the gradient. Passing 2 still\n"
+"                                       gives 2.\n"
 "  --br-treecode-ncrit INT              -> FMM leaf occupancy (64)\n"
 "  --br-cluster-count INT               IGNORED (Python `clustered` only)\n"
 "  --br-near-radius FLOAT               IGNORED (Python local/clustered only)\n"

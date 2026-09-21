@@ -166,6 +166,32 @@ enum class BRApproximation
     Fmm,    ///< Canopy fast multipole (replaces the Python treecode).
 };
 
+/// Far-field basis used by the `Fmm` approximation.
+///
+/// This has **no** CLI counterpart and no Python counterpart: the reference
+/// treecode has one expansion and no choice to make. It selects which
+/// far-field basis the Canopy adapter instantiates —
+/// `CartesianTaylor` maps to Canopy's `CartesianTaylorBasis` and
+/// `SolidHarmonic` to its `LaplaceKernel` — and the adapter is the only place
+/// the mapping exists; no other Beatnik header names either basis.
+///
+/// `CartesianTaylor` is the validated production path and the default. It
+/// expands the desingularized kernel \f$\varphi(r)=(r^2+b)^{-1/2}\f$
+/// directly, so the blob is carried by the far field itself and the
+/// approximation error is a truncation in `FmmParams::order`.
+/// `SolidHarmonic` expands the bare \f$1/r\f$ and therefore carries a kernel
+/// bias no order removes; it is retained as the contrast arm that shows the
+/// selector actually selected, and is not a supported production
+/// configuration. Measured on a volumetric cloud at
+/// \f$\theta=0.3\f$, order 3: \f$7.07\times10^{-4}\f$ relative error on
+/// the gradient under `CartesianTaylor` against \f$5.17\times10^{-2}\f$
+/// under `SolidHarmonic` at the same positive softening, a factor of 73.
+enum class FarFieldBasis
+{
+    CartesianTaylor, ///< Real Cartesian Taylor expansion of the blob kernel.
+    SolidHarmonic,   ///< Solid-harmonic expansion of the bare 1/r kernel.
+};
+
 /// `--bernoulli-scalar-mode` (default `normal-speed`).
 /// Port of run_adaptive_mesh_bubble.py::parse_args (lines 252-257)
 enum class BernoulliScalarMode
@@ -270,6 +296,12 @@ inline const char* toString( VelocityMode v )
 inline const char* toString( BRApproximation v )
 {
     return v == BRApproximation::Direct ? "direct" : "fmm";
+}
+
+inline const char* toString( FarFieldBasis v )
+{
+    return v == FarFieldBasis::CartesianTaylor ? "cartesian-taylor"
+                                               : "solid-harmonic";
 }
 
 inline const char* toString( BernoulliScalarMode v )

@@ -31,6 +31,7 @@
 #include <Beatnik_Types.hpp>
 
 #include <array>
+#include <cstddef>
 #include <string>
 
 namespace Beatnik
@@ -132,23 +133,266 @@ struct ZModelParams
 /**
  * @brief Canopy fast-multipole tunables for the far-field BR evaluation.
  *
- * These have **no** Python counterpart: the reference uses a barnes-hut
- * treecode (`--br-treecode-theta/-order/-ncrit`, lines 239-244) which Beatnik
- * replaces with Canopy's FMM. The Python treecode knobs are still accepted at
- * the CLI (so a Python command line runs) and are mapped here where a
- * counterpart exists.
+ * These have **no** Python counterpart as a group: the reference uses a
+ * barnes-hut treecode (`--br-treecode-theta/-order/-ncrit`, lines 239-244)
+ * which Beatnik replaces with Canopy's FMM. The three treecode knobs are still
+ * accepted at the CLI (so a Python command line runs) and are mapped onto the
+ * three members below that have a counterpart; everything else here is
+ * FMM-only and has no CLI option. **The numbers do not transfer uniformly**,
+ * and each of the three fails differently — the per-knob comments say which
+ * way. `mac_theta` and `ncrit` denote the same quantity in both algorithms and
+ * keep the reference's values; `order` denotes the same quantity but not the
+ * same accuracy, and its default is raised from the reference's 2 to 3.
+ *
+ * Every member is default-initialized to a value the adapter may build a tree
+ * from, which is what keeps a default-constructed `FmmParams` from producing an
+ * arbitrary Canopy tree: Canopy's `FmmConfig::ncrit` and `FmmConfig::max_depth`
+ * have no default initializer of their own.
+ *
+ * **There is deliberately no `softening` member.** Canopy's
+ * `FmmConfig::softening` is a **length**; `ZModelParams::blob()` above is a
+ * **squared length** — \f$\epsilon^2\f$ under `Length` and \f$\epsilon\f$ under
+ * `Matlab`. The adapter therefore passes \f$\sqrt{\texttt{blob()}}\f$, which is
+ * `eps` under `Length` and \f$\sqrt{\texttt{eps}}\f$ under `Matlab`. Deriving
+ * it at that one call site is what makes both blob modes correct without a
+ * second source of truth; a member here would be that second source. Getting
+ * it wrong is a silent factor of \f$\epsilon\f$ in the softening length, and
+ * under `FarFieldBasis::CartesianTaylor` that value enters the far field's own
+ * \f$w=r^2+b\f$ rather than only the near-field sum, so the error is not
+ * confined to close pairs. It must also be passed **explicitly positive**:
+ * Canopy's default of \f$-1\f$ selects distribution-based auto-softening at
+ * first setup, which is a different kernel rather than a fallback, and which
+ * additionally disables `near_softening_factor`.
  */
 struct FmmParams
 {
-    /// Multipole acceptance criterion (opening angle). Mapped from
-    /// `--br-treecode-theta`, default 0.3.
+    /// Far-field basis the adapter instantiates. Default
+    /// `FarFieldBasis::CartesianTaylor`, the validated production path; see the
+    /// enum in `Beatnik_Types.hpp` for what the alternative costs. No CLI
+    /// option and no Python counterpart. Reaches no `FmmConfig` member —
+    /// Canopy's basis is a template parameter on its solver, not a config
+    /// field, which is why it must be named at every instantiation.
+    FarFieldBasis basis = FarFieldBasis::CartesianTaylor;
+
+    /// Multipole acceptance criterion (opening angle), dimensionless. Mapped
+    /// from `--br-treecode-theta`, default 0.3. Reaches
+    /// `FmmConfig::mac_theta` (whose own default is 0.5).
+    ///
+    /// **This knob transfers.** It is the same opening angle in both
+    /// algorithms and the reference's value is kept unchanged. It is the
+    /// expensive end of Canopy's range and deliberately so: at
+    /// \f$\theta=0.3\f$ Canopy accepts cell pairs only beyond
+    /// \f$R/w>2\sqrt3/\theta\approx11.55\f$ in half-widths, which is what lets
+    /// order 3 reach \f$10^{-3}\f$ on the gradient at all. Raising it to
+    /// Canopy's 0.5 would need order 4 for the same accuracy (35 coefficients
+    /// per cell per component against 20).
+    ///
+    /// Two other members are read against this value rather than
+    /// independently: `ncrit`'s liveness inequality and the realized M2L key
+    /// count `max_depth` bounds both scale with \f$\theta\f$, so changing it
+    /// re-opens both.
     Real mac_theta = 0.3;
 
-    /// Expansion order. Mapped from `--br-treecode-order`, default 2.
-    int order = 2;
+    /// Basis order knob, dimensionless count. Mapped from
+    /// `--br-treecode-order`, but **default 3, not the reference's 2**.
+    /// Reaches no `FmmConfig` member: it is Canopy's `P_ORDER` template
+    /// parameter, so the adapter dispatches on it at compile time.
+    ///
+    /// Under `FarFieldBasis::CartesianTaylor` this is the Cartesian Taylor
+    /// truncation order \f$p\f$, costing \f$\binom{p+3}{3}\f$ coefficients per
+    /// cell per component — 20 at \f$p=3\f$.
+    ///
+    /// **This knob denotes the same quantity in both algorithms and not the
+    /// same accuracy**, which is the one place the example's "option names and
+    /// defaults match the Python script exactly" promise genuinely breaks. The
+    /// reference is a treecode with no target-side expansion (`treecode.py`
+    /// evaluates its expansion batch at `rv = target - node.center`, lines
+    /// 121-126), so its order-2 *velocity* carries the truncation order of an
+    /// FMM's order-2 *potential*. An FMM's local expansion is differentiated to
+    /// get the gradient, and \f$\nabla\f$ of a degree-\f$p\f$ Taylor local is
+    /// degree \f$p-1\f$ — so an FMM's order-2 gradient is one order short of
+    /// where the treecode's order-2 velocity sits, and Beatnik reads only the
+    /// gradient. Order 3 here is the counterpart of the reference's order 2,
+    /// not an upgrade of it.
+    ///
+    /// The default is traceable to a measurement rather than to that argument:
+    /// on Canopy's volumetric cloud at \f$\theta=0.3\f$ the relative error on
+    /// the gradient is \f$8.996\times10^{-3}\f$ at \f$p=2\f$ against
+    /// \f$7.0718\times10^{-4}\f$ at \f$p=3\f$, so 3 is the smallest order that
+    /// reaches Beatnik's \f$10^{-3}\f$ target and 2 misses it by an order.
+    /// That cloud is not a sheet; the curve on Beatnik's own geometry is
+    /// unmeasured and is what revises this value.
+    ///
+    /// `--br-treecode-order` still overrides, so a Python command line that
+    /// passes 2 explicitly still gets 2 — and gets the accuracy above, which
+    /// does not meet the target.
+    int order = 3;
 
-    /// Leaf occupancy target. Mapped from `--br-treecode-ncrit`, default 64.
+    /// Leaf occupancy target, particles per leaf cell. Mapped from
+    /// `--br-treecode-ncrit`, default 64. Reaches `FmmConfig::ncrit`, which has
+    /// no default initializer in Canopy.
+    ///
+    /// **This knob transfers** — it is the same leaf occupancy in both
+    /// algorithms — but it is right only at production vertex counts, and the
+    /// inequality rather than the conclusion is what belongs here so that it
+    /// re-evaluates if `mac_theta` changes. Under Canopy's MAC the near field
+    /// reaches \f$\sqrt3/\theta\f$ **cell widths**. Beatnik's sources are a
+    /// 2-manifold, so the leaves the surface occupies form a two-dimensional
+    /// grid and that neighbourhood covers \f$\pi(\sqrt3/\theta)^2\f$ of them —
+    /// about 105 at \f$\theta=0.3\f$. A surface of \f$N\f$ vertices refines
+    /// until a leaf holds `ncrit`, so a far field that carries any of the field
+    /// at all needs
+    ///
+    /// \f[
+    ///   N \;\gg\; \pi\,(\sqrt3/\theta)^2 \cdot \texttt{ncrit} ,
+    /// \f]
+    ///
+    /// which is \f$N\gg6720\f$ at \f$\theta=0.3\f$ and this default. Below
+    /// that the solve is a direct sum with FMM bookkeeping around it: it agrees
+    /// with `BRSolverDirect` to round-off, at any `order`, silently and at full
+    /// accuracy. Any accuracy measurement below the bound must lower `ncrit`
+    /// to satisfy it and must report the realized near-field pair fraction
+    /// rather than assume a far field exists.
     int ncrit = 64;
+
+    /// Hard cap on tree depth, in levels. Default 10. Reaches
+    /// `FmmConfig::max_depth`, which has no default initializer in Canopy and
+    /// which Canopy bounds at 19 by its `uint64_t` Morton key. Sets the finest
+    /// cell width as (root box width) / \f$2^{\texttt{max\_depth}}\f$. No CLI
+    /// option and no counterpart in the treecode knob set.
+    ///
+    /// **This is a cap, not a target.** The tree stops subdividing at `ncrit`
+    /// occupancy long before it, and on a well-behaved sheet 10 never binds: a
+    /// 2-manifold at leaf occupancy `ncrit` reaches \f$N/\texttt{ncrit}\f$
+    /// occupied leaves in \f$\log_4\f$ rather than \f$\log_8\f$ levels, so at
+    /// `ncrit = 64` the sheet needs about 3 levels at 2562 vertices and about 7
+    /// at a million.
+    ///
+    /// What it does bound is the case where occupancy does not fall off:
+    /// a self-contacting roll-up drives the occupied-depth count up, and under
+    /// `FarFieldBasis::CartesianTaylor` the M2L operator keys carry the tree
+    /// level, so every occupied depth multiplies the realized key count
+    /// against Canopy's 32768-key cap. That cap is close, not distant —
+    /// Canopy measured 25438 keys, 78% of it, at \f$\theta=0.3\f$ on a
+    /// volumetric cloud at `max_depth` 6, and saw the table saturate it
+    /// outright on an amplified trajectory. Keys past the cap are not an error:
+    /// they route to a per-pair translate that is slower and bitwise different
+    /// from the table path, so an overflow yields an accuracy number that
+    /// mixes two code paths. 10 is chosen to leave the sheet's own refinement
+    /// unconstrained while keeping a roll-up from reaching depths whose only
+    /// effect is key count.
+    ///
+    /// The number is reasoned, not measured, and the measurement is owed:
+    /// lower it only on evidence of realized overflow at the production
+    /// configuration, never to shrink the table pre-emptively. develop-canopy
+    /// ran 19 and hit a depth-driven finite-difference blow-up at roll-up, but
+    /// that mechanism was in a finite-difference L2P the analytic Taylor L2P
+    /// removes, so it is not a reason to fear 19 here.
+    int max_depth = 10;
+
+    /// Near-field softening floor, as a multiple of the softening length.
+    /// Default 0, which disables the floor. Reaches
+    /// `FmmConfig::near_softening_factor` (whose own default is 4.0).
+    /// No CLI option: `--br-near-factor` is a different quantity — the Python's
+    /// local/clustered near-field radius — and is accepted and ignored.
+    ///
+    /// Canopy forces any pair closer than
+    /// `near_softening_factor` \f$\times\f$ the softening length out of the
+    /// far field and into the near-field sum. **That is meaningful only under
+    /// `FarFieldBasis::SolidHarmonic`**, where the far field expands the bare
+    /// \f$1/r\f$ and so is accurate only where the softening is negligible.
+    /// Under `CartesianTaylor` the far field expands
+    /// \f$(r^2+b)^{-1/2}\f$ and already carries the blob, so a non-zero floor
+    /// moves work into the near-field sum and slows the solve without
+    /// improving it. It also has no effect at all unless the softening is
+    /// positive, which is a second reason the adapter must set the softening
+    /// explicitly rather than leave Canopy's auto-softening sentinel in place.
+    Real near_softening_factor = 0.0;
+
+    /// Coarsening hysteresis band on `ncrit`, as a fraction of it. Default 0.1,
+    /// matching Canopy's own. Reaches `FmmConfig::ncrit_tol`, which Canopy uses
+    /// as `coarsen_threshold = ncrit * (1 - ncrit_tol)` — 57 at `ncrit = 64` —
+    /// so a group of children merges only once its combined count falls below
+    /// that, and a cell that was just split does not immediately re-merge when
+    /// a few particles leave. Beatnik's surface deforms on every RK stage,
+    /// which is precisely the thrashing the band exists to damp, so the default
+    /// is kept rather than tightened.
+    Real ncrit_tol = 0.1;
+
+    /// Depth at and above which cells are replicated on every rank, in levels.
+    /// Default 3. Reaches `FmmConfig::replication_depth` (whose own default is
+    /// 1, below the 2-4 range Canopy's `TreePartitioner` documents as typical;
+    /// that class's own constructor default is 3, and develop-canopy's
+    /// integration ran 3).
+    ///
+    /// Cells at depth \f$\le\f$ this value are owned by all ranks and deeper
+    /// cells get unique owners, so the value trades an allreduce over the
+    /// coarse layers against the ownership bookkeeping below them. Canopy
+    /// bounds the cost directly: at depth 3 there are at most 585 cells
+    /// (1 + 8 + 64 + 512). Beatnik runs this path at 1-6 ranks, where Canopy's
+    /// default of 1 would replicate only 9 cells — fewer coarse cells than
+    /// ranks at the top of the range. This is ownership, not occupancy, and
+    /// does not interact with `max_depth`'s key-count bound.
+    int replication_depth = 3;
+
+    /// Zoltan2 partition imbalance tolerance, as a fraction. Default 0.10,
+    /// meaning a 10% load imbalance across ranks is accepted. Reaches
+    /// `FmmConfig::imbalance_tolerance` (whose own default is 0.05; Canopy
+    /// passes it on as \f$1+\f$ this value).
+    ///
+    /// Looser than Canopy's default on purpose: a deforming surface picks
+    /// Canopy's `Rebalance` maintenance path essentially every RK stage, so the
+    /// partitioner runs at that frequency and a tighter tolerance buys balance
+    /// at a cost paid every stage. At the 1-6 ranks this path runs at, 10% is a
+    /// small absolute imbalance. develop-canopy's integration ran 0.10 for the
+    /// same reason.
+    Real imbalance_tolerance = 0.10;
+
+    /// Per-face padding applied to the global root bounding box, each as a
+    /// fraction of that axis's width. Default 0.10 on all six faces. They reach
+    /// `FmmConfig::xmin_tol` … `zmax_tol` in that order (whose own defaults are
+    /// all 0.0, i.e. a box that hugs the particles exactly); develop-canopy's
+    /// integration ran 0.10 uniformly.
+    ///
+    /// Padding gives particles room to move before they leave the box, which is
+    /// what keeps Canopy's cheaper maintenance paths valid for a stage or two
+    /// instead of forcing the heavy one the moment the surface expands. Uniform
+    /// rather than asymmetric because the bubble is not confined on any face;
+    /// asymmetric values are permitted by Canopy and nothing here needs them.
+    ///
+    /// **Padding does not stabilize the box**, and raising it will not make it
+    /// do so. Canopy recomputes the root box from the particles on every
+    /// maintenance path, `migrate` included, and a padded box is a fraction of
+    /// a moving box, so it drifts with it — measured at a smooth 0.18-0.40% per
+    /// build, which under `FarFieldBasis::CartesianTaylor` clears the entire
+    /// M2L operator cache every time (zero keys retained across 336 builds).
+    /// There is no `FmmParams` value that changes that; it is a Canopy-side
+    /// property.
+    ///
+    /// The cost of padding is that the root box is 20% wider per axis at 0.10,
+    /// so every cell at a given depth is 20% wider — a shift in where `ncrit`
+    /// occupancy is reached, not a change in the number of occupied depths.
+    Real xmin_tol = 0.10;
+    Real xmax_tol = 0.10; ///< See `xmin_tol`.
+    Real ymin_tol = 0.10; ///< See `xmin_tol`.
+    Real ymax_tol = 0.10; ///< See `xmin_tol`.
+    Real zmin_tol = 0.10; ///< See `xmin_tol`.
+    Real zmax_tol = 0.10; ///< See `xmin_tol`.
+
+    /// Per-rank memory budget for Canopy's hashed M2L operator table, in
+    /// **bytes**. Default 2 GiB, matching Canopy's own. Reaches
+    /// `FmmConfig::m2l_op_table_byte_budget`.
+    ///
+    /// Canopy bounds the table by the smaller of this budget's worth of
+    /// operator columns and its own 32768-key count cap, so the default is
+    /// chosen to be the **non-binding** half of that minimum: at `order`
+    /// \f$\le4\f$ a column costs at most about 9.8 KB, so the full 32768 keys
+    /// occupy roughly 0.3 GiB and the count cap binds first at every order
+    /// this path supports. Lowering this is the only way to make the byte
+    /// budget bind instead, and that is the wrong lever — the constraint to act
+    /// on is the count cap, and the response to realized overflow is a lower
+    /// `max_depth` or `order`, not a smaller table.
+    std::size_t m2l_op_table_byte_budget = 2ull * 1024ull * 1024ull * 1024ull;
 };
 
 //---------------------------------------------------------------------------//

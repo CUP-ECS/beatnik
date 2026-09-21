@@ -321,3 +321,153 @@ to "a scan point above $p=3$ is promoted to production"; **R10** — the contras
 it draws is now between one conditional that never fired and one that landed.
 Nothing else changes: $\tau_A$, the production order 3, the `ncrit` constraint
 and the operator-cache findings all stand.
+
+## T1
+
+`FmmParams` went from three members to sixteen, `FarFieldBasis` landed beside the
+other mode enums, and `order`'s default rose from 2 to 3. `spack install` is
+green — 29 CXX objects, including `adaptive_mesh_bubble.cpp.o`, after touching
+that driver, because `Beatnik` is an INTERFACE library that would otherwise have
+reported a header-only no-op. Nothing was run: no binary was invoked, and the
+`--help` claims were checked by `grep` on the static string literal `printSchema`
+emits.
+
+**Decisions taken as given by the task, recorded so they are not reopened.**
+`max_depth` defaults to **10**. README's new documentation went into the
+`02_adaptive_mesh_bubble` section as an `###### FMM tunables` subsection under
+`##### Birkhoff-Rott approximation`; the older `fmm_*` block at `README.md:119-128`
+belongs to `01_rising_bubble` (`rocketrig`), whose parameter struct no longer
+exists in `src/`, and was left untouched including its solid-harmonic-only
+`fmm_near_softening_factor` paragraph — the new subsection ends with one sentence
+saying those keys are a different, older set that does not reach `FmmParams`, so a
+reader who finds both does not have to guess. `InputFile.hpp` reduced to comment
+corrections: **no already-parsed key maps to any new member**, and in particular
+`--br-near-factor` was **not** wired to `near_softening_factor`. Those are
+different quantities — `--br-near-factor` is the Python's local/clustered
+near-field *radius* and `near_softening_factor` is a Plummer softening floor in
+multiples of the softening length — so wiring them would be exactly the silent
+semantic substitution the Conventions table's "Runtime dispatch" row forbids, and
+it stays IGNORED.
+
+**`max_depth = 10`, as the reasoning was finally stated on the declaration.** Two
+forces, and the comment names both. Downward: a 2-manifold at leaf occupancy
+`ncrit` reaches `N/ncrit` occupied leaves in log₄ rather than log₈ levels, so at
+`ncrit = 64` the sheet needs about 3 levels at 2562 vertices and about 7 at a
+million — 10 never binds on a well-behaved sheet, and the declaration says so
+explicitly to keep a future reader from treating it as a target. Upward: what it
+*does* bound is a self-contacting roll-up, where occupancy stops falling off and
+the occupied-depth count climbs; under `CartesianTaylor` the M2L keys carry the
+tree level, so every occupied depth multiplies the realized key count against
+Canopy's 32768-key cap (**R6**; Canopy measured 25438 keys — 78% of the cap — at
+θ=0.3 on a volumetric cloud at `max_depth` 6, and saw the table saturate it
+outright on an amplified trajectory). The comment states that overflow is not an
+error but a route to a slower, bitwise-different per-pair translate, so an
+overflow yields an accuracy number mixing two code paths. It also states that the
+number is **reasoned, not measured**, that **T5** owns revising it, and — per
+**R12** — that it may be lowered only on evidence of realized overflow at the
+production configuration, never pre-emptively to shrink the table. develop-canopy's
+19 and its depth-driven finite-difference blow-up are noted as *not* transferring:
+that mechanism lived in a finite-difference L2P the analytic Taylor L2P removes.
+
+**Defaults chosen for the knobs the document did not fix.** develop-canopy's
+`src/Solver.hpp:74-104` was the precedent for all of these; Canopy's own
+`FmmConfig` defaults differ from it on four of them, and where they do this is the
+reasoning for which was taken.
+
+- **`ncrit_tol = 0.1`** — agrees with both Canopy's `FmmConfig` and
+  develop-canopy, so no judgment was needed. Canopy uses it as
+  `coarsen_threshold = ncrit * (1 - ncrit_tol)`, i.e. 57 at `ncrit = 64`, so a
+  just-split cell does not re-merge when a few particles leave. Beatnik's surface
+  deforms on every RK stage, which is precisely the thrashing the band damps, so
+  it was kept rather than tightened.
+- **`replication_depth = 3`** — develop-canopy's value, *not* `FmmConfig`'s **1**.
+  `FmmConfig`'s 1 sits below the 2-4 range Canopy's own `TreePartitioner`
+  documents as typical, and `TreePartitioner`'s constructor default is itself 3.
+  Cells at depth ≤ this are replicated on every rank; at depth 1 that is 9 cells,
+  fewer coarse cells than ranks at the top of the 1-6 range this path runs at.
+  Canopy bounds the cost of 3 directly: at most 585 cells (1+8+64+512). This is
+  ownership, not occupancy, so it does not interact with `max_depth`'s key-count
+  bound, and the declaration says that so the two are not traded against each
+  other by mistake.
+- **`imbalance_tolerance = 0.10`** — develop-canopy's value, *not* `FmmConfig`'s
+  **0.05**, and looser on purpose. A deforming surface picks Canopy's `Rebalance`
+  path essentially every RK stage (canopy0 F3(c)), so the partitioner runs at that
+  frequency and a tighter tolerance buys balance at a cost paid every stage; at
+  1-6 ranks a 10% imbalance is small in absolute terms.
+- **The six bounding-box factors = 0.10 each** — develop-canopy's uniform value,
+  *not* `FmmConfig`'s **0.0**. Semantics, from develop-canopy's comment block and
+  confirmed against `TreeBuilder::build`: each is a fraction of that axis's width
+  applied as padding to the global root box on that face. Zero padding makes the
+  box hug the particles exactly, so any outward motion invalidates it immediately
+  and forces the heavier maintenance path; 0.10 buys a stage or two of room.
+  Uniform rather than asymmetric because the bubble is not confined on any face.
+  **The declaration states what padding does *not* buy**, because this is the
+  obvious wrong lever to reach for: it does not stabilize the box and raising it
+  will not make it, since Canopy recomputes the box from the particles on every
+  maintenance path including `migrate`, and a fraction of a moving box moves with
+  it — the measured 0.18-0.40% per-build drift that clears the entire M2L cache
+  (zero keys retained across 336 builds). The one real cost is noted too: at 0.10
+  the box is 20% wider per axis, so every cell at a given depth is 20% wider,
+  which shifts where `ncrit` occupancy is reached without changing the number of
+  occupied depths.
+- **`m2l_op_table_byte_budget` = 2 GiB** — Canopy's own default, kept because it
+  is the *non-binding* half of Canopy's `min(count cap, budget/bytes_per_key)`.
+  At order ≤ 4 a column is ≤ ~9.8 KB, so the full 32768 keys occupy roughly
+  0.3 GiB and the count cap binds first at every order this path supports.
+  Lowering it is the only way to make the budget bind, and per **R6** that is the
+  wrong lever — the response to realized overflow is a lower `max_depth` or
+  `order`. The declaration says so, so nobody tunes the budget hoping to change
+  the cap.
+
+**What turned out to differ from what the document says.**
+
+- **The member name.** The document's T1 step 3 said `m2l_operator_byte_budget`.
+  Canopy's member is **`m2l_op_table_byte_budget`**. The Beatnik member is named
+  to match Canopy's and `add-canopy.md:706` was corrected in this change.
+- **Four `FmmConfig` defaults are not develop-canopy's**, and the document, which
+  cites develop-canopy's set as the precedent, does not flag the divergence:
+  `replication_depth` is **1** in `FmmConfig` (3 in develop-canopy and in
+  `TreePartitioner`'s own constructor), `imbalance_tolerance` is **0.05** (0.10),
+  and all six bounding-box tolerances are **0.0** (0.10). Only `ncrit_tol` (0.1)
+  and the byte budget (2 GiB) agree. Every one of the four is resolved above.
+- **`basis` reaches no `FmmConfig` member.** The document's framing — "every knob
+  `FmmConfig` needs" — does not fit it: Canopy's far field is a *template*
+  parameter on `Solver`/`createSolver` (defaulted to `LaplaceKernel`), not a
+  config field. Same for `order`, which is `P_ORDER`. Both declarations say this
+  outright, because it is why **T2** must name the basis at every instantiation
+  rather than set it in a struct — the **R2** failure mode is an omitted template
+  argument compiling cleanly into a bare-1/r far field.
+- **The conventions table's Canopy-isolation check is not a usable invariant, and
+  was already failing before this task.** It states that
+  `grep -l Canopy src/*.hpp` must name exactly `Beatnik_FarFieldInterface.hpp` and
+  `Beatnik_Config.hpp.in`. In fact 16 headers match, because the pattern hits the
+  word "Canopy" in prose comments — `Beatnik_Params.hpp`'s `FmmParams` doc comment
+  has said "Canopy fast-multipole tunables" since before this change. The
+  enforceable invariant is the one the task constraints state and this change was
+  checked against: `grep -n "include.*Canopy_\|Canopy::" src/*.hpp src/*.in`
+  returns nothing. A later task should fix the table rather than trust the grep.
+- **A `toString( FarFieldBasis )` was added**, which T1's steps do not ask for.
+  All ten enums in `Beatnik_Types.hpp` have one and the file's own section comment
+  states the one-table-per-enum rule, so omitting it would have been the anomaly;
+  and the Accuracy-claims convention requires every figure from **T5** on to name
+  the basis, which needs a spelling. No `fromString` and no CLI parse path was
+  added — there is no `--basis` option and none is wanted.
+
+**Affects:** **T2** — consumes every default above in its `FmmConfig` builder, and
+the mapping is mechanical for fourteen of the sixteen members: `basis` and `order`
+are **not** config fields but template parameters (`FarField` and `P_ORDER`), so
+the builder cannot set them and the dispatch must name them. The builder is also
+where `softening` comes from — there is deliberately no `FmmParams::softening`,
+so it must pass `sqrt(ZModelParams::blob())` (i.e. `eps` under `Length`,
+`sqrt(eps)` under `Matlab`) and must **throw** on a non-positive result, since
+Canopy's −1 sentinel is auto-softening rather than an error and additionally
+disables `near_softening_factor`. Validation of `ncrit` and `max_depth` lands
+there too (T1 step 9). **T3** — owns the `@note` blocks on the softened kernel and
+README's accuracy statements about the FMM path; the new `###### FMM tunables`
+subsection states defaults and mappings only, and makes no accuracy claim beyond
+quoting Canopy's two measured gradient errors at p=2 and p=3 as the provenance of
+`order = 3`. **T4** — the deferred half of T1's own exit criterion is its test's:
+every `FmmConfig` member initialized, `softening` positive rather than the
+sentinel, `near_softening_factor` 0. **T5** — owns revising `max_depth` from
+measurement, and the byte budget is not a scan axis. Nothing about `mac_theta`,
+`ncrit`'s liveness inequality, τ_A or the production order changed.

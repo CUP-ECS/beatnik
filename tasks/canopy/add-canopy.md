@@ -1,9 +1,10 @@
 # Canopy as Beatnik's far-field Birkhoff-Rott solver
 
-**Status:** NOT STARTED — every task below is NOT STARTED. The findings and the
-measured numbers are complete, and no upstream work gates the sequence: Canopy's
-derivative ladder is validated at the production order. One narrow constraint
-remains inside **T5**, on scan points above it (**R11**).
+**Status:** IN PROGRESS — **T1** is **DONE**; every task from **T2** on is NOT
+STARTED. The findings and the measured numbers are complete, and no upstream work
+gates the sequence: Canopy's derivative ladder is validated at the production
+order. One narrow constraint remains inside **T5**, on scan points above it
+(**R11**).
 
 ## Problem
 
@@ -13,7 +14,7 @@ remains inside **T5**, on scan points above it (**R11**).
 and so is every method of the adapter behind them
 ([src/Beatnik_FarFieldInterface.hpp:125-188](../../src/Beatnik_FarFieldInterface.hpp#L125-L188)).
 `fmm` is nevertheless the **default**
-([src/Beatnik_Params.hpp:106](../../src/Beatnik_Params.hpp#L106)), so the default
+([src/Beatnik_Params.hpp:107](../../src/Beatnik_Params.hpp#L107)), so the default
 far-field path is the one that throws. The only working Birkhoff-Rott evaluator
 is `BRSolverDirect`, an $O(N_tN_s)$ ring-exchanged pairwise sum
 ([src/Beatnik_BRSolverDirect.hpp:105-166](../../src/Beatnik_BRSolverDirect.hpp#L105-L166))
@@ -361,11 +362,14 @@ the first-call flag, and `BRSolverFMM` remains the thirty lines that turn a
 
 Two compile-time parameters against runtime values is a genuine mismatch —
 `FmmParams::order` is an `int`
-([src/Beatnik_Params.hpp:147-148](../../src/Beatnik_Params.hpp#L147-L148)) and the
+([src/Beatnik_Params.hpp:229](../../src/Beatnik_Params.hpp#L229)) and the
 basis is a `FarFieldBasis` enum (**T1**). The adapter resolves it by dispatching
 the runtime `(basis, order)` pair onto an explicitly enumerated set of
-instantiations and throwing for anything else — see the conventions table. It
-does not silently round and it does not silently substitute a basis.
+instantiations and throwing for anything else — see the conventions table. Since
+each arm is a distinct C++ type, what the adapter actually holds is a type-erased
+handle to one of them, constructed once and persistent thereafter; **T2** step 5
+is where that lands. It does not silently round and it does not silently
+substitute a basis.
 
 **Canopy's basis parameter is defaulted to the solid-harmonic basis**, so an
 adapter that forgets to name the basis compiles, runs, and produces the bare-$1/r$
@@ -417,10 +421,10 @@ tuned to whatever the code did.
 
 | Choice | Rule |
 | --- | --- |
-| Canopy visibility | `Beatnik_FarFieldInterface.hpp` is the **only** header that may name a Canopy type, include a Canopy header, or hold a Canopy object. The `FarFieldBasis` enum is a Beatnik type naming no Canopy type and lives with the other mode enums in `Beatnik_Types.hpp`; the adapter is where it becomes a Canopy basis. Verified by `grep -l Canopy src/*.hpp` naming exactly `Beatnik_FarFieldInterface.hpp` and `Beatnik_Config.hpp.in`. |
+| Canopy visibility | `Beatnik_FarFieldInterface.hpp` is the **only** header that may name a Canopy type, include a Canopy header, or hold a Canopy object. The `FarFieldBasis` enum is a Beatnik type naming no Canopy type and lives with the other mode enums in `Beatnik_Types.hpp`; the adapter is where it becomes a Canopy basis. Verified by `grep -n "include.*Canopy_\|Canopy::" src/*.hpp src/*.in` naming only `Beatnik_FarFieldInterface.hpp`. A bare `grep -l Canopy src/*.hpp` is **not** the check: sixteen headers match the word in prose comments, `Beatnik_Params.hpp` among them. |
 | Build guard | Everything Canopy-facing sits behind `BEATNIK_ENABLE_CANOPY` ([src/CMakeLists.txt:1-6](../../src/CMakeLists.txt#L1-L6), [:78-79](../../src/CMakeLists.txt#L78-L79)). A `~canopy` build must still compile every header and still throw the existing configuration error ([src/Beatnik_CreateBRSolver.hpp:66-69](../../src/Beatnik_CreateBRSolver.hpp#L66-L69)). |
 | Failure behavior | A violated precondition throws `std::logic_error` for "this code is unwritten" and `std::runtime_error` for "this build or configuration cannot do it", matching [src/Beatnik_CreateBRSolver.hpp:45-49](../../src/Beatnik_CreateBRSolver.hpp#L45-L49). Never return a truncated or best-effort field: a plausible wrong velocity is the failure mode this whole document exists to bound. |
-| New parameters | Added to `FmmParams` ([src/Beatnik_Params.hpp:141-152](../../src/Beatnik_Params.hpp#L141-L152)) with a defaulted member and a comment stating units, the meaning of the default, and which Canopy knob it reaches. Never a new constructor parameter, never a new CLI option. |
+| New parameters | Added to `FmmParams` ([src/Beatnik_Params.hpp:167-396](../../src/Beatnik_Params.hpp#L167-L396)) with a defaulted member and a comment stating units, the meaning of the default, and which Canopy knob it reaches. Never a new constructor parameter, never a new CLI option. |
 | Runtime dispatch | `(FmmParams::basis, FmmParams::order)` selects among an explicitly enumerated set of instantiations; an unsupported pair throws naming the supported set. Never silently rounded, never silently substituted. The set and the compile-time cost of extending it are documented on the dispatch. |
 | Basis is always named | Every Canopy `Solver`/`createSolver` instantiation names its basis explicitly. The parameter is defaulted upstream and the default is not the basis Beatnik wants. |
 | Enums over bools | A mode selector is an enum or tag type, never a bool or a magic number. |
@@ -507,18 +511,16 @@ tuned to whatever the code did.
   ([CMakeLists.txt:79-81](../../CMakeLists.txt#L79), [src/CMakeLists.txt:78-79](../../src/CMakeLists.txt#L78-L79)),
   and the tuolumne environment builds with it
   ([systems/tuolumne/claude.md](../../systems/tuolumne/claude.md) §2).
-- `FmmParams` carries three members — `mac_theta` (default 0.3), `order`
-  (default 2), `ncrit` (default 64)
-  ([src/Beatnik_Params.hpp:141-152](../../src/Beatnik_Params.hpp#L141-L152)). It has
-  **no** basis selector, no `max_depth`, no `near_softening_factor`, no operator
-  byte budget and none of Canopy's six bounding-box tolerances, all of which
-  `FmmConfig` requires and two of which (`ncrit`, `max_depth`) have **no default
-  initializer** in Canopy (`FmmConfig::ncrit`, `FmmConfig::max_depth`), so a
-  default-constructed `FmmConfig` builds an arbitrary tree.
+- `FmmConfig`'s `ncrit` and `max_depth` have **no default initializer** in
+  Canopy (`FmmConfig::ncrit`, `FmmConfig::max_depth`), so a default-constructed
+  `FmmConfig` builds an arbitrary tree. `FmmParams` supplies both, and every
+  other member `FmmConfig` requires, with a default (**T1**).
 - The mode enums this work extends live in `src/Beatnik_Types.hpp`
   (`BRApproximation` at [:163](../../src/Beatnik_Types.hpp#L163),
-  `BernoulliScalarMode` at [:171](../../src/Beatnik_Types.hpp#L171),
-  `KernelBlobMode` at [:193](../../src/Beatnik_Types.hpp#L193)).
+  `FarFieldBasis` at [:189](../../src/Beatnik_Types.hpp#L189),
+  `BernoulliScalarMode` at [:197](../../src/Beatnik_Types.hpp#L197),
+  `ViscosityMode` at [:206](../../src/Beatnik_Types.hpp#L206),
+  `KernelBlobMode` at [:219](../../src/Beatnik_Types.hpp#L219)).
 - The CLI parses `--br-treecode-theta/-order/-ncrit`
   ([examples/02_adaptive_mesh_bubble/InputFile.hpp:478-480](../../examples/02_adaptive_mesh_bubble/InputFile.hpp#L478-L480))
   and nothing else FMM-facing. No new option may be added.
@@ -676,7 +678,7 @@ here.
 
 ## Task sequence
 
-### T1 — `FmmParams` carries everything `FmmConfig` needs, and names the basis — **NOT STARTED**
+### T1 — `FmmParams` carries everything `FmmConfig` needs, and names the basis — **DONE**
 
 **Depends on:** none.
 
@@ -690,8 +692,8 @@ existing mode enums at [:163-193](../../src/Beatnik_Types.hpp#L163-L193)),
 **Reference:** `FmmConfig`'s full member list, the two members with no default
 initializer (`ncrit`, `max_depth`), the six bounding-box padding factors, the
 operator byte budget and the `near_softening_factor` comment
-(`canopy/src/Canopy_Solver.hpp`, `struct FmmConfig`); `FmmParams` as it stands
-([src/Beatnik_Params.hpp:141-152](../../src/Beatnik_Params.hpp#L141-L152));
+(`canopy/src/Canopy_Solver.hpp`, `struct FmmConfig`); `FmmParams`
+([src/Beatnik_Params.hpp:167-396](../../src/Beatnik_Params.hpp#L167-L396));
 develop-canopy's `makeCanopyConfig` for the full mapping it needed
 (`src/FmmBRSolver.hpp:588-607` on that branch).
 
@@ -703,7 +705,7 @@ develop-canopy's `makeCanopyConfig` for the full mapping it needed
    `CartesianTaylor` is the validated production path. It names no Canopy type.
 2. Add `FarFieldBasis basis = FarFieldBasis::CartesianTaylor` to `FmmParams`.
 3. Extend `FmmParams` with every remaining knob the adapter must set:
-   `max_depth`, `near_softening_factor`, `m2l_operator_byte_budget`, `ncrit_tol`,
+   `max_depth`, `near_softening_factor`, `m2l_op_table_byte_budget`, `ncrit_tol`,
    `replication_depth`, `imbalance_tolerance`, and the six bounding-box padding
    factors. Every one gets a default initializer and a comment naming units, the
    default's meaning, and the `FmmConfig` member it reaches.
@@ -787,6 +789,39 @@ from `--br-treecode-order`'s 2 while `mac_theta` and `ncrit` do not. No new CLI
 option appears in `--help`, and `--br-treecode-order 2` still yields
 `order == 2`.
 
+**Met.** `FarFieldBasis` is in
+[src/Beatnik_Types.hpp:169-193](../../src/Beatnik_Types.hpp#L169-L193) with a
+`toString` beside the other ten enums' (that file's one-table-per-enum
+invariant), and `FmmParams`
+([src/Beatnik_Params.hpp:133-396](../../src/Beatnik_Params.hpp#L133-L396)) now
+carries all sixteen members. `spack install` succeeded after touching
+`examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp` — 29 CXX objects
+compiled including `adaptive_mesh_bubble.cpp.o`, zero `error:` lines, so the
+header change was genuinely compiled rather than no-op'd past. Verified by
+reading, which is where the checkable part of this criterion lives: the
+declarations give `order = 3`, `mac_theta = 0.3`, `ncrit = 64`, `max_depth = 10`,
+`near_softening_factor = 0.0`, `ncrit_tol = 0.1`, `replication_depth = 3`,
+`imbalance_tolerance = 0.10`, the six bbox factors at 0.10 and
+`m2l_op_table_byte_budget` at 2 GiB; the `br-treecode-order` parse lambda is
+untouched and still assigns `fmm.order` from the argument, so an explicit 2 still
+yields 2; and diffing the parse-table key set and the `printSchema` option-token
+set against `HEAD` returns **identical** on both, which is the proof that no new
+CLI option appears in `--help`. The `printSchema` order line now carries both
+numbers ("Python 2, Beatnik 3") with the gradient-versus-potential reason.
+
+**What is deferred, and what this task did not prove.** The `FmmConfig` clause of
+the criterion above is **T4**'s: there is no config builder yet and T1 added none,
+so "every member initialized, `softening` positive, `near_softening_factor` 0" is
+asserted nowhere runnable. What T1 owes and delivered is that the values exist and
+are defensible on their declarations. Nothing was run: no binary was invoked, and
+`--help` was checked by `grep` on the static string literal `printSchema` emits
+rather than by executing it.
+
+**Canopy isolation holds.** `grep -n "include.*Canopy_\|Canopy::" src/*.hpp
+src/*.in` returns nothing — no Beatnik header includes a Canopy header or names a
+Canopy type, and neither new type is guarded by `BEATNIK_ENABLE_CANOPY`. See the
+progress log's `## T1`.
+
 ---
 
 ### T2 — `FarFieldSolver` backed by Canopy: the adapter and the round trip — **NOT STARTED**
@@ -849,10 +884,63 @@ changes, [README.md](../../README.md).
    stubs today: `BRSolverFMM::computeInterfaceVelocity`
    ([src/Beatnik_BRSolverFMM.hpp:113](../../src/Beatnik_BRSolverFMM.hpp#L113)) and
    `::computeSurfaceRieszScalar` ([:140](../../src/Beatnik_BRSolverFMM.hpp#L140)).
-   The recommended shape is one method per contraction, each taking points,
-   source vectors, the blob and the output view, with the tree
-   maintenance decided internally — that keeps `BRSolverFMM` free of any
-   knowledge of Canopy's lifecycle. Record the chosen signatures in the log.
+   The three replacements, with the tree maintenance decided internally so
+   `BRSolverFMM` needs no knowledge of Canopy's lifecycle:
+
+   ```cpp
+   using point_view = Kokkos::View<Real* [3], device_type>;
+   using vector_view = Kokkos::View<Real* [3], device_type>;
+   using scalar_view = Kokkos::View<Real*, device_type>;
+
+   void evaluateVelocity( const point_view& sources,
+                          const vector_view& strengths,
+                          const ZModelParams& params, vector_view& velocity );
+
+   void evaluateRieszScalar( const point_view& sources,
+                             const vector_view& gradients,
+                             const ZModelParams& params, scalar_view& scalar );
+
+   const FarFieldDiagnostics& diagnostics() const;
+   ```
+
+   Each departure from the current three is forced, and the reason belongs on
+   the declaration:
+
+   - **There is no `targets` argument, because Canopy has no target list.**
+     `solve<PositionIdx, ChargeIdx>(particles, compute_gradient)`
+     (`Canopy_Solver.hpp:237-273`) sizes its `_potential` and `_gradient` views
+     to `_num_local` — the particle count — and evaluates the field at the
+     particle positions only. Under the `Vertex` quadrature source row, target
+     row and output row are one integer, so one array serves both sides; see
+     [Two decompositions, and the round trip between them](#two-decompositions-and-the-round-trip-between-them).
+     Evaluating at points that are not sources would mean padding the particle
+     set with zero-charge targets, which this consumer does not need.
+   - **The views are concrete, not templated.** `SourceQuadratureBase`'s
+     `point_view` and `strength_view`
+     ([src/Beatnik_SourceQuadrature.hpp:102-105](../../src/Beatnik_SourceQuadrature.hpp#L102-L105))
+     and `BRSolverBase`'s `vector_view` and `scalar_view` are already
+     `Kokkos::View<Real* [3], device_type>` and `Kokkos::View<Real*, device_type>`.
+     The `TODO(types): templated pending Tessera/Canopy interface` comments on
+     the current three methods are resolved by this task and go away rather than
+     being carried forward.
+   - **`ZModelParams` replaces the bare `Real blob`.** One object supplies
+     `blob()` — whose square root is taken at this one call site per T1 step 8 —
+     together with `br_sign`, `blob_mode` and `source_quadrature`, so there is no
+     second source of truth for the softening length and no separate sign
+     argument to forget. It is also what the two prefactors are read from — see
+     [The physics maps onto one Canopy solve](#the-physics-maps-onto-one-canopy-solve-exactly)
+     for which one goes on which contraction.
+   - **The charges travel with the points in the same call**, because Canopy
+     needs them at tree-construction time: `setup<PositionIdx, ChargeIdx>` reads
+     both slices. That is what `setSources( source_points )` could not express.
+   - **A non-`Vertex` quadrature is rejected here**, with `std::runtime_error`
+     naming the quadrature in force. `ZModelParams::source_quadrature` defaults
+     to `SourceQuadrature::Face`
+     ([src/Beatnik_Params.hpp:95](../../src/Beatnik_Params.hpp#L95)), whose
+     `generate` still throws, so today the round trip is protected only by that
+     throw. If `Face` is ever implemented the sources stop being the vertices and
+     the one-integer tag silently becomes wrong, so the guard belongs here rather
+     than being inherited from a stub.
 2. Define the AoSoA member layout as an enum, not bare indices: position
    `double[3]`, charge `double[3]`, output `double[3]`, tag `int[2]`
    = `(origin_rank, owned_index)`. develop-canopy's `FmmField` namespace
@@ -872,37 +960,116 @@ changes, [README.md](../../README.md).
    `softening <= 0` inside `build_m2l_operators`, which catches zero and
    negative values but *not* the sentinel, since the sentinel is replaced before
    the operators are built. The check has to be here.
-5. Dispatch `(FmmParams::basis, FmmParams::order)` onto an enumerated set of
-   instantiations, **naming the Canopy basis explicitly in every one**. Start
-   with the set the measurement needs — at minimum `CartesianTaylor` at orders
-   0 and 2 through 5 (0 for **T4**'s monopole-only negative case, 3 for the
-   production path, and the neighbours **T5** scans either side of it), plus one
-   `SolidHarmonic` instantiation so **T4**'s negative case and **T5**'s
-   comparison can be built — and throw naming the supported set for anything
-   else. Note on the dispatch that 4 and 5 are **scan-only**: Canopy's
-   derivative-ladder oracle stops at $|k|=6$, so those orders are measurable but
-   not adoptable as the production order (**R11**). Add a `static_assert` or equivalent that no
+5. Dispatch `(FmmParams::basis, FmmParams::order)` onto **six** instantiations,
+   **naming the Canopy basis explicitly in every one**, and throw naming the
+   supported set for anything else. The set is `CartesianTaylor` at orders 0, 2,
+   3, 4 and 5 — 0 for **T4**'s monopole-only negative case, 3 for the production
+   path, and the neighbours **T5** scans either side of it — plus **one**
+   `SolidHarmonic` arm at order **3**, so **T4**'s negative case and **T5**'s
+   basis comparison are built and the comparison is at equal order. Note on the
+   dispatch that orders 4 and 5 are **scan-only**: Canopy's derivative-ladder
+   oracle stops at $|k|=6$, so they are measurable but not adoptable as the
+   production order (**R11**). Add a `static_assert` or equivalent that no
    instantiation relies on Canopy's defaulted basis parameter; a silently
    solid-harmonic solve is **R2**.
-6. Every rank must enter every collective the same number of times per
+
+   **The dispatch is type-erased, and that is what lets the adapter hold a
+   persistent solver at all.** Canopy's basis is a template-*template* parameter
+   and its order a non-type template parameter
+   (`Canopy_Solver.hpp:125-128`), so every arm is a distinct C++ type and
+   `FarFieldSolver` cannot name the `Solver` as a typed member. It holds a
+   `std::unique_ptr<Impl>` over an abstract `Impl` declaring the two evaluates
+   and the diagnostics, with one
+   `template <template <class, int, int> class FarField, int P_ORDER> struct ImplFor : Impl`
+   per arm, constructed once on the first evaluation from the runtime
+   `(basis, order)` pair and persistent thereafter — which is what makes the
+   tree, the partition and the communication plan reusable across evaluations.
+   State on the dispatch what an extra arm costs: `Beatnik_FarFieldInterface.hpp`
+   reaches every translation unit that creates a BR solver, through
+   `Beatnik_CreateBRSolver.hpp`, so each arm instantiates Canopy's whole pipeline
+   — `TreeBuilder`, `TreePartitioner`, `CommunicationPlan`, `UpwardSweep`,
+   `DownwardSweep`, `P2P` — in all of them. Adding a second `SolidHarmonic` arm
+   is one line and that is the price of it.
+6. **`FarFieldDiagnostics` is the third signature, and it is the only route by
+   which any later task can read a Canopy number.** It is a Beatnik POD naming
+   no Canopy type, declared in `Beatnik_FarFieldInterface.hpp` beside
+   `FarFieldSolver` and **outside** `BEATNIK_ENABLE_CANOPY` so a `~canopy` build
+   still compiles it. Every field traces to an accessor Canopy already exposes:
+
+   - the maintenance action the evaluation took — a nested
+     `enum class Maintenance { Setup, Migrate, Rebalance, Rebuild }` mirroring
+     `Solver::MaintenanceAction` with the first-call `Setup` case added;
+   - the global particle count Canopy holds, reduced from
+     `num_local_particles()`;
+   - the P2P pair fraction, per the next step;
+   - `m2l_n_unique_ops()`, `m2l_op_cache_size()`, `m2l_op_keys_built_count()`,
+     `total_fallback_pair_count()` and `total_m2l_pair_count()`, all off
+     `Solver::downward()`;
+   - the basis, the order and the softening **length** actually instantiated,
+     since the conventions table requires every accuracy figure to name them.
+
+   In a `~canopy` build the two evaluates throw and `diagnostics()` returns the
+   default-constructed member.
+
+   Add `const far_field_type& farField() const` to `BRSolverFMM`
+   ([src/Beatnik_BRSolverFMM.hpp](../../src/Beatnik_BRSolverFMM.hpp)) in the same
+   change. `_far_field` is private and `BRSolverBase`'s virtuals return `void`,
+   so without it a test holding a `BRSolverFMM` cannot reach the diagnostics
+   without naming a Canopy type. The consumers are **T4** steps 2 and 7, **T5**
+   steps 1 and 5, and **T8** steps 1 and 2; settling the surface here is what
+   keeps those three tasks from each reopening it.
+7. **Compute the P2P pair fraction in the adapter — Canopy reports no such
+   counter.** `P2P`'s public surface is `num_ghost_particles()`,
+   `ghost_positions()` and `ghost_charges()` and nothing else
+   (`canopy/src/Canopy_P2P.hpp:158-163`), and Canopy's own accuracy test settles
+   for an `m2l_n_unique_ops() > 0` liveness guard
+   (`canopy/tests/tstCartesianTaylorSolve.hpp:96-107`), which is weaker than
+   **R1** requires. The ingredients are host-side and already public:
+   `Solver::comm_plan().p2p_plan().neighbor_lists` is an
+   `unordered_map<MortonKey, vector<MortonKey>>` over this rank's owned leaves
+   (`canopy/src/Canopy_CommunicationPlan.hpp:116-134`, accessor at `:220`), and
+   `Solver::builder().cells()` is a globally replicated `vector<CellInfo>`
+   carrying `global_count` per cell
+   (`canopy/src/Canopy_TreeBuilder.hpp:84-92`, accessor at `:187`). A leaf's
+   particles live on exactly one rank after partitioning, so summing
+   $n_T \sum_{S \in \mathrm{nbrs}(T)} n_S$ over owned leaves and reducing gives
+   the global P2P pair count with no double counting; the fraction is that over
+   the square of the global source count. It is a few thousand host-side lookups
+   per evaluation, and it is the number every accuracy claim in **T4**, **T5**,
+   **T6** and **T8** has to carry, so it is computed unconditionally rather than
+   behind a diagnostic flag.
+8. Every rank must enter every collective the same number of times per
    evaluation, **including a rank that owns zero sources**. Canopy has no test
    for a zero-particle rank ([canopy0.md](../../../canopy/tasks/canopy0.md) F5) and Beatnik's
    decomposition can produce one. Do not branch the collective sequence on a
    local count.
-7. `#include <Canopy_Solver.hpp>` and every Canopy-typed member sit behind
+9. `#include <Canopy_Solver.hpp>` and every Canopy-typed member sit behind
    `BEATNIK_ENABLE_CANOPY`; the class must still compile, and its methods must
    still throw `std::runtime_error` naming the missing build option, in a
    `~canopy` build.
+10. **The file header's claim that "Canopy has not been read while writing this
+   header"** ([src/Beatnik_FarFieldInterface.hpp:19-21](../../src/Beatnik_FarFieldInterface.hpp#L19-L21))
+   becomes false with this task and is deleted by it. The softened-kernel
+   paragraph at [:36-41](../../src/Beatnik_FarFieldInterface.hpp#L36-L41) is
+   **T3**'s to correct and must be left standing: rewrite the class body around
+   it rather than clearing the header wholesale.
 
-**Exit criterion:** `spack install` succeeds with `+canopy` **and** with the
-Canopy dependency's headers made unavailable (or with
-`Beatnik_ENABLE_CANOPY=OFF` configured by hand), the second build's
-`FarFieldSolver` throwing `std::runtime_error` naming `+canopy` rather than
-failing to compile; `grep -l Canopy src/*.hpp` names only
-`Beatnik_FarFieldInterface.hpp` and `Beatnik_Config.hpp.in`; and
-`grep -n "CartesianTaylorBasis" src/Beatnik_FarFieldInterface.hpp` shows the
-basis named on every `Solver` instantiation the dispatch builds. No behavioral
-claim is made by this task — **T4** is where correctness is first checked.
+**Exit criterion:** `spack install` succeeds with `+canopy`, and succeeds again
+with the Beatnik spec flipped to `~canopy`, the second build's `FarFieldSolver`
+compiling and throwing `std::runtime_error` naming `+canopy` rather than failing
+to compile. A `spack`-mode checkout has no `cmake -DBeatnik_ENABLE_CANOPY=OFF` to
+reach for, so the `~canopy` half is checked by temporarily setting the
+development environment's Beatnik spec to `~canopy`, running
+`spack concretize -f && spack install`, confirming the guarded class, then
+restoring `+canopy` and reinstalling. Only Beatnik's variant changes, so no
+dependency rebuilds, and the committed
+[systems/tuolumne/spack.yaml](../../systems/tuolumne/spack.yaml) snapshot is not
+edited because the change is reverted. Further:
+`grep -n "include.*Canopy_\|Canopy::" src/*.hpp src/*.in` names only
+`Beatnik_FarFieldInterface.hpp`; and
+`grep -n "CartesianTaylorBasis\|LaplaceKernel" src/Beatnik_FarFieldInterface.hpp`
+shows a basis named on every one of the six dispatch arms. No behavioral claim is
+made by this task — **T4** is where correctness is first checked.
 
 ---
 
@@ -942,7 +1109,7 @@ already applied.
 3. Same correction in [README.md](../../README.md): whatever it says about the FMM
    path's accuracy must become the measured statement, and it must say the
    default `--br-approximation fmm`
-   ([src/Beatnik_Params.hpp:106](../../src/Beatnik_Params.hpp#L106)) is not the
+   ([src/Beatnik_Params.hpp:107](../../src/Beatnik_Params.hpp#L107)) is not the
    validated path until **T5** has run.
 
 **Exit criterion:** a two-step `--br-approximation fmm` run of
@@ -1083,11 +1250,17 @@ ladder, which is the instrument step 6 reuses
    $\epsilon_{\rm grad}\approx(\theta/2\sqrt3)^{p}$ predicts — confirmed within
    20% at three points on a volumetric cloud, see
    [The order that reaches the target](#the-order-that-reaches-the-target) — and
-   then flatten into Canopy's own floating-point floor; under `SolidHarmonic` it should
-   plateau well above that regardless of order, because the bias is in the
-   kernel rather than the truncation. Two curves of different *shape* is the
-   finding; two curves of the same shape means the basis selector is not doing
-   what it claims. Record which regime each observed level is in.
+   then flatten into Canopy's own floating-point floor. The `SolidHarmonic`
+   comparison is at **one** order, the production order 3, since that is the only
+   solid-harmonic arm **T2** dispatches: its point must sit orders above the
+   `CartesianTaylor` point at the same order, because the bias is in the kernel
+   rather than the truncation. A `CartesianTaylor` order scan whose *shape* is a
+   clean truncation curve, against a solid-harmonic point that no order would
+   have rescued, is the finding; a `CartesianTaylor` curve that plateaus at the
+   solid-harmonic level is the basis selector not selecting. Record which regime
+   each observed level is in. Measuring the solid-harmonic curve's own shape
+   would need dispatch arms **T2** does not build — one line each, and not
+   required for this scan.
 4. Confirm or correct the error model in **Problem**. Its constant $c\approx1$
    was measured on a volumetric cloud at idealized equal-cell separations; the
    realized $R/w$ distribution on a thin bubble surface with depth-mismatched

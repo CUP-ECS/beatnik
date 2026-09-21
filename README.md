@@ -206,7 +206,10 @@ always did. Emitted and asserted by
 `GROUPED OUTPUT` section of
 [src/Beatnik_IOInterface.hpp](src/Beatnik_IOInterface.hpp).
 
-**The option names and defaults match the Python script exactly**, so one command
+**The option names and defaults match the Python script exactly**, with one
+deliberate exception — `--br-treecode-order`, whose default is 3 here against the
+Python's 2 for the reason given under
+[Birkhoff-Rott approximation](#birkhoff-rott-approximation) below — so one command
 line drives both the Python gold-file run and this one — which is what makes the
 gold-file comparison in `tests/regression_tests/` possible. The full list is in
 `adaptive_mesh_bubble --help`; the groups are:
@@ -269,6 +272,66 @@ Beatnik offers **`direct`** and **`fmm`** (Canopy fast multipole), and maps
 `local`, `clustered` and `treecode` onto `fmm` with a warning so a Python command
 line runs. The first round of testing uses `direct` only: it is easier to
 implement and it isolates bugs in the rest of the code from the far-field solver.
+
+###### FMM tunables
+
+The three `--br-treecode-*` options are the only CLI surface on the FMM path; the
+rest of Canopy's configuration is defaulted in `FmmParams`
+([src/Beatnik_Params.hpp](src/Beatnik_Params.hpp)) and has no CLI option by
+design. **A treecode number and an FMM number of the same name are not
+interchangeable**, and the three differ in *how* they fail to transfer:
+
+| CLI option | `FmmParams` member | Default | Transfers from the treecode? |
+| --- | --- | --- | --- |
+| `--br-treecode-theta` | `mac_theta` | 0.3 | **Yes.** Same opening angle; the Python's value is kept. |
+| `--br-treecode-order` | `order` | **3** (Python: 2) | **Quantity yes, accuracy no** — see below. |
+| `--br-treecode-ncrit` | `ncrit` | 64 | **Yes**, but only at production vertex counts — see below. |
+
+`order` is the one place the "names and defaults match exactly" promise breaks.
+The reference treecode has no target-side expansion, so its order-2 *velocity*
+carries the truncation order of an FMM's order-2 *potential*. An FMM gets its
+gradient by differentiating a local expansion, and the gradient of a degree-$p$
+Taylor local is degree $p-1$ — so an FMM's order-2 gradient is one order short of
+where the treecode's order-2 velocity sits, and Beatnik reads only the gradient.
+Order 3 here is the *counterpart* of the reference's 2, not an upgrade of it. The
+default is set from measurement rather than from that argument: on a volumetric
+cloud at $\theta=0.3$ the relative error on the gradient is
+$8.996\times10^{-3}$ at $p=2$ against $7.0718\times10^{-4}$ at $p=3$, so 3 is
+the smallest order that reaches the $10^{-3}$ target and 2 misses it by an
+order. Passing `--br-treecode-order 2` explicitly still yields 2.
+
+`mac_theta` and `ncrit` need no such correction — both denote the same quantity in
+both algorithms. `ncrit` carries a separate caveat that is about the mesh, not the
+mapping: under Canopy's acceptance criterion the near field reaches
+$\sqrt3/\theta$ cell widths, which on a 2-manifold covers about 105 occupied
+leaves at $\theta=0.3$, so a far field that carries any of the field at all needs
+$N \gg 105\cdot\texttt{ncrit}$ — that is $N \gg 6720$ at these defaults. Below
+that the FMM is a direct sum with FMM bookkeeping around it: it agrees with the
+direct solver to round-off, at any order, silently.
+
+The FMM-only members, none of which has a CLI option:
+
+| `FmmParams` member | Default | Canopy `FmmConfig` member | What it is |
+| --- | --- | --- | --- |
+| `basis` | `FarFieldBasis::CartesianTaylor` | none (a template parameter) | Which far-field basis the adapter instantiates. `CartesianTaylor` expands the desingularized kernel directly and is the validated production path; `SolidHarmonic` expands the bare $1/r$ and carries a kernel bias no order removes. |
+| `max_depth` | 10 | `max_depth` | Hard **cap** on tree depth, not a target — the tree stops at `ncrit` occupancy well before it. Canopy bounds it at 19. |
+| `near_softening_factor` | **0** | `near_softening_factor` (4.0) | Multiple of the softening length inside which pairs are forced out of the far field. Meaningful only under `SolidHarmonic`; under `CartesianTaylor` the far field already carries the blob, so a non-zero floor only moves work into the near-field sum. |
+| `ncrit_tol` | 0.10 | `ncrit_tol` (0.10) | Coarsening hysteresis on `ncrit`, as a fraction of it: children merge only below `ncrit · (1 - ncrit_tol)`. Damps split/merge thrashing on a surface that deforms every RK stage. |
+| `replication_depth` | 3 | `replication_depth` (1) | Cells at or above this depth are replicated on every rank. 3 caps the replicated set at 585 cells and sits inside the 2-4 range Canopy documents as typical. |
+| `imbalance_tolerance` | 0.10 | `imbalance_tolerance` (0.05) | Zoltan2 partition imbalance accepted, as a fraction. Looser than Canopy's default because the partitioner runs essentially every RK stage. |
+| `xmin_tol` … `zmax_tol` | 0.10 each | `xmin_tol` … `zmax_tol` (0.0) | Per-face padding on the global root box, each a fraction of that axis's width, giving particles room to move before leaving the box. It does **not** stabilize the box: Canopy recomputes the box from the particles on every maintenance path, so a padded box drifts with it. |
+| `m2l_op_table_byte_budget` | 2 GiB | `m2l_op_table_byte_budget` (2 GiB) | Per-rank byte budget for Canopy's hashed M2L operator table. Deliberately non-binding: Canopy's own 32768-key count cap binds first at every order this path supports. |
+
+There is deliberately **no** `softening` member. Canopy's `FmmConfig::softening`
+is a length while `--eps` and `ZModelParams::blob()` are a squared length, so the
+adapter passes `sqrt(blob())` at its one call site rather than keeping a second
+source of truth. It must be explicitly positive: Canopy's default of $-1$ selects
+distribution-based auto-softening, which is a different kernel rather than a
+fallback, and which additionally disables `near_softening_factor`.
+
+`fmm_*` deck keys are a different, older parameter set belonging to
+`01_rising_bubble` (`rocketrig`) and documented separately above; they do not
+reach `FmmParams`.
 
 ## Dependencies and Build Notes
 
