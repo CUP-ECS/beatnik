@@ -722,3 +722,187 @@ five-value `MPI_SUM` per evaluation on top of Canopy's own, and the fallback to
 `setup()` on a changed source set is a cost that lands on every remeshing step.
 Also for **T8**: the six arms' 2.56x compile cost is measured above and is the
 maintenance-policy input that section wants.
+
+## T3
+
+`BRSolverFMM::computeInterfaceVelocity` is live and `--br-approximation fmm`
+runs end to end. The body is eleven lines of code and the rest of the change is
+comments and documentation, which is the point: T2 put every hard part in the
+adapter, and T3's job was to not re-do any of it.
+
+```cpp
+point_view points;
+strength_view strengths;
+quadrature.generate( mesh, geometry, state, points, strengths );
+_far_field->evaluateVelocity( points, strengths, params, velocity );
+```
+
+Two typedefs (`point_view`, `strength_view`, both pulled from
+`quadrature_type` exactly as `BRSolverDirect.hpp:60-61` does) were added to the
+class; the three view types involved are all
+`Kokkos::View<Real*[3], Kokkos::Device<ES,MS>>` and needed no conversion.
+
+**Decisions taken as given by the task, recorded so they are not reopened.**
+
+- **`BRSolverFMM` applies neither prefactor and does not size the output.**
+  `FarFieldSolver::evaluateVelocity` reallocates `velocity` to the source count
+  and zeroes it, and applies `br_sign/4pi` itself. Duplicating either is a
+  silent double application, not a redundant safety net. `BRSolverDirect`'s
+  realloc/zero/coefficient lines are what the *adapter* mirrors, not what
+  `computeInterfaceVelocity` reimplements — the comment in the body says so, so
+  the next reader does not "fix" the apparent omission.
+- **`BRSolverFMM` adds no quadrature guard.** The adapter already rejects any
+  `source_quadrature` other than `Vertex` with a `std::runtime_error` naming
+  the rule in force. A second check duplicates the error surface.
+- **Level 3 only, and the far field is not live there.** 642 vertices at
+  `ncrit = 64` is two orders below the README's liveness inequality
+  (`N >> 105*ncrit = 6720`), so the solve is expected to be all or nearly all
+  P2P. **A passing T3 is not far-field evidence** — not of the expansion, the
+  basis selector, the M2L path or the acceptance criterion. It is a
+  completes-without-throwing check. The fmm-vs-direct agreement at this
+  configuration was deliberately not computed as a number, so that no later
+  reader can quote one.
+- **`tasks/framework.md` R6 is out of scope.** The `@note` previously pointed
+  there; it now points at this document instead. framework.md was not touched.
+  **Its "second-order concern" paragraph (`tasks/framework.md:2350-2354`) is
+  superseded** in exactly the way the `@note` was — both were written against a
+  bare-kernel far field, and under `CartesianTaylorBasis` the blob is inside
+  the expansion at every order. A framework.md session can retire it.
+
+### The exit criterion's direct half could not be checked the way it was written
+
+The task says to `h5diff` the pre- and post-change direct checkpoints, "same
+binary configuration, same flags, so any difference is a regression." `h5diff`
+reported differences — and they are not a regression. **The run is not bitwise
+reproducible.** Two submissions of the identical command line against the
+identical binary (jobs `f3Zr8Ew4dXR9` and `f3Zr8F53BfLj`, labels `repeatA` and
+`repeatB`) differ by **1.15e-15 (np1)** and **1.88e-15 (np4)** of field RMS,
+worst at `/vertices/u1`. Step 0 — the initial condition, written before any
+solve — is bitwise identical every time, which localizes the nondeterminism to
+the timestep rather than to I/O or mesh generation.
+
+So the bitwise compare fails on an *unmodified* binary and cannot distinguish a
+regression from a rerun. Replaced with the right yardstick: max|diff|
+normalized by the field's own RMS, compared against that measured noise floor.
+
+| comparison | np1 | np4 |
+| --- | --- | --- |
+| same binary, two runs (the noise floor) | 1.15e-15 | 1.88e-15 |
+| baseline vs. after, `direct` | **1.54e-15** | **1.03e-15** |
+
+Baseline vs. after is the same size as the noise at np1 and *smaller* than it
+at np4, so there is no detectable change to the direct path. Worth stating
+plainly because the naive reading is available and wrong: **`h5diff` exiting 1
+on these trees is the expected outcome, not a finding.** Anything downstream
+that wants a bitwise checkpoint comparison needs to know this first.
+
+One caveat on the baseline, stated rather than hidden. The baseline binary was
+the installed one from before this task (configure stamp `82add00`, T1's
+commit) and the after binary is stamped `c8fe19f` + T3's edits, so the two
+differ by T2's source as well as T3's. That was left alone deliberately: T2
+touched `Beatnik_FarFieldInterface.hpp`, `CMakeLists.txt` and README, none of
+which is on the direct path, and a *clean* comparison across both commits is a
+stronger result than one across T3 alone. Had the comparison come back dirty,
+the tighter baseline (rebuild unmodified HEAD, re-run) would have been the next
+step; it did not, so it was not spent. The checkpoints carry no version or SHA
+attribute, so the rebuild itself cannot show up as a difference.
+
+### R3: the round trip's first execution neither dropped nor duplicated a source
+
+The task notes that the round trip, both `Cabana::Distributor` legs and the
+contraction all execute for the first time here. They did, and they were clean
+— no bug surfaced and nothing needed debugging, so **no `farField()`
+diagnostics were read**; the example driver has no path that prints them and
+adding one is T4's, not a side errand here.
+
+The cheap probe that *was* available: a dropped or duplicated source presents
+as a field that changes with the rank count (R3, and the same signature as the
+R9 ghost-emission bug). Matching rows by `/vertices/gid` — necessary because
+checkpoint row order follows the decomposition, so a raw array compare across
+rank counts is meaningless and reports garbage — over all four checkpoint
+files:
+
+| np1 vs np4, gid-matched | worst normalized difference |
+| --- | --- |
+| `direct` (the control) | 2.224e-15 |
+| `fmm` | **2.224e-15** |
+
+Identical, and the `gid` sets match exactly at both rank counts, so every
+source was present exactly once on both sides. The FMM's rank-count spread is
+indistinguishable from the direct solver's. **What this does and does not
+cover:** it exercises the forward distributor, the tag-reverse scatter, the
+round-trip completeness check and the curl contraction — which is precisely
+what R3 is about — and it exercises them at a vertex count where the M2L far
+field is almost certainly not engaged. It is evidence about the round trip, not
+about the expansion. T4's 1-6 sweep is still what R3 needs.
+
+The self-validating forward distributor and the round-trip completeness throw
+that T2 added on its own initiative both stayed silent, which is the correct
+outcome at a frozen connectivity (`--no-dynamic-remesh --refine-every 0`) and
+says nothing yet about the remeshing path that motivated them.
+
+### Documentation
+
+The `@note` on `computeInterfaceVelocity` now attaches the basis to the
+softened-kernel claim rather than asserting it unconditionally: true under
+`FarFieldBasis::CartesianTaylor`, false under `SolidHarmonic`, which is what
+Canopy's template parameter defaults to. The "acceptance criterion tuned on the
+bare kernel is optimistic near self-contact" claim is replaced by what actually
+binds under the softened basis — Taylor truncation at the accepted `R/w`, going
+as `(cw/R)^p` on the **gradient**, one order worse than on the potential, with
+`FmmParams::order` as the knob and not `mac_theta`. The matching paragraph in
+`Beatnik_FarFieldInterface.hpp` got the same correction plus the R2 pointer.
+README gained a blockquote saying outright that `fmm` is the *default*
+(`Beatnik_Params.hpp:107`, because the Python default is `treecode`) and is not
+the validated path, that it runs but has no measured accuracy, and that runs
+whose numbers matter should pass `--br-approximation direct` until T5. The
+`basis` table row's unmeasured claim that `CartesianTaylor` "is the validated
+production path" was corrected to *intended* production path.
+
+Four stale citations in T3's own entry were corrected in `add-canopy.md`
+(`BRSolverDirect.hpp:105-166`→`:105-165`, `:112-115`→`:111-115`,
+`:126-127`→`:125-127`, `FarFieldInterface.hpp:36-41`→`:37-44`), the `@note`
+citation was repointed from a nonexistent file-header range to `:104-109` and
+the count corrected from two blocks to one, and
+`src/Beatnik_FarFieldInterface.hpp` was added to the **Fill in** list, which
+omitted a file step 2 requires editing.
+
+### Cost and mechanics
+
+`spack install` after touching the example driver (the header-only-rebuild
+caveat in `systems/tuolumne/claude.md` — an INTERFACE library does not track
+`HEADERS_PUBLIC`, so a header-only change can report a sub-second no-op):
+**9m25s wall** on the login node, one reconfigure. The new
+`scripts/tuolumne/t3_fmm_velocity.flux` is mode-parameterized
+(`LABEL [MODE...]`) rather than FMM-only, which is what makes the before/after
+command lines byte-identical by construction instead of by careful copying —
+the log echoes each full command line, and the two submissions' `direct` lines
+differ only in the checkpoint directory. `-t 10m`, `-q pdebug`, one node; four
+launches fit comfortably. `flux batch --flags=waitable` is **refused on this
+instance** ("only the instance owner can submit with FLUX_JOB_WAITABLE"), so
+`flux job status <jobid>` is the wait mechanism here, as the fallback in the
+task description anticipated.
+
+**Affects:** **T4** — the round trip, both distributor legs and the curl
+contraction now have one clean execution at 1 and 4 ranks behind them, so T4
+inherits a working path rather than a first bring-up; its 1-6 sweep is still
+where R3 is actually settled, since 1-vs-4 at 642 vertices exercises the tag
+plumbing but almost certainly not the M2L far field. Two things T4 must plan
+around: **the timestep is not bitwise reproducible** (1-2e-15 of field RMS
+run-to-run on the same binary, localized to the solve rather than to I/O), so
+no test may assert bitwise equality of anything downstream of a timestep, and
+any tolerance must clear that floor; and **`ncrit` or the vertex count must be
+chosen so the far field is live** (`N >> 105*ncrit`), or the comparison passes
+at round-off no matter what the expansion does — R1's cheapest misreading, and
+T3's configuration is squarely inside it. T4 is also still the place to close
+T2's `~canopy` instantiation gap with a guarded explicit instantiation.
+**T5** — the same liveness constraint bounds its scan configuration from below,
+and the noise floor above is the resolution limit on anything it measures
+through a full timestep rather than through a single evaluation. **T7** —
+`computeSurfaceRieszScalar` is untouched and still throws; the call-path shape
+it will need is settled by this task (generate through `generateGradient`, one
+adapter call, no prefactor and no sizing on the `BRSolverFMM` side), and
+`--bernoulli-scalar-mode normal-speed` is what keeps it out of the path today.
+**T8** — the 9m25s rebuild is a per-change cost on this path, and the
+maintenance actions the four launches took were not recorded, so T8 starts its
+histogram from zero.

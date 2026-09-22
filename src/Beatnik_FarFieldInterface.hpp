@@ -38,10 +38,28 @@
  * the additive blob, which both removes the singularity at \f$r=0\f$ (a target
  * *is* a source in this problem — every vertex appears on both sides, including
  * its own self-interaction, which contributes exactly zero to the velocity
- * because \f$\delta = 0\f$ there) and sets the sheet thickness. An FMM
- * expansion of this kernel is therefore an expansion of a *softened* Coulomb
- * field, not of the bare one; that difference matters for the error estimate at
- * separations comparable to \f$\sqrt{b}\f$.
+ * because \f$\delta = 0\f$ there) and sets the sheet thickness.
+ *
+ * **Whether the FMM expands that softened kernel or the bare one is a property
+ * of the basis, not of this kernel definition.** Under
+ * `FarFieldBasis::CartesianTaylor` the blob is inside the expansion at every
+ * order — the basis differentiates \f$w_b = b + r^2\f$ in closed form — so the
+ * far field and the near field regularize identically and the softening needs
+ * no correction term. Under `FarFieldBasis::SolidHarmonic`, which is Canopy's
+ * *default* basis template argument and so what an instantiation that omits it
+ * silently selects, the expansion is of the bare Coulomb field and the blob
+ * reaches only the near field; combined with `FmmParams::near_softening_factor`
+ * defaulting to 0 that is a tens-of-percent error, not a small one (risk R2 in
+ * `tasks/canopy/add-canopy.md`). Every `Canopy::Solver` instantiation below
+ * therefore names its basis explicitly.
+ *
+ * Under the softened basis the binding error is Taylor truncation at the
+ * accepted separation ratio \f$R/w\f$ (separation over source-cell half-width),
+ * going as \f$(cw/R)^{p}\f$ on the **gradient** — one order worse than on the
+ * potential, which is the quantity Beatnik actually reads. Separations
+ * comparable to \f$\sqrt{b}\f$ are *not* a distinguished case for it. See
+ * `tasks/canopy/add-canopy.md`; no accuracy figure is claimed for either basis
+ * until T5 measures one.
  *
  * The two evaluations Beatnik needs from it:
  *

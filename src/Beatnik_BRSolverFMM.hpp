@@ -73,6 +73,8 @@ class BRSolverFMM : public BRSolverBase<ExecutionSpace, MemorySpace>
     using geometry_type = typename base_type::geometry_type;
     using state_type = typename base_type::state_type;
     using quadrature_type = typename base_type::quadrature_type;
+    using point_view = typename quadrature_type::point_view;
+    using strength_view = typename quadrature_type::strength_view;
 
     using far_field_type = FarFieldSolver<ExecutionSpace, MemorySpace>;
 
@@ -101,12 +103,34 @@ class BRSolverFMM : public BRSolverBase<ExecutionSpace, MemorySpace>
      * the evaluation needs is decided inside it too, so nothing here knows
      * about Canopy's lifecycle.
      *
-     * @note The FMM's accuracy is controlled by the acceptance criterion, and
-     *       the kernel it expands is the **softened** \f$1/r^2\f$ field, not
-     *       the bare one. Near self-contact the sheet separation approaches
-     *       \f$\sqrt{b}\f$, where the softening dominates the geometry; an
-     *       acceptance criterion tuned on the bare kernel is optimistic there.
-     *       Recorded as risk R6 in `tasks/framework.md`.
+     * @note **Which kernel the far field expands depends on the basis**, so
+     *       the claim cannot be made without naming one. Under
+     *       `FarFieldBasis::CartesianTaylor` the expanded kernel is the
+     *       **softened** \f$1/r^2\f$ field: the blob enters as
+     *       \f$w_b = b + r^2\f$ inside the expansion at every order, so the
+     *       far field and the near field run the same regularization. Under
+     *       `FarFieldBasis::SolidHarmonic` — which is what Canopy's basis
+     *       template parameter defaults to, and therefore what an
+     *       instantiation that omits it silently gets — the expanded kernel is
+     *       the **bare** one, and the softening survives only in the near
+     *       field. `FmmParams::basis` is what decides which of the two is in
+     *       force.
+     *
+     *       Because the softened basis carries the blob at every order, the
+     *       old reading of this note — that the acceptance criterion is tuned
+     *       on the bare kernel and so is optimistic where the sheet separation
+     *       approaches \f$\sqrt{b}\f$ — does not describe the error under it:
+     *       self-contact is not a special case for a kernel that is
+     *       regularized inside the expansion. What binds instead is **Taylor
+     *       truncation at the accepted separation ratio**. Canopy accepts a
+     *       pair only beyond \f$R/w > 2\sqrt3/\theta\f$, with \f$R\f$ the
+     *       separation and \f$w\f$ the source cell's half-width, and an
+     *       order-\f$p\f$ truncation leaves a relative error
+     *       \f$\sim(cw/R)^{p}\f$ on the **gradient** — one order worse than on
+     *       the potential, which is why `FmmParams::order` defaults to 3 and
+     *       not 2. `FmmParams::order` is the knob, not `mac_theta`. See
+     *       `tasks/canopy/add-canopy.md` ("The order that reaches the target").
+     *       No accuracy figure is claimed for this path until T5 measures one.
      *
      * @note MPI. Collective, inside Canopy, and every rank must call it the
      *       same number of times per step. Beyond Canopy's own collectives the
@@ -120,13 +144,30 @@ class BRSolverFMM : public BRSolverBase<ExecutionSpace, MemorySpace>
                                    const ZModelParams& params,
                                    vector_view& velocity ) override
     {
-        (void)mesh;
-        (void)geometry;
-        (void)state;
-        (void)quadrature;
-        (void)params;
-        (void)velocity;
-        BEATNIK_NOT_IMPLEMENTED( "BRSolverFMM", "computeInterfaceVelocity" );
+        // Owned rows only, in owned order: `generate` emits over
+        // [0, ownedVertexCount()) and reallocates both views to that count, so
+        // default-constructed views are what it wants (risk R9 on
+        // `Beatnik_SourceQuadrature.hpp` -- a ghost emitted here is an owned
+        // source on another rank and would be double-counted in the global
+        // sum). Under `SourceQuadrature::Vertex` the targets ARE the sources,
+        // which is why no target array is built: one index serves source,
+        // target and output row alike.
+        point_view points;
+        strength_view strengths;
+        quadrature.generate( mesh, geometry, state, points, strengths );
+
+        // Everything else belongs to the adapter, deliberately and exactly
+        // once each: it sizes `velocity` to the source count and zeroes it,
+        // applies `br_sign/4pi`, resolves the softening from `params.blob()`,
+        // drives Canopy's tree maintenance, and rejects a non-`Vertex`
+        // quadrature. Duplicating any of those here is a silent double
+        // application, not a redundant safety net -- the output is
+        // OVERWRITTEN, not accumulated, per `BRSolverBase.hpp:137-139`.
+        // `BRSolverDirect`'s realloc/zero/coefficient lines
+        // (`Beatnik_BRSolverDirect.hpp:111-115`, `:125-127`) are what
+        // `FarFieldSolver::evaluateVelocity` mirrors, not what this
+        // reimplements.
+        _far_field->evaluateVelocity( points, strengths, params, velocity );
     }
 
     /**

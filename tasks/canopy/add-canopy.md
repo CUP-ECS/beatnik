@@ -1126,20 +1126,23 @@ units, a factor of 2.6.
 
 ---
 
-### T3 — `BRSolverFMM::computeInterfaceVelocity` — **NOT STARTED**
+### T3 — `BRSolverFMM::computeInterfaceVelocity` — **DONE**
 
 **Depends on:** T2.
 
 **Fill in:** [src/Beatnik_BRSolverFMM.hpp](../../src/Beatnik_BRSolverFMM.hpp)
 (`computeInterfaceVelocity` only; `computeSurfaceRieszScalar` is T7),
+[src/Beatnik_FarFieldInterface.hpp](../../src/Beatnik_FarFieldInterface.hpp)
+(the softened-kernel paragraph in the file header only — step 2 requires it and
+the original list omitted it; the adapter's code is T2's and is not reopened),
 [README.md](../../README.md).
 
 **Reference:** the direct implementation this must agree with, step for step
-([src/Beatnik_BRSolverDirect.hpp:105-166](../../src/Beatnik_BRSolverDirect.hpp#L105-L166))
+([src/Beatnik_BRSolverDirect.hpp:105-165](../../src/Beatnik_BRSolverDirect.hpp#L105-L165))
 — note it reallocates the output to `ownedVertexCount()` and zeroes it before
-accumulating ([:112-115](../../src/Beatnik_BRSolverDirect.hpp#L112-L115)), calls
+accumulating ([:111-115](../../src/Beatnik_BRSolverDirect.hpp#L111-L115)), calls
 `quadrature.generate` itself ([:117-119](../../src/Beatnik_BRSolverDirect.hpp#L117-L119)),
-and applies `br_sign/4\pi` once ([:126-127](../../src/Beatnik_BRSolverDirect.hpp#L126-L127));
+and applies `br_sign/4\pi` once ([:125-127](../../src/Beatnik_BRSolverDirect.hpp#L125-L127));
 the caller's contract ([src/Beatnik_ZModelSolver.hpp:219-224](../../src/Beatnik_ZModelSolver.hpp#L219-L224)),
 which reallocates `vertex_dot` to the owned count and expects the prefactors
 already applied.
@@ -1149,9 +1152,13 @@ already applied.
 1. Generate sources through the quadrature, call the adapter, write the
    `(N_owned, 3)` velocity. Overwrite, do not accumulate — the declaration says
    overwritten ([src/Beatnik_BRSolverBase.hpp:137-139](../../src/Beatnik_BRSolverBase.hpp#L137-L139)).
-2. Correct the two `@note` blocks in the file header
-   ([:102-107](../../src/Beatnik_BRSolverFMM.hpp#L102-L107)) and the matching
-   paragraph in `Beatnik_FarFieldInterface.hpp:36-41`. Both say the expanded
+2. Correct the softened-kernel `@note` on `computeInterfaceVelocity`'s doc
+   comment — **one** block, not two, and it is on the method rather than in the
+   file header ([:104-109](../../src/Beatnik_BRSolverFMM.hpp#L104-L109); the
+   second `@note` at [:111-114](../../src/Beatnik_BRSolverFMM.hpp#L111-L114) is
+   about MPI, is accurate, and needs no change) — and the matching
+   paragraph in `Beatnik_FarFieldInterface.hpp:37-44` (T2 rewrote the class
+   body around it and moved it from `:36-41`). Both say the expanded
    kernel is the softened one, which is true under `CartesianTaylorBasis` and
    false under the solid-harmonic basis the parameter defaults to — so the
    statement needs the basis attached to it, not deleting. The claim that "an
@@ -1171,6 +1178,45 @@ without throwing, at 1 and 4 ranks, submitted as a batch script under
 `scripts/tuolumne/` and read from its `.log`; and the same run with
 `--br-approximation direct` still produces the checkpoint it produces today.
 No accuracy claim — that is **T4**.
+
+**Met.** All four launches through
+[scripts/tuolumne/t3_fmm_velocity.flux](../../scripts/tuolumne/t3_fmm_velocity.flux)
+at the milestone-0 configuration, level 3, 2 steps, `--source-quadrature
+vertex`, on HIP. **FMM:** job `f3Zr7NFJbe2s`, `fmm_np1` and `fmm_np4` both
+**rc=0**, each writing 3 checkpoint steps + latest; the run banner reads `BR
+fmm, quadrature vertex, velocity full`, so the FMM path was genuinely taken,
+and neither launch exited through `BEATNIK_NOT_IMPLEMENTED` nor through the
+adapter's `~canopy` `std::runtime_error` — the two ways "fmm ran" can be a lie
+if the build did not pick the change up. **Direct:** the same job's `direct_np1`
+and `direct_np4` also rc=0, against the pre-change baseline job `f3ZqzxPyjYes`
+run from the installed binary before any source was edited.
+
+The direct half is **not** a bitwise result, and bitwise was never the right
+yardstick: two runs of the *same* binary with the *same* command line differ by
+1.2e-15 (np1) and 1.9e-15 (np4) of field RMS, so `h5diff`'s exact compare fails
+on a rerun of an unmodified binary. Measured against that noise floor, baseline
+vs. after is **1.5e-15 (np1) and 1.0e-15 (np4)** of field RMS — the same size at
+np1 and *smaller* at np4 than the binary's own run-to-run spread, i.e. no
+detectable change to the direct path. Step 0 is bitwise identical in every case.
+
+One result beyond the criterion, and it is about **R3** rather than accuracy:
+gid-matched across rank counts, the FMM's np1-vs-np4 spread is **2.224e-15** of
+field RMS — *identical* to the direct solver's own np1-vs-np4 spread of
+2.224e-15 — and the `/vertices/gid` sets match exactly at both rank counts. The
+round trip therefore neither dropped nor duplicated a source at 1 or 4 ranks on
+its first-ever execution.
+
+**Not claimed.** No accuracy statement of any kind about the far field. At
+`--icosphere-subdivisions 3` (642 vertices) with `ncrit = 64`, the README's own
+liveness inequality ($N \gg 105\cdot\texttt{ncrit} = 6720$) puts this run two
+orders below where the far field carries any of the field, so the solve is
+expected to be all or nearly all P2P — an FMM that is a direct sum with FMM
+bookkeeping around it. A passing T3 is therefore **not** evidence that the
+expansion, the basis selector, the M2L path or the acceptance criterion is
+correct, and the fmm-vs-direct agreement at this configuration was deliberately
+not computed as a number so it cannot be quoted as one. No diagnostic was read
+off `farField().diagnostics()`: nothing needed debugging, and the example driver
+has no path that prints them. **T4** owns all of it.
 
 ---
 

@@ -273,6 +273,20 @@ Beatnik offers **`direct`** and **`fmm`** (Canopy fast multipole), and maps
 line runs. The first round of testing uses `direct` only: it is easier to
 implement and it isolates bugs in the rest of the code from the far-field solver.
 
+> **`fmm` is the default and is not yet the validated path.**
+> `ZModelParams::br_approximation` defaults to `Fmm`
+> ([src/Beatnik_Params.hpp:107](src/Beatnik_Params.hpp#L107)) because the Python
+> default is `treecode` and Beatnik maps that onto `fmm` — so a command line
+> that names no `--br-approximation` gets the FMM. As of this writing the FMM
+> velocity path *runs* (it completes a multi-step bubble run at 1 and 4 ranks
+> without throwing) and **no accuracy claim has been measured for it**: it has
+> not been compared against the direct solver, and no tolerance is asserted
+> anywhere in the test suite. Until that measurement lands
+> (`tasks/canopy/add-canopy.md`, task T5), pass **`--br-approximation direct`**
+> explicitly for any run whose numbers matter. The Riesz-scalar half of the FMM
+> path (`--bernoulli-scalar-mode surface-riesz`) is not implemented at all and
+> throws.
+
 ###### FMM tunables
 
 The three `--br-treecode-*` options are the only CLI surface on the FMM path; the
@@ -313,7 +327,7 @@ The FMM-only members, none of which has a CLI option:
 
 | `FmmParams` member | Default | Canopy `FmmConfig` member | What it is |
 | --- | --- | --- | --- |
-| `basis` | `FarFieldBasis::CartesianTaylor` | none (a template parameter) | Which far-field basis the adapter instantiates. `CartesianTaylor` expands the desingularized kernel directly and is the validated production path; `SolidHarmonic` expands the bare $1/r$ and carries a kernel bias no order removes, and is built at order 3 only. |
+| `basis` | `FarFieldBasis::CartesianTaylor` | none (a template parameter) | Which far-field basis the adapter instantiates. `CartesianTaylor` expands the desingularized kernel directly and is the intended production path — *intended*, not yet validated: neither basis has been measured against the direct solver here, and the choice rests on Canopy's own gradient figures quoted above. `SolidHarmonic` expands the bare $1/r$ and carries a kernel bias no order removes, and is built at order 3 only; it exists as the negative control that proves the selector is live. |
 | `max_depth` | 10 | `max_depth` | Hard **cap** on tree depth, not a target — the tree stops at `ncrit` occupancy well before it. Canopy bounds it at 19. |
 | `near_softening_factor` | **0** | `near_softening_factor` (4.0) | Multiple of the softening length inside which pairs are forced out of the far field. Meaningful only under `SolidHarmonic`; under `CartesianTaylor` the far field already carries the blob, so a non-zero floor only moves work into the near-field sum. |
 | `ncrit_tol` | 0.10 | `ncrit_tol` (0.10) | Coarsening hysteresis on `ncrit`, as a fraction of it: children merge only below `ncrit · (1 - ncrit_tol)`. Damps split/merge thrashing on a surface that deforms every RK stage. |
