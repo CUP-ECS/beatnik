@@ -1,6 +1,7 @@
 # Canopy as Beatnik's far-field Birkhoff-Rott solver
 
-**Status:** IN PROGRESS — **T1** and **T2** are **DONE**; every task from **T3**
+**Status:** IN PROGRESS — **T1**, **T2**, **T3** and **T4** are **DONE**; every
+task from **T5**
 on is NOT STARTED. The findings and the measured numbers are complete, and no upstream work
 gates the sequence: Canopy's derivative ladder is validated at the production
 order. One narrow constraint remains inside **T5**, on scan points above it
@@ -8,14 +9,16 @@ order. One narrow constraint remains inside **T5**, on scan points above it
 
 ## Problem
 
-`--br-approximation fmm` throws, and after **T2** exactly one layer is
-responsible for that. `BRSolverFMM::computeInterfaceVelocity` and
-`::computeSurfaceRieszScalar` are still `BEATNIK_NOT_IMPLEMENTED` stubs
-([src/Beatnik_BRSolverFMM.hpp:116-158](../../src/Beatnik_BRSolverFMM.hpp#L116-L158)) —
-**T3** and **T7** own them — while the adapter beneath them is real and
+`--br-approximation fmm` **runs** after **T3**, and one virtual is still a
+stub. `BRSolverFMM::computeInterfaceVelocity` is live
+([src/Beatnik_BRSolverFMM.hpp:140](../../src/Beatnik_BRSolverFMM.hpp#L140)) and
+only `::computeSurfaceRieszScalar` is still `BEATNIK_NOT_IMPLEMENTED`
+([src/Beatnik_BRSolverFMM.hpp:198](../../src/Beatnik_BRSolverFMM.hpp#L198)) —
+**T7** alone owns what remains — while the adapter beneath them is real and
 Canopy-backed
 ([src/Beatnik_FarFieldInterface.hpp](../../src/Beatnik_FarFieldInterface.hpp)).
-The throw is therefore in the BR solver, not in the far field.
+The remaining throw is therefore in the BR solver, not in the far field, and it
+is reachable only under `--bernoulli-scalar-mode surface-riesz`.
 `fmm` is nevertheless the **default**
 ([src/Beatnik_Params.hpp:107](../../src/Beatnik_Params.hpp#L107)), so the default
 far-field path is the one that throws. The only working Birkhoff-Rott evaluator
@@ -497,10 +500,14 @@ tuned to whatever the code did.
 
 ### Beatnik
 
-- `--br-approximation fmm` **throws** from `BRSolverFMM`'s two virtuals
-  ([src/Beatnik_BRSolverFMM.hpp:126](../../src/Beatnik_BRSolverFMM.hpp#L126),
-  [:153](../../src/Beatnik_BRSolverFMM.hpp#L153)) via `BEATNIK_NOT_IMPLEMENTED`
-  ([src/Beatnik_Types.hpp:86](../../src/Beatnik_Types.hpp#L86)). It throws rather
+- `--br-approximation fmm` **runs** (**T3**).
+  `BRSolverFMM::computeInterfaceVelocity` is live
+  ([src/Beatnik_BRSolverFMM.hpp:140](../../src/Beatnik_BRSolverFMM.hpp#L140));
+  only `::computeSurfaceRieszScalar` still throws
+  ([:198](../../src/Beatnik_BRSolverFMM.hpp#L198)) via
+  `BEATNIK_NOT_IMPLEMENTED`
+  ([src/Beatnik_Types.hpp:86](../../src/Beatnik_Types.hpp#L86)), and it is
+  reached only under `--bernoulli-scalar-mode surface-riesz`. It throws rather
   than returning a wrong field, which is the safe direction.
 - `FarFieldSolver`'s three methods are **real and Canopy-backed** (**T2**).
   `setSources` / `evaluateCurl` / `evaluateDot` are gone, replaced by
@@ -508,8 +515,8 @@ tuned to whatever the code did.
   ([src/Beatnik_FarFieldInterface.hpp](../../src/Beatnik_FarFieldInterface.hpp)); the
   adapter owns the type-erased six-arm dispatch, the persistent Canopy
   `Solver`, the `FmmConfig` builder and the tag-reverse round trip.
-  `--br-approximation fmm` nevertheless still throws, from `BRSolverFMM`'s two
-  virtuals, until **T3** and **T7** call into it. In a `~canopy` build the two
+  **T3** calls into `evaluateVelocity` and **T4** measured what it returns;
+  `evaluateRieszScalar` has no caller until **T7**. In a `~canopy` build the two
   evaluations throw `std::runtime_error` naming `+canopy` instead.
 - **No Beatnik header includes a Canopy header.** The build already finds and
   links Canopy under `+canopy`
@@ -1220,7 +1227,7 @@ has no path that prints them. **T4** owns all of it.
 
 ---
 
-### T4 — Unit test: the FMM velocity against the direct velocity, same state — **NOT STARTED**
+### T4 — Unit test: the FMM velocity against the direct velocity, same state — **DONE**
 
 **Depends on:** T3.
 
@@ -1336,6 +1343,88 @@ against a budget recorded with its qualification list, and
 rank; and each of the three negative cases fails, naming its own reason — the
 order case naming truncation, the basis case naming the basis in force, the blob
 case naming the softening length — rather than merely exiting non-zero.
+
+**Met.** `Beatnik_Test_FmmVsDirect` is green at **every one of ranks 1, 2, 3, 4,
+5 and 6** through
+[scripts/tuolumne/t4_fmm_vs_direct.flux](../../scripts/tuolumne/t4_fmm_vs_direct.flux),
+and the `unit` tier is green at one rank through
+[scripts/tuolumne/unit_tests.flux](../../scripts/tuolumne/unit_tests.flux). The
+gate is unchanged: five `regression` members, 60 launches.
+
+**The far field was live, and that is asserted rather than assumed.** At 2562
+vertices with `ncrit = 8` the realized `p2p_pair_fraction` is **0.2537** against
+a compiled bound of 0.75 and against 1.0 for a solve with no far field at all,
+with 130968 M2L pairs and **zero** operator-table fallbacks, so three quarters
+of the pairs go through the expansion and the number below is one code path
+rather than a mixture (**R6**). The measured error is **5.008e-4** of the direct
+field's own scale — `max|u_fmm − u_direct| = 2.5804e-6` over
+`max|u_direct| = 5.15236e-3` — against a **2.0e-3** budget carrying the full
+qualification list (velocity/gradient, milestone-0 icosphere at level 4 after
+five direct steps, ranks 1-6, `CartesianTaylor`, `order` 3, `ncrit` 8,
+`max_depth` 10, `mac_theta` 0.3, `softening` 0.025, `near_softening_factor` 0,
+P2P fraction 0.2537). That budget is **not** $\tau_A$; **T5** measures that.
+
+**The rank sweep found nothing, which is the result.** The relative error spans
+5.00728e-4 to 5.00934e-4 over the six rank counts — a spread of
+$4.1\times10^{-4}$ of the error itself, which is the *same order* as the
+run-to-run difference the same binary shows on one rank count
+($1.1\times10^{-4}$, measured against the earlier sweep), so the rank count
+contributes nothing detectable. `global_particle_count` is exactly 2562 at every
+one, so the round trip neither dropped nor duplicated a source (**R3**). **R4
+did not fire**: np=4 is 5.00822e-4, inside that band and 3e-9 above np=1's.
+That bounds Canopy's np=4 gradient defect further at this basis, order and
+softening; it does not retire it, and 4 stays in the sweep.
+
+**All three negative cases fail, each naming its own reason.** `order = 0` gives
+0.407338 (204x the budget) and `order = 2` gives 5.9658e-3, so the three orders
+are strictly ordered with $e_2/e_3 = 11.91$ against Canopy's own 12.7 — the
+signature of the gradient truncating at $p$ rather than $p+1$, i.e. a truncation
+and not a bias. `SolidHarmonic` at `near_softening_factor = 0` gives 4.66e-3, so
+it misses the budget and sits 9.3x above the production arm *at the same order*.
+Doubling the softening length moves the FMM velocity by 0.139041 relative while
+it still tracks the direct solver *at that softening length* to 5.439e-4 — the
+half that proves $b$ is inside $w$ — and the adapter's softening-stability
+guard threw as designed. Steps 7 and 8 passed: finite everywhere, the global source count
+equals the global owned vertex count, `diagnostics().softening` equals
+$\sqrt{\texttt{blob()}}$ and is strictly positive rather than Canopy's $-1$
+sentinel, and `params().near_softening_factor` is 0.
+
+**One prediction in this document did not survive contact, and it is R2's.** The
+test first required the solid-harmonic arm to exceed the budget by 100x, from
+**R2**'s "tens of percent"; it measured 4.66e-3 and failed that one check at
+every rank count with everything else green. The prediction describes a
+*self-contacting* sheet. Here every accepted far-field pair sits at
+$R\approx0.11$-$0.22$ against $\sqrt b = 0.025$, so the bare and softened
+kernels differ by $\tfrac32 b/R^2$ — 2-8% on the closest accepted pairs, less
+beyond — and a whole-field separation of about a decade is what that predicts.
+The **test's basis-separation constant** was re-derived accordingly (a 5x ratio
+against the production arm, plus the independent requirement that the arm miss
+the budget); `kVelocityBudget` was not touched. **R2** should be read as a
+roll-up statement, and **T5** should scan a deformed state if it wants the
+figure R2 is actually about.
+
+**Not verified.** No trajectory claim of any kind: this compares a *single
+evaluation* on a state the direct solver produced, which is claim A's shape and
+**not** claim B's — **R7** is untouched and **T6** owns it. Nothing about the
+Riesz scalar (**T7**), which still throws. No $\tau_A$ and no parameter scan
+(**T5**); the 5.008e-4 above is one point, at one order, on one undeformed
+geometry five steps off its initial condition, and is not a statement about
+achievable far-field fidelity. Nothing about `max_depth`: the fallback count was
+0, so **R6** has no evidence to act on and the value was not revised. Nothing
+about the remeshing path — connectivity is frozen, so the adapter's fallback to
+`setup()` on a changed source set never fired. Nothing about the maintenance
+histogram (**T8**): every arm builds a fresh solver and evaluates once, so the
+action was `Setup` every time. And the `~canopy` branch of this test — the
+explicit instantiation plus its throw assertions — is compiled-in but
+**unexecuted**: this machine builds `+canopy` and no `~canopy` build was made
+for this task.
+
+**A rank owning zero sources is not reachable from the mesh decomposition** at
+this vertex count (minimum owned counts 2562, 1233, 807, 595, 469, 386 at ranks
+1-6), so the test constructs the case at the adapter's interface instead: the
+last rank ships its rows to rank 0 and evaluates on an empty source list. Every
+rank returned, the global count stayed 2562, and rank 0's field moved by
+2.5e-16 to 8.0e-16 relative — round-off.
 
 ---
 

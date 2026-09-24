@@ -906,3 +906,248 @@ adapter call, no prefactor and no sizing on the `BRSolverFMM` side), and
 **T8** — the 9m25s rebuild is a per-change cost on this path, and the
 maintenance actions the four launches took were not recorded, so T8 starts its
 histogram from zero.
+
+## T4
+
+The FMM velocity was compared against the direct velocity on the same state and
+**it agrees to 5.008e-4 of the field's own scale at every one of ranks 1-6**,
+against a 2.0e-3 budget, with the far field asserted live rather than assumed.
+`Beatnik_Test_FmmVsDirect` is a new `unit`-tier member (41 checks at multi-rank,
+39 at one rank, job `f3aDVgMVBhpj`) and `scripts/tuolumne/t4_fmm_vs_direct.flux`
+is the two-node sweep that runs it at 1-6. The tier is green at one rank too,
+7/7 (job `f3aDWPshh62K`). The gate is untouched: five `regression` members, 60
+launches.
+
+**Decisions taken as given by the task, recorded so they are not reopened.** The
+rank sweep runs through the new script rather than through the tier runner or
+`ctest` — the tier registers every member at one rank, spack mode has no build
+tree and therefore no `ctest`, and `unit_tests.flux` pins a one-node allocation
+while deriving `ceil(n/4)` nodes per launch, so `BEATNIK_UNIT_RANKS=5` asks for
+two nodes inside one. The script targets the **development** spack env
+(`BEATNIK_USE_PROD` unset), as `t3_fmm_velocity.flux` does: this is iterative
+test work, not a large queued run. `FmmConfig` is not reachable from a test by
+construction, so step 8's assertions are on `diagnostics().softening` and
+`params().near_softening_factor` and no accessor was added.
+
+### The chosen pair, and the far field that resulted
+
+**Subdivision level 4 (2562 vertices) with `ncrit = 8`**, which the design
+document picks and which the measurement confirms: the realized
+**`p2p_pair_fraction` is 0.2537** (0.253649-0.253651 across the six rank
+counts), against the compiled bound of 0.75 and against 1.0 for a solve with no
+far field at all. So **three quarters of the pairs go through M2L** and the
+comparison is a measurement of the expansion rather than of two direct sums —
+**R1**'s cheapest misreading, and the one T3's level-3 configuration sits
+squarely inside. `global_m2l_pair_count` is **130968** and
+`global_m2l_fallback_pair_count` is **0** at every rank count, so the accuracy
+number below is one code path and not a mixture (**R6**); the operator table did
+not overflow at this configuration.
+
+The a-priori estimate the pair was chosen from held: 320 occupied leaves against
+a 105-leaf near field predicts a P2P fraction near 1/3, and 0.2537 is that.
+
+### The budget, with its qualification list
+
+**2.0e-3**, on the **velocity** — i.e. the *gradient* of Canopy's potential, one
+order worse than the potential at fixed `order`, which is why naming the field
+is not decoration. Source distribution: the milestone-0 icosphere at subdivision
+level 4, 2562 vertices, after 5 `--br-approximation direct` steps (the sheet
+strength is identically zero at step 0 under
+`--initial-potential-strength 0`, and the test asserts
+`max |A·S| = 3.289e-6 > 0` before comparing anything). Rank counts 1, 2, 3, 4,
+5, 6. Basis `CartesianTaylor`. `order = 3`. `ncrit = 8`. `max_depth = 10`.
+`mac_theta = 0.3`. `softening = 0.025` (= sqrt(blob) at `--eps 0.025` under
+`--kernel-blob-mode length`). `near_softening_factor = 0`. Realized P2P pair
+fraction **0.2537**.
+
+**It is not τ_A.** T5 measures that and no T5 number exists. The value is set
+from Canopy's own measured gradient errors — 7.0718e-4 at p=3 and 8.996e-3 at
+p=2, θ=0.3, on its volumetric cloud — which is also the provenance of
+`FmmParams::order = 3`: 2.0e-3 is 2.8x above the p=3 figure (headroom for a
+2-manifold rather than a cloud) and 4.5x below the p=2 figure (the room the
+order-2 negative case needs). It clears T3's measured run-to-run noise floor of
+1.15e-15/1.88e-15 by twelve decades, so nothing here is a bitwise claim wearing
+a tolerance.
+
+### Per-rank results
+
+Error is `max|u_fmm − u_direct|` over owned rows, divided by
+`max|u_direct| = 5.15236e-3` — a value identical to six digits at every rank
+count.
+
+| ranks | max abs error | relative | p2p fraction | particles |
+| --- | --- | --- | --- | --- |
+| 1 | 2.58040e-6 | **5.00819e-4** | 0.253650 | 2562 |
+| 2 | 2.58001e-6 | **5.00743e-4** | 0.253651 | 2562 |
+| 3 | 2.58019e-6 | **5.00778e-4** | 0.253650 | 2562 |
+| 4 | 2.58041e-6 | **5.00822e-4** | 0.253650 | 2562 |
+| 5 | 2.58099e-6 | **5.00934e-4** | 0.253650 | 2562 |
+| 6 | 2.57993e-6 | **5.00728e-4** | 0.253651 | 2562 |
+
+Four times inside the budget, and the **spread across the six rank counts is
+2.1e-7 absolute, 4.1e-4 of the error itself**. That is not merely small, it is
+*at the nondeterminism floor*: the earlier sweep of the same binary (job
+`f3aDRgAiDSjh`, identical except for the test's own basis constant) measured
+5.00765e-4 at np=1 against this one's 5.00819e-4, a run-to-run difference of
+1.1e-4 of the error on one rank count — the same order as the whole
+rank-to-rank spread. **The rank count contributes nothing detectable**, which is
+the result **R3** wanted: a dropped or duplicated source produces a field wrong
+by a factor that *changes with the rank count*. `global_particle_count` is
+exactly 2562 at every rank count, the independent discriminator, and the
+adapter's own round-trip completeness throw and self-validating forward
+distributor both stayed silent.
+
+**R4 did not fire.** np=4 is 5.00822e-4, sitting inside the same 2.1e-7 band as
+every other rank count and above np=1's 5.00819e-4 by 3e-9. Canopy's np=4
+three-component gradient defect is under `LaplaceKernel` at P=8 with
+`softening = 0`; this path
+runs `CartesianTaylorBasis` at p=3 with `softening = 0.025`, and at this
+configuration the defect is not reachable. That **bounds** it further — it does
+not retire it, and the sweep must keep 4 in.
+
+### The three negative cases
+
+All three fail as required, and each names its own reason in the log rather than
+merely exiting non-zero.
+
+1. **The order knob is live, and the error is a truncation.** `order = 0` gives
+   **0.407338** relative — 204x the budget, and identical to six digits at every
+   rank count — `order = 2` gives **5.9658e-3**, and `order = 3` gives 5.008e-4,
+   so the three are strictly ordered and the middle one lands between the other
+   two. **e2/e3 = 11.91** (11.912-11.914 across
+   ranks), against Canopy's own 12.7 on its cloud: a decade, which is the
+   signature of the gradient truncating at p rather than at p+1. A *bias* would
+   have put e2 ≈ e3 and passed a check that only looked at order 0.
+2. **The basis selector is live.** `SolidHarmonic` at
+   `near_softening_factor = 0` gives **4.6582e-3 to 4.6989e-3** — it misses the
+   budget by 2.3x and sits **9.30x to 9.38x above the production arm at the same
+   order**,
+   so the gap is the kernel and not the truncation. The two arms are not on top
+   of each other, which is what **R2** needs.
+3. **The blob reaches the far field.** Doubling the softening length from 0.025
+   to 0.050 changes the FMM velocity by **0.139041** relative, and the perturbed
+   FMM still tracks the *direct solver at that softening length* to **5.439e-4**
+   — inside the same budget. The second half is the load-bearing one: a
+   bare-kernel far field would move (the near field alone would see the change)
+   but would not still agree with a fully softened direct sum. The adapter's
+   softening-stability guard was exercised too and **threw** as designed when a
+   live solver was presented the original blob after being built at the
+   perturbed one.
+
+### R2's "tens of percent" is a self-contact figure, not a property of this path
+
+**The one place the document's prediction did not survive contact, and the one
+constant this task revised.** The test first compiled the basis separation as
+"the solid-harmonic arm must exceed the budget by 100x", straight from **R2**'s
+statement that a bare-kernel far field with no near-field floor is wrong by tens
+of percent. It failed at every rank count — and at only that one check (job
+`f3aDRgAiDSjh`: 37/38 at np=1 and 39/40 at multi-rank, with everything else
+green). The measurement is 4.66e-3, not 0.2.
+
+The prediction is not wrong; it is about a different geometry. Canopy accepts a
+pair only beyond R/w > 2√3/θ = 11.55 half-widths. At 2562 vertices in a root box
+about 0.6 wide the occupied leaves sit at depth 4-5, so w ≈ 0.019 to 0.0094 and
+the closest accepted separation is R ≈ 0.11 to 0.22 — **four to nine times the
+softening length √b = 0.025**. The bare and softened kernels differ there by
+(3/2)·b/R², i.e. 2% to 8% on the closest accepted pairs and less beyond, and
+those pairs carry a minority of a field whose near half both bases evaluate
+identically through P2P. A whole-field separation in the 1e-3..1e-2 band is
+exactly what that predicts, and 4.66e-3 is it.
+
+**"Tens of percent" therefore describes a self-contacting sheet**, where
+separations approach √b — which is develop-canopy's full-roll-up NaN and not a
+smooth sphere five steps off its initial condition. The constant was changed to
+a ratio against the production arm (5.0, a factor of two below the observed
+decade) *plus* the independently-derived requirement that the arm miss the
+budget outright. **`kVelocityBudget` was not touched**, and the production arm
+passes it with 4x of margin either way.
+
+### A rank owning zero sources was not reachable from the mesh, so it was built
+
+The mesh decomposition never produces one at this vertex count: the minimum
+owned count is 2562, 1233, 807, 595, 469 and 386 at ranks 1 through 6. Rather
+than leave the case uncovered, the test constructs it at the adapter's own
+interface — the last rank ships its rows to rank 0 over MPI and calls
+`evaluateVelocity` with an **empty** source list, so the global source set is
+byte-identical and only its distribution changed.
+
+Every rank returned, the global particle count stayed 2562, and rank 0's own
+rows came back differing from the baseline field by **1.3e-18 to 4.1e-18
+absolute, 2.5e-16 to 8.0e-16 relative** — round-off, six decades inside the
+1e-9 tolerance and six decades below the budget. Canopy has no test for a
+zero-particle rank and the adapter's file comment says so; at 2-6 ranks on this
+path it handles one.
+
+### Departures from T4's Do steps
+
+- **Step 6 was widened, not skipped.** The step says to include a zero-source
+  variant "if the decomposition can be made to produce one … if it cannot, say
+  so in the log rather than leaving the case silently uncovered". It cannot, and
+  this says so — and then covers the case synthetically anyway, which is
+  strictly more than the step asks for and is worth more than a sentence of
+  apology.
+- **The `~canopy` half of step 9 does more than instantiate.** The step asks for
+  one guarded explicit instantiation of `FarFieldSolver`. The file carries that,
+  and in a `~canopy` build `runChecksNoCanopy` additionally asserts that
+  `BRSolverFMM::computeInterfaceVelocity` throws a `std::runtime_error` whose
+  text names `BEATNIK_ENABLE_CANOPY`. Without it the member would be vacuous in
+  that build — it would instantiate the template and check nothing. **Not
+  verified by running:** this machine builds `+canopy` and no `~canopy` build
+  was made for this task, so that branch is compiled-in and unexecuted.
+- **`m2l_fallback == 0` is asserted, not merely reported.** **R6** says a
+  non-zero fallback count makes the accuracy figure a mixture of two code paths.
+  A mixture is not the number this test claims to have measured, so it is a
+  check.
+- **The test writes no checkpoints**, so `BEATNIK_TEST_SCRATCH` is deliberately
+  not set anywhere in the script: `makeSpinUpParams` leaves the checkpoint
+  directory empty and `CheckpointIO` is a no-op without one. Nothing in this
+  member touches a filesystem.
+
+### Bugs only running revealed
+
+**None in the code under test.** Nothing in the adapter, the round trip, the
+dispatch or `BRSolverFMM` needed a change: the only edit after the first sweep
+was to the test's own basis-separation constant, described above. The two
+guards T2 added on its own initiative — the self-validating forward distributor
+and the round-trip completeness throw — both stayed silent at every rank count,
+which is correct at a frozen connectivity and still says nothing about the
+remeshing path.
+
+### Cost and mechanics
+
+`spack install` after adding one test source: **11m17s wall, 88m40s CPU** on the
+login node (the new translation unit instantiates all six Canopy arms, which is
+T2's measured ~8 CPU-minutes per arm-set); a second install touching only that
+source took **4m55s**. The sweep itself is cheap: the whole 1-6 job — six
+launches, 21 ranks of work — ran well inside `-t 25m` on two `pdebug` nodes.
+`flux batch --flags=waitable` is still refused on this instance, so
+`flux job status <jobid>` remains the wait mechanism.
+
+**Affects:** **T5** — the scan can start from a configuration that is known to
+have a live far field, and the numbers it inherits are (2562, `ncrit = 8`) with
+a realized P2P fraction of 0.2537, a p=3 gradient error of **5.008e-4** on
+Beatnik's own sheet (against Canopy's 7.07e-4 on its volumetric cloud, so the
+sheet is *slightly better*, not worse) and e2/e3 = 11.9. It also inherits a
+resolution limit: the spin-up state is downstream of five timesteps, so any
+figure taken this way carries a run-to-run floor of about 1e-4 **of the error**,
+and a scan that wants to resolve finer differences than that must either
+re-evaluate on one state in one process or pin the state some other way.
+`max_depth = 10` was never approached: the fallback count is 0 and the operator
+table did not overflow at this configuration, so **R6** has no evidence to act
+on yet and T5's
+revision of `max_depth` starts from "not binding here" rather than from nothing.
+The basis question T5 must report on is reshaped: at a smooth sphere the
+solid-harmonic basis costs about a decade (4.66e-3 against 5.01e-4), not the
+orders of magnitude R2 predicts, and T5 should scan a *deformed* state if it
+wants to see the figure R2 is actually about. **T6** — claim A now has a
+measured per-evaluation bound on Beatnik's own geometry at level 4, which is the
+L4 member's configuration; the L3 member's far field is still not live at any
+`ncrit` and this task changed nothing about that. **T7** — the Riesz path
+inherits a round trip exercised at 1-6 ranks, with a zero-source rank, and a
+softening guard it must meet the same way; `computeSurfaceRieszScalar` is still
+the only throwing virtual, and the test file is where its case goes (the
+`ArmResult`/`evaluateArm` shape generalizes to a scalar output). **T8** — the
+maintenance action was `Setup` on every evaluation here, because each arm builds
+a fresh solver and evaluates once, so this task contributes **no** histogram
+data; T8 still starts from zero. The 11m17s/88m40s rebuild is the per-change
+cost on this path.

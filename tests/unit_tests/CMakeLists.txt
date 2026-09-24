@@ -50,6 +50,14 @@ set(BEATNIK_UNIT_TEST_SOURCES
   # at any rank count and the batch wrapper's BEATNIK_UNIT_RANKS=4 run is what
   # checks the position halo exchange between sweeps.
   Beatnik_Test_TangentialRelaxation.cpp
+  # canopy T4: the FMM Birkhoff-Rott velocity against the direct one on the
+  # SAME state, with the far field asserted live through the adapter's P2P pair
+  # fraction (a solve that is entirely P2P agrees with BRSolverDirect at every
+  # order and reads as success). Three negative cases -- order, basis, blob.
+  # ITS RANK SWEEP IS NOT HERE: the tier registers at one rank, so ranks 1-6 are
+  # scripts/tuolumne/t4_fmm_vs_direct.flux. Writes no checkpoints, so it needs
+  # no BEATNIK_TEST_SCRATCH.
+  Beatnik_Test_FmmVsDirect.cpp
   # grouped-io T2: the master XDMF temporal collection CheckpointIO::write
   # maintains -- asserted on the emitted TEXT, which is what takes Paraview out
   # of the loop (risk R1). Writes to BEATNIK_TEST_SCRATCH, which must name a
