@@ -1226,7 +1226,24 @@ has no path that prints them. **T4** owns all of it.
 
 **Fill in:** `tests/unit_tests/Beatnik_Test_FmmVsDirect.cpp` (new),
 [tests/unit_tests/CMakeLists.txt](../../tests/unit_tests/CMakeLists.txt)
-(`BEATNIK_UNIT_TEST_SOURCES`, [:42](../../tests/unit_tests/CMakeLists.txt#L42)).
+(`BEATNIK_UNIT_TEST_SOURCES`, [:42](../../tests/unit_tests/CMakeLists.txt#L42)),
+`scripts/tuolumne/t4_fmm_vs_direct.flux` (new).
+
+**The rank sweep needs a script of its own, and this is why.** Neither existing
+path can run a `unit`-tier member at ranks 1-6. The tier registers every test at
+exactly one rank
+([tests/unit_tests/CMakeLists.txt:72](../../tests/unit_tests/CMakeLists.txt#L72),
+`set(_beatnik_unit_ranks 1)`), so a `ctest` entry never sweeps; in `spack` mode
+there is no build tree and therefore no `ctest` at all (CLAUDE.md "Build mode").
+And the tier runner pins its allocation to one node
+([scripts/tuolumne/unit_tests.flux:3](../../scripts/tuolumne/unit_tests.flux#L3))
+while deriving its launch width from `BEATNIK_UNIT_RANKS` as
+$\lceil n/4 \rceil$ nodes, so `BEATNIK_UNIT_RANKS=5` or `6` asks for two nodes
+inside a one-node allocation. `t4_fmm_vs_direct.flux` therefore allocates two
+nodes and loops ranks 1-6 over this one binary, in the shape
+[scripts/tuolumne/t3_fmm_velocity.flux](../../scripts/tuolumne/t3_fmm_velocity.flux)
+established. The tier runner is left alone: it stays the one-rank regression
+path, and this member lands in it for free because it discovers its tests.
 
 **Reference:** the tier's registration and its "self-validating, non-zero on
 failure" contract
@@ -1272,9 +1289,14 @@ made.
      `near_softening_factor = 0` must exceed the budget by orders of magnitude.
      A pass here means the adapter is not selecting the basis it says it is —
      see **R2**.
-   - **The blob reaches the far field.** Perturbing the softening length handed
-     to Canopy must change the FMM velocity. Under a bare-kernel far field it
-     would not, which is the cheapest available proof that $b$ is inside $w$.
+   - **The blob reaches the far field.** A second `BRSolverFMM` built at a
+     different `eps` must produce a different FMM velocity on the same state.
+     Under a bare-kernel far field it would not, which is the cheapest available
+     proof that $b$ is inside $w$. It has to be a second solver rather than a
+     perturbation of a live one: Canopy fixes the softening at `Solver`
+     construction and pushes it into the M2L operator tables, so the adapter
+     holds the value and **throws** if a later evaluation presents a different
+     `blob()` — a guard, not a defect, and **T7** meets it too.
 5. Rank counts 1-6, since that is the gate's sweep and Canopy's
    three-component gradient path is known wrong at exactly 4 under
    `LaplaceKernel` (`canopy/README.md:562-588`). If 4 ranks fails, that is the finding: record
@@ -1285,13 +1307,35 @@ made.
 7. Assert the FMM result is finite everywhere, and that the global source count
    Canopy reports equals the global owned vertex count — the cheap independent
    check on the round trip (**R3**).
+8. **Assert the adapter's softening and near-field floor, which is the half of
+   T1's exit criterion that first becomes runnable here.** Assert
+   `diagnostics().softening` equals $\sqrt{\texttt{blob()}}$ and is strictly
+   positive — a value of $-1$ is Canopy's auto-softening sentinel and a
+   different kernel — and that `params().near_softening_factor`
+   ([src/Beatnik_FarFieldInterface.hpp:516](../../src/Beatnik_FarFieldInterface.hpp#L516))
+   is 0. The `FmmConfig` members themselves are **not** observable from a test
+   by construction: `FmmConfig` is a Canopy type and the conventions table
+   confines those to the adapter, and `FarFieldDiagnostics`
+   ([:205-275](../../src/Beatnik_FarFieldInterface.hpp#L205-L275)) exposes
+   `softening` but carries no `near_softening_factor` field. So the assertion is
+   on the adapter's inputs and on the softening it reports, and an evaluation
+   that completes at all is what shows the config it built was accepted.
+9. **Close the `~canopy` instantiation gap permanently**, with an explicit
+   instantiation of `FarFieldSolver` in this test source, guarded to the
+   `~canopy` build. `Beatnik_CreateBRSolver.hpp` preprocesses out the
+   `new BRSolverFMM<...>` line, which is the class's only construction site, so
+   a `~canopy` build instantiates `FarFieldSolver` nowhere and the guarded half
+   of the header is parsed but never definition-checked. One line in the tree
+   that instantiates it is what keeps that half from rotting silently the next
+   time someone edits it.
 
-**Exit criterion:** `ctest -R Beatnik_Test_FmmVsDirect` passes at ranks 1-6 (and
-`BEATNIK_UNIT_RANKS=4 flux batch scripts/tuolumne/unit_tests.flux` passes in
-spack mode) against a budget recorded with its qualification list; and each of
-the three negative cases fails, naming its own reason — the order case naming
-truncation, the basis case naming the basis in force, the blob case naming the
-softening length — rather than merely exiting non-zero.
+**Exit criterion:** `flux batch scripts/tuolumne/t4_fmm_vs_direct.flux` reports
+`Beatnik_Test_FmmVsDirect` green at every one of ranks 1, 2, 3, 4, 5 and 6,
+against a budget recorded with its qualification list, and
+`flux batch scripts/tuolumne/unit_tests.flux` reports the tier green at one
+rank; and each of the three negative cases fails, naming its own reason — the
+order case naming truncation, the basis case naming the basis in force, the blob
+case naming the softening length — rather than merely exiting non-zero.
 
 ---
 
