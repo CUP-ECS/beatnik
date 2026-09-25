@@ -4,8 +4,10 @@
 task from **T5**
 on is NOT STARTED. The findings and the measured numbers are complete, and no upstream work
 gates the sequence: Canopy's derivative ladder is validated at the production
-order. One narrow constraint remains inside **T5**, on scan points above it
-(**R11**).
+order. Three constraints bind inside **T5** and none of them gates it: no scan
+point above $p=3$ may be adopted as the production order (**R11**), the scan
+runs in one launch against one state, and step 7's sweep is budgeted against
+`pdebug`'s one-hour cap.
 
 ## Problem
 
@@ -1444,7 +1446,7 @@ below states the consequence.
 
 **Fill in:** a measurement driver under `tests/regression_tests/` registered in
 the "Measurement drivers — IN NO TIER" section
-([tests/CMakeLists.txt:536-570](../../tests/CMakeLists.txt#L536-L570)); a batch
+([tests/CMakeLists.txt:536-572](../../tests/CMakeLists.txt#L536-L572)); a batch
 script under `scripts/tuolumne/`;
 [add-canopy-progress-log.md](add-canopy-progress-log.md);
 [README.md](../../README.md).
@@ -1456,8 +1458,34 @@ and "Memory"); the acceptance predicate that sets $R/w$
 accuracy at the same two mesh sizes ([treecode.md](../treecode.md) §1); the
 measurement-driver loop's rule that it appends to **neither** manifest
 ([tests/CMakeLists.txt:548-556](../../tests/CMakeLists.txt#L548-L556)); M0-D1's
-ladder, which is the instrument step 6 reuses
+ladder, which is the instrument step 7 reuses
 ([milestone0-progress-log.md](../milestone0-progress-log.md)).
+
+Step 7 rebuilds none of M0-D1's machinery. Three in-tree artifacts are what it
+reuses, and each carries a property that is expensive to rediscover:
+
+- [tests/regression_tests/Beatnik_Test_Milestone0Run.cpp](../../tests/regression_tests/Beatnik_Test_Milestone0Run.cpp) —
+  the measurement driver in the no-tier section, taking `argv[1..3]` as level,
+  steps and checkpoint-every. It pins
+  `p.zmodel.br_approximation = BRApproximation::Direct`
+  ([:184](../../tests/regression_tests/Beatnik_Test_Milestone0Run.cpp#L184)),
+  which is the one line a T5 driver parameterizes rather than copies.
+- [tests/regression_tests/milestone0_ladder.py](../../tests/regression_tests/milestone0_ladder.py) —
+  the ladder itself: `pair --run DIR --ref DIR [--label L] [--json OUT]`, taking
+  a gold directory of `.npz` or a second run directory of `.h5` on the right.
+  From one comparator run per step at the tightest rung it derives a **lower
+  bound** on the first failing step, then confirms that step with real
+  invocations at the rung before reporting it. It reports per field, and the two
+  right-hand sides are **not over the same field set** — `sheet_vector` is absent
+  from the reference `.npz`, so a Beatnik-vs-Beatnik horizon is measured over a
+  strictly larger set than a Beatnik-vs-Python one and the two numbers are not
+  directly comparable. Step 7 reports both, so which is which has to be stated.
+- [scripts/tuolumne/milestone0_divergence.flux](../../scripts/tuolumne/milestone0_divergence.flux) —
+  the budget-guarded sweep: measured per-row wall estimates, cheapest-first
+  ordering, a guard that **skips** a launch whose estimate does not fit the
+  remaining budget rather than starting it and having it killed at the wall, and
+  `BEATNIK_M0_MODE=probe` (25 steps rather than 2000) as how those estimates were
+  measured in the first place.
 
 **Do:**
 
@@ -1471,6 +1499,21 @@ ladder, which is the instrument step 6 reuses
    order. `ncrit` is therefore a scan axis and not a fixed background, and the
    scan must state for each level the `ncrit` at which the far field first
    carries a stated fraction of the field.
+
+   **The whole scan runs in one launch against one shared state**, in the shape
+   [tests/unit_tests/Beatnik_Test_FmmVsDirect.cpp:607-630](../../tests/unit_tests/Beatnik_Test_FmmVsDirect.cpp#L607-L630)
+   already uses: the spin-up is done once and every arm is evaluated against
+   that one state through a single helper
+   ([:708](../../tests/unit_tests/Beatnik_Test_FmmVsDirect.cpp#L708)). That makes
+   arm-to-arm differences **exact** within the launch. It is not a convenience:
+   the spin-up is downstream of five timesteps and is not bitwise reproducible,
+   so a figure taken in one launch and compared against one taken in another
+   carries a floor of about $10^{-4}$ **of the error itself** — the same binary
+   at np=1 measured $5.00765\times10^{-4}$ on one job and
+   $5.00819\times10^{-4}$ on another. The scan resolves differences smaller than
+   that: between adjacent `max_depth` values, and between neighbouring
+   `mac_theta`. Any figure that does have to cross launches — a rank sweep, or
+   step 7's repeats — carries that floor and states it beside itself.
 2. **Report potential and gradient error separately at every point.** They
    differ by a full order at fixed `order` — the target-side L2P truncation
    explained in [The order that reaches the target](#the-order-that-reaches-the-target)
@@ -1484,15 +1527,28 @@ ladder, which is the instrument step 6 reuses
    [The order that reaches the target](#the-order-that-reaches-the-target) — and
    then flatten into Canopy's own floating-point floor. The `SolidHarmonic`
    comparison is at **one** order, the production order 3, since that is the only
-   solid-harmonic arm **T2** dispatches: its point must sit orders above the
-   `CartesianTaylor` point at the same order, because the bias is in the kernel
-   rather than the truncation. A `CartesianTaylor` order scan whose *shape* is a
-   clean truncation curve, against a solid-harmonic point that no order would
-   have rescued, is the finding; a `CartesianTaylor` curve that plateaus at the
-   solid-harmonic level is the basis selector not selecting. Record which regime
-   each observed level is in. Measuring the solid-harmonic curve's own shape
-   would need dispatch arms **T2** does not build — one line each, and not
-   required for this scan.
+   solid-harmonic arm **T2** dispatches.
+
+   **The discriminator is a curve against a fixed point, not a gap measured in
+   decades.** The bias is in the kernel rather than in the truncation, so no
+   order rescues the solid-harmonic arm: what proves the selector is live is
+   that the `CartesianTaylor` curve keeps *falling* with `order` at the model's
+   rate while that single point does not move with `order` at all. The two
+   landing on top of each other is the alarm. Measuring the solid-harmonic
+   curve's own shape would need dispatch arms **T2** does not build — one line
+   each, and not required for this scan.
+
+   **Do not read the size of the gap as the signal on this geometry.** At
+   milestone-0's smooth sphere it is about a decade: **T4** measured
+   $4.66\times10^{-3}$ against $5.008\times10^{-4}$ at $p=3$, a factor of 9.3,
+   while `CartesianTaylor` at $p=2$ gives $5.9658\times10^{-3}$ — *above* the
+   solid-harmonic point. So a gap-threshold test is satisfied by an ordinary
+   $p=2$ point and would read as a broken selector. A separation of tens of
+   percent is a self-contact figure (**R2**), reachable only where accepted
+   separations approach $\sqrt b$, and no milestone-0 configuration in this tree
+   reaches it. Report the smooth-sphere separation, and record that the
+   self-contact figure is unmeasured here rather than chasing it. Record which
+   regime each observed level is in.
 4. Confirm or correct the error model in **Problem**. Its constant $c\approx1$
    was measured on a volumetric cloud at idealized equal-cell separations; the
    realized $R/w$ distribution on a thin bubble surface with depth-mismatched
@@ -1521,13 +1577,41 @@ ladder, which is the instrument step 6 reuses
    extended to $|k|=2p$ first. If the scan says $p=4$ is wanted, record the
    figure, leave the default at 3, and say in the log that the raise is pending
    that extension rather than pending a Beatnik change.
-7. Measure the **divergence horizon** claim B needs: run the milestone-0
-   configuration FMM-driven and direct-driven to 2000 steps and report, as a
-   ladder, the first step at which the two exceed each rung. This is M0-D1's
-   measurement with a per-evaluation perturbation as the seed instead of a
-   one-ulp initial condition, and it is what turns claim B's envelope into a
-   measured number. Report the volume-drift series alongside, since claim B
-   asserts against `kRefVolumeDrift` and needs a measured bound.
+7. Measure the **divergence horizon** claim B needs, by running the milestone-0
+   configuration to 2000 steps. This is M0-D1's measurement with a
+   per-evaluation perturbation as the seed instead of a one-ulp initial
+   condition, and it is what turns claim B's envelope into a measured number.
+   Report the volume-drift series alongside, since claim B asserts against
+   `kRefVolumeDrift` and needs a measured bound.
+
+   **The published envelope is FMM-driven against the in-tree Python gold set**,
+   because that is the quantity **T6** step 3 asserts, and an envelope measured
+   against anything else does not transfer to it. A direct-driven 2000-step run
+   is reported **alongside** as attribution: it separates the FMM's
+   per-evaluation perturbation from the Beatnik-versus-Python drift that is
+   present either way. The two ladders nearly coincide and the reason is already
+   measured, so it need not be re-derived — the direct path tracks the gold set
+   to $8.5\times10^{-13}$ at step 2000
+   ([milestone0-progress-log.md:320-332](../milestone0-progress-log.md)), so at
+   any rung at or above $10^{-10}$ they agree. Note that the two right-hand
+   sides are not over the same field set; the **Reference** entry on the ladder
+   says which.
+
+   **R8** is unchanged and binds here: more than one FMM-driven run, the
+   envelope set from the *earliest* observed horizon with margin, and the
+   run-to-run spread recorded separately from the direct-versus-FMM gap.
+
+   **Budget the sweep before submitting it.** The FMM-driven per-step cost is
+   **unmeasured** — **T8** owns it — so it cannot be extrapolated from M0-D1's
+   direct figures (L3 HIP np1 $0.005385$ s/step, np4 $0.014058$; L4 HIP np1
+   $0.008792$, np4 $0.019211$; L3 SERIAL np1 $0.043030$, np4 $0.021891$; L4
+   SERIAL np1 $0.644068$, np4 $0.187007$). Probe at a reduced step count first
+   and set the per-row estimates from that measurement, in the shape
+   [milestone0_divergence.flux](../../scripts/tuolumne/milestone0_divergence.flux)
+   already uses, rather than submitting a blind 2000-step sweep into `pdebug`'s
+   one-hour cap. That script's own rule applies here: a sweep that does not fit
+   is a **finding for the log**, not a reason to lengthen the walltime, change
+   queue, or quietly run fewer steps.
 
 **Exit criterion:** the log carries the full scan with every entry's
 qualification list, a separate potential and gradient column at every point, and
@@ -1826,14 +1910,30 @@ the P2P fraction.
 **R2 — the adapter silently gets the solid-harmonic far field.** Canopy's basis
 template parameter is defaulted to `LaplaceKernel`, so an instantiation that omits
 it compiles and runs and produces a bare-$1/r$ far field. With
-`near_softening_factor = 0` — which **T1** makes the default — that is not a
-small error: with no floor and no blob in the expansion the far field is wrong by
-tens of percent, which is the mechanism behind develop-canopy's full-roll-up NaN.
-**Presents as:** **T4** failing by orders of magnitude at every order, with the
-`order = 0` and production-order cases indistinguishable. **Do:** **T2** step 5
-names the basis on every instantiation and asserts that none relies on the
-default; **T4**'s second negative case is the runtime proof, and it is the one
-case whose *passing* would be the alarm.
+`near_softening_factor = 0` — which **T1** makes the default — there is neither a
+floor nor a blob in the expansion, so the far field carries a kernel bias no
+order corrects.
+
+**How large the bias is depends on the geometry, and the two regimes are far
+apart.** On the milestone-0 smooth sphere it is about a decade: **T4** measured
+$4.66\times10^{-3}$ against the production arm's $5.008\times10^{-4}$ at ranks
+1-6, both bases at `order` 3, `ncrit` 8, `max_depth` 10, `mac_theta` 0.3,
+`softening` 0.025, `near_softening_factor` 0, P2P fraction 0.2537. Tens of
+percent — the mechanism behind develop-canopy's full-roll-up NaN — describes a
+**self-contacting sheet**, where accepted separations approach $\sqrt b$ and
+$\tfrac32 b/R^2$ stops being a small correction. No configuration in this tree
+reaches that, so the decade is the figure to expect and the tens of percent is
+not available as a threshold.
+
+**Presents as:** the `CartesianTaylor` and `SolidHarmonic` arms landing on top of
+each other — a far field that does not move when the basis does. It does **not**
+present as a uniform order-of-magnitude miss: the arms are separated by a decade
+on this geometry, and `CartesianTaylor` at $p=2$ already sits above the
+solid-harmonic point, so any test keyed to the size of the gap rather than to the
+*shape* of the order curve is measuring the geometry instead of the selector
+(**T5** step 3). **Do:** **T2** step 5 names the basis on every instantiation and
+asserts that none relies on the default; **T4**'s second negative case is the
+runtime proof, and it is the one case whose *passing* would be the alarm.
 
 **R3 — the round trip silently drops or duplicates a source.** A tag mismatch
 does not crash; it produces a velocity that is wrong on some vertices, or wrong
