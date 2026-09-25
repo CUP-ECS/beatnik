@@ -63,7 +63,7 @@
  * `flux run`. **GPU-side memory is out of scope for M0-D1** — there is no
  * mechanism for it here.
  *
- * ARGUMENTS. Three positionals, all required and all integers; there is no
+ * ARGUMENTS. Three required positionals and three optional ones; there is no
  * option surface here and none may be added (milestone0.md Conventions, "CLI
  * surface: unchanged").
  *
@@ -71,12 +71,40 @@
  *   argv[2]  --steps                    2000 for the sweep, 0 for the step-0
  *                                       generator gate of M0-D1 step 1
  *   argv[3]  --checkpoint-every-steps   25, matching both gold sets
+ *   argv[4]  --br-approximation         `direct` (default) or `fmm`
+ *   argv[5]  --br-treecode-ncrit        leaf occupancy; default is
+ *                                       `FmmParams::ncrit`. Ignored under
+ *                                       `direct`.
+ *   argv[6]  --br-treecode-order        basis order; default is
+ *                                       `FmmParams::order`. Ignored under
+ *                                       `direct`.
  *
- * Output goes to `${BEATNIK_TEST_SCRATCH}/sub<L>_<space>_np<N>` — a subdirectory
- * even though the batch script already hands each run its own scratch, so that
- * two runs sharing one scratch by mistake cannot overwrite each other's
- * checkpoints and be read back as one series. `BEATNIK_TEST_SCRATCH` **must** be
- * on a parallel filesystem: the checkpoints go through MPI-IO (CLAUDE.md).
+ * ADDED BY T5 STEP 7, which needs the FMM-driven 2000-step trajectory and
+ * otherwise this exact configuration. The first three arguments and every
+ * default are unchanged, so every M0-D1 invocation of this driver still means
+ * what it meant. **Both gold sets are direct runs**, which is why `direct` is
+ * the default and stays it: under `fmm` the comparison acquires an
+ * approximation error M0-D1's measurement cannot separate from the divergence
+ * it is about — separating them is exactly what T5 step 7 is for, and it does
+ * it by running both and reporting them side by side.
+ *
+ * `fmm` at the DEFAULT `ncrit` is a direct sum with FMM bookkeeping around it
+ * at both milestone-0 vertex counts (the liveness inequality
+ * `N >> pi(sqrt3/theta)^2 * ncrit` is `N >> 6720` there), so a run that means
+ * to exercise the far field must pass argv[5]. The driver prints the
+ * configuration it resolved; it does not check liveness, because it has no
+ * `farField()` handle — `BRSolverBase`'s virtuals return `void` and the
+ * `Solver` owns the BR solver. `Beatnik_Test_FmmScan` is where liveness is
+ * measured.
+ *
+ * Output goes to
+ * `${BEATNIK_TEST_SCRATCH}/sub<L>_<space>_np<N>` under `direct` and to
+ * `..._<approx>_ncrit<N>_p<P>` under `fmm` — a subdirectory even though the
+ * batch script already hands each run its own scratch, so that two runs sharing
+ * one scratch by mistake cannot overwrite each other's checkpoints and be read
+ * back as one series, and so that a direct and an FMM run of the same level and
+ * rank count cannot alias. `BEATNIK_TEST_SCRATCH` **must** be on a parallel
+ * filesystem: the checkpoints go through MPI-IO (CLAUDE.md).
  */
 
 #include <Beatnik_MeshGeometry.hpp>
@@ -146,7 +174,9 @@ long long facesForLevel( int level )
 /// The milestone-0 command line, as a `SolverParams`.
 Beatnik::SolverParams makeParams( int subdivisions, int steps,
                                   int checkpoint_every,
-                                  const std::string& checkpoint_dir )
+                                  const std::string& checkpoint_dir,
+                                  Beatnik::BRApproximation approximation,
+                                  int ncrit, int order )
 {
     Beatnik::SolverParams p;
 
@@ -178,10 +208,21 @@ Beatnik::SolverParams makeParams( int subdivisions, int steps,
     p.zmodel.velocity_mode = Beatnik::VelocityMode::Full;
     p.zmodel.bernoulli_scalar_mode = Beatnik::BernoulliScalarMode::NormalSpeed;
     p.zmodel.preserve_volume = true;
-    // --br-approximation direct. Both gold sets are direct runs; `fmm` would
-    // introduce an approximation error the comparison cannot separate from the
-    // divergence this task measures.
-    p.zmodel.br_approximation = Beatnik::BRApproximation::Direct;
+    // --br-approximation, argv[4], DEFAULT Direct. Both gold sets are direct
+    // runs, so a `direct` invocation measures the Beatnik-versus-Python
+    // divergence alone; `fmm` adds the per-evaluation approximation error on
+    // top, and T5 step 7 runs both because separating the two is the whole
+    // point of its attribution. Parameterized by T5; M0-D1's own invocations
+    // pass nothing and get Direct.
+    p.zmodel.br_approximation = approximation;
+    // The two FMM knobs T5 step 7 needs, argv[5..6], defaulted to FmmParams'
+    // own values so an omitted argument is the compiled default and not a
+    // second one written here. Inert under Direct: `createBRSolver` does not
+    // look at `params.fmm` on that branch.
+    if ( ncrit > 0 )
+        p.fmm.ncrit = ncrit;
+    if ( order >= 0 )
+        p.fmm.order = order;
     // --source-quadrature vertex.
     p.zmodel.source_quadrature = Beatnik::SourceQuadrature::Vertex;
 
@@ -233,8 +274,9 @@ void runDriver( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
     if ( argc < 4 )
     {
         rec.fail( "usage: <icosphere-subdivisions> <steps> "
-                  "<checkpoint-every-steps>; see the ARGUMENTS block in this "
-                  "file's header. Got " +
+                  "<checkpoint-every-steps> [br-approximation] [ncrit] "
+                  "[order]; see the ARGUMENTS block in this file's header. "
+                  "Got " +
                   std::to_string( argc - 1 ) + " argument(s)." );
         return;
     }
@@ -243,7 +285,37 @@ void runDriver( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
     const int every = std::atoi( argv[3] );
     if ( level < 0 || steps < 0 || every < 0 )
     {
-        rec.fail( "all three arguments must be non-negative integers" );
+        rec.fail( "the first three arguments must be non-negative integers" );
+        return;
+    }
+
+    // argv[4..6], T5 step 7's. Defaults reproduce M0-D1 exactly: Direct, and
+    // FmmParams' own ncrit and order, which the sentinels below leave alone.
+    Beatnik::BRApproximation approximation = Beatnik::BRApproximation::Direct;
+    std::string approx_name = "direct";
+    if ( argc > 4 )
+    {
+        approx_name = argv[4];
+        if ( approx_name == "fmm" )
+        {
+            approximation = Beatnik::BRApproximation::Fmm;
+        }
+        else if ( approx_name != "direct" )
+        {
+            // Never silently substituted: a typo that fell back to `direct`
+            // would produce a plausible run of the wrong solver, which is the
+            // one failure this whole measurement cannot detect afterwards.
+            rec.fail( "argv[4] must be 'direct' or 'fmm', got '" +
+                      approx_name + "'" );
+            return;
+        }
+    }
+    const int ncrit = ( argc > 5 ) ? std::atoi( argv[5] ) : -1;
+    const int order = ( argc > 6 ) ? std::atoi( argv[6] ) : -1;
+    if ( ( argc > 5 && ncrit <= 0 ) || ( argc > 6 && order < 0 ) )
+    {
+        rec.fail( "argv[5] (ncrit) must be positive and argv[6] (order) "
+                  "non-negative when given" );
         return;
     }
 
@@ -256,6 +328,17 @@ void runDriver( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
     std::ostringstream dir;
     dir << ( scratch_env ? scratch_env : "." ) << "/sub" << level << "_"
         << ExecSpace::name() << "_np" << comm_size;
+    // The FMM configuration goes in the directory name, so a direct and an FMM
+    // run of the same level and rank count cannot alias inside one scratch and
+    // be read back as one series. `direct` keeps M0-D1's original name exactly.
+    if ( approximation != Beatnik::BRApproximation::Direct )
+    {
+        dir << "_" << approx_name;
+        if ( ncrit > 0 )
+            dir << "_ncrit" << ncrit;
+        if ( order >= 0 )
+            dir << "_p" << order;
+    }
 
     {
         std::ostringstream os;
@@ -264,12 +347,29 @@ void runDriver( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
            << dir.str();
         rec.note( os.str() );
     }
+    {
+        // The BR configuration in force, printed unconditionally so a log says
+        // which solver produced its checkpoints without the command line
+        // being reconstructed from the directory name.
+        Beatnik::SolverParams shown =
+            makeParams( level, steps, every, dir.str(), approximation, ncrit,
+                        order );
+        std::ostringstream os;
+        os << "br_approximation " << Beatnik::toString( shown.zmodel.br_approximation )
+           << ", fmm basis " << Beatnik::toString( shown.fmm.basis )
+           << ", fmm order " << shown.fmm.order << ", fmm ncrit "
+           << shown.fmm.ncrit << ", fmm mac_theta " << shown.fmm.mac_theta
+           << ", fmm max_depth " << shown.fmm.max_depth
+           << ", fmm near_softening_factor " << shown.fmm.near_softening_factor;
+        rec.note( os.str() );
+    }
 
     const long long want_vertices = verticesForLevel( level );
     const long long want_faces = facesForLevel( level );
 
     Beatnik::Solver<ExecSpace, MemSpace> solver(
-        MPI_COMM_WORLD, makeParams( level, steps, every, dir.str() ) );
+        MPI_COMM_WORLD, makeParams( level, steps, every, dir.str(),
+                                    approximation, ncrit, order ) );
     solver.setup();
 
     auto& mesh = solver.mesh();
@@ -376,8 +476,10 @@ void runDriver( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
         // One machine-greppable line per run, so the batch log can be reduced
         // to a table without parsing the prose above.
         std::printf( "[m0d1] TIMING level=%d space=%s np=%d steps=%d "
+                     "approx=%s ncrit=%d order=%d "
                      "wall=%.6f s_per_step=%.6f\n",
-                     level, ExecSpace::name(), comm_size, steps, t_total,
+                     level, ExecSpace::name(), comm_size, steps,
+                     approx_name.c_str(), ncrit, order, t_total,
                      steps > 0 ? t_total / steps : 0.0 );
         std::fflush( stdout );
     }

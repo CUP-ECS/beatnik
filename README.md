@@ -273,18 +273,26 @@ Beatnik offers **`direct`** and **`fmm`** (Canopy fast multipole), and maps
 line runs. The first round of testing uses `direct` only: it is easier to
 implement and it isolates bugs in the rest of the code from the far-field solver.
 
-> **`fmm` is the default and is not yet the validated path.**
+> **`fmm` is the default. Its per-evaluation accuracy is measured; its
+> trajectory accuracy is not.**
 > `ZModelParams::br_approximation` defaults to `Fmm`
 > ([src/Beatnik_Params.hpp:107](src/Beatnik_Params.hpp#L107)) because the Python
 > default is `treecode` and Beatnik maps that onto `fmm` — so a command line
-> that names no `--br-approximation` gets the FMM. As of this writing the FMM
-> velocity path *runs* (it completes a multi-step bubble run at 1 and 4 ranks
-> without throwing) and **no accuracy claim has been measured for it**: it has
-> not been compared against the direct solver, and no tolerance is asserted
-> anywhere in the test suite. Until that measurement lands
-> (`tasks/canopy/add-canopy.md`, task T5), pass **`--br-approximation direct`**
-> explicitly for any run whose numbers matter. The Riesz-scalar half of the FMM
-> path (`--bernoulli-scalar-mode surface-riesz`) is not implemented at all and
+> that names no `--br-approximation` gets the FMM.
+>
+> What *is* measured is one velocity evaluation against `BRSolverDirect` on the
+> same state — see [FMM accuracy](#fmm-accuracy-measured) below for the figure
+> and its full qualification list. What is **not** measured is what a
+> multi-thousand-step FMM-driven trajectory does: a $5\times10^{-4}$
+> perturbation injected at every evaluation decorrelates from the direct
+> trajectory long before step 2000, so the FMM path has no gold-file comparison
+> at any rung the direct path passes, and none is coming — the milestone claims
+> for it are a per-evaluation bound plus a stability-and-divergence-horizon
+> measurement (`tasks/canopy/add-canopy.md`, task T6), which are not yet
+> written. **Pass `--br-approximation direct` for any run that must reproduce
+> the reference**, and read the figures below before using `fmm` for one that
+> must merely be accurate. The Riesz-scalar half of the FMM path
+> (`--bernoulli-scalar-mode surface-riesz`) is not implemented at all and
 > throws.
 
 ###### FMM tunables
@@ -327,8 +335,8 @@ The FMM-only members, none of which has a CLI option:
 
 | `FmmParams` member | Default | Canopy `FmmConfig` member | What it is |
 | --- | --- | --- | --- |
-| `basis` | `FarFieldBasis::CartesianTaylor` | none (a template parameter) | Which far-field basis the adapter instantiates. `CartesianTaylor` expands the desingularized kernel directly and is the intended production path — *intended*, not yet validated: neither basis has been measured against the direct solver here, and the choice rests on Canopy's own gradient figures quoted above. `SolidHarmonic` expands the bare $1/r$ and carries a kernel bias no order removes, and is built at order 3 only; it exists as the negative control that proves the selector is live. |
-| `max_depth` | 10 | `max_depth` | Hard **cap** on tree depth, not a target — the tree stops at `ncrit` occupancy well before it. Canopy bounds it at 19. |
+| `basis` | `FarFieldBasis::CartesianTaylor` | none (a template parameter) | Which far-field basis the adapter instantiates. `CartesianTaylor` expands the desingularized kernel directly and is the **validated** production path — see [FMM accuracy](#fmm-accuracy-measured). `SolidHarmonic` expands the bare $1/r$ and carries a kernel bias no order removes, and is built at order 3 only; it exists as the negative control that proves the selector is live, and it measures **9.4x worse** than `CartesianTaylor` at the same order on a smooth sphere. |
+| `max_depth` | 10 | `max_depth` | Hard **cap** on tree depth, not a target — the tree stops at `ncrit` occupancy well before it. Canopy bounds it at 19. **Measured inert** on a milestone-0 sheet: the velocity error, the pair counts and the realized operator-key count are identical to all 17 digits at `max_depth` 5, 6, 8, 10 and 12, so the cap never binds there and lowering it changes nothing. |
 | `near_softening_factor` | **0** | `near_softening_factor` (4.0) | Multiple of the softening length inside which pairs are forced out of the far field. Meaningful only under `SolidHarmonic`; under `CartesianTaylor` the far field already carries the blob, so a non-zero floor only moves work into the near-field sum. |
 | `ncrit_tol` | 0.10 | `ncrit_tol` (0.10) | Coarsening hysteresis on `ncrit`, as a fraction of it: children merge only below `ncrit · (1 - ncrit_tol)`. Damps split/merge thrashing on a surface that deforms every RK stage. |
 | `replication_depth` | 3 | `replication_depth` (1) | Cells at or above this depth are replicated on every rank. 3 caps the replicated set at 585 cells and sits inside the 2-4 range Canopy documents as typical. |
@@ -369,6 +377,92 @@ substituted. Each arm instantiates Canopy's entire pipeline in every
 translation unit that creates a BR solver, so the set is deliberately small;
 on tuolumne the six roughly **2.6x** the project's compile CPU time
 (78 against 30 CPU-minutes over 29 translation units).
+
+###### FMM accuracy (measured)
+
+The far-field error is a **truncation** in `order`, not a floor, and the two
+fields it is quoted on differ by a full order: a Cartesian-Taylor expansion at
+order $p$ leaves $\sim(cw/R)^{p+1}$ on the potential and $\sim(cw/R)^{p}$ on
+the gradient, because the gradient comes from differentiating the local
+expansion. **Beatnik's velocity is the gradient**, so the gradient column is
+the one that binds.
+
+**The validated parameter set**, and the figure it achieves:
+
+| Quantity | Value |
+| --- | --- |
+| `basis` | `cartesian-taylor` |
+| `order` | **3** |
+| `mac_theta` | 0.3 |
+| `ncrit` | 8 *for this measurement*; the shipped default of 64 is right at production vertex counts — see below |
+| `max_depth` | 10 (inert; identical results at 5-12) |
+| `near_softening_factor` | 0 |
+| `softening` | 0.025 ( $=\sqrt{b}$ at `--eps 0.025` under `--kernel-blob-mode length`) |
+| Source distribution | milestone-0 icosphere, subdivision level 4, 2562 vertices, 5 `direct` timesteps from the initial condition |
+| Backends / ranks | HIP at 1 and 4 ranks, Serial at 1 rank |
+| Realized P2P pair fraction | **0.2537** — three quarters of the pairs go through M2L |
+| **Max relative velocity (gradient) error** | **$5.01\times10^{-4}$** |
+| Max relative potential error | $3.73\times10^{-5}$ |
+
+Both figures are `max|fmm − direct|` over owned rows, over the direct field's
+own max magnitude. The realized operator table is 10902 keys of Canopy's 32768
+per-rank cap and its fallback pair count is **zero**, so the number is one code
+path and not a mixture of two.
+
+**Every figure here is unreadable without its P2P pair fraction**, which is why
+it is in the table. A solve whose far field never engaged is a direct sum with
+FMM bookkeeping around it: it agrees with `BRSolverDirect` to round-off at
+*every* order and reads as a success. That is not hypothetical — at 642
+vertices with the shipped `ncrit = 64` the measured M2L pair count is **0** and
+the measured "error" is $2.1\times10^{-15}$.
+
+The order curve at the parameters above, measured on the sheet against the
+model $(\theta/2\sqrt3)^{p}$ that was fitted on a volumetric cloud:
+
+| `order` | gradient | model | gradient/model | potential |
+| --- | --- | --- | --- | --- |
+| 0 | $4.07\times10^{-1}$ | — | — | $5.70\times10^{-2}$ |
+| 2 | $5.97\times10^{-3}$ | $7.5\times10^{-3}$ | 0.80 | $6.83\times10^{-4}$ |
+| **3** | $\mathbf{5.01\times10^{-4}}$ | $6.5\times10^{-4}$ | 0.77 | $3.73\times10^{-5}$ |
+| 4 | $5.61\times10^{-5}$ | $5.6\times10^{-5}$ | 1.00 | $1.97\times10^{-6}$ |
+| 5 | $8.38\times10^{-6}$ | $4.9\times10^{-6}$ | 1.72 | $5.12\times10^{-7}$ |
+
+**Order 3 is the production order** and is the smallest that reaches
+$10^{-3}$ on the gradient: order 2 misses it by a factor of 6 and order 4 is
+not adoptable — it reaches derivative degree $|k|=8$ and Canopy's derivative
+ladder is validated only to $|k|=6$, so an arithmetic error there would be
+indistinguishable from the truncation it would be attributed to. Orders 4 and 5
+are measurable and reported; raising the default past 3 is an upstream request
+for another degree of oracle, not a Beatnik change.
+
+`ncrit` is what decides whether any of this is being measured at all. The
+liveness inequality $N \gg \pi(\sqrt3/\theta)^2\,\texttt{ncrit}$ is confirmed
+in the direction that matters — the M2L share falls to zero below it — but the
+threshold is softer than the inequality suggests, because coarse cell pairs are
+accepted where leaf pairs are not:
+
+| vertices | `ncrit` | M2L share of pairs | gradient error |
+| --- | --- | --- | --- |
+| 642 | 64, 32 | **0.0%** | $2.1\times10^{-15}$ (no far field; not a measurement) |
+| 642 | 16, 8 | 14.5% | $1.70\times10^{-4}$ |
+| 642 | 4 | 58.5% | $4.11\times10^{-4}$ |
+| 2562 | 64, 32 | 14.6% | $1.75\times10^{-4}$ |
+| 2562 | 16 | 56.6% | $4.38\times10^{-4}$ |
+| 2562 | **8** | **74.6%** | $\mathbf{5.01\times10^{-4}}$ |
+| 2562 | 4 | 89.2% | $6.39\times10^{-4}$ |
+
+Read that table the right way round: the error *rises* as the far field takes
+over, because a larger M2L share means more of the field is approximated. A
+configuration low in that table is not worse code, and a configuration high in
+it is not better accuracy — it is less measurement.
+
+The `--br-treecode-theta` dependence is **steeper than the model**: a
+least-squares fit over $\theta \in \{0.2, 0.3, 0.4, 0.5, 0.7\}$ at order 3
+gives an exponent of **3.8** on the gradient against the model's 3, and 4.3 on
+the potential against its 4. The model's constant is right to within 25%
+through order 4; its exponent in $\theta$ is not, and the per-order gain decays
+above order 3 (11.9x from 2 to 3, then 8.9x and 6.7x) rather than holding at
+the model's 11.5x.
 
 The FMM path additionally requires **`--source-quadrature vertex`**, and
 rejects any other rule at the first evaluation. The round trip that maps
@@ -547,6 +641,43 @@ from current work or pre-existing. Distinct from
 [Future Optimizations](#future-optimizations) and from the design-limitation
 subsections above, which are intended behavior.
 
+- **`compare_output.py`'s vertex pairing fails silently once the two files
+  disagree by more than `--match-eps`, and the FMM path crosses that threshold
+  by step 25.** *Pre-existing in the comparator; first reached by current work
+  (task T5).* Neither a Beatnik checkpoint nor a Python `.npz` records a vertex
+  correspondence, so the comparator recovers one by quantizing coordinates onto
+  a grid of cell size `--match-eps` (default `1e-9`) and lexsorting. Its
+  docstring states the precondition — the cell must be much larger than the
+  coordinate disagreement between the files. A `direct` run satisfies it by nine
+  decades (it tracks the gold set to `8.5e-13`). An **`fmm`** run does not: at
+  the measured `5.0e-4` per-evaluation velocity error the trajectories separate
+  to `1.5e-7` by step 25, 100x the cell. The files then quantize into different
+  cells and **vertices pair with the wrong partners**, reporting `max|e| ≈ 0.5`
+  on a radius-0.25 sphere where the true disagreement is `1.5e-7`.
+  **Reproduce:** run `Beatnik_Test_Milestone0Run <L> 2000 25 fmm 8 3`, then
+  `milestone0_ladder.py pair --run <dir> --ref <gold>`; it reports a
+  first-failing step of 25 at every rung while the two meshes agree to `1e-7` in
+  centroid, bounding box and radial extent, and the run's volume drift is
+  `3.3e-9`. **The failure is silent**: `n_ambiguous` stays `0`, because it counts
+  rows sharing a cell with their predecessor *within one file* and so sees a
+  within-file collision but never a cross-file mis-pairing. **Raising
+  `--match-eps` is not a fix** — each step needs a larger cell than the last and
+  by step 1000 the window between "larger than the disagreement" and "smaller
+  than the vertex spacing" has closed. Workaround in tree:
+  `tests/regression_tests/fmm_divergence_ladder.py`, which pairs by bijective
+  nearest neighbour and refuses a step whose pairing is not a bijection; it
+  reproduces `pair`'s ladder exactly on a `direct` run. A durable fix wants
+  `gid` in the gold files, or a pairing that does not go through coordinates.
+- **The FMM per-step cost grows along the trajectory, so a short probe
+  under-predicts a long run.** *Not a correctness defect; a budgeting hazard
+  that has already cost one truncated sweep plan.* At level 4 with `ncrit = 8`
+  the `fmm` path measures `0.434` s/step over the first 25 steps and `1.14`
+  s/step cumulative by step 1700 of 2000 — a factor of 2.6 — as the bubble
+  deforms and the tree deepens. Any walltime estimate taken from a 25-step probe
+  is therefore low by that factor, which is how a budget-guarded sweep ends up
+  starting a row it cannot finish. The absolute cost (`fmm` at roughly 44x
+  `direct` per step at 2562 vertices) is not characterized here; that is
+  `tasks/canopy/add-canopy.md` task T8.
 - **The ship gate covers everything up to a fixed-mesh timestep — there is no
   adaptivity in it.** *Not a defect in the gate's construction; a statement of
   how far the solver has been rebuilt.* The tier was **empty** from `89ec015`

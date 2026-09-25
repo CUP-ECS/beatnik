@@ -114,7 +114,16 @@
  *   - **Riesz scalar.** With \f$q_c = \omega_s G_{c,s}\f$,
  *     \f$\sum_s(\delta\cdot G_s)\omega_s K\f$ is \f$-\operatorname{tr}T\f$.
  *
- * The two do **not** share a tensor — they contract against different source
+ * A third read is available on the same traversal and is **not** a contraction
+ * of \f$T\f$ at all: `DownwardSweep::potential()`, the \f$\phi_c\f$ whose
+ * derivative \f$T\f$ is. No Beatnik physics reads it — both physical
+ * quantities above are gradients — but it truncates one order *better* at the
+ * same `order`, so a fidelity measurement that quotes only the gradient cannot
+ * be read against any figure stated on a potential. `evaluatePotential` is
+ * that read and it exists for **T5** step 2; it is a measurement surface, not
+ * a physics path, and applies no prefactor.
+ *
+ * The two physical evaluations do **not** share a tensor — they contract against different source
  * fields — so they are two `solve()` calls over one tree, which Canopy
  * supports directly: `solve()` re-reads the charge slice and zeroes its
  * outputs on every call.
@@ -272,6 +281,24 @@ struct FarFieldDiagnostics
     /// the signature of a cache that retains nothing, which is what a
     /// level-keyed basis on a drifting bounding box does.
     long long local_m2l_op_keys_built = 0;
+
+    /// Bytes **one** M2L operator column costs, from the basis's own
+    /// `bytes_per_key` — a `static constexpr` on the Canopy basis, derived
+    /// there from the coefficient counts and `sizeof(coeff_type)` rather than
+    /// written as a literal. Carried here so that the size of the realized
+    /// table is `local_m2l_unique_op_count * local_m2l_bytes_per_key` and is a
+    /// *measurement* rather than arithmetic re-derived from the order in a
+    /// consumer. **Added by T5 step 5**, which has to report the bytes the
+    /// table occupies beside the key count.
+    std::size_t local_m2l_bytes_per_key = 0;
+
+    /// **Rank-local.** `DownwardSweep::m2l_effective_op_cap()` — the operator
+    /// column cap actually in force, i.e. the smaller of what
+    /// `FmmParams::m2l_op_table_byte_budget` buys and Canopy's own 32768-key
+    /// count cap. The number `local_m2l_unique_op_count` is read *against*;
+    /// which of the two floors it is follows from the byte budget and
+    /// `local_m2l_bytes_per_key`. **Added by T5 step 5** (R6).
+    int local_m2l_op_cap = 0;
 };
 
 /// Spelling for `FarFieldDiagnostics::Maintenance`, so a diagnostic that
@@ -505,9 +532,93 @@ class FarFieldSolver
     }
 
     /**
+     * @brief Evaluate the raw softened-monopole **potential** at every source
+     *        point. A MEASUREMENT SURFACE; no Beatnik physics reads it.
+     *
+     * \f$ \phi_c(x_t) = \sum_{s \ne t}
+     *     \frac{S_{s,c}}{(b + |x_t-y_s|^2)^{1/2}} \f$
+     *
+     * **Why this exists, and why it is not a physical quantity.** Beatnik's
+     * two physical far-field reads — `evaluateVelocity` and
+     * `evaluateRieszScalar` — are both contractions of Canopy's *gradient*
+     * tensor, so neither can see the potential. But the potential and the
+     * gradient truncate at **different orders**: a Cartesian-Taylor expansion
+     * at order \f$p\f$ leaves \f$\sim(cw/R)^{p+1}\f$ on the potential and
+     * \f$\sim(cw/R)^{p}\f$ on the gradient, because the local expansion is
+     * differentiated to get the gradient and \f$\nabla\f$ of a degree-\f$p\f$
+     * Taylor local is degree \f$p-1\f$. A fidelity scan reporting one number
+     * per point therefore cannot be read against a figure quoted on the
+     * potential — including the reference treecode's own, which has no
+     * target-side expansion and so carries the *potential's* truncation order
+     * on its velocity. **T5** step 2 requires the two columns separately and
+     * this is the only route to the first of them.
+     *
+     * **NO PREFACTOR IS APPLIED.** `evaluateVelocity` applies
+     * \f$\sigma_{BR}/4\pi\f$ and `evaluateRieszScalar` applies
+     * \f$-1/4\pi^2\f$, because each has one physically right answer. This one
+     * does not: there is no Beatnik quantity it is the far field *of*, so it
+     * returns exactly what Canopy summed and the caller compares it against
+     * exactly that sum. `br_sign` is not applied either.
+     *
+     * **Self-exclusion follows Canopy, not the Birkhoff-Rott convention.**
+     * Canopy's P2P skips \f$p_j = p_i\f$ and any pair with
+     * \f$|r|^2 < 10^{-24}\f$ (`Canopy_P2P.hpp`), so a direct reference sum
+     * written against this must skip the same terms or it differs from the FMM
+     * by one whole self term at every target — which at \f$r=0\f$ is
+     * \f$S_t/\sqrt b = 40\,S_t\f$ at Beatnik's softening and would swamp the
+     * truncation error being measured.
+     *
+     * @param sources    `(Ns,3)` source positions, **owned rows only**, as
+     *                   `evaluateVelocity`.
+     * @param strengths  `(Ns,3)` source vectors \f$S_s\f$, the same charges
+     *                   the velocity path sends.
+     * @param params     Supplies `blob()` — whose square root is the softening
+     *                   length — and `source_quadrature`. `br_sign` is read
+     *                   from it and **deliberately ignored**, as above.
+     * @param[out] potential `(Ns,3)` result, **overwritten**, one component per
+     *                   charge component, in units of (charge / length).
+     *
+     * @note MPI. Collective, as `evaluateVelocity`. It is a **second**
+     *       `solve()` on the same tree when it follows one, not a re-read of
+     *       the velocity's traversal: Canopy writes potential and gradient in
+     *       one `solve`, but the round trip that brings the result back to
+     *       mesh order carries one `Output` tuple, so a caller that wants both
+     *       columns pays two traversals. Cheap at measurement scale and not
+     *       worth a second output member on the hot path.
+     *
+     * @throws As `evaluateVelocity`.
+     */
+    void evaluatePotential( const point_view& sources,
+                            const vector_view& strengths,
+                            const ZModelParams& params, vector_view& potential )
+    {
+#ifndef BEATNIK_ENABLE_CANOPY
+        (void)sources;
+        (void)strengths;
+        (void)params;
+        (void)potential;
+        throwNoCanopy( "evaluatePotential" );
+#else
+        const int ns = static_cast<int>( sources.extent( 0 ) );
+        if ( static_cast<int>( potential.extent( 0 ) ) != ns )
+            Kokkos::realloc( potential, ns );
+        Kokkos::deep_copy( potential, Real( 0 ) );
+
+        // Coefficient 1: see "NO PREFACTOR IS APPLIED" above. Spelled as a
+        // named constant rather than passed as a literal so the omission reads
+        // as deliberate at the call site.
+        const Real unscaled = Real( 1 );
+
+        scalar_view unused;
+        evaluate( sources, strengths, params, Contraction::Potential, unscaled,
+                  potential, unused );
+#endif
+    }
+
+    /**
      * @brief What the far field did on the most recent evaluation.
      *
-     * In a `~canopy` build this is the default-constructed member: the two
+     * In a `~canopy` build this is the default-constructed member: the
      * evaluations throw, so nothing ever writes it.
      */
     const FarFieldDiagnostics& diagnostics() const { return _diagnostics; }
@@ -517,18 +628,24 @@ class FarFieldSolver
 
   private:
 #ifdef BEATNIK_ENABLE_CANOPY
-    /// Which contraction of Canopy's 3x3 gradient tensor an evaluation wants.
-    /// An enum rather than a bool, per the conventions table, because the two
-    /// differ in output rank as well as in arithmetic.
+    /// Which of Canopy's two outputs an evaluation wants, and how it is
+    /// contracted. An enum rather than a bool, per the conventions table,
+    /// because the three differ in output rank as well as in arithmetic.
     enum class Contraction
     {
         Curl, ///< \f$u_i = -\epsilon_{ijk}T_{kj}\f$, into `Output(p, 0..2)`.
-        Trace ///< \f$\Psi = -\operatorname{tr}T\f$, into `Output(p, 0)`.
+        Trace, ///< \f$\Psi = -\operatorname{tr}T\f$, into `Output(p, 0)`.
+        /// **Not a contraction at all**, and the reason this enum is no longer
+        /// named for one: the potential vector \f$\phi_c\f$ itself, copied
+        /// component-wise into `Output(p, 0..2)`. It reads
+        /// `Impl::potential()` where the other two read `Impl::gradient()`.
+        /// **Measurement path only** — see `evaluatePotential`.
+        Potential
     };
 
     /// Canopy's number of simultaneous charge components. Three, because the
-    /// source is a vector field and both contractions are of the resulting
-    /// 3x3 tensor — see "One Canopy solve, two contractions" in the header.
+    /// source is a vector field and both physical contractions are of the
+    /// resulting 3x3 tensor — see the kernel section in the file header.
     static constexpr int NCOMPS = 3;
 
     using particle_member_types =
@@ -540,6 +657,13 @@ class FarFieldSolver
     /// basis or the order — which is what lets the contraction, the pack and
     /// the whole round trip live once here rather than six times in `ImplFor`.
     using gradient_view_type = Kokkos::View<Real* [NCOMPS][3], MemorySpace>;
+
+    /// Canopy's potential output, `(num_local, NComps)`. Arm-independent for
+    /// the same reason `gradient_view_type` is. One scalar potential per
+    /// charge component, **not** a single scalar: the source is a vector field,
+    /// so \f$\phi_c=\sum_s q_{s,c}(b+|r|^2)^{-1/2}\f$ is a 3-vector and the
+    /// gradient tensor above is its derivative.
+    using potential_view_type = Kokkos::View<Real* [NCOMPS], MemorySpace>;
 
     using builder_type = Canopy::TreeBuilder<MemorySpace, ExecutionSpace>;
     using comm_plan_type =
@@ -590,6 +714,9 @@ class FarFieldSolver
 
         virtual int numLocalParticles() const = 0;
         virtual gradient_view_type gradient() const = 0;
+        /// `Solver::potential()`. Written by the same `solve()` that writes
+        /// the gradient, so reading it costs no extra traversal.
+        virtual potential_view_type potential() const = 0;
         virtual const builder_type& builder() const = 0;
         virtual const comm_plan_type& commPlan() const = 0;
 
@@ -684,6 +811,11 @@ class FarFieldSolver
             return _solver->gradient();
         }
 
+        potential_view_type potential() const override
+        {
+            return _solver->potential();
+        }
+
         const builder_type& builder() const override
         {
             return _solver->builder();
@@ -702,6 +834,14 @@ class FarFieldSolver
             d.local_m2l_op_keys_built = down.m2l_op_keys_built_count();
             d.global_m2l_pair_count = down.total_m2l_pair_count();
             d.global_m2l_fallback_pair_count = down.total_fallback_pair_count();
+            // T5 step 5. `bytes_per_key` is a compile-time property of the
+            // BASIS, not of the sweep, so it comes off `kernel_type` -- the
+            // same type the arm's `static_assert` above checks. The cap does
+            // come off the sweep: it is the byte budget's worth of columns
+            // floored by Canopy's own count cap, so it moves with
+            // `FmmParams::m2l_op_table_byte_budget`.
+            d.local_m2l_bytes_per_key = solver_type::kernel_type::bytes_per_key;
+            d.local_m2l_op_cap = down.m2l_effective_op_cap();
         }
 
       private:
@@ -1043,12 +1183,12 @@ class FarFieldSolver
     }
 
     /**
-     * @brief The whole round trip, for either contraction.
+     * @brief The whole round trip, for any of the three outputs.
      *
-     * The six steps of "Two decompositions" in the file header, in order. Both
-     * evaluations share every one of them; only `contraction` and
+     * The six steps of "Two decompositions" in the file header, in order.
+     * Every evaluation shares all of them; only `contraction` and
      * `coefficient` differ, so there is one place where a step can be got
-     * wrong rather than two that can drift apart.
+     * wrong rather than three that can drift apart.
      *
      * **Collective structure.** Every rank runs the same sequence the same
      * number of times, including a rank that owns zero sources: the only
@@ -1169,6 +1309,21 @@ class FarFieldSolver
                             c * ( gradient( p, 0, 1 ) - gradient( p, 1, 0 ) );
                     } );
             }
+            else if ( contraction == Contraction::Potential )
+            {
+                auto phi = _impl->potential();
+                Kokkos::parallel_for(
+                    "beatnik_far_field_potential",
+                    Kokkos::RangePolicy<ExecutionSpace>( 0, num_local ),
+                    KOKKOS_LAMBDA( const int p ) {
+                        // No contraction and no prefactor: the potential
+                        // vector as Canopy summed it. `c` is 1 on this path
+                        // (evaluatePotential), and is still applied so the
+                        // three branches have one shape.
+                        for ( int d = 0; d < 3; ++d )
+                            out( p, d ) = c * phi( p, d );
+                    } );
+            }
             else
             {
                 Kokkos::parallel_for(
@@ -1217,7 +1372,9 @@ class FarFieldSolver
         {
             auto tag = Cabana::slice<FarFieldMember::Tag>( returned );
             auto out = Cabana::slice<FarFieldMember::Output>( returned );
-            if ( contraction == Contraction::Curl )
+            // `Trace` is the only path with a scalar output; `Curl` and
+            // `Potential` both scatter three components into `vector_out`.
+            if ( contraction != Contraction::Trace )
             {
                 auto u = vector_out;
                 Kokkos::parallel_reduce(

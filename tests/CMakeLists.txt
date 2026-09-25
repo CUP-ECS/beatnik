@@ -567,8 +567,16 @@ endforeach()
 # driver's arguments ARE is documented in its own file header.
 set(BEATNIK_DRIVER_SOURCES
   # M0-D1: the milestone-0 frozen-mesh run. Writes checkpoints, compares
-  # nothing; milestone0_ladder.py does the comparing, offline.
+  # nothing; milestone0_ladder.py does the comparing, offline. T5 step 7
+  # parameterizes its BR approximation and FMM knobs through argv[4..6] so the
+  # same driver produces the FMM-driven 2000-step series.
   Beatnik_Test_Milestone0Run.cpp
+  # T5 (tasks/canopy/add-canopy.md): the far-field fidelity scan. Evaluates
+  # every arm against ONE spin-up state in one process and prints one
+  # `[t5arm]` line each. Compiles no tolerance -- T5 produces the numbers T6
+  # compiles, and a measurement carrying its own pass criterion would assert
+  # the thing it exists to measure (risk R1).
+  Beatnik_Test_FmmScan.cpp
   )
 
 foreach(_src ${BEATNIK_DRIVER_SOURCES})

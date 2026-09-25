@@ -40,11 +40,11 @@ where they arise:
 - **$\tau_A$ and the production parameter set** (T5), with the full
   qualification list and the reasoning for the chosen `order` over the one above
   and the one below it. Every compiled tolerance in T4, T6 and T7 traces here.
-- **The divergence-horizon envelope and its run-to-run spread** (T5 step 6,
+- **The divergence-horizon envelope and its run-to-run spread** (T5 step 7,
   R8). An envelope with no spread beside it is not usable, and T6 will trip on
   it intermittently.
 - **The realized operator-key count and `total_fallback_pair_count()`** at each
-  scanned `max_depth` and `order` (T5 step 4, R6). A non-zero fallback count
+  scanned `max_depth` and `order` (T5 step 5, R6). A non-zero fallback count
   means the accuracy number is a mixture of two code paths.
 - **The `MaintenanceAction` histogram and the operator-construction share of
   `solve`** (T8). Together they decide whether `Rebalance`-every-stage is

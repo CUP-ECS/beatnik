@@ -1430,7 +1430,7 @@ rank returned, the global count stayed 2562, and rank 0's field moved by
 
 ---
 
-### T5 — Measure the achievable far-field fidelity, and publish it — **NOT STARTED**
+### T5 — Measure the achievable far-field fidelity, and publish it — **DONE**
 
 **Depends on:** T4. Canopy's derivative ladder is validated at $|k|=2p$ through
 $p=3$, so the production order and everything below it are unblocked
