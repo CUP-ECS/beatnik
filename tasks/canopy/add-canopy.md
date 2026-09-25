@@ -1623,6 +1623,120 @@ and the achieved fidelity for the gradient. The task is complete whichever value
 $\tau_A$ takes — if it is above $10^{-3}$ at every affordable order, that is the
 finding, and **X1** is what it implies.
 
+**Met.** The scan is **144 arms over six launches**
+([scripts/tuolumne/t5_fmm_scan.flux](../../scripts/tuolumne/t5_fmm_scan.flux),
+job `f3aPSQYSVTpb`), all six green at 84/84 structural checks, with
+**`global_m2l_fallback_pair_count` zero at every arm** — so every figure is one
+code path and not a mixture (**R6**). Each arm carries its full qualification
+list and a **separate potential and gradient column**, which needed a new
+measurement surface on the adapter: both of Beatnik's physical far-field reads
+are contractions of Canopy's *gradient* tensor, so
+`FarFieldSolver::evaluatePotential` is the only route to the first column and it
+applies no prefactor. The whole scan runs against **one** spin-up state per
+launch, making arm-to-arm differences exact; the measured cross-launch floor is
+$2.9\times10^{-4}$ of the error.
+
+**$\tau_A = 5.01\times10^{-4}$** on the **gradient**, at `cartesian-taylor`,
+`order` 3, `ncrit` 8, `mac_theta` 0.3, `max_depth` 10, `softening` 0.025,
+`near_softening_factor` 0, on the milestone-0 icosphere at level 4 (2562
+vertices) after five direct steps, at HIP ranks 1 and 4 and Serial rank 1, with
+a realized **P2P pair fraction of 0.2537**. The potential at the same point is
+$3.73\times10^{-5}$, a ratio of 13.4 against the 11.55 that "one full order"
+predicts. **The production parameter set is unchanged from T1's defaults**, now
+each with a measurement behind it rather than a derivation.
+
+**The error model is confirmed in its constant and corrected in its exponent.**
+Measured/model on the gradient is 0.80, 0.77, 1.00 and 1.72 at $p=2,3,4,5$ — so
+the sheet is *not* worse than the volumetric cloud the model was fitted on. But
+a least-squares fit over $\theta\in\{0.2,0.3,0.4,0.5,0.7\}$ at $p=3$ gives a
+realized exponent of **3.77** on the gradient against the model's 3 (and 4.30 on
+the potential against its 4), with every adjacent-pair estimate above 3. The
+per-order gain also decays above the production order — 11.92, 8.93, 6.70
+against a constant model 11.55. Both are the realized $R/w$ distribution's tail
+above the acceptance threshold, which the equal-cell idealization does not carry.
+This is the "differs in *exponent* rather than in constant" outcome step 4 names.
+
+**`max_depth` is measured inert**, which retires a lever rather than tuning it:
+the gradient, the potential, the P2P fraction, the M2L pair count and the
+realized key count are identical **to all 17 printed digits** at `max_depth` 5,
+6, 8, 10 and 12, at both levels. Worst key count scanned is **18742 of Canopy's
+32768 cap** (level 4, `ncrit` 4), and the count cap binds rather than the byte
+budget, as `FmmParams` claims.
+
+**Orders 4 and 5 are measured and reported and neither is adopted** (**R11**):
+$p=4$ gives $5.61\times10^{-5}$, 8.9x better than production for 3.1x the
+operator table, and $p=5$ gives $8.38\times10^{-6}$. The compiled default stays
+3; the raise is an upstream request for Canopy's derivative-ladder oracle to
+reach $|k|=2p$, not a Beatnik change.
+
+**The `ncrit` at which each level first has a live far field** — taking live as
+T4's compiled `p2p_pair_fraction < 0.75` — is **`ncrit` 16 at level 4** and
+**`ncrit` 4 at level 3**. Taking live as "carries any of the field at all", it
+is every scanned `ncrit` at level 4 and `ncrit` $\le16$ at level 3.
+
+**R8 does not bind at this configuration, and the strict form of its test was
+run.** Four independent 2000-step FMM trajectories give the **identical** ladder.
+Two np=4 runs — the pair that actually varies Zoltan2's partition, where two
+np=1 runs share a trivial one — agree to **$1.4\times10^{-11}$ of the error**;
+the np=1 pair agrees to $6.9\times10^{-11}$ and np1-versus-np4 to
+$1.8\times10^{-11}$, with four final volume drifts spanning
+$1.5\times10^{-15}$ absolute. The envelope can therefore be asserted at the
+observed horizon with a margin set by the checkpoint interval rather than by
+noise. Not retired in general: this is four runs at one configuration on a
+smooth bubble, and a self-contacting sheet redistributes particles far more.
+
+**Step 7 measured the horizon, the volume-drift bound and the attribution** —
+and needed an instrument this document did not anticipate; see below. The
+FMM-driven envelope at level 4 against the in-tree Python gold set is a first
+failing checkpointed step of **25** at the $10^{-12}$, $10^{-10}$, $10^{-8}$ and
+$10^{-6}$ rungs and **50** at $10^{-4}$. The direct-driven attribution row is
+**750** at $10^{-12}$ and never fails at any looser rung, so the FMM's
+per-evaluation perturbation dominates the Beatnik-versus-Python drift by about
+nine orders and the horizon is the FMM's. **Volume drift over 2000 steps is
+$4.703\times10^{-9}$ FMM-driven against $4.741\times10^{-9}$ direct-driven** —
+the FMM marginally *better*, both nine decades inside anything claim B would
+assert, and computed from one directory alone so it needs no vertex pairing.
+
+**One thing in this document's plan did not survive contact, and it is the
+instrument.** `milestone0_ladder.py pair` **cannot measure an FMM-driven
+horizon**, and it fails **silently**: it reports $\text{max}|e| \approx 0.5$ on
+a radius-0.25 sphere where the true disagreement is $1.5\times10^{-7}$, with
+`n_ambiguous` at 0 throughout. `compare_output.py` recovers the vertex
+correspondence by quantizing onto a `--match-eps` grid (default $10^{-9}$) whose
+documented precondition is that the cell exceed the disagreement between the
+files; a direct run satisfies it by nine decades and an FMM run misses it by two
+at step 25. Raising `--match-eps` is not a fix — each step needs a larger cell
+and by step 1000 the window between "larger than the disagreement" and "smaller
+than the vertex spacing" has closed. Step 7's numbers therefore come from
+`tests/regression_tests/fmm_divergence_ladder.py`, which pairs by **bijective
+nearest neighbour** and refuses any step whose pairing is not a bijection; it
+imports `RUNGS` and `load_any` rather than redefining them, and it **reproduces
+`pair`'s ladder exactly on the direct run** (750 at $10^{-12}$, `None`
+elsewhere), which is what makes its FMM numbers quotable.
+
+**Not verified.** No tolerance was compiled into any test by this task, and
+none may be until **T6** — `Beatnik_Test_FmmScan` carries none and its only
+assertions are structural. **No trajectory correctness claim**: step 7 measures
+where two trajectories separate, not that either is right, and **R7** is
+untouched. **The self-contact basis separation is unmeasured** — the decade
+measured here (9.38x at level 4, 3.47x at level 3) is a smooth-sphere figure and
+**R2**'s "tens of percent" needs accepted separations approaching $\sqrt b$,
+which no configuration in this tree reaches. **The solid-harmonic curve's own
+shape is unmeasured**: T2 dispatches one solid-harmonic arm, so the basis
+comparison is one point against a curve. **No cost characterization** — the
+`MaintenanceAction` histogram is absent (every arm's reported action is
+`Migrate`, from its second evaluation) and the `fmm`-versus-`direct` speedup is
+**T8**'s; the per-step ratios recorded in the log exist only because the
+walltime budget is built from them. **The `~canopy` build was not made**, so
+`evaluatePotential`'s guarded branch is compiled-in and unexecuted, as T4's was.
+**Level 3 is not a far-field accuracy result** at 14.5% M2L share, and nothing
+here adopts it. And **the late phase of an FMM trajectory is not measurable by
+any position-based pairing**: steps 1350-1900 at level 4 are unpairable even by
+bijective nearest neighbour, identically in two independent runs, so the tool
+refuses them rather than reporting a mis-pairing. The horizon is decided long
+before that window, so the ladder is unaffected — but a durable fix wants `gid`
+in the gold files.
+
 ---
 
 ### T6 — The two milestone-tier FMM members — **NOT STARTED**

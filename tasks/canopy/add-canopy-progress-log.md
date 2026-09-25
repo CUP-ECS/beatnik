@@ -1151,3 +1151,778 @@ maintenance action was `Setup` on every evaluation here, because each arm builds
 a fresh solver and evaluates once, so this task contributes **no** histogram
 data; T8 still starts from zero. The 11m17s/88m40s rebuild is the per-change
 cost on this path.
+
+
+## T5
+
+**τ_A is `5.01e-4` on the velocity (gradient), at `order` 3, and the far field
+was live when it was measured.** The scan is 144 arms over six launches, all six
+green (84/84 structural checks each), **zero fallback pairs and zero non-finite
+rows at every arm**. Steps 1-6 landed as written. Step 7 did not: it uncovered
+a defect in the *measurement instrument* that makes T6's stated plan
+unexecutable as written, and that finding is the most consequential thing in
+this entry.
+
+**No tolerance was compiled into any test by this task.** `Beatnik_Test_FmmScan`
+carries none and may not; its only assertions are structural (entity counts,
+global particle count, finiteness, and that an arm's two evaluations saw the same
+tree). T6 is what compiles τ_A. That is R1's discipline and it held.
+
+### Decisions taken as given by the task, recorded so they are not reopened
+
+- **The whole scan runs in one launch against one shared spin-up state.** The
+  spin-up is downstream of five timesteps and is not bitwise reproducible, so
+  cross-launch figures carry a floor of about `1e-4` *of the error*; within a
+  launch every arm sees byte-identical state and arm-to-arm differences are
+  exact. Implemented, not re-derived. The measured cross-launch spread at the
+  production point is **`2.9e-4` of the error** across all six launches and
+  **`2.1e-4`** between HIP np1 and np4 alone, so the floor is real and is the
+  resolution limit on every figure this entry reads across rows.
+- **The basis comparison is reported on the smooth sphere only.** R2's "tens of
+  percent" is a self-contact figure and no milestone-0 configuration in this
+  tree reaches self-contact. **The self-contact figure is unmeasured here** and
+  no run was spent hunting for a deformed state.
+- **The published horizon envelope is FMM-driven against the in-tree Python gold
+  set**, with a direct-driven 2000-step run reported alongside as attribution.
+  Both were run. See step 7 for why the envelope is reported under a different
+  instrument than the one the task named.
+
+### Signatures changed
+
+Three files outside T5's stated **Fill in** list changed, each because the exit
+criterion cannot be met without it.
+
+1. **`src/Beatnik_FarFieldInterface.hpp` gained `evaluatePotential`.** Step 2
+   requires a separate potential column at every scan point and **there was no
+   route to one**: Beatnik's two physical far-field reads, `evaluateVelocity`
+   and `evaluateRieszScalar`, are both contractions of Canopy's *gradient*
+   tensor, so neither can see the potential. The new method adds
+   `Contraction::Potential` (which is not a contraction at all -- it copies
+   `Impl::potential()` component-wise) and **applies no prefactor**, because
+   there is no Beatnik quantity it is the far field of. It is a measurement
+   surface; no physics calls it. The `Contraction` enum's doc comment and the
+   `evaluate()` header were corrected to say "three outputs" rather than "either
+   contraction".
+2. **`FarFieldDiagnostics` gained `local_m2l_bytes_per_key` and
+   `local_m2l_op_cap`.** Step 5 has to report "the bytes it occupies" beside the
+   key count. `bytes_per_key` is a `static constexpr` on the Canopy basis and
+   `m2l_effective_op_cap()` is on the sweep, so both are read there and carried
+   out rather than re-derived from `order` in a consumer -- an arithmetic
+   re-derivation would be a second source of truth for a number whose whole
+   purpose is to be checked against Canopy's cap.
+3. **`Beatnik_Test_Milestone0Run.cpp` took `argv[4..6]`** --
+   `direct`|`fmm`, `ncrit`, `order`. `:184`'s pinned
+   `BRApproximation::Direct` is now the **default**, so every M0-D1 invocation
+   of the driver still means exactly what it meant, and an unrecognized argv[4]
+   is a recorded failure rather than a silent fall back to `direct`. Under `fmm`
+   the configuration is appended to the output directory name so a direct and an
+   FMM run of the same level and rank count cannot alias inside one scratch.
+
+New files: `tests/regression_tests/Beatnik_Test_FmmScan.cpp` (registered in the
+"Measurement drivers -- IN NO TIER" loop, so it gates nothing),
+`scripts/tuolumne/t5_fmm_scan.flux`, `scripts/tuolumne/t5_divergence.flux`, and
+`tests/regression_tests/fmm_divergence_ladder.py` -- the last of which is step
+7's finding made usable and is justified below.
+
+### The scan: what was varied, and what was not
+
+**`(basis, order)` is the only axis limited to what T2 built** --
+`CartesianTaylor` at 0, 2, 3, 4, 5 and `SolidHarmonic` at 3 only. `mac_theta`,
+`ncrit` and `max_depth` are runtime `FmmParams` members and scanned freely. The
+scan is **five named axes through one background** (T4's measured-live
+configuration: `CartesianTaylor`, p=3, `ncrit` 8, θ=0.3, `max_depth` 10) rather
+than a Cartesian product, which would be 625 arms to answer four
+one-dimensional questions. 24 arms per launch; launches are
+(L4, L3) x (HIP np1, HIP np4) plus Serial np1 at each level.
+
+Job `f3aPSQYSVTpb`, `scripts/tuolumne/t5_fmm_scan.flux`, one `pdebug` node,
+whole sweep **82 s** of launch wall (9-29 s per row). Commit `41297bd` plus this
+task's working tree; dev spack env; `spack install` **10m33s wall / 102m42s
+CPU** on the login node for the full rebuild the adapter header forces.
+
+**Every figure below is `max|fmm - reference|` over owned rows divided by the
+reference field's own max magnitude**, and carries: source distribution
+(milestone-0 icosphere at the stated level, after 5 `--br-approximation direct`
+steps), the rank count and backend of its row, the basis, `order`, `ncrit`,
+`mac_theta`, `max_depth`, `softening = 0.025` (= sqrt(blob) at `--eps 0.025`
+under `--kernel-blob-mode length`), `near_softening_factor = 0`, and the
+realized P2P pair fraction. Field scales: `max|u_direct| = 5.15236e-3` and
+`max|phi_direct| = 7.99705e-3` at L4; `5.10431e-3` and `7.67777e-3` at L3.
+
+**The two references are not the same kind of object.** The gradient column is
+against `BRSolverDirect` on the same mesh, geometry, state and quadrature --
+T4's reference, unchanged. The potential column is against an O(N^2) sum written
+in the driver over the globally gathered source set, following **Canopy's**
+exclusion rule and not Birkhoff-Rott's: `Canopy_P2P.hpp` skips `pj == pi` and
+any pair with `|r|^2 < 1e-24`, and a reference including the self term would
+differ from the FMM by `S_t/sqrt(b)` -- a factor of 40 at this softening -- at
+every target. The softening squared is taken as
+`diagnostics().softening^2`, the value Canopy itself squared, rather than
+re-derived from `blob()`.
+
+#### Level 4 (2562 vertices), HIP, 1 rank -- the production row
+
+| axis | basis | `order` | `ncrit` | `mac_theta` | `max_depth` | gradient rel | potential rel | P2P frac | M2L cell pairs | fallback | keys (rank 0) | table MB |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| order | `cartesian-taylor` | 0 | 8 | 0.3 | 10 | 4.07338e-01 | 5.70071e-02 | 0.253650 | 130968 | 0 | 10902 | 0.08 |
+| order | `cartesian-taylor` | 2 | 8 | 0.3 | 10 | 5.96723e-03 | 6.82607e-04 | 0.253650 | 130968 | 0 | 10902 | 8.32 |
+| order | `cartesian-taylor` | 3 | 8 | 0.3 | 10 | 5.00775e-04 | 3.72620e-05 | 0.253650 | 130968 | 0 | 10902 | 33.27 |
+| order | `cartesian-taylor` | 4 | 8 | 0.3 | 10 | 5.60924e-05 | 1.96748e-06 | 0.253650 | 130968 | 0 | 10902 | 101.89 |
+| order | `cartesian-taylor` | 5 | 8 | 0.3 | 10 | 8.37613e-06 | 5.11766e-07 | 0.253650 | 130968 | 0 | 10902 | 260.84 |
+| basis | `solid-harmonic` | 3 | 8 | 0.3 | 10 | 4.69909e-03 | 8.30607e-04 | 0.253650 | 130968 | 0 | 9766 | 23.84 |
+| ncrit | `cartesian-taylor` | 3 | 64 | 0.3 | 10 | 1.75479e-04 | 1.33432e-05 | 0.854134 | 5736 | 0 | 864 | 2.64 |
+| ncrit | `cartesian-taylor` | 3 | 32 | 0.3 | 10 | 1.75479e-04 | 1.33432e-05 | 0.854134 | 5736 | 0 | 864 | 2.64 |
+| ncrit | `cartesian-taylor` | 3 | 16 | 0.3 | 10 | 4.38234e-04 | 3.64903e-05 | 0.433923 | 73544 | 0 | 10776 | 32.89 |
+| ncrit | `cartesian-taylor` | 3 | 8 | 0.3 | 10 | 5.00775e-04 | 3.72620e-05 | 0.253650 | 130968 | 0 | 10902 | 33.27 |
+| ncrit | `cartesian-taylor` | 3 | 4 | 0.3 | 10 | 6.39201e-04 | 5.22813e-05 | 0.107565 | 333250 | 0 | 18742 | 57.20 |
+| theta | `cartesian-taylor` | 3 | 8 | 0.2 | 10 | 1.15734e-04 | 7.88889e-06 | 0.566336 | 173680 | 0 | 14966 | 45.67 |
+| theta | `cartesian-taylor` | 3 | 8 | 0.3 | 10 | 5.00775e-04 | 3.72620e-05 | 0.253650 | 130968 | 0 | 10902 | 33.27 |
+| theta | `cartesian-taylor` | 3 | 8 | 0.4 | 10 | 1.35576e-03 | 1.78839e-04 | 0.137649 | 83952 | 0 | 6580 | 20.08 |
+| theta | `cartesian-taylor` | 3 | 8 | 0.5 | 10 | 3.51459e-03 | 5.65856e-04 | 0.090420 | 58784 | 0 | 4196 | 12.81 |
+| theta | `cartesian-taylor` | 3 | 8 | 0.7 | 10 | 1.31262e-02 | 1.35718e-03 | 0.049149 | 31032 | 0 | 2246 | 6.85 |
+| max_depth | `cartesian-taylor` | 3 | 8 | 0.3 | 5 | 5.00775e-04 | 3.72620e-05 | 0.253650 | 130968 | 0 | 10902 | 33.27 |
+| max_depth | `cartesian-taylor` | 3 | 8 | 0.3 | 6 | 5.00775e-04 | 3.72620e-05 | 0.253650 | 130968 | 0 | 10902 | 33.27 |
+| max_depth | `cartesian-taylor` | 3 | 8 | 0.3 | 8 | 5.00775e-04 | 3.72620e-05 | 0.253650 | 130968 | 0 | 10902 | 33.27 |
+| max_depth | `cartesian-taylor` | 3 | 8 | 0.3 | 10 | 5.00775e-04 | 3.72620e-05 | 0.253650 | 130968 | 0 | 10902 | 33.27 |
+| max_depth | `cartesian-taylor` | 3 | 8 | 0.3 | 12 | 5.00775e-04 | 3.72620e-05 | 0.253650 | 130968 | 0 | 10902 | 33.27 |
+| order@0.5 | `cartesian-taylor` | 2 | 8 | 0.5 | 10 | 2.28113e-02 | 3.94263e-03 | 0.090420 | 58784 | 0 | 4196 | 3.20 |
+| order@0.5 | `cartesian-taylor` | 3 | 8 | 0.5 | 10 | 3.51459e-03 | 5.65856e-04 | 0.090420 | 58784 | 0 | 4196 | 12.81 |
+| order@0.5 | `cartesian-taylor` | 4 | 8 | 0.5 | 10 | 8.32256e-04 | 7.03469e-05 | 0.090420 | 58784 | 0 | 4196 | 39.22 |
+
+#### Level 3 (642 vertices), HIP, 1 rank
+
+| axis | basis | `order` | `ncrit` | `mac_theta` | `max_depth` | gradient rel | potential rel | P2P frac | M2L cell pairs | fallback | keys (rank 0) | table MB |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| order | `cartesian-taylor` | 0 | 8 | 0.3 | 10 | 1.11093e-01 | 2.97110e-02 | 0.854631 | 5736 | 0 | 864 | 0.01 |
+| order | `cartesian-taylor` | 2 | 8 | 0.3 | 10 | 1.66340e-03 | 1.86191e-04 | 0.854631 | 5736 | 0 | 864 | 0.66 |
+| order | `cartesian-taylor` | 3 | 8 | 0.3 | 10 | 1.70348e-04 | 1.29741e-05 | 0.854631 | 5736 | 0 | 864 | 2.64 |
+| order | `cartesian-taylor` | 4 | 8 | 0.3 | 10 | 2.21279e-05 | 1.59727e-06 | 0.854631 | 5736 | 0 | 864 | 8.07 |
+| order | `cartesian-taylor` | 5 | 8 | 0.3 | 10 | 2.48016e-06 | 2.12351e-07 | 0.854631 | 5736 | 0 | 864 | 20.67 |
+| basis | `solid-harmonic` | 3 | 8 | 0.3 | 10 | 5.91359e-04 | 5.38641e-04 | 0.854631 | 5736 | 0 | 864 | 2.11 |
+| ncrit | `cartesian-taylor` | 3 | 64 | 0.3 | 10 | 2.11941e-15 | 2.82426e-15 | 1.000000 | 0 | 0 | 0 | 0.00 |
+| ncrit | `cartesian-taylor` | 3 | 32 | 0.3 | 10 | 2.11941e-15 | 2.82779e-15 | 1.000000 | 0 | 0 | 0 | 0.00 |
+| ncrit | `cartesian-taylor` | 3 | 16 | 0.3 | 10 | 1.70348e-04 | 1.29741e-05 | 0.854631 | 5736 | 0 | 864 | 2.64 |
+| ncrit | `cartesian-taylor` | 3 | 8 | 0.3 | 10 | 1.70348e-04 | 1.29741e-05 | 0.854631 | 5736 | 0 | 864 | 2.64 |
+| ncrit | `cartesian-taylor` | 3 | 4 | 0.3 | 10 | 4.11035e-04 | 3.85110e-05 | 0.415373 | 60720 | 0 | 10466 | 31.94 |
+| theta | `cartesian-taylor` | 3 | 8 | 0.2 | 10 | 2.25764e-15 | 2.66440e-15 | 1.000000 | 0 | 0 | 0 | 0.00 |
+| theta | `cartesian-taylor` | 3 | 8 | 0.3 | 10 | 1.70348e-04 | 1.29741e-05 | 0.854631 | 5736 | 0 | 864 | 2.64 |
+| theta | `cartesian-taylor` | 3 | 8 | 0.4 | 10 | 8.03907e-04 | 1.31471e-04 | 0.554090 | 12912 | 0 | 2660 | 8.12 |
+| theta | `cartesian-taylor` | 3 | 8 | 0.5 | 10 | 2.22147e-03 | 4.57457e-04 | 0.361948 | 11736 | 0 | 2208 | 6.74 |
+| theta | `cartesian-taylor` | 3 | 8 | 0.7 | 10 | 7.09409e-03 | 1.02836e-03 | 0.194748 | 7056 | 0 | 1316 | 4.02 |
+| max_depth | `cartesian-taylor` | 3 | 8 | 0.3 | 5 | 1.70348e-04 | 1.29741e-05 | 0.854631 | 5736 | 0 | 864 | 2.64 |
+| max_depth | `cartesian-taylor` | 3 | 8 | 0.3 | 6 | 1.70348e-04 | 1.29741e-05 | 0.854631 | 5736 | 0 | 864 | 2.64 |
+| max_depth | `cartesian-taylor` | 3 | 8 | 0.3 | 8 | 1.70348e-04 | 1.29741e-05 | 0.854631 | 5736 | 0 | 864 | 2.64 |
+| max_depth | `cartesian-taylor` | 3 | 8 | 0.3 | 10 | 1.70348e-04 | 1.29741e-05 | 0.854631 | 5736 | 0 | 864 | 2.64 |
+| max_depth | `cartesian-taylor` | 3 | 8 | 0.3 | 12 | 1.70348e-04 | 1.29741e-05 | 0.854631 | 5736 | 0 | 864 | 2.64 |
+| order@0.5 | `cartesian-taylor` | 2 | 8 | 0.5 | 10 | 1.34503e-02 | 3.16900e-03 | 0.361948 | 11736 | 0 | 2208 | 1.68 |
+| order@0.5 | `cartesian-taylor` | 3 | 8 | 0.5 | 10 | 2.22147e-03 | 4.57457e-04 | 0.361948 | 11736 | 0 | 2208 | 6.74 |
+| order@0.5 | `cartesian-taylor` | 4 | 8 | 0.5 | 10 | 3.94650e-04 | 5.42453e-05 | 0.361948 | 11736 | 0 | 2208 | 20.64 |
+
+#### The production point across all six launches
+
+| level | backend | ranks | gradient rel | potential rel | P2P frac | M2L cell pairs | keys (rank 0) | particles |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 4 | HIP | 1 | **5.007746e-04** | 3.726197e-05 | 0.253650 | 130968 | 10902 | 2562 |
+| 4 | HIP | 4 | **5.008788e-04** | 3.726207e-05 | 0.253650 | 130968 | 8047 | 2562 |
+| 4 | Serial | 1 | **5.007321e-04** | 3.726340e-05 | 0.253649 | 130968 | 10902 | 2562 |
+| 3 | HIP | 1 | **1.703480e-04** | 1.297408e-05 | 0.854631 | 5736 | 864 | 642 |
+| 3 | HIP | 4 | **1.705479e-04** | 1.306203e-05 | 0.854631 | 5736 | 386 | 642 |
+| 3 | Serial | 1 | **1.729275e-04** | 1.247836e-05 | 0.854645 | 5736 | 864 | 642 |
+
+### Step 6 -- τ_A and the production parameter set
+
+**τ_A = `5.01e-4`** on the **gradient** (the velocity Beatnik actually reads),
+with the full qualification list: basis `cartesian-taylor`, `order` **3**,
+`ncrit` **8**, `mac_theta` **0.3**, `max_depth` **10**,
+`softening` **0.025**, `near_softening_factor` **0**, source distribution the
+milestone-0 icosphere at subdivision level 4 (2562 vertices) after 5 direct
+steps, at **HIP ranks 1 and 4 and Serial rank 1**, realized **P2P pair fraction
+0.2537** (`global_m2l_pair_count` 130968, `global_m2l_fallback_pair_count`
+**0**). The three launches give `5.007746e-4`, `5.008788e-4` and `5.007321e-4`.
+The **potential** at the same point is **`3.73e-5`**, a ratio of **13.4** --
+close to the `11.55` that "one full order better" predicts, which is the
+quantitative form of the claim that naming the field is not decoration.
+
+**The production parameter set is unchanged from T1's compiled defaults**, and
+each value now has a measurement behind it rather than a derivation:
+
+| member | value | why this value, measured |
+| --- | --- | --- |
+| `basis` | `CartesianTaylor` | 9.38x better than `SolidHarmonic` at the same order on this geometry. |
+| `order` | **3** | The smallest that reaches 1e-3 on the gradient. p=2 is `5.97e-3`, which misses by 6x. p=4 is `5.61e-5` and **may not be adopted** (R11). |
+| `mac_theta` | 0.3 | The reference's value, kept. θ=0.2 buys 4.3x accuracy at more than double the P2P share; θ=0.5 costs 7x. |
+| `ncrit` | 64 | Right at production vertex counts; **wrong at milestone-0's**, which is a property of the mesh and not a defect. The liveness table below is the evidence. |
+| `max_depth` | 10 | **Measured inert.** See below. |
+| `near_softening_factor` | 0 | Unchanged; meaningful only under `SolidHarmonic`. |
+
+**`order` stays 3 and the raise is pending an upstream change, not a Beatnik
+one.** p=4 measures `5.61e-5` -- 8.9x better than p=3, for 3.1x the operator
+table (101.89 MB against 33.27 MB at 10902 keys) -- and p=5 measures
+`8.38e-6`. Neither may be adopted: p=4 reaches derivative degree |k|=8 and
+Canopy's derivative-ladder oracle is validated to |k|=6, so an arithmetic error
+there would present as exactly the plateau R1 describes and be attributed to
+truncation. **The raise is an upstream request for another degree of oracle**
+(R11), and the figures above are what it would buy.
+
+
+### Step 3-4 -- reading the scan as a scan, and the error model
+
+**The model's constant survives on a 2-manifold; its exponent in θ does not.**
+The convergence model in **Problem** is
+`eps_grad ~ (theta/2sqrt3)^p`, measured on a volumetric cloud at idealized
+equal-cell separations. On Beatnik's sheet, at θ=0.3:
+
+| `order` | gradient | model | measured/model | potential | per-order gain (gradient) |
+| --- | --- | --- | --- | --- | --- |
+| 0 | 4.07338e-01 | -- | -- | 5.70071e-02 | -- |
+| 2 | 5.96723e-03 | 7.50e-03 | 0.80 | 6.82607e-04 | -- |
+| **3** | **5.00775e-04** | 6.50e-04 | **0.77** | 3.72620e-05 | **11.92** (model 11.55) |
+| 4 | 5.60924e-05 | 5.63e-05 | 1.00 | 1.96748e-06 | 8.93 |
+| 5 | 8.37613e-06 | 4.87e-06 | 1.72 | 5.11766e-07 | 6.70 |
+
+**Confirmed, with one correction.** The constant is right to within 25% through
+p=4 -- and to 0.3% at p=4, which is closer than the 20% the model claims on its
+own cloud. So the sheet is **not** worse than the volumetric cloud the model was
+fitted on; T4 already saw this at p=3 (5.008e-4 on the sheet against Canopy's
+7.07e-4 on its cloud) and the whole curve now says it.
+
+**The correction is in the exponent, and it is in θ rather than in `order`.** A
+least-squares fit over θ in {0.2, 0.3, 0.4, 0.5, 0.7} at p=3 gives a realized
+exponent of **3.77** on the gradient against the model's **3**, and **4.30** on
+the potential against its **4**. Every adjacent-pair estimate (3.61, 3.46, 4.27,
+3.92) is above 3, so this is not fit noise. The task entry names this outcome:
+"a rate differing from the model in *exponent* rather than in constant would
+mean the sheet's geometry changes which term dominates, and is the finding."
+**It is the finding.** The mechanism is the realized `R/w` distribution: the
+model assumes every accepted pair sits at the acceptance threshold
+`R/w > 2sqrt3/theta`, and on a thin sheet with depth-mismatched cell pairs the
+distribution has a tail well above it, which a larger θ admits faster than the
+equal-cell idealization predicts.
+
+**The per-order gain decays above the production order** -- 11.92, then 8.93,
+then 6.70, against a model that predicts a constant 11.55 per order. Same
+mechanism, read along the other axis: the marginally-accepted pairs are the ones
+whose Taylor series converges slowest, and they come to dominate as the
+well-separated pairs' contribution falls away. **This is not R1's plateau**: the
+curve is still falling by 6.7x per order at p=5 and no arm flattened. The second
+θ row behaves the same way -- at θ=0.5, p=2/3/4 measure `2.28e-2`, `3.51e-3`,
+`8.32e-4` against a model of `2.08e-2`, `3.01e-3`, `4.34e-4` (ratios 1.10, 1.17,
+1.92) with per-order gains 6.49 then 4.22 against a model 6.93.
+
+**The potential column flattens earlier than the gradient.** Its per-order gains
+are 18.3, 18.9, then **3.84** -- so between p=4 and p=5 the potential has nearly
+stopped improving while the gradient is still gaining 6.7x. At `5.12e-7` on a
+field of scale `8.0e-3` that is `4e-9` absolute, which is seven decades above
+double-precision round-off on a 2562-term sum, so it is **not** a
+floating-point floor. It is the same marginal-pair tail reaching the potential
+first, which is consistent with the potential's steeper nominal rate having less
+room left.
+
+### Step 1 -- liveness, and a correction to the design document
+
+**The design document's level-3 claim is wrong as an absolute, and the scan
+measured it rather than assuming it.** [add-canopy.md](add-canopy.md) states
+that at 642 vertices the liveness inequality "has **no solution**" and that
+"the 642-vertex level cannot exercise a far field at θ=0.3 under any `ncrit`".
+Measured:
+
+| vertices | `ncrit` | P2P frac | M2L share | M2L cell pairs | gradient | live by T4's 0.75 bound? |
+| --- | --- | --- | --- | --- | --- | --- |
+| 642 | 64, 32 | **1.000000** | **0.0%** | **0** | `2.11941e-15` | no -- **no far field at all** |
+| 642 | 16, 8 | 0.854631 | 14.5% | 5736 | `1.70348e-04` | no |
+| 642 | 4 | 0.415373 | 58.5% | 60720 | `4.11035e-04` | **yes** |
+| 2562 | 64, 32 | 0.854134 | 14.6% | 5736 | `1.75479e-04` | no |
+| 2562 | 16 | 0.433923 | 56.6% | 73544 | `4.38234e-04` | **yes** |
+| 2562 | **8** | **0.253650** | **74.6%** | **130968** | **`5.00775e-04`** | **yes** |
+| 2562 | 4 | 0.107565 | 89.2% | 333250 | `6.39201e-04` | **yes** |
+
+So the precise statements are:
+
+- **At level 3 the far field is absent entirely at `ncrit` >= 32** -- M2L cell
+  pair count exactly **0**, and the "error" is `2.1e-15`. **This is R1's
+  cheapest misreading with a number on it**: a solve that is entirely P2P agrees
+  with `BRSolverDirect` to round-off and reads as a spectacular success.
+- **At level 3 the far field is live but a minority at `ncrit` 16 and 8** (14.5%
+  of pairs), and a **majority at `ncrit` 4** (58.5%). `ncrit = 4` does *not*
+  degenerate the tree: 10466 keys, fallback 0, 642 particles intact.
+- **The `ncrit` at which each level first has a live far field**, taking live as
+  T4's compiled `p2p_pair_fraction < 0.75`: **level 4 at `ncrit` 16**, **level 3
+  at `ncrit` 4**. Taking live as "carries any of the field at all": level 4 at
+  every scanned `ncrit`, level 3 at `ncrit` <= 16.
+
+The a-priori estimate was not silly, it was one-sided: 642/8 = 80 occupied
+leaves against a 105-leaf near field says no *leaf-level* pair is accepted, and
+that is right. What it misses is that the MAC is applied **cell-to-cell at every
+level**, so coarse pairs are accepted where leaf pairs are not, and 14.5% of the
+field goes through them. **Level 3 is still not where a far-field accuracy claim
+belongs** and nothing here adopts it -- at 14.5% M2L share its `1.70e-4` is
+mostly a direct sum -- but "cannot exercise a far field under any `ncrit`" is
+too strong and T6's L3 member should not repeat it.
+
+**Read the liveness table the right way round.** The error *rises* as the far
+field takes over, because a larger M2L share means more of the field is
+approximated. A row low in that table is not better code and a row high in it is
+not better accuracy -- it is less measurement. The trap this scan is shaped
+around is that the two are indistinguishable without the P2P fraction beside
+them.
+
+**Which regime each level is in:** level 4 at `ncrit` 8 is in the **truncation**
+regime and the model applies (74.6% M2L, order curve falling 4.7 decades from
+p=0 to p=5). Level 3 at `ncrit` 8 is in a **mixed** regime -- live, but with
+seven eighths of the field evaluated exactly -- and its figures are not
+comparable with level 4's. Level 3 at `ncrit` >= 32 is in the **no-far-field**
+regime and has no accuracy figure at all, only a round-off residual.
+
+### Step 3 -- the basis selector, and why the gap is not the discriminator
+
+| level | `CartesianTaylor` p=3 | `SolidHarmonic` p=3 | ratio | `CartesianTaylor` p=2 |
+| --- | --- | --- | --- | --- |
+| 4 | `5.00775e-04` | `4.69909e-03` | **9.38x** | `5.96723e-03` |
+| 3 | `1.70348e-04` | `5.91359e-04` | 3.47x | `1.66340e-03` |
+
+**The alarm did not fire**: the two bases are not on top of each other, and
+T4's 9.30-9.38x at level 4 reproduces exactly. **And the document's warning is
+confirmed quantitatively**: `CartesianTaylor` at p=2 (`5.97e-3`) sits **1.27x
+above** the solid-harmonic point at p=3 (`4.70e-3`), so a test keyed to the
+*size* of the gap would be satisfied by an ordinary p=2 point and would read a
+correctly-selected p=2 arm as a broken selector. The discriminator is the
+**shape** of the order curve against that fixed point: `CartesianTaylor` falls
+4.7 decades across p=0..5 while the solid-harmonic arm is a single point that no
+order rescues, because its bias is in the kernel and not in the truncation.
+
+**The solid-harmonic curve's own shape is not measured** -- T2 dispatches one
+solid-harmonic arm and measuring the shape would need arms it does not build.
+**The self-contact separation is not measured either**, per the task's standing
+decision: R2's "tens of percent" needs accepted separations approaching
+sqrt(b) and no configuration in this tree reaches that. The decade is what this
+geometry has.
+
+### Step 5 -- the operator table, and `max_depth`
+
+**`max_depth` is measured inert, and this is the cleanest negative result in the
+scan.** At level 4, `ncrit` 8, θ=0.3, the gradient error, the potential error,
+the P2P fraction, the M2L cell-pair count **and** the realized key count are
+identical **to all 17 printed digits** at `max_depth` 5, 6, 8, 10 and 12. Same
+at level 3. The tree reaches `ncrit` occupancy well above depth 5, so the cap
+never binds at these vertex counts and **lowering it changes nothing**. R6 has
+no evidence to act on and R12's "do not respond by lowering `max_depth`" is not
+merely a rule here -- the lever is provably disconnected.
+
+**No arm overflowed the operator table and no arm took the fallback path.**
+`global_m2l_fallback_pair_count` is **0 at all 144 arms**, so every accuracy
+figure in this entry is one code path and not a mixture. Key counts, against
+Canopy's per-rank cap of **32768** (`m2l_effective_op_cap()`, so the count cap
+binds and not the 2 GiB byte budget -- confirming what `FmmParams` claims):
+
+| configuration | keys (rank 0) | bytes/key | table | % of cap |
+| --- | --- | --- | --- | --- |
+| L4 `ncrit` 8, p=3 (production) | 10902 | 3200 | 33.27 MB | 33% |
+| L4 `ncrit` 8, p=4 | 10902 | 9800 | 101.89 MB | 33% |
+| L4 `ncrit` 8, p=5 | 10902 | 25088 | 260.84 MB | 33% |
+| L4 `ncrit` 4, p=3 -- **the worst key count scanned** | **18742** | 3200 | 57.20 MB | **57%** |
+| L4 `ncrit` 8, p=3, `SolidHarmonic` | 9766 | 2560 | 23.84 MB | 30% |
+| L3 `ncrit` 8, p=3 | 864 | 3200 | 2.64 MB | 3% |
+
+`order` moves the bytes and **not** the key count, which is the level-keyed
+basis behaving as documented; `ncrit` moves the key count. Canopy measured 25438
+keys (78% of cap) on 8640 particles at `ncrit` 8, and 18742 at 2562 particles
+with `ncrit` 4 is on that trajectory -- so **the cap is reachable at production
+vertex counts even though nothing here reached it**, and R6 remains a live risk
+for a larger mesh rather than a retired one.
+
+Two caveats on these key counts, both of which matter to whoever reads them
+next. **They are rank 0's, not the maximum over ranks** -- the field is
+`local_` by design because the cap is per-rank -- and at np=4 rank 0 reports
+8047 where np=1 reports 10902, so a rank sweep is not a scaling measurement.
+And **the printed diagnostics are the arm's *second* evaluation's**, the
+potential one, whose maintenance action is therefore `Migrate` at every arm
+where the first was `Setup`. **T8 gets no `MaintenanceAction` histogram from
+this task**, exactly as T4 gave it none.
+
+
+### Step 7 -- the divergence horizon, and the instrument that could not measure it
+
+**This step did not land as written, and the reason is a defect in the
+measurement instrument rather than in Beatnik.** The task says step 7 "rebuilds
+none of M0-D1's machinery" and reuses `milestone0_ladder.py pair`. That tool
+**cannot measure an FMM-driven horizon**, it fails **silently**, and the number
+it produces is wrong by six orders of magnitude in the direction that looks like
+catastrophe.
+
+#### What the existing tool reported, and why it is wrong
+
+Run against the level-3 FMM trajectory, `pair` reports `vertices`
+`max|e| = 4.95e-1` at **step 25** and a first-failing step of 25 at every rung
+including the loosest. On a bubble of radius 0.25 that is half a diameter: it
+reads as the FMM destroying the trajectory inside 25 steps.
+
+It did not. At step 25 the two meshes are geometrically identical to ~`1e-7`:
+
+| | FMM run | Python gold |
+| --- | --- | --- |
+| `time` | 0.07493637649103907 | 0.074936383844851573 |
+| centroid | (5.98e-10, 2.92e-10, 0.250501285) | (3.07e-17, 9.06e-18, 0.250501287) |
+| bounding box min | (-0.24999976, -0.24999975, 0.00095576) | (-0.24999976, -0.24999976, 0.00095564) |
+| radial extent about the centre | 0.249044 .. 0.250953 | 0.249044 .. 0.250953 |
+
+and the run is physically healthy for all 2000 steps: **volume drift
+`3.35e-9`**, entity counts constant at (642, 1280), minimum triangle quality
+`0.0381` at its worst.
+
+**The cause is the vertex pairing.** Neither side records a correspondence --
+the Python `.npz` carries no `gid` -- so `compare_output.py` recovers one by
+quantizing coordinates onto a grid of cell size `--match-eps` (default `1e-9`)
+and lexsorting the integer keys. Its own docstring states the precondition: the
+cell must be **much larger than the coordinate disagreement between the two
+files** and much smaller than the vertex separation. A direct-driven run
+satisfies it by nine decades. **An FMM-driven run does not**: at
+τ_A = `5.0e-4` per evaluation the trajectories separate to `1.5e-7` by step 25,
+which is **100x the cell**. The two files then quantize into different cells,
+the lexsort orders them differently, and vertices are paired with the wrong
+partners -- roughly antipodal ones, hence half a diameter.
+
+**Two properties make this worse than an ordinary tolerance problem.**
+
+- **`n_ambiguous` stays 0 throughout, so nothing reports it.** That counter
+  counts rows sharing a cell with their predecessor *within one file*, which
+  detects a within-file collision and not a cross-file mis-pairing. Entity
+  counts match, the load succeeds, the exit status is an ordinary
+  "compared and disagreed". This is risk **M0-R4**'s mechanism arriving through
+  a hole M0-R4's own detector does not cover.
+- **Raising `--match-eps` does not fix it.** Each step needs a larger cell than
+  the last, and the window between "larger than the disagreement" and "smaller
+  than the vertex spacing" closes:
+
+| step | eps 1e-9 | 1e-7 | 1e-6 | 1e-5 | 1e-4 | 1e-3 |
+| --- | --- | --- | --- | --- | --- | --- |
+| 25 | 4.95e-1 | 5.00e-1 | **1.46e-7** | 1.46e-7 | 1.46e-7 | 1.46e-7 |
+| 100 | 4.97e-1 | 4.95e-1 | 4.99e-1 | **2.36e-6** | 2.36e-6 | 2.36e-6 |
+| 400 | 5.28e-1 | 5.28e-1 | 5.22e-1 | 4.87e-1 | 4.46e-1 | **5.61e-5** |
+| 1000 | 5.94e-1 | 5.94e-1 | 5.68e-1 | 5.68e-1 | 2.78e-1 | 5.41e-1 |
+
+  By step 1000 no value works, and a per-step value chosen to make the answer
+  small would be fitting the instrument to the result.
+
+#### The instrument that replaced it, and its cross-validation
+
+`tests/regression_tests/fmm_divergence_ladder.py`, in no tier, pairs by
+**bijective nearest neighbour** and **refuses** any step whose pairing is not a
+bijection -- the check a quantized lexsort cannot make across two files, since a
+mis-pairing shows up as two run vertices claiming one reference vertex. It
+imports `RUNGS` and `steps_in` from `milestone0_ladder` and `load_any` from
+`compare_output`, so the two tools cannot disagree about what a rung is or what
+a dataset is called, and it evaluates `compare_output.py`'s own elementwise
+criterion `|e_i| <= atol + rtol*|g_i|` directly rather than bounding it -- with
+the pairing in hand the first failing step is exact and needs no
+derive-then-confirm pass. It is O(N^2) per step, which at 642 and 2562 vertices
+is nothing; **at production vertex counts pair by `gid` instead**.
+
+**It agrees with the tool on record wherever that tool is usable.** On the
+level-4 **direct** run against the level-4 gold set, `milestone0_ladder.py pair`
+confirms a first failing step of **750** at the `1e-12/1e-14` rung and `None` at
+every looser rung; the new tool returns **exactly the same ladder**. That is the
+cross-validation that makes the FMM numbers below quotable, and it is also the
+attribution row step 7 asks for.
+
+`remesh_material_position` is constant at `5.55e-17` in every comparison -- it
+is the material reference position and the mesh is frozen -- so it never fails a
+rung and carries no information here. Scalars (`time`, `initial_volume`,
+`initial_min_edge`) are reported but **excluded from the ladder**: under
+`--adaptive-dt` the timestep is a function of the state, so an FMM-driven run
+and a direct-driven one are at slightly different physical times at the same
+step, and a ladder that failed on `time` would be reporting that rather than the
+trajectory.
+
+
+#### The measurement
+
+**Runs.** `l4dir`, `l3fmm` and `l4fmmA` in job `f3aPUHSZuj99`; `l4fmmB` in
+`f3aPpr9TEDT5` and `l4fmm4` in `f3aPprHQJN6K`, both single-row jobs after the
+budget guard skipped them (see *Cost and mechanics*); `l4fmm4B` in
+`f3aQDvjGqxFh`, the second np=4 row R8's strict test needs. Every row 2000 steps,
+checkpoint every 25, **81 files each**, level 4 unless stated, `ncrit` 8,
+`order` 3, `CartesianTaylor`, `mac_theta` 0.3, `max_depth` 10,
+`softening` 0.025, `near_softening_factor` 0, HIP.
+
+**`max|e|` per step, under the bijective nearest-neighbour pairing:**
+
+| step | L4 FMM run A `vertices` | L4 FMM run B | L4 FMM np4 | L4 FMM A `potential` | L4 **direct** `vertices` | L3 FMM `vertices` |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 5.551115e-17 | 5.551115e-17 | 5.551115e-17 | 0.000000e+00 | 5.551115e-17 | 5.551115e-17 |
+| 25 | 4.585411e-07 | 4.585411e-07 | 4.585411e-07 | 1.027049e-08 | 6.661338e-16 | 1.455685e-07 |
+| 50 | 1.819040e-06 | 1.819040e-06 | 1.819040e-06 | 9.045491e-08 | 1.165734e-15 | 6.060375e-07 |
+| 75 | 4.006012e-06 | 4.006012e-06 | 4.006012e-06 | 3.209197e-07 | 1.498801e-15 | 1.345119e-06 |
+| 100 | 6.838146e-06 | 6.838146e-06 | 6.838146e-06 | 7.097854e-07 | 1.998401e-15 | 2.361412e-06 |
+| 200 | 3.122244e-05 | 3.122244e-05 | 3.122244e-05 | 8.699897e-06 | 3.053113e-15 | 1.093940e-05 |
+| 400 | 8.557352e-05 | 8.557352e-05 | 8.557352e-05 | 4.179612e-05 | 8.160139e-15 | 5.606311e-05 |
+| 600 | 7.899350e-04 | 7.899350e-04 | 7.899350e-04 | 2.054120e-04 | 6.861178e-14 | 7.254851e-05 |
+| 800 | 2.065732e-03 | 2.065732e-03 | 2.065732e-03 | 3.979515e-04 | 1.962874e-13 | 1.180409e-04 |
+| 1000 | 1.544184e-03 | 1.544184e-03 | 1.544184e-03 | 4.970535e-04 | 2.398082e-13 | 1.570048e-04 |
+| 1200 | 1.588563e-03 | 1.588563e-03 | 1.588563e-03 | 5.230601e-04 | 2.617906e-13 | 2.507739e-04 |
+| 1325 | 1.640647e-03 | 1.640647e-03 | 1.640647e-03 | 5.212907e-04 | 3.194112e-13 | 3.613944e-04 |
+| 1925 | 2.501937e-03 | 2.501937e-03 | 2.501937e-03 | 6.485149e-04 | 1.110223e-13 | 4.569707e-03 |
+| 2000 | 2.465232e-03 | 2.465232e-03 | 2.465232e-03 | 6.522437e-04 | 9.914292e-14 | 5.129741e-03 |
+
+**The tolerance ladder** -- first failing checkpointed step, computed
+elementwise and exactly rather than derived-then-confirmed:
+
+| comparison | 1e-12/1e-14 | 1e-10/1e-12 | 1e-8/1e-10 | 1e-6/1e-8 | 1e-4/1e-6 |
+| --- | --- | --- | --- | --- | --- |
+| **L4 FMM np1 run A vs gold -- THE ENVELOPE** | **25** | **25** | **25** | **25** | **50** |
+| L4 FMM np1 run B vs gold | 25 | 25 | 25 | 25 | 50 |
+| L4 FMM np4 run A vs gold | 25 | 25 | 25 | 25 | 50 |
+| L4 FMM np4 run B vs gold | 25 | 25 | 25 | 25 | 50 |
+| L4 FMM run A vs L4 direct (larger field set) | 25 | 25 | 25 | 25 | 50 |
+| **L4 direct np1 vs gold -- attribution** | **750** | None | None | None | None |
+| L3 FMM np1 vs gold (control) | 25 | 25 | 25 | 25 | 75 |
+
+**The envelope is: the FMM-driven level-4 trajectory matches the in-tree Python
+gold set through step 25 at the `1e-4/1e-6` rung and fails by step 50; at every
+tighter rung it has already failed at step 25, the first checkpoint.** 25 is the
+checkpoint interval, so the true horizon at the tight rungs is somewhere in
+steps 1-25 and this measurement cannot localize it further -- a finer
+`--checkpoint-every-steps` would, and none was run.
+
+**R8's spread, recorded separately from the direct-versus-FMM gap as R8
+requires.** Runs A and B are the identical deck at the identical rank count.
+Their `vertices` `max|e|` agrees to **6.9e-11 of the error** at worst over every
+pairable step (0.0 exactly at steps 25, 50, 75 and 100), and all four ladders are
+**identical**. Final volume drift across the four: `4.703227807e-9` (np1 A),
+`4.703227363e-9` (np1 B), `4.703228917e-9` (np4 A), `4.703228473e-9` (np4 B).
+
+**R8's fear did not materialize, and the envelope can therefore be tight.** The
+reason it does not still has to be stated carefully, because the obvious pair of
+runs does not test what R8 is about. R8's mechanism is **Zoltan2's partition
+non-determinism across runs**, and **runs A and B are both np=1, where the
+partition is trivial** -- so that pair bounds GPU reduction-order
+nondeterminism and nothing else. The strict test is **two runs at a non-trivial
+partition**, and it was run (`f3aQDvjGqxFh`, a second np=4 row at the identical
+deck):
+
+| comparison | what it varies | worst spread, as a fraction of the error |
+| --- | --- | --- |
+| np1 run A vs np1 run B | GPU reduction order only (trivial partition) | **6.9e-11** |
+| **np4 run A vs np4 run B** | **Zoltan2's partition, run to run** | **1.4e-11** |
+| np1 vs np4 | partition *and* rank count | 1.8e-11 |
+
+All four runs give the **identical ladder** (25/25/25/25/50) and four final
+volume drifts inside `4.7032274e-9 .. 4.7032289e-9`, a span of `1.5e-15`
+absolute. **Zoltan2's partition non-determinism is not detectable in this
+trajectory at 2000 steps** -- it is, if anything, *smaller* than the np=1 pair's
+reduction-order spread, which is the opposite of what R8 anticipated. So the
+envelope may be asserted at the observed horizon with a margin set by the
+checkpoint interval rather than by run-to-run noise, and **R8 does not bind at
+this configuration**. It is not retired in general: four runs at one
+configuration on one machine is what this says, and a deforming or
+self-contacting sheet redistributes particles far more aggressively than a
+smooth bubble does.
+
+#### The attribution, and why the horizon is the FMM's
+
+The direct-driven row fails first at **step 750** and only at the tightest rung;
+at step 25 it is `6.66e-16` against the FMM's `4.59e-7`, **nine orders
+smaller**. So the Beatnik-versus-Python drift contributes nothing to the FMM
+horizon, and the design's expectation that "the two ladders nearly coincide"
+holds in the stronger form: the FMM-vs-gold and FMM-vs-direct ladders are
+**identical at every rung**, because the FMM's own perturbation dominates both
+comparisons. Note the two are **not over the same field set** -- FMM-vs-direct
+is Beatnik-vs-Beatnik and adds `sheet_vector` (which reaches `4.28e-2` by step
+2000, the largest of any field) while FMM-vs-gold cannot see it, since the
+reference `.npz` carries no such key.
+
+**The L3 control did its job.** At 642 vertices the far field carries 14.5% of
+the pairs, so that row is mostly a direct sum with FMM bookkeeping -- and its
+horizon is *later* (75 against 50 at the loosest rung) and its `max|e|` smaller
+at every step through 1200. That is the expected ordering and it is what says
+the level-4 horizon is the **expansion's** rather than an artifact of the FMM
+code path as such.
+
+#### The volume-drift bound claim B needs
+
+**`4.703e-9` FMM-driven against `4.741e-9` direct-driven** at step 2000, both
+monotone in step and both maximal at step 2000. The FMM is marginally *better*,
+which is not a claim about the FMM -- both are dominated by the volume
+projection, which is on in this configuration (`preserve_volume = true`).
+Minimum triangle quality is `0.125005` (FMM) against `0.124242` (direct) at
+level 4, and `0.038118` at step 1725 at level 3.
+
+**This is the most robust number in step 7** and the only claim-B assertion
+untouched by the pairing problem below: `milestone0_ladder.py series` computes
+the drift from **one** directory, with no reference and therefore no vertex
+correspondence to recover. T6 can assert against it directly.
+
+
+### Cost and mechanics
+
+`spack install` after the adapter header change: **10m33s wall / 102m42s CPU**
+on the login node — a full rebuild, because `Beatnik_FarFieldInterface.hpp`
+reaches every translation unit that creates a BR solver. T4's comparable figure
+was 11m17s/88m40s. The scan itself is cheap: job `f3aPSQYSVTpb`, six launches
+over 24 arms each, **82 s of launch wall** in total (9 s for L3 HIP np1, 29 s
+for L4 Serial np1), one `pdebug` node, `-t 45m` requested and barely touched.
+
+**`flux batch --flags=waitable` is still refused on this instance**, so
+`flux job status <jobid>` remained the wait mechanism, as in T3 and T4.
+
+### The step-7 sweep does not fit `pdebug`'s one-hour cap, and that is a finding
+
+Job `f3aPUHSZuj99` ran three of its five rows and **skipped the other two
+loudly** rather than starting a row it could not finish:
+
+```
+[t5d] === SKIPPED l4fmmB_...: 642s of budget left, estimate 1060s.
+      THE SWEEP DOES NOT FIT pdebug's 1h cap.
+[t5d] launched=3 skipped=2 total=2658s budget=3300s
+```
+
+**The cause is that a short probe under-predicts the FMM per-step cost, because
+that cost grows along the trajectory.** Measured, at level 4 with `ncrit = 8`:
+
+| row | probe (25 steps) | full run (2000 steps) | ratio |
+| --- | --- | --- | --- |
+| L4 HIP np1 `direct` | 0.009899 s/step | 0.008515 | 0.86 |
+| L3 HIP np1 `fmm` | 0.068442 | 0.128000 | **1.87** |
+| L4 HIP np1 `fmm` | 0.434082 | **1.188500** | **2.74** |
+
+and within one run the cumulative rate climbs monotonically — L4 `fmm` run A
+reads 0.554 s/step at step 300, 0.685 at 500, 1.050 at 1300, 1.143 at 1700,
+1.189 at 2000 — as the bubble deforms, the tree deepens and the operator table
+is rebuilt against a drifting root box. The `direct` row shows no such growth
+(0.0085 flat), so this is the FMM path's own behaviour and not the physics
+getting harder. **The absolute ratio — `fmm` at roughly 44x `direct` per step at
+2562 vertices, 140x at the 2000-step rate — is T8's to characterize, not this
+task's**; it is recorded because it is what the budget is built from.
+
+**What was done about it, and what deliberately was not.** The two skipped rows
+were re-run as **separate single-row `pdebug` jobs** (`f3aPpr9TEDT5` and
+`f3aPprHQJN6K`), each at the full 2000 steps, the same queue and the same
+per-job walltime. That is not any of the three responses the task forbids: no
+walltime was lengthened past the cap, no queue was changed, and no run was
+shortened. The script gained a `BEATNIK_T5_SWEEP` row override for it, which
+prints a loud banner saying the job is a subset. **The five-row sweep as one
+job is not recoverable** — at the measured rates its five rows need about 5100 s
+against a 3300 s budget inside a 3480 s wall — so a later session should submit
+it as the union of jobs it now is, and should re-measure the estimates after any
+change that could move the per-step cost.
+
+**One thing the guard got right that is worth keeping.** Its estimates were
+wrong by 2.7x and it still protected the measurement, because it skips on the
+*remaining budget* rather than trusting the estimate to be accurate: the row it
+refused to start is the row that would have been killed at the wall with a
+truncated series on disk. The post-row checkpoint-count check
+(`steps/every + 1`, 81 files) is the second line and fired on nothing.
+
+
+### Bugs only running revealed
+
+**None in Beatnik's own code.** The adapter, the round trip, the dispatch,
+`BRSolverFMM` and the FMM-driven timestep all ran clean at 144 scan arms and
+four 2000-step trajectories; the two guards T2 added on its own initiative --
+the self-validating forward distributor and the round-trip completeness throw --
+stayed silent throughout, as did the softening-stability guard. The FMM-driven
+runs held their entity counts for 2000 steps, stayed finite, and drifted
+`4.7e-9` in volume.
+
+Three things only running revealed, all in the measurement apparatus:
+
+1. **`compare_output.py`'s vertex pairing degenerates silently on an FMM-driven
+   run** -- the big one, written up under step 7 and recorded in README's Known
+   Issues. It reports half a bubble diameter where the truth is `1.5e-7`, with
+   no diagnostic firing.
+2. **A 25-step probe under-predicts the FMM per-step cost by 2.7x**, because the
+   cost grows along the trajectory. This is what made the step-7 sweep not fit
+   `pdebug`; written up under *Cost and mechanics*.
+3. **A `Kokkos::View<Real*[3], Device>` is LayoutLeft on HIP and LayoutRight on
+   Serial**, so the scan driver's first cut -- which packed its `MPI_Allgatherv`
+   through `.data()` -- would have transposed the source set on the GPU backend
+   and built the potential reference from a scrambled point cloud. Caught by
+   reading before submitting, not by a failure: it would not have crashed, it
+   would have produced a disagreement of about the size T5 is trying to measure.
+   The driver packs by explicit indexing and says why.
+
+### Departures from T5's stated Do steps
+
+- **Three files outside the stated Fill-in list changed**, each because the exit
+  criterion cannot be met otherwise; they are listed under *Signatures changed*
+  above. The adapter one is the substantive departure: step 2 requires a
+  potential column and **no route to one existed**.
+- **Step 7's ladder is not `milestone0_ladder.py pair`.** The task says step 7
+  "rebuilds none of M0-D1's machinery" and names that tool. It cannot measure an
+  FMM-driven horizon, for the reason written up above, so
+  `fmm_divergence_ladder.py` measures it instead -- importing `RUNGS`,
+  `steps_in` and `load_any` rather than redefining them, and cross-validated
+  against `pair` on the direct run where `pair` *is* usable. **`pair` was not
+  modified**, so every M0-D1 number it has produced stands unchanged.
+- **The step-7 sweep ran as three jobs rather than one.** The five-row matrix
+  does not fit `pdebug`'s cap; the guard skipped two rows and they were re-run
+  as single-row jobs at full step count. No walltime past the cap, no queue
+  change, no shortened run.
+- **`ncrit` was scanned at level 3 and found to admit a far field**, which the
+  design document says is impossible. This is a correction, not a tuning
+  exercise: `ncrit` is a required scan axis, level 3 is not adopted for
+  anything, and no run was spent pushing it toward liveness.
+- **`--checkpoint-every-steps` stayed at 25**, so the horizon at the tight rungs
+  is localized only to "somewhere in steps 1-25". Narrowing it was not run.
+
+
+**Affects:** **T6** — this is the entry T6 reads its numbers out of, and three
+of them change its plan rather than just filling it in.
+**(a) τ_A is `5.01e-4` on the gradient** with the qualification list above, so a
+claim-A tolerance compiled at level 4, `ncrit` 8, `order` 3 has 2x of headroom
+at `1e-3` and 4x at `2.0e-3` (T4's budget, which it may reuse unchanged); the
+**potential** figure `3.73e-5` is a different column and must not be compiled as
+if it were the velocity.
+**(b) T6 step 3 cannot be written as stated.** It asserts an FMM-driven horizon
+against the Python gold set through `milestone0_ladder.py pair`, and **that tool
+cannot measure one** — it mis-pairs vertices silently once the two files
+disagree by more than `--match-eps`, which an FMM run exceeds by step 25, and no
+`--match-eps` fixes it. T6 must either use
+`tests/regression_tests/fmm_divergence_ladder.py` (bijective nearest neighbour,
+refuses a non-bijective step, reproduces `pair` exactly on a direct run) or pair
+by `gid`, which is unavailable against a `.npz` gold. **Do not assert a horizon
+through `pair` on an `fmm` run.**
+**(c) The horizon envelope is: first failing checkpointed step 25 at the
+`1e-12`, `1e-10`, `1e-8` and `1e-6` rungs and 50 at `1e-4`**, identical across
+**four** independent runs. The spreads, which R8 requires be recorded separately
+from the direct-versus-FMM gap: **1.4e-11** of the error between two np=4 runs
+(the strict test, since it varies Zoltan2's partition), **6.9e-11** between two
+np=1 runs (reduction order only), **1.8e-11** between np1 and np4. **R8 does not
+bind at this configuration** and the envelope may be asserted at the observed
+horizon — but 25 is the checkpoint interval, so the tight-rung horizon is
+localized only to steps 1-25 and a T6 assertion must not claim finer. Set the
+margin from the checkpoint interval, not from run-to-run noise.
+**(d) The volume-drift bound is `4.703e-9`** (FMM) against `4.741e-9` (direct)
+at 2000 steps, maximal at the final step, minimum triangle quality `0.125005`.
+This is the one claim-B assertion **immune to the pairing problem**, because
+`series` needs no reference, and it is therefore the one T6 should lean on.
+**(e) The per-level `ncrit`:** level 4 first has a far field carrying the
+majority of pairs at `ncrit` 16 and the production 74.6% at `ncrit` 8; **level 3
+is not dead after all** — the far field is absent only at `ncrit` >= 32, carries
+14.5% at `ncrit` 16 and 8, and 58.5% at `ncrit` 4. T6's L3 member should say
+"mostly a P2P comparison" with the measured 14.5% rather than repeat the design
+document's "no far field under any `ncrit`".
+**(f) Steps 1350-1900 at level 4 are unpairable by any position-based scheme**,
+identically in three independent runs, so a T6 assertion must not depend on
+them; the horizon is decided long before.
+**(g) The milestone tier's walltime** must be set from `fmm` costs, not
+`direct` ones: one 2000-step L4 FMM run is **2377 s** at np1 and **1473 s** at
+np4 against the direct row's 25 s, so two FMM members at two rank counts is
+roughly 2.2 hours of launch — well past `pdebug` and past **R9**'s already
+uncomfortable estimate. T6 step 6 owns that and should plan on splitting.
+
+**T7** — `evaluatePotential` is a third public evaluation on the adapter and the
+Riesz path is unaffected by it; `computeSurfaceRieszScalar` still throws. The
+`Contraction` enum now has three enumerators and the scatter branches on
+`!= Trace`, so a Riesz change must keep that shape.
+**T8** — this task contributes **no** `MaintenanceAction` histogram (every
+reported action is `Migrate`, from each arm's second evaluation) and T8 still
+starts from zero there. It does contribute the cost facts T8's walltime planning
+needs: `fmm` is **~44x `direct` per step at 25 steps and ~140x at 2000** at 2562
+vertices, and **the per-step cost grows 2.7x along the trajectory** (0.434 to
+1.189 s/step), which is R12's operator-rebuild signature showing up as a wall
+time rather than as a key count. `local_m2l_bytes_per_key` and
+`local_m2l_op_cap` are now in `FarFieldDiagnostics` for its table.
+**X1** — **not implied.** τ_A is `5.01e-4`, comfortably below `1e-3` at the
+production order, so the conditional X1 describes did not fire and the
+deliverable is a working, measured, bounded-error fast path at better than the
+reference implementation's own fidelity.
