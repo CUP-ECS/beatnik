@@ -1,13 +1,14 @@
 # Canopy as Beatnik's far-field Birkhoff-Rott solver
 
-**Status:** IN PROGRESS — **T1**, **T2**, **T3** and **T4** are **DONE**; every
-task from **T5**
-on is NOT STARTED. The findings and the measured numbers are complete, and no upstream work
-gates the sequence: Canopy's derivative ladder is validated at the production
-order. Three constraints bind inside **T5** and none of them gates it: no scan
-point above $p=3$ may be adopted as the production order (**R11**), the scan
-runs in one launch against one state, and step 7's sweep is budgeted against
-`pdebug`'s one-hour cap.
+**Status:** IN PROGRESS — **T1** through **T5** are **DONE**; **T6**, **T7** and
+**T8** are NOT STARTED. The far field is measured and published: $\tau_A$ is
+$5.01\times10^{-4}$ on the gradient at the production order, which is better than
+the reference implementation's own fidelity, so **X1** does not fire. No upstream
+work gates the sequence — Canopy's derivative ladder is validated at the
+production order. Three constraints bind inside **T6** and none of them gates it:
+an FMM-driven trajectory cannot be paired against the gold set by position, the
+horizon envelope is localized only to the 25-step checkpoint interval, and the
+milestone tier no longer fits `pdebug`'s one-hour cap.
 
 ## Problem
 
@@ -198,30 +199,43 @@ N \;\gg\; \pi\,(\sqrt3/\theta)^2 \cdot \texttt{ncrit} ,
 $$
 
 which at $\theta=0.3$ and the reference's `ncrit = 64` is $N\gg6720$. Milestone-0
-is 642 and 2562 vertices. **A comparison run at the default `ncrit` on either
-level compares two direct sums**, passes at any order and measures nothing — the
-trap [treecode.md](../treecode.md) §1 documents on the treecode side, here with a
-number on it. Canopy met the same wall and answered it by pairing 8640 particles
-with `ncrit = 8` rather than by lowering the particle count
-(`canopy/tests/tstCartesianTaylorSolve.hpp:96-107`).
+is 642 and 2562 vertices, so a comparison run at the default `ncrit` measures
+almost nothing — the trap [treecode.md](../treecode.md) §1 documents on the
+treecode side, here with a number on it. Canopy met the same wall and answered it
+by pairing 8640 particles with `ncrit = 8` rather than by lowering the particle
+count (`canopy/tests/tstCartesianTaylorSolve.hpp:96-107`).
 
-`FmmParams::ncrit` stays at the reference's 64, which is the right default at
-production vertex counts and wrong only at milestone-0's. **T4**, **T5** and
-**T6** each run at an `ncrit` satisfying the bound at their vertex count, and
-each **asserts** the far field is live through the P2P pair fraction rather than
-assuming it. Two consequences follow and neither is a defect in this work:
+**The inequality is a leaf-level statement, and Canopy applies the MAC
+cell-to-cell at every level**, so coarse pairs are accepted where leaf pairs are
+not and a level the inequality excludes can still carry a minority of the field
+through the expansion. What the bound predicts correctly is where the far field
+*dominates*. **T5** measured the realized share at both levels at $\theta=0.3$,
+and taking live as `p2p_pair_fraction < 0.75`:
 
-- At 2562 vertices the bound needs $\texttt{ncrit}\lesssim24$; `ncrit = 8` gives
-  320 occupied leaves against 105, a factor of 3, which is live but not
-  generous.
-- At 642 vertices it has **no solution**: `ncrit = 8` gives 80 occupied leaves,
-  still inside the 105-leaf near field, and lower values degenerate the tree.
-  The 642-vertex level cannot exercise a far field at $\theta=0.3$ under any
-  `ncrit`. That is a property of the mesh — the reference is barely engaging
-  there too, which is why its $1.6\times10^{-3}$ at 642 is its *worst* of the
-  three sizes in [treecode.md](../treecode.md) §1. **T6**'s L3 member therefore
-  carries claim B and a claim A that is mostly a P2P comparison, and says so;
-  the far-field accuracy claim rests on the L4 member.
+- **2562 vertices is live from `ncrit` 16**, and `ncrit = 8` puts **74.6%** of
+  pairs through M2L. That is **T4**'s configuration and **T6**'s L4 one.
+- **642 vertices is live only at `ncrit` 4** (58.5% M2L, and the tree does not
+  degenerate there). At `ncrit` 16 and 8 the far field carries **14.5%** of
+  pairs, and at `ncrit` $\ge32$ it carries **none** — the M2L cell-pair count is
+  exactly zero and the solve agrees with `BRSolverDirect` to $2\times10^{-15}$,
+  which is **R1**'s cheapest misreading with a number on it.
+
+**Read that ordering the right way round: the error rises as the far field takes
+over**, because a larger M2L share means more of the field is approximated. A low
+P2P fraction is not better code and a low error is not better accuracy — it may
+be less measurement, and the two are indistinguishable without the fraction
+beside them. `FmmParams::ncrit` therefore stays at the reference's 64, which is
+the right default at production vertex counts and wrong at milestone-0's, and
+**T4**, **T5** and **T6** each run at an `ncrit` chosen for their vertex count
+and each **assert** the realized P2P fraction rather than assuming it.
+
+**Level 3 is not where a far-field accuracy claim belongs** and nothing here puts
+one there: at `ncrit` 8 seven eighths of its field is evaluated exactly. The
+reference is barely engaging at 642 either, which is why its $1.6\times10^{-3}$
+there is its *worst* of the three sizes in [treecode.md](../treecode.md) §1.
+**T6**'s L3 member therefore carries claim B and a claim A that is mostly a P2P
+comparison at a measured 14.5% M2L share, and says so on the assertion; the
+far-field accuracy claim rests on the L4 member.
 
 ### Why not tighter than $10^{-3}$
 
@@ -412,18 +426,38 @@ deck):
 - the run reaches step 2000 and every velocity is finite;
 - the entity counts never change;
 - the volume drift tracks the reference's own `kRefVolumeDrift` series within a
-  bound **T5** measures — a conserved integral survives decorrelation of the
-  pointwise field, which is what makes it the useful check here;
+  bound derived from **T5**'s FMM-driven runs — a conserved integral survives
+  decorrelation of the pointwise field, which is what makes it the useful check
+  here. `milestone0_ladder.py series` computes the drift from **one** directory,
+  with no reference and therefore no vertex correspondence to recover, which
+  makes this the one claim-B assertion immune to the pairing problem below;
 - the **divergence horizon** — the first step at which the run exceeds each rung
-  against the gold set — is reported as a ladder and asserted against an envelope
-  **T5** measures. This is M0-D1's instrument applied to a new perturbation
-  source: it turns "the trajectory decorrelates" from an untestable fact into a
-  regression signal, because a later change that makes it decorrelate *sooner*
-  fires while a loose single rung would not.
+  against the gold set — is reported as a ladder and asserted against the
+  envelope **T5** measured. It turns "the trajectory decorrelates" from an
+  untestable fact into a regression signal, because a later change that makes it
+  decorrelate *sooner* fires while a loose single rung would not.
 
-Both of **T6**'s compiled numbers — $\tau_A$ and the horizon envelope — are
-measurements **T5** produces. A number chosen before the measurement is a number
-tuned to whatever the code did.
+**M0-D1's ladder cannot produce that horizon.** Neither side records a vertex
+correspondence — the Python `.npz` carries no `gid` — so `compare_output.py`, and
+`milestone0_ladder.py pair` above it, recover one by quantizing coordinates onto
+a `--match-eps` grid whose documented precondition is that the cell exceed the
+disagreement between the two files. A direct-driven run satisfies it by nine
+decades; an FMM-driven one misses it by two at step 25, pairs vertices with
+roughly antipodal partners, and reports $\text{max}|e|\approx0.5$ on a
+radius-0.25 sphere where the true disagreement is $1.5\times10^{-7}$. **It fails
+silently**: `n_ambiguous` counts rows colliding *within* one file and stays 0,
+and the exit status is an ordinary "compared and disagreed". Raising
+`--match-eps` is not a fix — each step needs a larger cell, and by step 1000 the
+window between "larger than the disagreement" and "smaller than the vertex
+spacing" has closed. The instrument that does work is
+[tests/regression_tests/fmm_divergence_ladder.py](../../tests/regression_tests/fmm_divergence_ladder.py):
+it pairs by **bijective nearest neighbour**, refuses any step whose pairing is
+not a bijection, imports `RUNGS`, `steps_in` and `load_any` rather than
+redefining them, and reproduces `pair`'s ladder exactly on a direct run.
+
+**T6**'s three compiled numbers — $\tau_A$, the horizon envelope and the
+volume-drift bound — are measurements **T5** produces. A number chosen before the
+measurement is a number tuned to whatever the code did.
 
 ### Conventions
 
@@ -547,7 +581,11 @@ tuned to whatever the code did.
 - The `milestone` tier has two members and eight launches, measured at **37.25
   minutes** under the runner's `# flux: -t 60m` and `-q pdebug`
   ([scripts/tuolumne/run_milestone.flux:5-7](../../scripts/tuolumne/run_milestone.flux#L5-L7)).
-  There is **not** room for two more members of comparable cost.
+  There is **not** room for two more members, and the two **T6** adds are not of
+  comparable cost: an FMM-driven step is roughly 140x a direct one at 2562
+  vertices, so one 2000-step level-4 FMM trajectory is 2377 s at HIP np1 where
+  the whole existing level-4 member is 22 s. `pdebug` caps at 1 h; `pbatch` caps
+  at 24 h and defaults to 12 h.
 
 ### Canopy
 
@@ -1742,7 +1780,7 @@ in the gold files.
 ### T6 — The two milestone-tier FMM members — **NOT STARTED**
 
 **Depends on:** T5 (for $\tau_A$, the horizon envelope, the volume-drift bound
-and the per-level `ncrit`) and T4 (for the comparison harness). No upstream gate:
+and the measured M2L share at each level) and T4 (for the comparison harness). No upstream gate:
 Canopy's derivative ladder is validated at $|k|=6$, which is $2p$ at the
 production order.
 
@@ -1752,8 +1790,8 @@ production order.
 (`BEATNIK_MILESTONE_TEST_SOURCES` at [:430-435](../../tests/CMakeLists.txt#L430-L435)
 and the two `_beatnik_args_<stem>_abs` / `_rel` pairs),
 [scripts/tuolumne/run_milestone.flux](../../scripts/tuolumne/run_milestone.flux)
-(the walltime), [CLAUDE.md](../../CLAUDE.md) ("Minimum test set", the tier's member
-count and launch count), [README.md](../../README.md).
+(the walltime and the queue), [CLAUDE.md](../../CLAUDE.md) ("Minimum test set",
+the tier's member count, launch count and queue), [README.md](../../README.md).
 
 **Reference:**
 
@@ -1773,9 +1811,26 @@ count and launch count), [README.md](../../README.md).
   ([tests/CMakeLists.txt:475-535](../../tests/CMakeLists.txt#L475-L535)), and the
   tier's rank set as a property of the tier
   ([:437-439](../../tests/CMakeLists.txt#L437-L439)).
-- The measured cost that constrains this: 37.25 minutes for the tier's current
-  eight launches under `# flux: -t 60m`, `-q pdebug`
-  ([scripts/tuolumne/run_milestone.flux:5-7](../../scripts/tuolumne/run_milestone.flux#L5-L7)).
+- The ladder instrument claim B needs, and the mechanism that rules the
+  existing one out — see
+  [The two milestone members](#the-two-milestone-members-two-claims-one-binary).
+  [tests/regression_tests/fmm_divergence_ladder.py](../../tests/regression_tests/fmm_divergence_ladder.py)
+  is invoked as `ladder --run DIR --ref DIR [--label L] [--json OUT]`, and its
+  **exit status reports whether the measurement completed, never whether Beatnik
+  agreed with anything** — it exits non-zero when some step was unpairable. The
+  verdict is in the JSON, so a member that reads the exit status alone reads the
+  wrong thing.
+- The costs that constrain this, all measured by **T5**: one 2000-step
+  FMM-driven level-4 run is **2377 s** at HIP np1 and **1473 s** at HIP np4,
+  against the direct row's 17-38 s; `fmm` is roughly **44x `direct`** per step
+  over 25 steps and **140x** over 2000 at 2562 vertices, and the per-step cost
+  **grows 2.7x along the trajectory** (0.434 to 1.189 s/step) as the bubble
+  deforms and the operator table is rebuilt against a drifting root box. A
+  2000-step level-3 FMM run is 256 s at HIP np1. The SERIAL FMM cost is
+  unmeasured. Against that, the tier's current eight launches take 37.25 minutes
+  under `# flux: -t 60m`, `-q pdebug`
+  ([scripts/tuolumne/run_milestone.flux:5-7](../../scripts/tuolumne/run_milestone.flux#L5-L7)),
+  and `pdebug` caps at 1 h while `pbatch` caps at 24 h.
 
 **Do:**
 
@@ -1786,16 +1841,21 @@ count and launch count), [README.md](../../README.md).
    carried scalars, the polyhedral deficit, the final `time` and the 81-entry
    reference volume-drift series all differ, and the existing members' blocks
    are the values to reuse (they are that level's, already re-derived).
-2. **Claim A.** Use T5's per-level `ncrit`, and report the realized P2P pair
+2. **Claim A.** Run both levels at **`ncrit = 8`**, which is the configuration
+   every number this task compiles was measured at — $\tau_A$, the horizon
+   envelope and the volume-drift bound alike — and report the realized P2P pair
    fraction in each member's log so a reader can see how much far field the
-   claim actually exercised. At 2562 vertices there is an `ncrit` that makes it
-   live; **at 642 there is none** — the near field covers about 105 occupied
-   leaves at $\theta=0.3$ and the level has at most 80 even at `ncrit = 8` — so
-   the L3 member's claim A is largely a P2P comparison and must say so on the
-   assertion rather than present itself as a far-field bound. It is still worth
-   asserting: it is the round trip, the tag handshake and the contraction under
-   test, all of which are rank-count-dependent and none of which the L4 member
-   covers at L3's decomposition. The far-field accuracy claim rests on L4.
+   claim actually exercised. At 2562 vertices that is a **74.6% M2L share** and
+   a genuine far-field bound. **At 642 it is 14.5%**, so the L3 member's claim A
+   is mostly a P2P comparison and must say so on the assertion, with the
+   measured share, rather than present itself as a far-field bound. (`ncrit = 4`
+   would make level 3 live at 58.5%, and is not used: it would put claim A at a
+   configuration claim B's envelope was not measured at. See
+   [The far field has to be live to be measured](#the-far-field-has-to-be-live-to-be-measured).)
+   The L3 member is still worth asserting: it is the round trip, the tag
+   handshake and the contraction under test, all of which are
+   rank-count-dependent and none of which the L4 member covers at L3's
+   decomposition. The far-field accuracy claim rests on L4.
    Drive the trajectory with `BRSolverDirect` — the run must stay
    bit-identical to the existing member, so the 81 gold comparisons run at
    `--rtol 1e-10 --atol 1e-12` unchanged and prove the trajectory is the right
@@ -1807,49 +1867,93 @@ count and launch count), [README.md](../../README.md).
    **Approach** names: the run reaches step 2000; every velocity is finite; the
    entity counts never change (both paths of the existing member — Tessera's
    global counts every step and an `MPI_Allreduce` over owned counts at every
-   compared step); and the volume drift tracks `kRefVolumeDrift` within T5's
-   measured bound. Then compare against the gold set as a **ladder**, reporting
-   the first failing step at each rung, and assert only that each rung's horizon
-   is no *earlier* than T5's measured envelope. Do **not** assert a rung passes
-   at step 2000; at $\tau_A\approx10^{-3}$ none will, and a rung that does is
-   loose enough to be meaningless.
+   compared step); and the volume drift tracks `kRefVolumeDrift` within a bound
+   this task derives. **The existing member's `kVolumeDriftRtol = 1e-3`
+   ([tests/regression_tests/Beatnik_Test_Milestone0Frozen.cpp:266](../../tests/regression_tests/Beatnik_Test_Milestone0Frozen.cpp#L266))
+   does not carry**: T5's FMM-driven final drift is $4.703\times10^{-9}$ against
+   the direct run's $4.741\times10^{-9}$, an 0.8% deviation, eight times that
+   rtol. Derive the per-step deviation series offline from T5's surviving
+   checkpoint directories rather than from a fresh run, and set the rtol from it
+   with margin; the absolute cap
+   ([:278](../../tests/regression_tests/Beatnik_Test_Milestone0Frozen.cpp#L278))
+   is unchanged, since $4.7\times10^{-9}$ clears $10^{-8}$.
+
+   Then compare against the gold set as a **ladder**, through
+   `fmm_divergence_ladder.py` and **not** through `compare_output.py` or
+   `milestone0_ladder.py pair`, which mis-pair an FMM-driven run silently — the
+   mechanism is in
+   [The two milestone members](#the-two-milestone-members-two-claims-one-binary).
+   Read the ladder out of its JSON, not out of its exit status. Assert only that
+   each rung's horizon is no *earlier* than T5's measured envelope, and note what
+   that assertion can and cannot catch: the envelope at the $10^{-12}$,
+   $10^{-10}$, $10^{-8}$ and $10^{-6}$ rungs is step **25**, which is the first
+   checkpoint, so those four rungs cannot fail except at step 0 and the load-bearing
+   rung is $10^{-4}$ (50 at L4, 75 at L3). Do not narrow `--checkpoint-every-steps`
+   to sharpen them — the envelope was measured at 25 and a horizon measured at a
+   different interval is not comparable to it. Do **not** assert a rung passes at
+   step 2000; at $\tau_A$ none will, and a rung that does is loose enough to be
+   meaningless. Steps 1350-1900 at level 4 are **unpairable by any position-based
+   scheme**, identically across independent runs, and the tool refuses them rather
+   than mis-pairing; a refused step is neither a pass nor a failure and the
+   assertion must not depend on one.
 4. **A stop is a reported stop step, never a shorter pass**, and a comparator
    exit of 2 (could not load) is never conflated with 1 (compared and
-   disagreed). Both properties are the existing member's and both are load-bearing
-   here: claim B's whole purpose is to notice the FMM destabilizing the physics.
+   disagreed). Both properties are the existing member's, both are load-bearing
+   here — claim B's whole purpose is to notice the FMM destabilizing the physics
+   — and both apply to claim A's 81 gold comparisons, which keep running through
+   `compare_output.py` unchanged because a direct-driven trajectory satisfies its
+   pairing precondition by nine decades. Claim B's ladder does not share that
+   convention: `fmm_divergence_ladder.py` exits non-zero for an unpairable step,
+   which is a third outcome and must be distinguished from both.
 5. Keep the existing member's negative case — the final state against the step-0
    gold, which must exit exactly 1 — and add one for claim A: a state
    deliberately perturbed by more than $\tau_A$ must fail the same-state
-   comparison. Add one for claim B's horizon: an artificially early horizon
-   envelope must fail, so the envelope assertion is known to be live rather than
-   trivially satisfied.
-6. Register both stems with their own gold directory, add the two argument-list
-   pairs, and **raise the runner's walltime**: the tier goes from 2 members and
-   8 launches to 4 and 16, and each new launch runs two 2000-step trajectories
-   plus 81 extra FMM evaluations — roughly twice an existing launch, so on the
-   37.25-minute measurement the tier lands near two hours. Measure the tier run
-   and set `-t` from the measurement, not from an estimate. If the honest number
-   exceeds what `-q pdebug` allows, changing the queue is part of this task and
-   must be stated in the runner's header comment.
+   comparison. Add one for claim B's horizon: a fabricated horizon earlier than
+   the envelope must fail the assertion, so it is known to be live rather than
+   trivially satisfied. Build that case on the $10^{-4}$ rung — at the four
+   tighter rungs the envelope is the first checkpoint and nothing but step 0 is
+   earlier, so a negative case there proves only that the comparison runs.
+6. Register both stems against the **existing** gold directories
+   (`regression_tests/milestone0-sub3-2000-steps/gold` and its `sub4`
+   counterpart, which the frozen members already use — the trajectory under test
+   is the same one), add the two argument-list pairs, and **move the runner to
+   `-q pbatch` with a measured `-t`**. The tier goes from 2 members and 8
+   launches to 4 and 16, and the arithmetic is not "twice an existing launch":
+   an FMM-driven step costs ~140x a direct one at 2562 vertices, so one L4
+   claim-B trajectory alone is 2377 s at HIP np1 where the whole existing L4
+   member is 22 s. On the measured HIP figures the two new members add several
+   hours, and the L4 SERIAL launch is likely to exceed `pdebug`'s 1 h cap by
+   itself. `pbatch` caps at 24 h and defaults to 12 h. State the measurement and
+   the queue change in the runner's header comment, as its existing walltime
+   comment does, and set `-t` from the measured tier run rather than from an
+   estimate — a short probe **under-predicts** this path by 2.7x, because the
+   FMM per-step cost grows along the trajectory.
 7. Update CLAUDE.md's "Minimum test set" tier paragraph with the new member
    count and launch count, and state explicitly that **the gate is unchanged** —
    still five `regression` members and 60 launches.
 
-**Additional information needed:** $\tau_A$, the horizon envelope and the
-volume-drift bound. All three come from **T5**, and none is invented here. If
-$\tau_A$ lands above $10^{-3}$, this task still lands — it compiles in the
-measured $\tau_A$, and README and the log state plainly that the
-reference-treecode-parity claim is pending **X1**. It does not loosen the number
-silently and it does not wait.
+**The numbers this task compiles**, all measured by **T5** and none invented
+here. $\tau_A$ is $5.01\times10^{-4}$ on the **gradient** at level 4, `ncrit` 8,
+`order` 3, $\theta=0.3$, `max_depth` 10, `softening` 0.025,
+`near_softening_factor` 0, P2P fraction 0.2537 — the **potential** figure
+$3.73\times10^{-5}$ is a different column and must not be compiled as if it were
+the velocity. The horizon envelope is a first failing checkpointed step of 25 at
+the $10^{-12}$, $10^{-10}$, $10^{-8}$ and $10^{-6}$ rungs and 50 at $10^{-4}$ at
+level 4, and 75 at $10^{-4}$ at level 3, identical across four independent runs
+whose worst spread is $1.4\times10^{-11}$ of the error (**R8** does not bind at
+this configuration). The volume drift is $4.703\times10^{-9}$ FMM-driven against
+$4.741\times10^{-9}$ direct-driven at step 2000, maximal at the final step.
 
-**Exit criterion:** `ctest -L milestone -R Milestone0Fmm` passes at ranks 1 and 4
-on SERIAL and HIP, and
-`flux batch scripts/tuolumne/run_milestone.flux` reports all 16 launches green
-inside its walltime; each member's log carries the 81-entry claim-A error series
-and claim B's per-rung horizon table; and all three negative cases fire — the
-final state against the step-0 gold exits exactly 1, the perturbed-state claim-A
-case fails naming $\tau_A$, and the artificially early horizon envelope fails
-naming the rung it was early on.
+**Exit criterion:** `flux batch scripts/tuolumne/run_milestone.flux` reports all
+16 launches green — both new members at ranks 1 and 4 on SERIAL and HIP — inside
+the walltime the same job measures. (There is no `ctest` half to this criterion:
+a `spack`-mode checkout has no build tree, so the runner is the only path to the
+tier, CLAUDE.md "Build mode".) Each member's log carries the 81-entry claim-A
+error series at 17 digits with its realized P2P pair fraction, and claim B's
+per-rung horizon table naming any step the pairing refused. All three negative
+cases fire: the final state against the step-0 gold exits exactly 1, the
+perturbed-state claim-A case fails naming $\tau_A$, and the fabricated early
+horizon fails naming the rung it was early on.
 
 ---
 
@@ -2121,12 +2225,17 @@ number with no spread beside it is not a usable envelope.
 
 **R9 — the milestone tier outgrows its walltime and reports a timeout as a
 failure.** The tier is at 37.25 of 60 minutes with eight launches, and **T6**
-takes it to sixteen launches each doing roughly twice the work — near two hours
-on that measurement, which may also exceed what `-q pdebug` allows. A scheduler
-kill and a real failure look similar in a log skimmed quickly. **T6** step 6 must
-measure the tier run and set `-t` and the queue from it; if the honest number is
-unwieldy, splitting claim A and claim B into separate members is the fallback, at
-the cost of a third 2000-step trajectory per level.
+takes it to sixteen, eight of which carry a 2000-step FMM-driven trajectory at
+roughly 140x the per-step cost of a direct one. **It does not fit `-q pdebug`'s
+1 h cap**, and probably not even one launch at a time: the level-4 SERIAL launch
+is unmeasured and its HIP counterpart alone is 2377 s. A scheduler kill and a
+real failure look similar in a log skimmed quickly. **T6** step 6 moves the
+runner to `-q pbatch` and sets `-t` from a measured tier run — **not** from a
+short probe, which under-predicts this path by 2.7x because the FMM per-step
+cost grows along the trajectory. If the measured number is unwieldy even there,
+splitting claim A and claim B into separate members is the fallback, at the cost
+of a third 2000-step trajectory per level; note it reduces the per-launch cost
+and not the total.
 
 **R10 — progress stalls waiting on an upstream task.** Two upstream items appear
 in this document and they are not the same kind of thing, which is the confusion
