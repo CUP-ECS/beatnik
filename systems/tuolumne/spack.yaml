@@ -13,7 +13,7 @@ spack:
   - trilinos@17.1 +zoltan2 +openmp +rocm amdgpu_target=gfx942 ~muelu ~ifpack2 ~fortran ~belos ~anasazi ~amesos2 ldflags="-L/opt/cray/pe/mpich/9.0.1/gtl/lib" ldlibs="-lmpi_gtl_hsa"  ^kokkos +rocm +openmp +serial amdgpu_target=gfx942 %cce
   - googletest
   - tessera@develop amdgpu_target=gfx942 ldflags="-L/opt/cray/pe/mpich/9.0.1/gtl/lib" ldlibs="-lmpi_gtl_hsa" %cce
-  - canopy@develop amdgpu_target=gfx942 ldflags="-L/opt/cray/pe/mpich/9.0.1/gtl/lib" ldlibs="-lmpi_gtl_hsa" %cce
+  - canopy@develop +profiling amdgpu_target=gfx942 ldflags="-L/opt/cray/pe/mpich/9.0.1/gtl/lib" ldlibs="-lmpi_gtl_hsa" %cce
   - beatnik@develop +testing +canopy +examples +profiling profiling_level=2 +rocm amdgpu_target=gfx942 build_type=RelWithDebInfo %cce
   # mi300 has gpu arch gfx942 and 4 GPUs per node
   # Switch from crayCC to amdclang

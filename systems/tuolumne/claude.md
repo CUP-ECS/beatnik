@@ -48,7 +48,13 @@ change that alters them:
 | [spack.yaml](spack.yaml) | `~/spack_envs/tuolumne_beatnik` |
 | [spack-production.yaml](spack-production.yaml) | `~/spack_envs/tuolumne_beatnik_production` |
 
-The two differ only in `profiling_level` (dev 2, prod 1).
+The two differ in exactly two places, in different packages:
+`beatnik`'s `profiling_level` (dev 2, prod 1), and `canopy`'s `+profiling`,
+which is **dev-only** — the production canopy spec stays `~profiling`. The
+canopy variant sets `CANOPY_ENABLE_PROFILING` through Canopy's exported
+INTERFACE target, which is what compiles the M2L operator-key demand counter
+into the Beatnik binary; it is a measurement build and does not belong in
+production.
 
 ## 2. Build-config args
 

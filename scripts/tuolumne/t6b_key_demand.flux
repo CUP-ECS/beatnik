@@ -21,15 +21,24 @@
 #
 # WHAT IT IS FOR. T3 does not measure the demand series -- T5 does, at level 4.
 # This script exists to show that the probe RUNS: that both per-backend targets
-# resolve, that the rank-local fields are printed once per rank rather than
-# reduced, and -- in the failure direction -- that against the `canopy
-# ~profiling` this env still concretizes the demand column reads the `-1`
-# SENTINEL and says so loudly, while the two ungated depth columns beside it
-# carry real non-zero counts. A probe that reported `-1` for THOSE would be
-# reporting its own bug (risk R7).
+# resolve, and that the rank-local fields are printed once per rank rather than
+# reduced.
 #
-# **RUN THIS BEFORE T4.** Turning `+profiling` on makes the `-1` unreachable in
-# this environment and the observation cannot be retaken.
+# THE `-1` OBSERVATION HAS BEEN TAKEN AND IS RECORDED. T3 ran this script
+# against the `canopy ~profiling` the env concretized then (job `f3bQSGSss6RD`)
+# and read the `-1` SENTINEL in 405 of 405 rows, with the loud
+# `*** DEMAND UNAVAILABLE ***` header line -- see `## T3` in
+# `tasks/add-canopy-t6-progress-log.md`. T4 then added `+profiling` to the
+# canopy spec, so the sentinel is no longer reachable in this environment and
+# nothing here needs to preserve it.
+#
+# WHAT THIS SCRIPT SHOWS NOW. Under `canopy +profiling` the header reports
+# `demand_available=1` and the demand column carries a REAL non-negative count,
+# beside the two ungated depth columns that were live all along. A probe that
+# reported `-1` for the depth columns would still be reporting its own bug
+# (risk R7), and a `-1` in the demand column now would mean the binary that ran
+# was not built against the `+profiling` canopy -- check the `spack find
+# --variants canopy` line this script echoes before trusting any row.
 #
 # WHY np1 AND np4. np4 is the only launch that exercises the per-rank unreduced
 # printing at all: at np1 "per rank" and "reduced" are the same four lines. The
@@ -201,9 +210,11 @@ fi
 if [ "${_rc}" -eq 0 ]; then
     echo "[t6b] SUMMARY: PASS (${_pass}/${_total} launches)"
     echo "[t6b] Read the [t6probe] header line for demand_available, then the"
-    echo "[t6b] per-rank rows. Under this env's ~profiling canopy the demand"
-    echo "[t6b] column is the -1 SENTINEL and is NOT a measurement of zero"
-    echo "[t6b] demand; occupied_depths and cells_at_max_depth ARE live."
+    echo "[t6b] per-rank rows. Under this env's +profiling canopy the demand"
+    echo "[t6b] column is a REAL count (0 is a legal measurement); a -1 there"
+    echo "[t6b] means the binary was not built against +profiling, not zero"
+    echo "[t6b] demand. occupied_depths and cells_at_max_depth are ungated and"
+    echo "[t6b] were live before +profiling as well."
 else
     echo "[t6b] SUMMARY: FAIL (${_pass}/${_total} launches);" \
          "failed:${_names_failed}" >&2

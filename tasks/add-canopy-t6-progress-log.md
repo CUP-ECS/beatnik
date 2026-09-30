@@ -782,3 +782,239 @@ compile them in place.
   (both manifests verified: 0 probe lines, milestone still 12 non-comment
   lines), changed no tolerance, no cap and no signature, and touched no member
   binary.
+
+
+## T4
+
+Environment and documentation, plus two probe submissions. Three repo files
+changed — `systems/tuolumne/spack.yaml` (**+1 −1**),
+`systems/tuolumne/claude.md` (**+8 −1**) and
+`scripts/tuolumne/t6b_key_demand.flux` (**+22 −11**, comments only) — and one
+file outside the repo, the live env's
+`/g/g20/stewartj/spack_envs/tuolumne_beatnik/spack.yaml`. No source file, no
+test, no CMake, no Canopy file.
+
+### Decisions taken as given by the task, recorded so they are not reopened
+
+- **The matrix is T3's, unchanged: level 3, HIP, np1 and np4.** No SERIAL
+  launch, no other rank count, no level-4 matrix — T5 owns level 4. Holding the
+  matrix fixed is the whole reason T3's numbers are usable as a before-half.
+- **The Canopy clone was left uncommitted.** T1's edits to
+  `src/Canopy_DownwardSweep.hpp` and `tests/tstLaplaceSolve.hpp` still sit as
+  working-tree modifications on `develop` commit `d3145e0` (confirmed with
+  `git status --short` before installing), and `canopy@=develop` is a
+  `spack develop` spec, so `spack install` compiled them in place. No `git
+  pull`, `git commit` or `git push` was run in that clone.
+- **Nothing was read from this run as evidence about overflow.** The level-3
+  member declares `kFarFieldIsLive = false`
+  (`Beatnik_Test_Milestone0Fmm.cpp:468`) and this run measured
+  `global_p2p_frac` between **0.71000 and 0.95413**, so level 3 is mostly a
+  direct sum, exactly as T3 found. `global_m2l_fallback` is 0 in all 405 rows
+  and the cap never binds. The demand question is level 4's.
+- **`systems/tuolumne/spack-production.yaml` was not touched.** The production
+  canopy spec stays `~profiling`.
+
+### The spec change, and what it actually set
+
+`+profiling` was added bare to the `canopy@develop` spec at `:16` of both the
+live env and its committed snapshot, placed immediately after the version to
+match the `beatnik@develop` spec's own variant ordering on the next line. The
+two files `diff` empty afterwards, as the task requires.
+
+`profiling_level` was deliberately **not** set, and the resolution confirms
+that was enough: the installed target now reads
+
+```
+INTERFACE_COMPILE_DEFINITIONS "CANOPY_ENABLE_PROFILING;CANOPY_PROFILING_LEVEL=1"
+```
+
+in `share/cmake/Canopy/Canopy_Targets.cmake:62`, against T2's finding that the
+`~profiling` build exported **no such property at all**. `spack find --variants
+canopy` moved from `...~openmptarget~profiling+rocm...` to
+`...~openmptarget+profiling+rocm...`. That is the one-line proof the define
+reaches every Beatnik translation unit through the INTERFACE target, with no
+Beatnik CMake change, as the Conventions table predicted.
+
+### A concretize step the task's Do list does not mention, and why it is needed
+
+**`spack install` alone is not enough here; `spack concretize -f` is required
+first.** A plain `spack concretize` after the spec edit fails outright:
+
+```
+==> Error: Spack concretizer internal error. ... is unsatisfiable. Couldn't
+concretize without changing the existing environment.
+```
+
+Adding the variant changes canopy's hash, which changes beatnik's dependency
+hash, and the env's `unify` setting will not move an already-concrete root
+incrementally. `spack concretize -f` is the system doc's own prescription
+(`systems/tuolumne/claude.md:130-140`) and it succeeded. **It moved no package
+version**: the lockfile carries **62** concrete specs before and after with an
+empty added-set and an empty removed-set, so the force-reconcretize is not a
+hidden dependency bump. Record this for any later task that edits a spec in
+this env — the error message looks alarming and is routine.
+
+| package | hash before | hash after | build |
+| --- | --- | --- | --- |
+| `canopy@develop` | `2cqynij` | **`w4woraj`** | **32 s** |
+| `beatnik@develop` | `4bhhtbd` | **`nnbspfy`** | **12 m 52 s** |
+
+### Beatnik genuinely rebuilt
+
+**12 m 52 s**, `INSTALL_RC=0`, against T2's 11 m 13 s and T3's 12 m 20 s for a
+full reconfigure-and-rebuild. The header-only no-op trap does not apply and
+**no `touch` was done and none was needed**: the dependency hash moved, so
+spack rebuilds the dependent unconditionally. `HIPCC_LINK_FLAGS_APPEND` and
+`HIPCC_COMPILE_FLAGS_APPEND` were cleared before concretizing and installing,
+per the system doc. The install exceeded a single command timeout, as T2 and T3
+both found, and was backgrounded and waited on.
+
+### Measured: job `f3bQk9QtwPnw`, HIP, level 3, ranks 1 and 4
+
+`scripts/tuolumne/t6b_key_demand.flux` unchanged but for its comments, `-q
+pdebug -t 30m`, **61 s total wall**, `[t6b] SUMMARY: PASS (2/2 launches)`,
+`flux job status` rc 0. The runner's provenance line reads `[t6b] canopy =
+canopy@develop+profiling` — the cheapest proof the job ran the rebuilt binary.
+
+Every check the task names, against T3's before-half (job `f3bQSGSss6RD`):
+
+| check | T3 (`~profiling`) | T4 (`+profiling`) |
+| --- | --- | --- |
+| `demand_available` in both headers | `0` | **`1`** |
+| `*** DEMAND UNAVAILABLE ***` | in both headers | **absent, 0 occurrences** |
+| rows with `demand=-1` | **405 of 405** | **0 of 405** |
+| `n_demanded_ops=` in the Canopy line | absent | **405 occurrences** |
+| `demand_saturated` | `0` in 405 | `0` in 405 |
+| `global_m2l_fallback` | `0` in 405 | `0` in 405 |
+| `occupied_depths` | 4 to 6 | 4 to 6 |
+| `cells_at_max_depth` zero rows | 0 | 0 |
+| peak demand | `-1` (sentinel) | **6 198**, np1 step 1600 |
+
+Demand at level 3 comes back far **under** the 32 768 cap, as the task
+required: peak 6 198 against it, and four orders under the 1 048 576
+`M2L_DEMAND_COUNT_CAP`. `demand_saturated` was never set.
+
+### The level-3 demand series — T5's control prior
+
+Per-rank peaks over the 81 checkpointed states, from the trailer lines:
+
+| run | np1 peak (step) | np4 peaks, ranks 0-3 |
+| --- | --- | --- |
+| `f3bQk9QtwPnw` (A) | **6 198** (step 1600) | 2 332 / 1 864 / 1 932 / 1 926 |
+| `f3bQmUaxP3eP` (B) | **5 938** (step 1575) | 2 135 / 2 073 / 2 039 / 1 876 |
+
+np1 demand ranges **828 to 6 198** across the 81 states in run A; the np4
+per-rank minimum over all rows is **285**. The series rises with tree depth
+rather than with step: every state at `occupied_depths=4` sits in the 828-864
+band, and the peaks are all `occupied_depths=6` states.
+
+**`demand == unique_ops` in 405 of 405 rows, in both runs.** That is *not* the
+level-blindness result T1 had on `LaplaceKernel` and must not be read as one.
+Here the cap never binds — peak realized 6 198 against a 32 768 `op_cap`, zero
+fallback — so every demanded key is admitted by construction, on any basis.
+The identity is forced by the absence of overflow, and it says nothing about
+what a `key_needs_level=1` basis demands at level 4 where the cap does bind.
+`bytes_per_key=3200` and `key_needs_level=1` are echoed in every Canopy line,
+confirming the CartesianTaylor basis is the one being measured.
+
+### What moved against T3, and the second job that explains it
+
+**The realized columns moved, and the task asked for this to be said plainly
+rather than waved off as noise.** T3 against T4 run A, over the same 405
+`(nranks, rank, step)` keys:
+
+| field | rows differing |
+| --- | --- |
+| `unique_ops` | **367 / 405** (66 of 81 at np1) |
+| `keys_built_delta` | 367 / 405 |
+| `cells_at_max_depth` | 308 / 405 |
+| `global_m2l_pairs` | 342 / 405 |
+| `occupied_depths` | 34 / 405 |
+| `global_m2l_fallback` | **0 / 405** |
+
+Peak `unique_ops` fell from T3's **6 404** to **6 198**. Taken alone that is an
+**R1** signature — the demand counter changing an answer — so it was not taken
+alone. **A second submission of the same `+profiling` binary, job
+`f3bQmUaxP3eP`, settles it.** Run A against run B differs in **369 of 405**
+rows of `unique_ops`, the same fields at the same magnitude as the T3-to-T4
+comparison, with peak np1 demand at 5 938 against A's 6 198. Two runs of one
+binary disagree with each other as much as the two binaries disagree, so
+**`+profiling` is not the cause and R1 stands undischarged-by-nothing: the
+counter is read-only.** `global_m2l_fallback` is 0 in all 405 rows of all three
+runs, and `op_cap` is 32 768 in all of them.
+
+**This extends T1's nondeterminism finding from np ≥ 3 to np1.** T1 measured
+the Canopy test path disagreeing with itself only at np 3 and 6; here the
+level-3 Beatnik trajectory diverges at **np1** as well. The shape is
+informative: all three runs share an **identical contiguous prefix** — np1
+steps 0 through 175, the first eight checkpoints, agreeing in every column —
+and then diverge at step 200 and stay diverged. At np4 the prefix ends earlier,
+at step 125. A pure tree-build nondeterminism would be expected to show at step
+0; an identical prefix that breaks partway and never recovers points at the
+**2000-step direct trajectory** itself diverging, with the tree following the
+positions. It was not chased further: it is outside T4's scope, it is present
+in the unmodified path, and no assertion anywhere pins these columns.
+
+Walltimes moved with it and should not be read as a `+profiling` cost: np1
+trajectory 15.216 s at T3 against 11.311 s here, and np1 `eval_wall_total`
+4.0435 s against 3.7517 s — the instrumented build ran *faster*, which is
+itself a sign the difference is trajectory shape rather than overhead.
+
+### Comment corrections to `scripts/tuolumne/t6b_key_demand.flux`
+
+Comment-only, no executable line touched. The header at `:26-31` carried
+"**RUN THIS BEFORE T4.**" as a live imperative and described the env as
+concretizing `canopy ~profiling`; both became false the moment this task
+landed. It now records that the `-1` observation **was taken**, names T3's job
+`f3bQSGSss6RD` and points at `## T3` here, then says what the script shows
+under `+profiling` — including that a `-1` in the demand column now means the
+binary was not built against `+profiling`, and to check the `spack find
+--variants canopy` line the script echoes before trusting any row. The PASS
+summary at `:204-206` likewise told the reader the demand column is the `-1`
+sentinel; it now says the column is a real count, that `0` is a legal
+measurement there, and keeps the reminder that the two depth columns were live
+all along.
+
+### Departures from T4's stated Do steps
+
+- **`spack concretize -f` was run before `spack install`**, which step 4 does
+  not mention. It is not optional — see above; a plain concretize errors out.
+- **A second probe submission was taken** beyond the exit criterion's one run.
+  Without it the 367-row `unique_ops` movement would have been an unresolved
+  R1 signature sitting in the log, and the task explicitly asked for movement
+  to be reported plainly rather than treated as noise. Reporting it *and*
+  explaining it costs 61 s.
+- **`systems/tuolumne/claude.md:51` was rewritten rather than amended**, as
+  step 5 requires. It said "The two differ only in `profiling_level` (dev 2,
+  prod 1)"; it now names both differences, in both packages, and says why
+  canopy's `+profiling` is dev-only.
+- **clang-format was not run**, per the standing rule.
+- Nothing was committed or pushed, in this repo or in the Canopy clone.
+
+**Affects:**
+- **T5** — four things, and the last is the expensive one. First, it inherits
+  this runner with its comments already corrected for a `+profiling` world; no
+  further comment work is owed. Second, **the level-3 np1 control series is a
+  distribution, not a number**: two runs of one binary gave peak demand 6 198
+  and 5 938, about a 4 % spread, so T5's step-2 control must be compared
+  against that band and a level-4 figure must come from the **worst observed**
+  of at least two runs, exactly as T1's `**Affects:** T5` line already warned —
+  now confirmed at np1, which T1 could not claim. Third, **`demand ==
+  unique_ops` at level 3 is an artefact of the cap not binding**, not a
+  property of the basis, so T5 must not treat a level-4 `demand > realized` as
+  a surprise or a level-3 regression. Fourth, `spack concretize -f` is needed
+  after any spec edit in this env and moves no versions.
+- **T7, T8** — the demand counter is now compiled into every Beatnik binary
+  this env builds, so any later run of any member or probe carries it at no
+  extra build cost. T8's branch B reads `m2l_demand_saturated()`, which has
+  still **never been observed set** — 405 rows here, 405 at T3, and all of
+  T1's — so its presentation remains untested in practice.
+- **T9a, T9b** — the env they will run against is now `canopy +profiling`.
+  That is a different binary from the one T6's tier run used, and
+  `CANOPY_PROFILING_LEVEL=1` adds MPI_Wtime phase timing to the FMM path. No
+  cost was measurable here (this run was *faster* than T3's, inside the
+  trajectory's own run-to-run spread), but neither is it a controlled
+  measurement, and a tier run is hours rather than seconds. If a milestone
+  walltime moves, look here first.
+- **T6** — none directly, but note that `systems/tuolumne/spack.yaml` no longer
+  describes the environment T6's tier run used.

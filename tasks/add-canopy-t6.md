@@ -730,7 +730,7 @@ this and the **R4** signature the run did turn up.
 
 ---
 
-### T4 — Turn on `CANOPY_ENABLE_PROFILING` in the dev env — **NOT STARTED**
+### T4 — Turn on `CANOPY_ENABLE_PROFILING` in the dev env — **DONE**
 
 **Depends on:** T1 **DONE** (there is nothing to read before the counter
 exists).
@@ -781,6 +781,45 @@ log carries a `[Canopy Diagnostics] M2L operator table:` line containing
 `n_demanded_ops=`. In the failure direction: `spack spec` for the env shows
 `canopy ... +profiling` and `beatnik` rebuilt against it, so a stale Beatnik
 binary compiled without the define cannot be the thing that ran.
+
+**Met.** `+profiling` was added to the `canopy@develop` spec in both
+`/g/g20/stewartj/spack_envs/tuolumne_beatnik/spack.yaml:16` and
+`systems/tuolumne/spack.yaml:16`, which remain byte-identical (`diff` is
+empty); `systems/tuolumne/spack-production.yaml:8` was not touched. Bare
+`+profiling` resolved the level to 1 as intended: the installed
+`Canopy::Canopy` target now carries
+`INTERFACE_COMPILE_DEFINITIONS "CANOPY_ENABLE_PROFILING;CANOPY_PROFILING_LEVEL=1"`,
+where T2 recorded it exporting no such property at all. **Beatnik genuinely
+rebuilt** — `spack concretize -f` moved canopy's hash `2cqynij` to `w4woraj`
+and beatnik's `4bhhtbd` to `nnbspfy` while changing no package version (62
+concrete specs before and after, no additions or removals), and `spack install`
+exited 0 with canopy at **32 s** and `beatnik@develop` at **12 m 52 s**. That
+is a full rebuild, not the sub-second no-op the header-only caveat warns about,
+so no `touch` was needed and none was done.
+
+The probe then ran unchanged at level 3 on HIP at np1 and np4, job
+**`f3bQk9QtwPnw`**, `[t6b] SUMMARY: PASS (2/2 launches)` in 61 s, with the
+runner's provenance line reading `canopy = canopy@develop+profiling`. Both
+headers print **`demand_available=1`**, the `*** DEMAND UNAVAILABLE ***` line
+appears **zero** times where T3 had it in both headers, and
+`[Canopy Diagnostics] M2L operator table:` carries `n_demanded_ops=` on all
+**405** rank-evaluations. Over those 405 rows: **demand is `-1` in none**
+(T3: 405 of 405), `demand_saturated=0` everywhere, `global_m2l_fallback=0`
+everywhere, `occupied_depths` 4 to 6 and `cells_at_max_depth` non-zero in every
+row. Peak demand is **6 198 at np1 step 1600**, far under both the 32 768
+`op_cap` and the 1 048 576 `M2L_DEMAND_COUNT_CAP`, so the counter is measuring
+the tree and not overflowing.
+
+**R1 is discharged by measurement rather than assumed.** The realized columns
+*did* move against T3 — `unique_ops` differs in 367 of 405 rows — so a second
+run of the **same** `+profiling` binary was taken (job **`f3bQmUaxP3eP`**) to
+tell an instrumentation effect from run-to-run noise. It disagrees with the
+first `+profiling` run in **369 of 405** rows, the same fields and the same
+magnitude as the T3-to-T4 comparison, and peak np1 demand reads 5 938 against
+6 198. The movement is therefore the pre-existing trajectory and tree
+nondeterminism T1 documented, not the counter; `global_m2l_fallback` is 0 in
+all 405 rows of all three runs. See `tasks/add-canopy-t6-progress-log.md`
+`## T4`, whose `**Affects:**` line carries what this costs T5.
 
 ---
 
