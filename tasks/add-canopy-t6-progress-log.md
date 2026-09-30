@@ -367,3 +367,198 @@ non-empty on every rank (it read `[1,8,13..64,0..30]` across the 21 pairs — a
 - **T8** — `m2l_demand_saturated()` is the flag its branch B reads outright; it
   was `false` on every measurement here, so no saturated case has yet been
   observed and its presentation is still untested in practice.
+
+## T2
+
+Beatnik only, one file: `src/Beatnik_FarFieldInterface.hpp`, **+73 lines, −0**.
+`git diff --stat` touched nothing else — no test, no script, no CMake, no
+Canopy file.
+
+### Decisions taken as given by the task, recorded so they are not reopened
+
+- **The exit criterion ran through the existing
+  `scripts/tuolumne/t6_l3_member.flux`**, invoked as
+  `flux batch scripts/tuolumne/t6_l3_member.flux HIP`. No new `.flux` script
+  was written and that one was not edited: its `-t 58m` is sized for all four
+  backend/rank combinations, so a HIP-only run simply finishes early (617 s of
+  58 m used). The script announces the backend override loudly, which is
+  expected here and is not a finding.
+- **`+profiling` was NOT added to the canopy spec.** That is T4. T2 is
+  deliberately built and run against a `~profiling` canopy, which is the only
+  reason the `-1` sentinel is observable at all — under `+profiling` the field
+  would carry a count and the R7 check would have nothing to see.
+- **Nothing was committed, pushed, or edited in the Canopy clone.** T1's
+  additions are still uncommitted working-tree modifications at `develop`
+  commit `d3145e0`, and `canopy@=develop` is a `spack develop` spec, so
+  `spack install` compiled them in place.
+
+### The four fields, exactly as implemented
+
+All appended to `FarFieldDiagnostics` immediately after `local_m2l_op_cap`,
+each documenting units, rank-locality and the Canopy accessor it mirrors, in
+the style of the five fields above it.
+
+| field | type, default | source |
+| --- | --- | --- |
+| `local_m2l_demanded_op_count` | `int`, **`-1`** | `down.m2l_n_demanded_ops()` verbatim |
+| `local_m2l_demand_saturated` | `bool`, `false` | `down.m2l_demand_saturated()` verbatim |
+| `local_m2l_cells_at_max_depth` | `int`, `0` | derived, see below |
+| `local_m2l_occupied_depths` | `int`, `0` | derived, see below |
+
+The last two come from **one scan** of `down.m2l_cells_at_depth()`, and the
+rule is not the obvious one. The vector is `max_depth + 1` long and carries
+trailing zeros, so:
+
+- `local_m2l_occupied_depths` is the count of its **non-zero** entries, not
+  its `size()`;
+- `local_m2l_cells_at_max_depth` is the value of its **last non-zero** entry —
+  the cell count at the deepest *occupied* depth — so a tree shallower than
+  `max_depth` 10 reports a real count instead of an uninformative 0. The loop
+  assigns on every non-zero entry, which leaves the last one.
+
+**The `-1` and the `0` are kept apart in all three places R7 names**: the
+field default is `-1` for the count and `false` for the flag; the population
+copies Canopy's value verbatim with no clamping or `std::max`; and both doc
+comments say in as many words that `0` is a legal measurement and `-1` means
+"this Canopy build carries no profiling". The two derived fields are
+documented as having **no `-1` case at all**, because `m2l_cells_at_depth()`
+is ungated — their `0` means "empty vector, i.e. before `setup()`" and never
+"unavailable". Conflating the two sentinels across the gated and ungated
+halves of this block is the specific mistake the comments are written against.
+
+`std::vector` is never **named** in Beatnik — the scan binds the accessor's
+return with `const auto` — so no `#include <vector>` was added and the adapter
+header's include list is unchanged.
+
+### Callers: none needed editing, as the task enumerated
+
+`grep -rn readDiagnostics src/ tests/ examples/` returns exactly four hits and
+all four are in this file: the doc reference (`:734`), the pure virtual
+(`:772`), the single override (`:875`) and the one call site (`:1491`,
+`_impl->readDiagnostics( _diagnostics )`). The struct gained members and no
+signature moved, so nothing outside the override was touched.
+
+### Build
+
+`spack install` in the dev env, exit 0. Two packages rebuilt:
+
+| package | hash | time |
+| --- | --- | --- |
+| `canopy@develop` | `2cqynij` | **37 s** |
+| `beatnik@develop` | `4bhhtbd` | **11 m 13 s** |
+
+**The canopy rebuild is the load-bearing half of that table.** It is the first
+compile of T1's working-tree edits, confirming T1's `**Affects:** T2` claim
+that no push and pull is needed — `spack develop` picked the modified clone up
+by itself. The installed header carries the three new accessors
+(`grep -c` = 3 in the store's `Canopy_DownwardSweep.hpp`).
+
+**The first instantiation of `m2l_cells_at_depth()` on the CartesianTaylor arm
+produced no template error**, which the task flagged as the plausible failure
+and as Beatnik's to fix. Nothing needed fixing; the accessor is an ordinary
+non-template member of the sweep, so the arm's basis does not reach it.
+
+The system doc's **header-only rebuild caveat applies and was paid**: this is
+an INTERFACE library whose `HEADERS_PUBLIC` are not dependencies, so
+`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp` and the
+`examples/01_rising_bubble` driver were `touch`ed before installing. Without
+that the install would have reported a sub-second no-op and the job below would
+have run the **old** binary while reading as a pass. An 11-minute install is the
+evidence the touch worked.
+
+### Measured: job `f3bQ3AzdBncF`, HIP, ranks 1 and 4
+
+`Beatnik_Test_Milestone0Fmm`, level 3, full 2000-step fidelity, at commit
+`f94c9db` + 1 modified file:
+
+| launch | wall | checks |
+| --- | --- | --- |
+| HIP np1 | **316 s** | `3097/3097` |
+| HIP np4 | **301 s** | `3097/3097` rank 0, `2919/2919` ranks 1-3 |
+| total | **617 s** | `[t6l3] SUMMARY: PASS (2/2 launches)` |
+
+Against T0's **314 s** HIP np1 baseline that is **+0.6 %** — run-to-run noise,
+and the expected result for four fields that no code path yet reads. The check
+counts are identical to the ones T0 records for the passing level-3 launches,
+so the member is unchanged rather than merely still green. The SERIAL half was
+not run and nothing is claimed for it.
+
+### How the `-1` sentinel was established — statically, by three facts
+
+Nothing in Beatnik prints the field until T3's probe exists, so T2's R7 check
+is a static argument, and it needs all three legs:
+
+1. The env concretizes canopy as **`~profiling`** — `spack find --variants
+   canopy` reads
+   `canopy@develop~cuda~examples~ipo~openmp~openmptarget~profiling+rocm...`.
+2. The installed `Canopy::Canopy` INTERFACE target exports **no
+   `INTERFACE_COMPILE_DEFINITIONS` property at all**
+   (`share/cmake/Canopy/Canopy_Targets.cmake:61-66` sets only
+   `INTERFACE_COMPILE_FEATURES`, `INTERFACE_INCLUDE_DIRECTORIES`,
+   `INTERFACE_LINK_LIBRARIES` and `INTERFACE_SYSTEM_INCLUDE_DIRECTORIES`), and
+   `CANOPY_ENABLE_PROFILING` appears **nowhere** in Beatnik's own CMake. So the
+   macro is undefined in every Beatnik translation unit.
+3. With it undefined, Canopy's `_m2l_demanded_op_count` keeps its `-1` member
+   default (`Canopy_DownwardSweep.hpp:726`): the only write to it is at
+   `:1769-1771`, inside `#ifdef CANOPY_ENABLE_PROFILING`.
+
+Therefore `local_m2l_demanded_op_count` reads **`-1`, not `0`**, in this build,
+and `local_m2l_demand_saturated` reads `false`. **The runtime confirmation is
+T3's**, which must run before T4 turns `+profiling` on — after T4 the `-1` is
+no longer reachable in this env and the chance to observe it is gone.
+
+### What only building or running revealed
+
+- **`flux batch --flags=waitable` is refused on this instance.** It exits 1
+  with `flux-batch: ERROR: only the instance owner can submit with
+  FLUX_JOB_WAITABLE`, so the `flux batch --flags=waitable` + `flux job wait`
+  recipe does not work here at all. **`flux job status <jobid>` alone does**:
+  it blocked until completion and exited `rc=0` on a job submitted without the
+  flag. Every later task that submits a job (T3, T5, T9a, T9b) should skip
+  straight to `flux job status` rather than spending a submission discovering
+  this.
+- **Two of the four new fields already carry real data in this `~profiling`
+  build.** `m2l_cells_at_depth()` is ungated, so `local_m2l_cells_at_max_depth`
+  and `local_m2l_occupied_depths` are live *now*; only the two demand fields
+  are sentinel-valued until T4. That splits T3's probe output into two classes
+  and is the reason its failure-direction check has something to compare
+  against.
+- **The `spack install` took 11 m 13 s and exceeded a single command timeout**,
+  so it was backgrounded and waited on. Budget a rebuild of this env at about
+  twelve minutes when only a header changed but a consumer `.cpp` was touched.
+
+### Departures from T2's stated Do steps
+
+- **`tasks/add-canopy-t6.md:3` was corrected from `**Status:** NOT STARTED` to
+  `**Status:** IN PROGRESS`.** Not in scope as written, and taken on T0's own
+  precedent: three of this document's tasks are DONE, so the line was
+  known-false, and T0 argued that leaving a known-false claim in a design doc's
+  status line is worse than the scope creep. No other line outside the T2 entry
+  was touched.
+- **clang-format was not run**, per the standing rule, on a file that is
+  clang-formatted. The new block was written by hand in the surrounding style;
+  if the user's next format pass moves a line in it, that is expected and is
+  not a regression.
+
+**Affects:**
+- **T3** — it consumes all four fields, and three things shape its probe.
+  First, **only `local_m2l_demanded_op_count` and
+  `local_m2l_demand_saturated` are sentinel-valued** before T4; the two
+  depth-derived fields are live already, so a probe that prints all four
+  against this build should show `-1`/`0` beside two real counts, and a
+  probe that showed `-1` for the depth fields would be reporting its own bug.
+  Second, **T3's runtime `-1` observation is the last chance to take it** —
+  T4 makes the sentinel unreachable in this env. Third, use `flux job status`
+  directly; `--flags=waitable` is refused.
+- **T5** — the demand series it prints comes off
+  `local_m2l_demanded_op_count`, and `local_m2l_occupied_depths` is the
+  multiplier to read beside it (T1's caveat: the level-4 question is a
+  `key_needs_level=1` question and T1's validation was level-blind). Both are
+  **rank-local and unreduced** in the struct exactly as in Canopy, so T5 must
+  report per rank and must not average.
+- **T7** — `local_m2l_op_cap` is unchanged and still the number the demand
+  count is read against; the count cap it plumbs through `FmmParams` shows up
+  in this struct through that existing field, not through a new one.
+- **T4, T6, T8, T9a, T9b** — none. T2 added no gate member, changed no
+  tolerance, no cap and no signature, and the level-3 member's cost is
+  unmoved at 316 s / 301 s on HIP.

@@ -299,6 +299,52 @@ struct FarFieldDiagnostics
     /// which of the two floors it is follows from the byte budget and
     /// `local_m2l_bytes_per_key`. **Added by T5 step 5** (R6).
     int local_m2l_op_cap = 0;
+
+    /// **Rank-local, unreduced.** `DownwardSweep::m2l_n_demanded_ops()` —
+    /// distinct M2L operator keys the last interaction-list build *demanded*,
+    /// as against `local_m2l_unique_op_count`, which is the count the cap
+    /// actually admitted. The difference is the keys whose pairs took the
+    /// per-pair fallback, so this is the column cap that would admit every
+    /// key. Counted over the same canonical keys, so demand >= realized
+    /// always.
+    /// **`-1` means the Canopy build carries no profiling**
+    /// (`CANOPY_ENABLE_PROFILING` undefined), and never `0` for that reason:
+    /// zero demand is a legal measurement — a tree with no M2L pairs realizes
+    /// no keys — so a consumer must test for `-1` before reading this as a
+    /// count. Also `-1` before the first build. **Added by T6 T2.**
+    int local_m2l_demanded_op_count = -1;
+
+    /// **Rank-local, unreduced.** `DownwardSweep::m2l_demand_saturated()` —
+    /// whether the count above stopped at Canopy's `M2L_DEMAND_COUNT_CAP`
+    /// (\f$2^{20}\f$ keys). True makes `local_m2l_demanded_op_count` a lower
+    /// bound equal to that cap rather than the tree's actual demand. Always
+    /// `false` in a build without profiling, where the count is `-1` and means
+    /// nothing — this flag is never the test for availability, the `-1` is.
+    /// **Added by T6 T2.**
+    bool local_m2l_demand_saturated = false;
+
+    /// **Rank-local, unreduced.** Cells at the deepest *occupied* depth of
+    /// this rank's tree: the **last non-zero** entry of
+    /// `DownwardSweep::m2l_cells_at_depth()`, not its last entry. That vector
+    /// runs to `max_depth + 1` entries and carries trailing zeros, so a tree
+    /// shallower than `max_depth` read at the end would report an
+    /// uninformative 0 rather than a real count. `0` when the vector is empty,
+    /// i.e. before Canopy's `setup()`. The accessor is **ungated**, so this
+    /// field has no `-1` case and `0` here never means "no profiling".
+    /// **Added by T6 T2.**
+    int local_m2l_cells_at_max_depth = 0;
+
+    /// **Rank-local, unreduced.** The number of **non-zero** entries in
+    /// `DownwardSweep::m2l_cells_at_depth()` — occupied depths, not that
+    /// vector's `max_depth + 1` size. Carried beside the demand count because
+    /// it is the mechanism behind it: a basis whose canonical keys retain the
+    /// absolute level (`KernelType::key_needs_level`, which `CartesianTaylor`
+    /// sets and `LaplaceKernel` does not) gives two pairs with the same
+    /// integer offset at different depths different operators, so every
+    /// occupied depth multiplies the demanded key count. A demand figure read
+    /// without this is a number with no mechanism behind it. `0` before
+    /// `setup()`; **ungated**, so no `-1` case. **Added by T6 T2.**
+    int local_m2l_occupied_depths = 0;
 };
 
 /// Spelling for `FarFieldDiagnostics::Maintenance`, so a diagnostic that
@@ -842,6 +888,33 @@ class FarFieldSolver
             // `FmmParams::m2l_op_table_byte_budget`.
             d.local_m2l_bytes_per_key = solver_type::kernel_type::bytes_per_key;
             d.local_m2l_op_cap = down.m2l_effective_op_cap();
+            // T6 T2. The two demand counters are mirrored verbatim, sentinel
+            // and all: -1 is "this Canopy build carries no profiling" and 0
+            // is a legal count, so neither this copy nor any consumer may
+            // substitute one for the other (R7). Saturation is a separate
+            // flag precisely so a lower bound is never conflated with a
+            // count.
+            d.local_m2l_demanded_op_count = down.m2l_n_demanded_ops();
+            d.local_m2l_demand_saturated = down.m2l_demand_saturated();
+            // One scan of the per-depth cell counts, whose accessor is
+            // ungated and so has no sentinel. The vector is `max_depth + 1`
+            // long and carries trailing zeros, so the deepest OCCUPIED depth
+            // -- the last non-zero entry -- is what describes the tree, and
+            // the occupied-depth count is the number of non-zero entries
+            // rather than the size. Empty before `setup()`, which leaves both
+            // fields at their 0 defaults.
+            const auto cells_at_depth = down.m2l_cells_at_depth();
+            d.local_m2l_cells_at_max_depth = 0;
+            d.local_m2l_occupied_depths = 0;
+            for ( std::size_t depth = 0; depth < cells_at_depth.size();
+                  ++depth )
+            {
+                if ( cells_at_depth[depth] != 0 )
+                {
+                    d.local_m2l_cells_at_max_depth = cells_at_depth[depth];
+                    ++d.local_m2l_occupied_depths;
+                }
+            }
         }
 
       private:
