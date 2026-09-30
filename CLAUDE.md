@@ -92,13 +92,30 @@ against a multi-thousand-step reference gold set, at ranks **1 and 4** on SERIAL
 and HIP, run through `scripts/<system>/run_milestone.<scheduler>` — on tuolumne
 [scripts/tuolumne/run_milestone.flux](scripts/tuolumne/run_milestone.flux). **It
 is not part of the gate** and adding a member to it does not change the gate;
-the gate stays at five members and 60 launches. It has **two** members, both
-registered by M0-T3: `Beatnik_Test_Milestone0Frozen` (2000 frozen-mesh timesteps
-at `--icosphere-subdivisions 3` against the M0-G1 gold set, all 81 checkpointed
-steps at `--rtol 1e-10 --atol 1e-12`) and `Beatnik_Test_Milestone0FrozenL4` (the
-same at subdivisions 4 against M0-G2) — **eight launches**, and a measured
-**37.25 minutes** under the runner's `-t 60m` (M0-T3's tier run, job
-`f3Td7rshE3y1`, all green).
+**T6 added two members and the gate is unchanged — still five `regression`
+members and 60 launches.** The `milestone` tier has **four** members and
+**sixteen launches**:
+
+- `Beatnik_Test_Milestone0Frozen` and `Beatnik_Test_Milestone0FrozenL4`
+  (M0-T3): 2000 frozen-mesh timesteps at `--icosphere-subdivisions` 3 and 4
+  against the M0-G1 and M0-G2 gold sets, all 81 checkpointed steps at
+  `--rtol 1e-10 --atol 1e-12`. Eight launches, a measured **37.25 minutes**
+  (M0-T3's tier run, job `f3Td7rshE3y1`, all green).
+- `Beatnik_Test_Milestone0Fmm` and `Beatnik_Test_Milestone0FmmL4` (T6,
+  `tasks/canopy/add-canopy.md`): the same two levels driven through the Canopy
+  FMM at `ncrit = 8`, `order = 3`. Each asserts **two** claims in one binary —
+  a per-evaluation velocity bound (max relative error ≤ `1e-3`) at 81
+  direct-driven states, and the stability and divergence horizon of a
+  2000-step FMM-driven trajectory. They reuse the frozen members' gold
+  directories; no new gold set exists. Eight launches.
+
+**The FMM members are hours, not minutes**, which moved the runner from
+`-q pdebug -t 60m` to **`-q pbatch -t 1440m`**: one level-4 FMM trajectory
+alone is 2373 s at HIP np1 where the whole level-4 frozen member is 22 s. The
+`1440m` is pbatch's ceiling and **not yet a measurement** — the first tier run
+carrying these members is the measurement, and the runner's header comment says
+how to set `-t` from it. Treat the tier's total as unmeasured until that run is
+read.
 
 **`BEATNIK_TEST_SCRATCH`
 must name a path on a parallel filesystem**, not a node-local one: the

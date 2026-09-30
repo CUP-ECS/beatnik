@@ -1,7 +1,9 @@
 # Canopy as Beatnik's far-field Birkhoff-Rott solver
 
-**Status:** IN PROGRESS — **T1** through **T5** are **DONE**; **T6**, **T7** and
-**T8** are NOT STARTED. The far field is measured and published: $\tau_A$ is
+**Status:** IN PROGRESS — **T1** through **T5** are **DONE**; **T6** is **IN
+PROGRESS** (both members written, registered and green at level 3; the
+confirming full-tier run is outstanding — see `## T6` in the progress log);
+**T7** and **T8** are NOT STARTED. The far field is measured and published: $\tau_A$ is
 $5.01\times10^{-4}$ on the gradient at the production order, which is better than
 the reference implementation's own fidelity, so **X1** does not fire. No upstream
 work gates the sequence — Canopy's derivative ladder is validated at the
@@ -179,9 +181,12 @@ $p=3$ is therefore the production order and the smallest that reaches $\tau_A$ a
 Beatnik's $\theta$. **It is still a model on Beatnik's geometry**: it is
 evaluated at an idealized equal-cell pairing on a volumetric cloud, and the
 sheet's anisotropic leaf occupancy and the depth-mismatched cell pairs an
-adaptive tree realizes are outside it. **T5** measures the curve on real
-milestone-0 states and picks the production order; nothing may be compiled into a
-test before it does.
+adaptive tree realizes are outside it. **T5 measured the curve on real
+milestone-0 states and picked `order = 3` as the production order.** The model
+is optimistic on both axes, as expected: measured-over-model on the gradient is
+0.80, 0.77, 1.00 and 1.72 at $p=2,3,4,5$, and the realized convergence exponent
+in $\theta$ is **3.77** against the model's 3. `order = 3` is what T6's two
+milestone members compile.
 
 #### The far field has to be live to be measured
 
@@ -1777,7 +1782,15 @@ in the gold files.
 
 ---
 
-### T6 — The two milestone-tier FMM members — **NOT STARTED**
+### T6 — The two milestone-tier FMM members — **IN PROGRESS**
+
+> **Where it stands.** Both members are written, registered and installed, and
+> the level-3 member is green at full step count on both backends at np1
+> (3097/3097 checks each). What is outstanding is the **full-tier run** that
+> the exit criterion below turns on. Read `## T6` in
+> [add-canopy-progress-log.md](add-canopy-progress-log.md) — which is
+> deliberately incomplete — and `T6-handoff.log` in the repo root before
+> resuming.
 
 **Depends on:** T5 (for $\tau_A$, the horizon envelope, the volume-drift bound
 and the measured M2L share at each level) and T4 (for the comparison harness). No upstream gate:
@@ -2116,8 +2129,15 @@ by** where it stopped and by the second curve: **T5** step 1 scans both bases, a
 a `CartesianTaylor` curve that plateaus at the same level as the `SolidHarmonic`
 curve is not a truncation plateau at all — it is the selector not selecting.
 A third reading is available here and is the cheapest to hit: **the far field
-never engaged.** At the default `ncrit` neither milestone-0 level has one, and a
-solve that is entirely P2P agrees with `BRSolverDirect` to round-off at every
+never engaged.** Measured, and worse than "neither level has one at the default
+`ncrit`": at level 3 the M2L cell-pair count is **exactly 0** for `ncrit` $\ge$
+32, so there is no far field at all, while level 4 at `ncrit` 64 carries only
+14.6%. Both members therefore run at **`ncrit = 8`**, where level 4 reaches
+74.6% M2L and level 3 still only 14.5% — so a low error at level 3 may mean
+*less far field measured* rather than better accuracy, and the far-field
+accuracy claim rests on level 4 (§"The far field has to be live to be
+measured"). A solve that is entirely P2P agrees with `BRSolverDirect` to
+round-off at every
 order — a flat curve at $10^{-15}$ rather than at $10^{-3}$, which reads as
 success. **Distinguished by** the P2P pair fraction, which every scan point and
 every test must report. **Do:** no tolerance may be compiled into any test

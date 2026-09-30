@@ -15,15 +15,34 @@ does not cover.
   gate. Run it on demand with `ctest -L milestone`, or through the wrapper
   `scripts/<system>/run_milestone.<scheduler>` — on tuolumne
   [scripts/tuolumne/run_milestone.flux](../scripts/tuolumne/run_milestone.flux).
-  Created by task M0-T1 and filled by M0-T3, which registered its **two**
-  members: `Beatnik_Test_Milestone0Frozen` (2000 frozen-mesh timesteps at
-  `--icosphere-subdivisions 3` against the M0-G1 gold set, all 81 checkpointed
-  steps at `--rtol 1e-10 --atol 1e-12`) and `Beatnik_Test_Milestone0FrozenL4`
-  (the same at subdivisions 4 against M0-G2). Two members x two backends x two
-  rank counts is **eight launches** and a **measured 37.25 minutes** on tuolumne
-  (M0-T3's tier run, job `f3Td7rshE3y1`), which is what the wrapper's `-t 60m` is
-  sized for — 36.0 min of it is in-test wall and ~4.7 min of that is the 664
-  `compare_output.py` invocations. The wrapper still exits non-zero if the
+  Created by task M0-T1, filled by M0-T3 and extended by T6; it has **four**
+  members.
+
+  M0-T3's frozen pair: `Beatnik_Test_Milestone0Frozen` (2000 frozen-mesh
+  timesteps at `--icosphere-subdivisions 3` against the M0-G1 gold set, all 81
+  checkpointed steps at `--rtol 1e-10 --atol 1e-12`) and
+  `Beatnik_Test_Milestone0FrozenL4` (the same at subdivisions 4 against M0-G2).
+  Alone they are eight launches and a **measured 37.25 minutes** on tuolumne
+  (M0-T3's tier run, job `f3Td7rshE3y1`) — 36.0 min of in-test wall, ~4.7 min
+  of it the 664 `compare_output.py` invocations.
+
+  T6's FMM pair (`tasks/canopy/add-canopy.md`):
+  `Beatnik_Test_Milestone0Fmm` and `Beatnik_Test_Milestone0FmmL4`, the same two
+  levels driven through the Canopy FMM at `ncrit = 8`, `order = 3`. Each
+  asserts **two claims in one binary**: a per-evaluation velocity bound (max
+  relative error ≤ `1e-3`) over 81 direct-driven states, and the stability plus
+  divergence horizon of a 2000-step FMM-driven trajectory. They take a **third**
+  argument the frozen pair does not — `fmm_divergence_ladder.py`, which measures
+  the horizon because `compare_output.py`'s pairing degenerates on an FMM-driven
+  run. They reuse the frozen members' gold directories; no new gold set exists.
+
+  Four members x two backends x two rank counts is **sixteen launches**. The FMM
+  pair is **hours, not minutes** — one level-4 FMM trajectory alone is 2373 s at
+  HIP np1 — which moved the wrapper from `-q pdebug -t 60m` to
+  **`-q pbatch -t 1440m`**. That `1440m` is pbatch's ceiling, **not a
+  measurement**: the first tier run carrying the FMM members is the measurement,
+  and the wrapper's header comment says how to set `-t` from it without a second
+  run. The wrapper still exits non-zero if the
   manifest names nothing runnable, exactly as the gate wrapper does for an empty
   gate. Its rank sweep comes from `BEATNIK_MILESTONE_MPI_RANKS`
   (default `1;4`) for ctest and `BEATNIK_MILESTONE_RANKS` in the wrapper.

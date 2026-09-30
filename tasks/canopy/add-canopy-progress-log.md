@@ -1926,3 +1926,290 @@ time rather than as a key count. `local_m2l_bytes_per_key` and
 production order, so the conditional X1 describes did not fire and the
 deliverable is a working, measured, bounded-error fast path at better than the
 reference implementation's own fidelity.
+
+## T6
+
+**INCOMPLETE BY DESIGN — see the closing note. `T6` is not DONE.** This entry
+was written by the session that implemented the two members and submitted the
+tier run; the tier's results, the `**Met.**` paragraph and the `**Affects:**`
+line belong to the session that reads that job.
+
+**Both members are written, registered and installed, and the level-3 member is
+green at full step count on both backends.** `Beatnik_Test_Milestone0Fmm`
+(2201 lines) and `Beatnik_Test_Milestone0FmmL4` (54 lines, the
+`#define BEATNIK_M0_FMM_LEVEL 4` + `#include` pattern
+`Beatnik_Test_Milestone0FrozenL4.cpp` established) each assert **claim A and
+claim B in one binary**. The level-3 member passed **3097/3097 checks** at
+SERIAL np1 (2490 s), HIP np1 (314 s) and HIP np4 (302 s) — with all three
+negative cases firing at each, the ladder measuring every one of the 81 steps
+with **zero unpairable**, and the horizon landing **exactly on T5's envelope**
+every time. The fourth level-3 launch, SERIAL np4, completed claim A with a
+**bit-identical** worst error before `pdebug`'s wall cut it off in claim B; the
+tier run covers it.
+
+**The gate did not change and could not have**: both members are `milestone`
+tier. The gate is still five `regression` members and 60 launches, and
+`CLAUDE.md` says so in the same edit that raises the milestone tier to four
+members and sixteen launches.
+
+### Decisions taken as given by the task, recorded so they are not reopened
+
+- **Both levels run at `ncrit = 8`, for both claims.** Every compiled number —
+  τ_A, the horizon envelope, the volume-drift bound — was measured there.
+  `ncrit = 4` would make level 3 live at 58.5% M2L instead of 14.5% but is
+  **not used**: it would put claim A at a configuration claim B's envelope was
+  never measured at. `FmmParams::ncrit` keeps the reference's 64 and is
+  untouched.
+- **Claim A asserts max relative velocity error ≤ `1e-3`** — the reference
+  implementation's own fidelity, not T4's looser `2.0e-3`. T5 measured τ_A at
+  `5.01e-4`, but at **one** state five steps off the initial condition; claim A
+  evaluates at 81 states running out to a deformed sheet at step 2000, which
+  had never been measured before this task.
+- **Both members register against the existing gold directories**,
+  `regression_tests/milestone0-sub{3,4}-2000-steps/gold`. Claim A drives the
+  same trajectory the frozen members compare against, so **no new gold set was
+  generated** and none is needed.
+- **`scripts/tuolumne/run_milestone.flux` moved to `-q pbatch`.**
+- **The claim-B volume-drift rtol was derived offline** from T5's surviving
+  checkpoints, not from a fresh run. See *The volume-drift rtol* below.
+- **Claim B's ladder verdict is read from `fmm_divergence_ladder.py --json`,
+  never from its exit status**, which reports only whether the measurement
+  completed. Claim A's 81 gold comparisons still go through
+  `compare_output.py` unchanged — a direct-driven trajectory satisfies its
+  pairing precondition by nine decades.
+
+### Signatures changed
+
+**None.** No header, no public method, no CLI option, no change to
+`milestone0_ladder.py pair` or `compare_output.py` — so every M0-D1 number
+those tools have produced stands unchanged. T6 is additive: two test sources,
+their registration, and the runner's queue. `computeSurfaceRieszScalar` still
+throws (T7 owns it).
+
+### The volume-drift rtol, and how it was derived
+
+**`kFmmVolumeDriftRtol = 5.0e-2`.** The frozen member's `kVolumeDriftRtol =
+1e-3` does **not** carry: that literal came from direct-driven runs, whose worst
+per-step deviation is `1.80e-5`, and an FMM-driven run's is three decades
+larger. The new bound was derived **offline from T5's surviving 2000-step
+FMM-driven checkpoint directories** at `/p/lustre5/stewartj/beatnik/t5_divergence/`
+(82 `.h5` each) by recomputing `enclosed_volume / initial_volume - 1` at all 81
+steps through `milestone0_ladder.py`'s own convention and taking
+`|drift/reference - 1|`:
+
+| level | worst deviation | at step | runs |
+| --- | --- | --- | --- |
+| 4 | `2.137678e-02` | 350 | four (np1 A, np1 B, np4 A, np4 B), agreeing to `1.3e-7` |
+| 3 | `1.540737e-02` | 300 | one |
+
+The profile **peaks mid-trajectory and falls back** — level 4 is down to
+`8.05e-03` by step 2000 — so the bound is set from the peak, not the final
+value. `5.0e-2` is a **2.34x** margin at level 4 and **3.25x** at level 3, the
+larger margin at level 3 covering the fact that its figure rests on a single
+run.
+
+**The derivation was then confirmed by a real run rather than left as
+arithmetic.** The level-3 member at SERIAL np1 reported its worst deviation as
+**`0.0154072` at step 300** — the offline prediction was `1.540737e-02` at step
+300, the same number to six digits, from a different backend than the HIP runs
+it was derived from. Two related literals were kept **separate on purpose**:
+`kVolumeDriftRtol = 1e-3` still governs claim A's direct-driven half (one
+literal covering both would silently apply the FMM's three-decade-looser bound
+to the direct half and stop it catching anything), and `kVolumeDriftAbsCap =
+1e-8` stays absolute so a drift that tracks the reference *proportionally* while
+both explode still fails.
+
+### The level-3 pre-submission check: what it actually showed
+
+Two jobs, because the first hit a queue cap rather than a defect. **Three of
+the four level-3 launches are green at full step count** (SERIAL np1, HIP np1,
+HIP np4); the fourth, SERIAL np4, completed claim A and was cut off in claim B
+by `pdebug`'s wall, and is covered by the tier run.
+
+**Job `f3ayuwpvn8yV`** (`pdebug`, `-t 58m`, all four L3 launches) — **TIMEOUT,
+rc=142, killed at 3479 s.** It is not a failure of the member:
+
+- **`SERIAL np1` PASSED in 2490 s** — the complete member, `[PASS]
+  Beatnik_Test_Milestone0Fmm (3097/3097 checks)`.
+- **`SERIAL np4` was killed 628 s in**, having completed claim A and reached
+  claim B step 150. Its claim-A worst error was
+  **`0.00030958115097968656` at step 250 — bit-identical to np1's**, which is
+  the rank-independence evidence the multi-rank path needed.
+- `HIP np1` and `HIP np4` never started.
+
+**The script's own walltime estimate was the thing that was wrong, and it said
+so in advance.** Its header predicted `SERIAL np1 ~702 s` from "roughly 2x HIP",
+extrapolated from the T5 scan's 16 s and 29 s Serial rows — but **those rows are
+single-evaluation scans, not trajectories**, so the extrapolation had no
+trajectory measurement under it at all. The measured Serial/HIP ratio for an FMM
+*trajectory* is **9.2x** (2313 s against T5's 252 s at L3 np1), not 2x, and the
+launch cost 2490 s against the predicted 702 s — **3.5x** low. This is the
+single most reusable number this entry produces and every tier estimate below
+rests on it.
+
+**Job `f3azswSZ3fvw`** (`pdebug`, HIP only, via the script's documented backend
+override) was submitted to close the one dimension `f3ayuwpvn8yV` left entirely
+untested — the HIP backend — since HIP is where the tier's level-4 launches
+live. **COMPLETED, rc=0, `SUMMARY: PASS (2/2 launches)` in 616 s.** Both
+launches `[PASS] Beatnik_Test_Milestone0Fmm`: `HIP np1` **3097/3097 checks** in
+314 s, `HIP np4` **3097/3097 on rank 0 and 2919/2919 on each of the other
+three** in 302 s. Horizon exactly on envelope at both, zero unpairable steps at
+both, all three negative cases firing at both.
+
+**That job also overturned the rank-scaling reading taken from the SERIAL
+partial, and the correction matters for the tier estimate.** `SERIAL np4`'s 628 s
+to claim B step 150 extrapolates to roughly **5.4x slower per step than np1**,
+which invited the explanation "642 particles over 4 ranks is MPI-overhead-bound
+at level 3". **That explanation does not survive the HIP pair**: at the same
+level and the same particle count, `HIP np4`'s claim B is **1.13x FASTER** than
+np1's (223.417 s against 252.374 s), and T5 measured level-4 HIP np4 1.7x faster
+again. So the penalty is **specific to the SERIAL backend**, not to the level —
+and whether it also appears at level 4 SERIAL is now the widest single unknown
+in the tier's cost. Claim A, by contrast, is mildly *slower* at np4 on both
+backends (HIP 68.851 s against 49.471 s), which is the expected MPI cost of 81
+same-state evaluations.
+
+**Claim A is rank- and backend-stable to four digits**, which is the
+cross-check the multi-rank and multi-backend paths needed:
+
+| launch | worst relative velocity error | at step |
+| --- | --- | --- |
+| SERIAL np1 | `3.0958115097968656e-4` | 250 |
+| SERIAL np4 | `3.0958115097968656e-4` (bit-identical to np1) | 250 |
+| HIP np1 | `3.0989762777625514e-4` | 250 |
+| HIP np4 | `3.0971292968983517e-4` | 250 |
+
+All four are a **3.2x margin** under τ_A = `1e-3`, and all four peak at the same
+step.
+
+**Measured level-3 SERIAL np1 cost breakdown** (from the member's own `COST`
+line, job `f3ayuwpvn8yV`):
+
+```
+claim A (2000 direct steps + 81 FMM evaluations + 82 comparator calls)  166.051 s  (0.0830 s/step)
+  of which compare_output.py                                             35.408 s
+claim B (2000 FMM-driven steps)                                        2313.059 s  (1.1565 s/step)
+fmm_divergence_ladder.py                                                  1.904 s
+peak RSS this rank                                                    1060488 kB
+```
+
+**Claim B is 93% of the member.** That single fact is what moved the tier to
+`pbatch`.
+
+**What the level-3 member measured, all of it green:**
+
+- **Claim A**: worst relative velocity error **`3.0958115097968656e-4`** at step
+  250 over 81 states, against τ_A `1e-3` — a **3.2x** margin, and **no late
+  state exceeded the bound**, which was the open question the task flagged (τ_A
+  had only ever been measured five steps off the initial condition). The
+  realized P2P pair fraction ran **`0.715434 .. 0.943401`** across the 81
+  states. Level 3's far field is a **minority at 14.5%** of pairs, so this
+  claim is mostly a P2P comparison and **the far-field accuracy claim rests on
+  level 4** — the member says so in its own log line rather than leaving the
+  figure to be read as a far-field result.
+- **Claim B**: reached step 2000, final volume drift **`3.3494265139211166e-09`**
+  (T5's L3 figure was `3.35e-9`), worst deviation from the reference series
+  **`0.0154072` at step 300** against the derived rtol `5.0e-2`. The final time
+  `1.9912479451710148` is **deliberately not** compared against the direct
+  trajectory's `1.9982839471431937`: under `--adaptive-dt` the timestep is a
+  function of the state, so an FMM-driven run is at a different physical time at
+  the same step, and asserting it would report the dt rather than the
+  trajectory.
+- **Horizon**, exactly on T5's envelope, with **zero unpairable steps**:
+
+```
+      rtol       atol   first failing step        envelope (T5)    verdict
+     1e-12      1e-14                   25                   25         ok
+     1e-10      1e-12                   25                   25         ok
+     1e-08      1e-10                   25                   25         ok
+     1e-06      1e-08                   25                   25         ok
+     1e-04      1e-06                   75                   75         ok  <- load-bearing
+```
+
+  Four of the five rungs have an envelope at the **first** checkpoint and
+  therefore cannot fail except at step 0; **the load-bearing rung is
+  `1e-4`/`1e-6`**. No rung is asserted to pass at step 2000 — at τ_A none will,
+  and one that did would be loose enough to be meaningless.
+- **All three negative cases fired.** The final state against the step-0 gold
+  exited exactly 1; the perturbed-state claim-A case failed naming τ_A
+  (unperturbed `1.7424347531906786e-4`, perturbed `2.0026226136893562e-3`
+  against τ_A `1e-3`); and a fabricated horizon of step 50 against the
+  load-bearing rung's envelope of 75 was rejected.
+
+### The tier's cost, and why `-t` is pbatch's ceiling rather than a measurement
+
+`run_milestone.flux` moved from `-q pdebug -t 60m` to **`-q pbatch -t 1440m`**.
+**The 1440m is not a measurement** — it is pbatch's 24 h cap, taken deliberately
+because the run that wears it *is* the measurement, which is the same pattern
+that set the old 60m from a 37.25-minute one.
+
+| launch | claim A | claim B | total | basis |
+| --- | --- | --- | --- | --- |
+| Fmm(L3) SERIAL np1 | 166.051 s | 2313.059 s | **2490 s** | **measured**, `f3ayuwpvn8yV` |
+| Fmm(L3) HIP np1 | 49.471 s | 252.374 s | **314 s** | **measured**, `f3azswSZ3fvw` |
+| Fmm(L3) HIP np4 | 68.851 s | 223.417 s | **302 s** | **measured**, `f3azswSZ3fvw` |
+| Fmm(L3) SERIAL np4 | ~200 s | 2500–13000 s | **2700–13200 s** | the widest term; see below |
+| FmmL4 HIP np1 | ~150 s | 2373 s | ~2520 s | T5 measured trajectory |
+| FmmL4 HIP np4 | ~150 s | 1411 s | ~1560 s | T5 measured trajectory |
+| FmmL4 SERIAL np1 | ~1100 s | **~21800 s** | ~22900 s | 2373 s x the 9.2x SERIAL/HIP ratio |
+| FmmL4 SERIAL np4 | ~700 s | ~13000 s | ~13700 s | extrapolated at HIP's np4 ratio |
+
+Against the frozen pair's measured 2235 s that is **roughly 13–17 h**, with
+most of the mass in **two SERIAL level-4 launches that have never been run**.
+Two things widen the band:
+
+- **The FMM per-step cost grows along the trajectory** (T5: 0.434 → 1.189
+  s/step), so any rate taken from early steps under-predicts. T5 already
+  measured a 25-step probe under-predicting this path by **2.7x**, which is why
+  no short probe was used to set `-t`.
+- **SERIAL rank scaling is the one genuinely unknown term**, for the reason
+  given above: the level-3 SERIAL np4 extrapolation says 5.4x slower than np1,
+  the level-3 HIP pair measured at the same particle count says 1.13x *faster*,
+  and only one of those can describe level-4 SERIAL np4. The low end of the
+  range above assumes SERIAL np4 scales like HIP's; the high end assumes it
+  pays the level-3 SERIAL penalty at level 4 too.
+
+**If the tier run is killed at the wall, the finding is that the tier does not
+fit `pbatch`** — not that a member needs shortening. Check the exit state, not
+the last log line: **R9** is exactly the mode where a truncated run reads as a
+shorter pass.
+
+### Departures from T6's stated Do steps
+
+- **The pre-submission check took two jobs, not one.** All four level-3 launches
+  do not fit `pdebug`'s 1 h cap — `SERIAL np1` alone is 2490 s of it. The task
+  anticipated this ("If step 2 does not fit `pdebug`, say so"). The second job
+  covers HIP only, through the override the script already documents. **No run
+  was shortened**: every launch in both jobs is the real member at 2000 steps.
+- **No step-count or checkpoint-interval override exists anywhere in the T6
+  path**, deliberately (**R9**). The one-off script has no such knob, and the
+  members compile `kSteps = 2000` and `kCheckpointEvery = 25` as constants.
+- **`--checkpoint-every-steps` stayed at 25**, so the tight-rung horizon is
+  localized only to "somewhere in steps 1-25". Narrowing it was out of scope —
+  it would make the horizon incomparable to T5's envelope.
+- **Two stale passages in `tasks/canopy/add-canopy.md` were corrected** as the
+  task directed: §"The order that reaches the target" now states T5's measured
+  outcome (measured/model 0.80, 0.77, 1.00, 1.72 at p=2..5; realized exponent in
+  θ **3.77** against the model's 3) instead of forward-referencing T5, and
+  **R1** now carries the measured far-field facts (level 3 has **exactly zero**
+  M2L cell pairs at `ncrit` ≥ 32; level 4 at `ncrit` 64 carries 14.6%) instead
+  of "at the default `ncrit` neither milestone-0 level has one".
+- **`docs/testing.md` was updated alongside `CLAUDE.md` and `README.md`.** The
+  tier description there carried the member count, the launch count and the
+  `-t 60m` sizing, all three of which T6 invalidates.
+
+### Build costs
+
+Roughly **5 minutes** wall for the two test sources alone (no Canopy-facing
+header was touched, so the 10–11 min / 90–100 CPU-min rebuild cost did not
+apply). All six binaries — `Beatnik_Test_Milestone0Fmm{,L4}_MPI_{SERIAL,OPENMP,HIP}`
+— are installed in the view, and the milestone manifest carries all six rows
+with the **correct per-level gold directory** in each.
+
+### What is deliberately missing from this entry
+
+**The `**Met.**` paragraph, the tier-run results and the `**Affects:**` line are
+not here, and their absence is intentional** — they belong to the session that
+reads the tier job. `T6` is **not DONE**. The handoff for that session is
+`T6-handoff.log` in the repo root, which names the job, what is already in the
+tree, what the numbers should be, and every failure branch.

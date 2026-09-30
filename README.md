@@ -288,10 +288,15 @@ implement and it isolates bugs in the rest of the code from the far-field solver
 > trajectory long before step 2000, so the FMM path has no gold-file comparison
 > at any rung the direct path passes, and none is coming — the milestone claims
 > for it are a per-evaluation bound plus a stability-and-divergence-horizon
-> measurement (`tasks/canopy/add-canopy.md`, task T6), which are not yet
-> written. **Pass `--br-approximation direct` for any run that must reproduce
-> the reference**, and read the figures below before using `fmm` for one that
-> must merely be accurate. The Riesz-scalar half of the FMM path
+> measurement. Task T6 (`tasks/canopy/add-canopy.md`) **has written those two
+> claims** into the `milestone`-tier members `Beatnik_Test_Milestone0Fmm` and
+> `Beatnik_Test_Milestone0FmmL4` — max relative velocity error $\le 10^{-3}$
+> over 81 direct-driven states, plus the divergence horizon of a 2000-step
+> FMM-driven trajectory. The full-tier run confirming them on both backends at
+> both rank counts is **still outstanding**, so treat the pair as
+> registered-but-unswept. **Pass `--br-approximation direct` for any run that
+> must reproduce the reference**, and read the figures below before using `fmm`
+> for one that must merely be accurate. The Riesz-scalar half of the FMM path
 > (`--bernoulli-scalar-mode surface-riesz`) is not implemented at all and
 > throws.
 

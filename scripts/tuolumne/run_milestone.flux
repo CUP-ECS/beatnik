@@ -2,9 +2,9 @@
 # flux: --job-name=beatnik_milestone
 # flux: --nodes=1
 # flux: --exclusive
-# flux: -t 60m
+# flux: -t 1440m
 # flux: --output={{name}}.{{jobid}}.log
-# flux: -q pdebug
+# flux: -q pbatch
 ############################################################################
 # Copyright (c) 2025 by the Beatnik authors                                #
 # All rights reserved.                                                     #
@@ -53,8 +53,53 @@
 # M0-A1's 40m estimate did not carry. 30m would have killed the second member
 # partway and 40m left ~1% of margin -- and M0-R8 is exactly the failure mode
 # where a truncated run reads as a shorter pass, so this is 60m -- the same cap
-# M0-D1's own sweep ran under in pdebug. Raise it again,
-# with the measurement, if a third member lands.
+# M0-D1's own sweep ran under in pdebug.
+#
+# T6 LANDED TWO MORE MEMBERS AND THE TIER NO LONGER FITS pdebug AT ALL. The
+# queue moved to `pbatch` (24 h cap; pdebug caps at 1 h) and the walltime to
+# 1440m for the FIRST run with the FMM members in it. **That 1440m is NOT a
+# measurement -- it is pbatch's ceiling, taken deliberately because the run
+# that wears it IS the measurement.** Unlike the four figures above, the
+# dominant launches here are extrapolated, and the extrapolation is the
+# unmeasured one:
+#
+#   measured   T6 level-3 member, SERIAL np1, WHOLE member  2490 s
+#              (claim A 166 s + claim B 2313 s; job f3ayuwpvn8yV)
+#   measured   T6 level-3 member, HIP np1, WHOLE member      314 s
+#              (claim A 49.5 s + claim B 252.4 s; job f3azswSZ3fvw)
+#   measured   T6 level-3 member, HIP np4, WHOLE member      302 s
+#              (claim A 68.9 s + claim B 223.4 s; job f3azswSZ3fvw)
+#   measured   T5 level-4 FMM trajectory, HIP np1           2373 s
+#   measured   T5 level-4 FMM trajectory, HIP np4           1411 s
+#   DERIVED    SERIAL/HIP for an FMM trajectory = 2313/252.4 = 9.2x, from which
+#              level-4 SERIAL np1 is ~21800 s (6.1 h) -- the single largest
+#              launch in the tier, and never run.
+#   NOT MEASURED AT ALL: level-3 SERIAL np4, and BOTH level-4 SERIAL launches.
+#
+# Summing the eight FMM launches against the frozen pair's measured 2235 s puts
+# the tier at roughly **13-17 h**, with most of the mass in the two unmeasured
+# SERIAL level-4 launches. Two things widen the band:
+#
+#   1. The FMM per-step cost GROWS along the trajectory (T5: 0.434 -> 1.189
+#      s/step), so any rate taken from early steps under-predicts. T5 measured
+#      a 25-step probe under-predicting this path by 2.7x, which is why -t is
+#      never set from a short probe.
+#   2. **SERIAL rank scaling is the one genuinely unknown term.** The level-3
+#      SERIAL np4 launch in f3ayuwpvn8yV was killed 628 s in having reached
+#      claim B step 150, which extrapolates to ~5.4x SLOWER per step than np1.
+#      But the HIP pair measured right after shows np4 1.13x FASTER than np1 at
+#      the same level and particle count (223.4 s against 252.4 s), and level-4
+#      HIP np4 is 1.7x faster than np1 -- so the "642 particles over 4 ranks is
+#      MPI-overhead-bound" reading does NOT generalize off the SERIAL backend.
+#      Whether SERIAL np4 pays that penalty at level 4 too is the widest single
+#      term left, and it is why -t is the ceiling rather than a tight figure.
+#
+# **Set this from the first run's measured total, with margin, as a header
+# comment -- and do not run the tier a second time to do it** (the established
+# pattern: the 60m above was set from a 37.25-minute measurement). If that run
+# is KILLED AT THE WALL, the finding is that the tier does not fit pbatch, not
+# that it needs a shorter member: check the exit state, because M0-R8/R9 is
+# exactly the mode where a truncated run reads as a shorter pass.
 ############################################################################
 
 set -u

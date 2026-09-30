@@ -140,12 +140,20 @@ add_subdirectory(unit_tests)
 set(_beatnik_compare_dir ${CMAKE_CURRENT_SOURCE_DIR}/regression_tests)
 set(_beatnik_compare_py ${_beatnik_compare_dir}/compare_output.py)
 set(_beatnik_fixture_dir ${_beatnik_compare_dir}/fixtures)
+# T6's two FMM milestone members read their divergence horizon out of this
+# tool's --json. It is NOT the comparator and must not be substituted for it:
+# compare_output.py's quantized-lexsort pairing degenerates silently on an
+# FMM-driven run, which is the whole reason this second instrument exists (see
+# its module docstring). It imports milestone0_ladder and compare_output from
+# its own directory, so all three are installed side by side below.
+set(_beatnik_ladder_py ${_beatnik_compare_dir}/fmm_divergence_ladder.py)
 
 # Paths RELATIVE TO THE INSTALLED share/Beatnik/tests directory, used both by
 # the install rules below and by the manifest the installed-binary path reads.
 # Keeping the repo's own directory layout under one install root is what lets
 # the same relative arguments work in both places -- see the install section.
 set(_beatnik_rel_compare_py regression_tests/compare_output.py)
+set(_beatnik_rel_ladder_py regression_tests/fmm_divergence_ladder.py)
 set(_beatnik_rel_fixtures regression_tests/fixtures)
 
 ##--------------------------------------------------------------------------##
@@ -432,6 +440,21 @@ set(BEATNIK_MILESTONE_TEST_SOURCES
   Beatnik_Test_Milestone0Frozen.cpp
   # M0-T3: the same test at subdivision 4 -- the second member.
   Beatnik_Test_Milestone0FrozenL4.cpp
+  # T6 (tasks/canopy/add-canopy.md): the FMM members. Each asserts TWO claims
+  # in one binary -- a per-evaluation velocity bound on 81 direct-driven states
+  # and the stability plus divergence horizon of a 2000-step FMM-driven
+  # trajectory -- because the two need different trajectories and only one of
+  # them can be a gold comparison. They take a THIRD argument the frozen pair
+  # does not, the divergence ladder; see the argument lists below.
+  #
+  # THEY ARE EXPENSIVE, and the arithmetic is not "twice an existing launch":
+  # an FMM-driven step costs ~140x a direct one at 2562 vertices over 2000
+  # steps, so one level-4 claim-B trajectory alone is 2377 s at HIP np1 where
+  # the whole existing level-4 member is 22 s. That is what moved
+  # scripts/tuolumne/run_milestone.flux to -q pbatch. THE GATE IS UNCHANGED:
+  # still five `regression` members and 60 launches.
+  Beatnik_Test_Milestone0Fmm.cpp
+  Beatnik_Test_Milestone0FmmL4.cpp
   )
 
 # The tier's rank sweep, overridable exactly as BEATNIK_TEST_MPI_RANKS is.
@@ -471,6 +494,32 @@ set(_beatnik_args_Beatnik_Test_Milestone0FrozenL4_abs
 set(_beatnik_args_Beatnik_Test_Milestone0FrozenL4_rel
   regression_tests/milestone0-sub4-2000-steps/gold
   ${_beatnik_rel_compare_py})
+
+# T6, both members. THREE arguments, not two: the gold DIRECTORY for this
+# level, the comparator (claim A's 81 gold comparisons, unchanged -- a
+# direct-driven run satisfies its pairing precondition by nine decades), and
+# the divergence ladder (claim B's horizon, which the comparator CANNOT
+# measure). **The gold directories are the frozen members' own**: claim A
+# drives the identical trajectory, so no new gold set exists and none is
+# needed. The level in each path must match the level the source compiles at
+# (BEATNIK_M0_FMM_LEVEL, 3 by default and 4 in the L4 stem).
+set(_beatnik_args_Beatnik_Test_Milestone0Fmm_abs
+  ${_beatnik_m0_sub3_dir}/gold
+  ${_beatnik_compare_dir}/compare_output.py
+  ${_beatnik_ladder_py})
+set(_beatnik_args_Beatnik_Test_Milestone0Fmm_rel
+  regression_tests/milestone0-sub3-2000-steps/gold
+  ${_beatnik_rel_compare_py}
+  ${_beatnik_rel_ladder_py})
+
+set(_beatnik_args_Beatnik_Test_Milestone0FmmL4_abs
+  ${_beatnik_m0_sub4_dir}/gold
+  ${_beatnik_compare_dir}/compare_output.py
+  ${_beatnik_ladder_py})
+set(_beatnik_args_Beatnik_Test_Milestone0FmmL4_rel
+  regression_tests/milestone0-sub4-2000-steps/gold
+  ${_beatnik_rel_compare_py}
+  ${_beatnik_rel_ladder_py})
 
 foreach(_src ${BEATNIK_MILESTONE_TEST_SOURCES})
   get_filename_component(_stem ${_src} NAME_WE)
@@ -724,6 +773,18 @@ if(Beatnik_INSTALL_TEST_EXECUTABLES)
 
   # The comparator itself. PROGRAMS, not FILES, so it keeps its exec bit.
   install(PROGRAMS ${_beatnik_compare_dir}/compare_output.py
+          DESTINATION ${_beatnik_test_install}/regression_tests)
+
+  # T6: the divergence ladder, and milestone0_ladder.py WITH it. The ladder is
+  # not self-contained -- it puts its own directory on sys.path and imports
+  # `RUNGS` and `steps_in` from milestone0_ladder and `load_any` from
+  # compare_output, deliberately, so the three tools cannot disagree about what
+  # a rung is or what a dataset is called. Installing the ladder alone would
+  # therefore produce an ImportError at the point in an hours-long member where
+  # claim B reads its horizon. All three land in the same installed directory,
+  # which is what makes that sys.path insert resolve.
+  install(PROGRAMS ${_beatnik_compare_dir}/fmm_divergence_ladder.py
+                   ${_beatnik_compare_dir}/milestone0_ladder.py
           DESTINATION ${_beatnik_test_install}/regression_tests)
 
   # The committed synthetic fixtures the two comparator cases load. A
