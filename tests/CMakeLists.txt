@@ -626,6 +626,13 @@ set(BEATNIK_DRIVER_SOURCES
   # compiles, and a measurement carrying its own pass criterion would assert
   # the thing it exists to measure (risk R1).
   Beatnik_Test_FmmScan.cpp
+  # T3 (tasks/add-canopy-t6.md): the M2L operator-key DEMAND probe. Drives the
+  # milestone-0 direct trajectory at the level given on the command line and
+  # prints, PER RANK AND UNREDUCED, the demanded key count against the
+  # admitted one at every checkpointed step. Asserts nothing about any
+  # measured value -- T8 decides what to do about the demand, and a probe that
+  # asserted on it would be a test that gets tuned (risk R6).
+  Beatnik_Probe_FmmKeyDemand.cpp
   )
 
 foreach(_src ${BEATNIK_DRIVER_SOURCES})

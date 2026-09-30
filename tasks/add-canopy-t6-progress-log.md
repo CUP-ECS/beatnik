@@ -562,3 +562,223 @@ no longer reachable in this env and the chance to observe it is gone.
 - **T4, T6, T8, T9a, T9b** — none. T2 added no gate member, changed no
   tolerance, no cap and no signature, and the level-3 member's cost is
   unmoved at 316 s / 301 s on HIP.
+
+## T3
+
+Beatnik only, three files: a new
+`tests/regression_tests/Beatnik_Probe_FmmKeyDemand.cpp` (**783 lines**), a new
+`scripts/tuolumne/t6b_key_demand.flux` (**216 lines**), and **+7 lines, −0** in
+`tests/CMakeLists.txt` — one entry appended to `BEATNIK_DRIVER_SOURCES` with
+its comment. `git diff --stat` touched nothing else: no header, no member, no
+Canopy file, no `README.md`, no `CLAUDE.md`, no `docs/testing.md`.
+
+### Decisions taken as given by the task, recorded so they are not reopened
+
+- **T3 ran before T4 and `+profiling` was NOT added to
+  `/g/g20/stewartj/spack_envs/tuolumne_beatnik/spack.yaml`.** The env still
+  concretizes `canopy@develop~cuda~examples~ipo~openmp~openmptarget~profiling`
+  (confirmed by `spack find --variants canopy` at submission time, and echoed
+  into the job log), which is the only reason the `-1` sentinel is observable
+  at all. After T4 it is unreachable in this env and the observation cannot be
+  retaken. Turning the variant on is T4's task.
+- **`scripts/tuolumne/t6b_key_demand.flux` carries only the level-3 validation
+  launch.** T5 extends this same file with the level-4 matrix; that matrix was
+  not written now. The file's header says so, and says why the level-4 queue
+  and `-t` decision belongs to T5 (one level-4 FMM trajectory is 2 373 s at HIP
+  np1, per T0).
+- **Validation is HIP at np1 and np4, level 3 only.** np4 is the only launch
+  that exercises the per-rank unreduced printing at all. **The `_MPI_SERIAL`
+  target builds and `beatnik_exe` resolves it — the runner resolves it and
+  prints the path — but it is NOT launched and nothing is claimed for it.**
+- **No `README.md`, `CLAUDE.md` or `docs/testing.md` change, confirmed rather
+  than assumed.** `grep -n` over the three for `BEATNIK_DRIVER_SOURCES`,
+  `Beatnik_Test_FmmScan`, `Beatnik_Test_Milestone0Run` and "Measurement driver"
+  returns **exactly one hit**, `README.md:662` — and it is not documentation of
+  the driver loop but a *Known Issues* reproduce recipe,
+  `Beatnik_Test_Milestone0Run <L> 2000 25 fmm 8 3`, for the comparator's
+  mis-pairing bug. The probe does not appear in that recipe and does not change
+  it. So: none of the three documents the loop, the probe adds no tier member,
+  and no example's accepted arguments move — no change is owed to any of them.
+
+### The probe, as implemented
+
+`argv[1]` is the level and there is no second argument — no step-count
+override, deliberately. The trajectory is claim A's: **direct**, frozen
+connectivity, 2000 steps, checkpoint every 25, which is the gold sets' own 81
+states. At each of them the preconditions are established in
+`evaluateClaimA`'s order (halo exchange, geometry at current positions, sheet
+vector) and `computeInterfaceVelocity` is called **once**, on the FMM solver
+only. **No direct comparator and no comparator subprocess** — this measures
+demand, not error, and dropping them is most of why it is so much cheaper than
+the member.
+
+The FMM solver is constructed **once, outside the loop**, exactly as claim A
+does. That is load-bearing rather than tidy: a solver rebuilt per state would
+report a cold cache at every state and `keys_built_delta` — R4's whole
+instrument — would measure nothing.
+
+### Three shape departures from T3's stated Do steps
+
+- **The header is printed AFTER the step-0 evaluation, not before it.** Step 4
+  asks the header to carry `bytes_per_key` and whether the build reports demand
+  at all, and **neither exists until one evaluation has run**:
+  `FarFieldDiagnostics` is default-constructed before that, so a header emitted
+  first would have printed `bytes_per_key=0` and `demand_available` read off a
+  `-1` that was the struct's initializer rather than Canopy's answer — which is
+  precisely the reading R7 exists to prevent. Step 0 is therefore measured
+  first, the header printed from its diagnostics, then step 0's own row. The
+  header still appears above every row in the log, which is what step 4 is for.
+- **`local_m2l_cells_at_max_depth` is in the row, beyond step 3's eleven
+  fields.** T3's exit criterion checks it in the same rows as
+  `local_m2l_occupied_depths`, so it has to be printed there. `keys_built_delta`
+  is likewise printed per row rather than only in the trailer, because R4's
+  signature is the per-evaluation increment and reading it from a peak alone
+  would not show that it is the same at *every* state (it is — see below).
+- **`demand_available` is reduced both ways (`MPI_MIN` and `MPI_MAX`) and the
+  two compared**, rather than read off rank 0. It is a compile-time property and
+  so cannot legitimately differ between ranks; a disagreement would mean the
+  ranks are not running the same binary, which is worth failing on here rather
+  than inferring later from a ragged demand column.
+
+Nothing else departed. The registration is one line in `BEATNIK_DRIVER_SOURCES`
+and no other CMake change — the loop already supplies the per-backend generated
+TU, the build, the install and the absence of a label, an `add_test` and a
+manifest line.
+
+### Build
+
+`spack install` in the dev env, exit 0, **12 m 20 s**, `beatnik@develop` hash
+`4bhhtbd`. `canopy@develop` was **cached and did not rebuild** — nothing under
+`canopy/` changed since T2 compiled T1's working-tree edits. **No `touch` was
+needed and none was done**: `tests/CMakeLists.txt` changed, so cmake reran and
+the two new targets are new translation units rather than stale ones. The
+12-minute figure is a full reconfigure-and-rebuild and matches T2's 11 m 13 s;
+the header-only no-op trap T2 warns about does not apply to a change that moves
+a CMake list.
+
+`HIPCC_LINK_FLAGS_APPEND` and `HIPCC_COMPILE_FLAGS_APPEND` were cleared before
+installing, per the system doc. The install exceeded a single command timeout,
+as T2 found, and was backgrounded and waited on.
+
+### Measured: job `f3bQSGSss6RD`, HIP, level 3, ranks 1 and 4
+
+`-q pdebug -t 30m`, at commit `0377307` + 3 modified files. `flux jobs` reports
+`COMPLETED` returncode `0` after **93.20 s**.
+
+| launch | runner wall | trajectory wall | 81 evaluations | checks |
+| --- | --- | --- | --- | --- |
+| HIP np1 | **24 s** | 15.216 s | 4.0435 s | `174/174` |
+| HIP np4 | **43 s** | 35.580 s | ~3.65 s per rank | `174/174` x 4 |
+| total | **67 s** | — | — | `SUMMARY: PASS (2/2 launches)` |
+
+**Far below the budget.** The task sized this against level-3 claim A's 166 s;
+the probe is 24 s because it omits the direct comparator and the per-state
+Python comparator subprocess. `-t 30m` is accordingly very generous, and T5
+should size the level-4 matrix from the FMM evaluation cost rather than from
+this total.
+
+**np4 is SLOWER than np1 here** — 43 s against 24 s — which is the level-3
+rank-4 penalty T0 measured at both levels, unchanged: 642 vertices over four
+ranks is communication-dominated and the 81 evaluations themselves are
+marginally *cheaper* per rank (3.65 s against 4.04 s).
+
+### The `-1` sentinel, observed at runtime for the first time (R7)
+
+T2 established it statically from three facts and said the runtime confirmation
+was T3's. It is now taken, and it is unambiguous. Over all **405** rows (81 x 1
+plus 81 x 4):
+
+- `demand=-1` in **405 of 405**; rows reading demand as anything else: **0**.
+- `demand_saturated=0` in **405 of 405**.
+- `occupied_depths` ranges **4 to 6**, `cells_at_max_depth` is **non-zero in
+  every row**, and neither is ever negative. **The ungated half is live**, so a
+  `-1` there would have been the probe's own bug and was not.
+- Both headers print `demand_available=0` and the loud
+  `*** DEMAND UNAVAILABLE ***` line naming `~profiling` as the cause and saying
+  in as many words that `-1` is not zero demand.
+- The trailer reports `first_exceed_step=-1`, `peak_demand=-1`,
+  `peak_demand_step=-1` rather than "never exceeded" — the sentinel propagates
+  into the derived figures instead of becoming a measurement there.
+
+R5's check passed at both rank counts: `ncrit` 8, `order` 3,
+`cartesian-taylor`, `mac_theta` 0.3, `max_depth` 10, `near_softening_factor` 0,
+all echoed out of `fmm.farField().params()` and matched against the literals.
+
+### What only running revealed
+
+- **R4's "cache retains nothing" signature is confirmed, and it is total.**
+  `keys_built_delta == unique_ops` in **405 of 405 rows** — zero mismatches, at
+  both rank counts, at every one of the 81 states. Every evaluation rebuilds
+  the *entire* admitted column set; the persistent cache carries nothing across
+  a rebuild. `keys_built` reaches **250 098** at np1 by step 2000 against a
+  resident `cache` of **3 592**. This is measured at level 3, where the cap does
+  not bind, so it is the *clean* form of the signature: the rebuild is not a
+  consequence of overflow. **T8's branch A — raise the cap — therefore pays the
+  full cap in rebuild cost at every evaluation**, and this is the evidence its
+  criterion asks for, available before any level-4 run.
+- **Level 3 cannot exercise the overflow path at all, and this run is a
+  mechanism check rather than a measurement.** Peak `unique_ops` is **6 404**
+  against the **32 768** cap, `global_m2l_fallback` is **0** in all 405 rows,
+  and the `[Canopy] M2L op count exceeded cap` warning appears **zero** times.
+  That is the expected result and not a contradiction of T0: the level-3 member
+  declares `kFarFieldIsLive = false` and `kP2PFractionBound = 1.0`
+  (`Beatnik_Test_Milestone0Fmm.cpp:468`), and the probe measured
+  `p2p_pair_fraction` between **0.70847** and **0.94521** there — level 3 is
+  mostly a direct sum by design. **Do not read T3's zero fallback as evidence
+  about level 4.**
+- **The p2p fraction at level 3 exceeds the level-4 bound at most states, and
+  the probe is right not to assert on it.** 0.945 is far past level 4's
+  `kP2PFractionBound = 0.75`. A probe that had copied the level-4 bound as a
+  compiled literal would have failed 405 times against a correct run — the
+  concrete reason the "probe assertions: none" convention is not merely
+  fastidious.
+- **The per-rank columns really do differ, so the unreduced printing earns its
+  cost.** At step 1000, np4: `unique_ops` 852 / 809 / 902 / 980,
+  `occupied_depths` 6 / 5 / 6 / 6, `cells_at_max_depth` 2 / 19 / 4 / 6. A mean
+  over those four would have reported a tree that no rank has.
+- **`flux job status <jobid>` worked exactly as T2 reported**, on a job
+  submitted without `--flags=waitable`, and blocked to completion. No
+  submission was spent rediscovering the `FLUX_JOB_WAITABLE` refusal.
+- **The probe writes 82 `.h5` per launch, not 81** — the 81 numbered
+  checkpoints plus `checkpoint_latest.h5`, beside the grouped-IO master
+  `checkpoint.xmf`. Worth knowing before a later task counts files to decide a
+  series is complete.
+
+### Departures from the standing rules: none
+
+clang-format was **not** run, per the standing rule, on two files written by
+hand in the surrounding style. Nothing was committed or pushed, in this repo or
+in the Canopy clone; T1's Canopy edits remain uncommitted working-tree
+modifications at `develop` commit `d3145e0` and `spack develop` continues to
+compile them in place.
+
+**Affects:**
+- **T4** — the `-1` observation it makes unreachable **has now been taken**, so
+  T4 is unblocked with nothing left to preserve. After T4 this same runner at
+  the same level should print `demand_available=1` and a real count; the
+  level-3 numbers above (peak `unique_ops` 6 404, `op_cap` 32 768, zero
+  fallback) are the *before* half of the comparison, and demand at level 3 must
+  come back **at or below 6 404 x (something small)** and certainly under the
+  cap — a level-3 demand above 32 768 after T4 would mean the counter, not the
+  tree, is wrong.
+- **T5** — inherits this runner and this output format verbatim, and three
+  things shape what it does with them. First, **level 3 proves nothing about
+  overflow** (`kFarFieldIsLive = false` there); the level-4 matrix is the whole
+  measurement. Second, **the demand series must be read per rank from the `row`
+  lines**, whose rank tag is `rank=<r>/<n>`; the trailer already locates the
+  demand peak and its own step and the first cap exceedance *from the demand and
+  cap columns*, per **R3**, and the `[Canopy]` warning is not consulted anywhere
+  in the probe. Third, **budget from the evaluation cost, not from this
+  total**: the probe is 24 s at level 3 against claim A's 166 s because it drops
+  the direct comparator, so the level-4 launches are dominated by the 81 FMM
+  evaluations and the 2000-step direct trajectory, not by comparison.
+- **T8** — **branch A's rebuild-cost test is already answered in the
+  unfavourable direction.** `keys_built_delta == unique_ops` at 405 of 405
+  states means the operator cache retains nothing between evaluations even where
+  the cap does not bind, so raising the cap raises the per-evaluation rebuild
+  cost by the full amount of the raise. Branch A must be costed against that,
+  not against a hoped-for cache hit.
+- **T6, T7, T9a, T9b** — none. T3 added no gate member and no milestone member
+  (both manifests verified: 0 probe lines, milestone still 12 non-comment
+  lines), changed no tolerance, no cap and no signature, and touched no member
+  binary.

@@ -578,7 +578,7 @@ runtime.**
 
 ---
 
-### T3 — Beatnik: the demand probe binary — **NOT STARTED**
+### T3 — Beatnik: the demand probe binary — **DONE**
 
 **Depends on:** T2 **DONE**.
 **Fill in:** a new `tests/regression_tests/Beatnik_Probe_FmmKeyDemand.cpp`;
@@ -681,6 +681,51 @@ still concretizes, so it must print the loud "demand unavailable" line with
 `local_m2l_occupied_depths` and `local_m2l_cells_at_max_depth` read real
 non-zero counts, because `m2l_cells_at_depth()` is ungated and live in this
 build. A probe reporting `-1` for those two is reporting its own bug.
+
+**Met.** `spack install` in the dev env exited 0 in **12 m 20 s**
+(`beatnik@develop` hash `4bhhtbd`; `canopy@develop` was cached and did not
+rebuild), and both per-backend targets resolve through `beatnik_exe` to
+`…/.spack-env/view/share/Beatnik/tests/Beatnik_Probe_FmmKeyDemand_MPI_SERIAL`
+and `…_MPI_HIP`. **R6, against both installed manifests located by scanning
+`$PATH`** — both files were *found*, so the `grep -c` reads are real and not the
+exit-2 silence the task warns about: `grep -c Beatnik_Probe_FmmKeyDemand`
+returns **0** in `beatnik_milestone_manifest.txt` and **0** in
+`beatnik_gate_manifest.txt`, and the milestone manifest still carries its **12**
+non-comment lines (the gate manifest's 15 are likewise unmoved). Job
+**`f3bQSGSss6RD`** (`-q pdebug`, `-t 30m`) reports `COMPLETED` with returncode
+**0** after **93.2 s**, both launches passing: HIP np1 in **24 s** and HIP np4 in
+**43 s**, each rank reporting `[PASS] Beatnik_Probe_FmmKeyDemand (174/174
+checks)` — five such lines, one from np1 and four from np4, which is the
+per-rank printing itself. The probe's own clocks: trajectory wall **15.216 s**
+(np1) and **35.580 s** (np4), of which the 81 FMM evaluations are **4.0435 s**
+and about **3.65 s** per rank. The `_MPI_SERIAL` target was resolved by the
+runner and deliberately **not launched**; nothing is claimed for it.
+
+**The failure direction held exactly.** Across all **405** rows (81 states x 1
+rank plus 81 x 4) the demand column is **`-1` in every one** and
+`demand_saturated` is **`0` in every one** — zero rows read demand as `0`
+(**R7**) — and the header printed the loud `*** DEMAND UNAVAILABLE ***` line in
+both launches with `demand_available=0`. In those same 405 rows
+`local_m2l_occupied_depths` ranges **4 to 6** and `local_m2l_cells_at_max_depth`
+is **non-zero in every row**, with no negative value in either column: the
+ungated half is live, so the probe is not reporting its own bug. The per-rank
+columns genuinely differ at np4 — `unique_ops` 852 / 809 / 902 / 980 at step
+1000 — so the rank-local fields are unreduced rather than four copies of one
+number. **R5**: the five knobs echoed out of `fmm.farField().params()` matched
+the member's compiled literals at both rank counts (`ncrit` 8, `order` 3,
+`cartesian-taylor`, `mac_theta` 0.3, `max_depth` 10, plus
+`near_softening_factor` 0).
+
+**What the run does not establish, and must not be read as establishing:
+anything about overflow.** Level 3's peak `unique_ops` is **6 404** against the
+**32 768** cap, `global_m2l_fallback` is **0** in all 405 rows and the
+`[Canopy] M2L op count exceeded cap` warning appears **zero** times — because
+the level-3 member itself declares `kFarFieldIsLive = false` and
+`kP2PFractionBound = 1.0` (`Beatnik_Test_Milestone0Fmm.cpp:468`), and the probe
+measured `p2p_pair_fraction` between **0.708** and **0.945** there. T5's
+level-4 matrix is the only place the demand question is answerable. See
+`tasks/add-canopy-t6-progress-log.md` `## T3`, whose `**Affects:**` line carries
+this and the **R4** signature the run did turn up.
 
 ---
 
