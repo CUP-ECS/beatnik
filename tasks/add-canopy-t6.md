@@ -503,11 +503,17 @@ the single `readDiagnostics` override at `:829-845`.
 (`:279-283`) states the cache-thrash signature these fields are read against.
 **Do:**
 1. Add `int local_m2l_demanded_op_count = -1;`,
-   `bool local_m2l_demand_saturated = false;` and
-   `int local_m2l_cells_at_max_depth = 0;` plus an occupied-depth count
-   `int local_m2l_occupied_depths = 0;` derived from
-   `m2l_cells_at_depth()`. Document that `-1` means the Canopy build carries no
-   profiling, distinct from a genuine zero.
+   `bool local_m2l_demand_saturated = false;`,
+   `int local_m2l_cells_at_max_depth = 0;` and
+   `int local_m2l_occupied_depths = 0;`. Document that `-1` means the Canopy
+   build carries no profiling, distinct from a genuine zero. The last two are
+   derived from `m2l_cells_at_depth()` by a single scan, and the rule is not
+   the obvious one: the vector runs to `max_depth + 1` entries and carries
+   trailing zeros, so `local_m2l_occupied_depths` is the count of its
+   **non-zero** entries rather than its size, and
+   `local_m2l_cells_at_max_depth` is the value of its **last non-zero** entry —
+   the cell count at the deepest *occupied* depth — so that a tree shallower
+   than `max_depth` 10 reports a real count rather than an uninformative 0.
 2. Populate all four in `readDiagnostics` beside the existing five.
 3. **Callers of the changed interface**, enumerated: the pure virtual
    declaration at `:726`, its one override at `:829`, and the one call site at
@@ -519,7 +525,11 @@ the single `readDiagnostics` override at `:829-845`.
 test that reads `farField().diagnostics()` — `Beatnik_Test_Milestone0Fmm`'s
 level-3 member is the cheapest at 314 s on HIP np1 — still passes unchanged. In
 the failure direction: against a `~profiling` canopy the new field reads `-1`
-and not `0`, verified by the probe's own header line in T5.
+and not `0` (**R7**) — within T2 that is only statically true, since the
+accessors return their `-1` member default and `spack.yaml:16` still carries no
+`+profiling`, and nothing in Beatnik prints the field until T3's probe exists;
+the runtime confirmation is T3's own failure-direction criterion, which runs
+before T4 turns `+profiling` on.
 
 ---
 
