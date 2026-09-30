@@ -278,7 +278,8 @@ on both.**
 - **T6 remains IN PROGRESS in `tasks/canopy/add-canopy.md`.** The failing tier
   run's numbers are recorded nowhere; T0 records them.
 
-**Environment** (`/g/g20/stewartj/spack_envs/tuolumne_beatnik/spack.yaml`):
+**Environment** (`/g/g20/stewartj/spack_envs/tuolumne_beatnik/spack.yaml`, whose
+committed snapshot `systems/tuolumne/spack.yaml` is byte-identical to it):
 `canopy@develop` at `:16` carries **no** `+profiling`; `beatnik@develop` at
 `:17` carries `+testing +canopy +examples +profiling profiling_level=2` — a
 Beatnik variant, unrelated to `CANOPY_ENABLE_PROFILING`. This checkout is
@@ -733,24 +734,46 @@ this and the **R4** signature the run did turn up.
 
 **Depends on:** T1 **DONE** (there is nothing to read before the counter
 exists).
-**Fill in:** `/g/g20/stewartj/spack_envs/tuolumne_beatnik/spack.yaml:16` — the
-`canopy@develop` spec gains `+profiling`.
+**Fill in:** two files carrying the same spec, edited together —
+`/g/g20/stewartj/spack_envs/tuolumne_beatnik/spack.yaml:16`, the live env, and
+`systems/tuolumne/spack.yaml:16`, its committed snapshot in this repo. The
+`canopy@develop` spec gains `+profiling` in each.
+`systems/tuolumne/spack-production.yaml:8` is **not** touched — the production
+canopy spec keeps no `+profiling`. Also `systems/tuolumne/claude.md:51`.
 **Reference:** the variant is declared at
 `.spack/package_repos/COMPASS/spack_pkgs/spack_repo/compass/packages/canopy/package.py:39`
 with `profiling_level` at `:41`; the CMake resolution is
 `canopy/CMakeLists.txt:252-277` and the INTERFACE propagation
 `canopy/src/CMakeLists.txt:27-33`. Beatnik's own `+profiling profiling_level=2`
-at `spack.yaml:17` is a different variant and is left alone.
+at `spack.yaml:17` is a different variant and is left alone. The rule that binds
+the live env and its snapshot together is `systems/tuolumne/claude.md:43-44`,
+restated in §2 at `:64-66`, with the snapshot-to-env table at `:46-49`.
 **Do:**
-1. Add `+profiling` — bare, so the level resolves to 1. Do not set
-   `profiling_level`: the demand counter and the `[Canopy Diagnostics]` line are
-   gated on `CANOPY_ENABLE_PROFILING` alone, and level 2 adds detailed sub-phase
-   timers whose overhead the probe does not need.
-2. Pull the canopy and beatnik source clones to the intended commits, then
-   `spack install`. This targets the **development** env; do not touch the
+1. Add `+profiling` to the `canopy@develop` spec in **both** files — bare, so
+   the level resolves to 1. Do not set `profiling_level`: the demand counter and
+   the `[Canopy Diagnostics]` line are gated on `CANOPY_ENABLE_PROFILING` alone,
+   and level 2 adds detailed sub-phase timers whose overhead the probe does not
+   need.
+2. Keep the two byte-identical, which they are now: `diff` between them is the
+   check. The snapshot is what a later session reads when the live env is not to
+   hand, and a snapshot that has drifted describes a build nobody ran.
+3. **The intended state of both source clones is the working tree as it
+   stands.** The canopy clone is at `develop` commit `d3145e0` plus T1's
+   uncommitted edits to `src/Canopy_DownwardSweep.hpp` and
+   `tests/tstLaplaceSolve.hpp` — the demand counter itself, and the whole reason
+   the variant is being turned on — and the beatnik clone is at its current
+   `HEAD`. Do not pull either clone and do not commit the canopy one:
+   `canopy@=develop` is a `spack develop` spec (`spack.yaml:36-37`), so
+   `spack install` compiles those working-tree edits in place, and a pull would
+   move `develop` past the commit they sit on.
+4. `spack install`. This targets the **development** env; do not touch the
    production env, and never `spack install` against the production env while a
    production job is live — a running job whose executable pages change takes a
    SIGBUS (rc=135).
+5. Update `systems/tuolumne/claude.md:51`. It states a single difference between
+   the two committed snapshots; after this task there are two, in different
+   packages — beatnik's `profiling_level` (dev 2, prod 1) and canopy's
+   `+profiling`, which is dev-only.
 
 **Exit criterion:** the probe from T3, run at level 3 on one node, prints a
 header line reporting demand as a non-negative integer rather than `-1`, and its
