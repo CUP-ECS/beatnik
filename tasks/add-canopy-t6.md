@@ -1,6 +1,6 @@
 # Canopy M2L operator-key demand: measurement, then the cap
 
-**Status:** NOT STARTED
+**Status:** IN PROGRESS
 
 ## Problem
 
@@ -15,12 +15,13 @@ count cap:
 
 At `--icosphere-subdivisions 4` the level-4 interaction list stays under the cap
 through step 225, first trips it at step 250, and by step 1375 routes about
-13 000 pairs to the per-pair fallback. Three assertions fail as a result: the
-purity precondition `p.m2l_fallback == 0`
-(`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp:1456`), the same check
-on claim B's final state (`:1923`), and — at four to six of the 81 states — the
-accuracy bound `p.rel <= kTauA` itself, peaking at `1.2513e-3` against
-`kTauA = 1.0e-3` (`:320`).
+13 000 pairs to the per-pair fallback. Four assertion sites fail as a result:
+the purity precondition `p.m2l_fallback == 0`
+(`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp:1456`) at 71 of the 81
+states, the same check on claim B's final state (`:1923`), and — at four to six
+of the 81 states — **both** forms in which the member asserts the accuracy
+bound, `p.rel <= kTauA` (`:1461`) and `p.max_abs <= kTauA * p.scale` (`:1462`),
+peaking at `1.2513e-3` against `kTauA = 1.0e-3` (defined at `:320`).
 
 **The τ_A exceedance is not yet a measurement of the FMM.** The fallback path is
 the same mathematics reassociated — a different code path, bitwise different
@@ -145,7 +146,7 @@ on both.**
 | Cap knob name | `FmmConfig::m2l_op_count_cap`, `FmmParams::m2l_op_count_cap` | Mirrors `m2l_op_table_byte_budget` (`Canopy_Solver.hpp:95`, `Beatnik_Params.hpp:395`) in name, placement and plumbing. |
 | Cap knob default | `32768`, the current `M2L_OP_COUNT_CAP` | Every existing configuration's overflow set is unchanged bit-for-bit, which is the property the deviation note protects. |
 | CLI exposure | None | `m2l_op_table_byte_budget` has no CLI option and no Python counterpart; the count cap follows it. README needs no change, since no example's accepted arguments move. |
-| Probe tier | None | The probe is registered in no tier and appears in no manifest, so neither `ctest -L milestone` nor `run_milestone.flux` can pick it up. |
+| Probe tier | None | The probe goes in the **"Measurement drivers — IN NO TIER"** loop (`tests/CMakeLists.txt:585-665`), which is the milestone tier's loop stopped short: no `LABELS`, no `add_test`, no manifest append, and installed so `beatnik_exe` resolves it. It therefore appears in neither `beatnik_milestone_manifest.txt` nor `beatnik_gate_manifest.txt`, which in `spack` mode are the **only** observables — this checkout has no build tree of its own and `ctest -L milestone` reports zero tests whatever the probe does. |
 | Probe assertions | None | It measures. A probe that asserts is a test that will be tuned; this one exits 0 unless it cannot run at all. |
 | Scratch root | `BEATNIK_TEST_SCRATCH` on `/p/lustre5` | Checkpoints go through MPI-IO; a node-local scratch fails every launch spanning more than one node. |
 | Formatting | Never run clang-format, `clangformat.sh` or `cabana-format` | Write in the style of the surrounding code and leave formatting to the user. |
@@ -228,17 +229,20 @@ on both.**
 
 **Beatnik** (`/g/g20/stewartj/spack_envs/tuolumne_beatnik/beatnik`):
 
-- `FarFieldDiagnostics` (`src/Beatnik_FarFieldInterface.hpp:214-301`) already
-  carries `local_m2l_unique_op_count` (`:273`), `local_m2l_op_cache_size`
-  (`:277`), `local_m2l_op_keys_built` (`:283`), `local_m2l_bytes_per_key`
-  (`:292`) and `local_m2l_op_cap` (`:300`). All are populated in the single
-  `readDiagnostics` override at `:829-845`. `local_m2l_unique_op_count`'s
+- `FarFieldDiagnostics` (`src/Beatnik_FarFieldInterface.hpp:214-348`) carries
+  `local_m2l_unique_op_count` (`:273`), `local_m2l_op_cache_size` (`:277`),
+  `local_m2l_op_keys_built` (`:283`), `local_m2l_bytes_per_key` (`:293`) and
+  `local_m2l_op_cap` (`:301`), and beside them T2's four:
+  `local_m2l_demanded_op_count` (`:315`), `local_m2l_demand_saturated`,
+  `local_m2l_cells_at_max_depth` and `local_m2l_occupied_depths`. All nine are
+  populated in the single `readDiagnostics` override at `:875-918`
+  (declared `:772`, called `:1491`). `local_m2l_unique_op_count`'s
   comment describes it as read "against Canopy's per-rank 32768-key cap" — it
   is, and it saturates there.
 - `FmmParams` (`src/Beatnik_Params.hpp:167`) carries `mac_theta = 0.3` (`:194`),
   `order = 3` (`:229`), `ncrit = 64` (`:256`), `max_depth = 10` (`:291`) and
   `m2l_op_table_byte_budget` (`:395`), the last routed to `FmmConfig` at
-  `Beatnik_FarFieldInterface.hpp:995`. **There is no count-cap member.**
+  `Beatnik_FarFieldInterface.hpp:1068`. **There is no count-cap member.**
 - `m2l_op_table_byte_budget`'s doc comment (`Beatnik_Params.hpp:382-394`) states
   the current doctrine: "the constraint to act on is the count cap, and the
   response to realized overflow is a lower `max_depth` or `order`, not a
@@ -256,10 +260,21 @@ on both.**
 - The milestone tier has four members and sixteen launches, registered at
   `tests/CMakeLists.txt:439-495`, run by
   `scripts/tuolumne/run_milestone.flux` at `-q pbatch -t 1440m`.
+- **An assertion-free installed binary already has a home.**
+  `tests/CMakeLists.txt:585-665` is the **"Measurement drivers — IN NO TIER"**
+  loop, documented in place as the milestone loop stopped short of the point
+  where it applies a label: it writes one generated translation unit per backend
+  pinning `BEATNIK_TEST_EXEC_SPACE`, builds `<stem>_MPI_<BACKEND>`, installs to
+  `share/Beatnik/tests` so `beatnik_exe` resolves it — and then applies no
+  `LABELS`, calls no `add_test` and appends to neither manifest. Its source list
+  is `BEATNIK_DRIVER_SOURCES` (`:617-630`) and it carries two members,
+  `Beatnik_Test_Milestone0Run.cpp` and `Beatnik_Test_FmmScan.cpp`. There is no
+  `tools/` directory in this repo and no other home for such a binary.
 - `scripts/tuolumne/t6_l3_member.flux` is the precedent for a `pdebug`
   single-member script that invokes an installed test binary directly by reading
-  its arguments out of `beatnik_milestone_manifest.txt`. T5's runner follows its
-  structure.
+  its arguments out of `beatnik_milestone_manifest.txt`, which it locates by
+  scanning `$PATH` for the file (`:120-136`) — a manifest is a data file and
+  `which` cannot find one. T3's and T5's runners follow its structure.
 - **T6 remains IN PROGRESS in `tasks/canopy/add-canopy.md`.** The failing tier
   run's numbers are recorded nowhere; T0 records them.
 
@@ -493,7 +508,7 @@ extends these same cases and needs it.
 
 ---
 
-### T2 — Beatnik: mirror demand onto `FarFieldDiagnostics` — **NOT STARTED**
+### T2 — Beatnik: mirror demand onto `FarFieldDiagnostics` — **DONE**
 
 **Depends on:** T1 **DONE**.
 **Fill in:** `src/Beatnik_FarFieldInterface.hpp` — the struct at `:214-301` and
@@ -531,24 +546,77 @@ accessors return their `-1` member default and `spack.yaml:16` still carries no
 the runtime confirmation is T3's own failure-direction criterion, which runs
 before T4 turns `+profiling` on.
 
+**Met.** `spack install` of the dev env succeeded in **11 m 13 s** (beatnik
+`4bhhtbd`), preceded by a **37 s** canopy rebuild that is the first compile of
+T1's working-tree edits — and therefore the first instantiation of
+`m2l_cells_at_depth()` on the **CartesianTaylor** arm, which produced no
+template error and needed no Beatnik-side fix.
+
+`Beatnik_Test_Milestone0Fmm`'s level-3 member then ran unchanged at HIP np1 and
+np4 in job **`f3bQ3AzdBncF`** (`scripts/tuolumne/t6_l3_member.flux HIP`, commit
+`f94c9db` + 1 modified file): **`[t6l3] SUMMARY: PASS (2/2 launches)`**, with
+**`[PASS] Beatnik_Test_Milestone0Fmm (3097/3097 checks)`** at np1 and
+`3097/3097` on rank 0 plus `2919/2919` on ranks 1-3 at np4 — the same check
+counts T0 records for the passing level-3 launches. Wall times **316 s at np1
+and 301 s at np4**, 617 s together, against T0's **314 s** np1 baseline: a
+**+0.6 %** difference at np1, i.e. run-to-run noise, which is the expected
+result for four fields nothing yet reads. The backend override is announced in
+the log as designed; the SERIAL half was not run and is not claimed.
+
+**The `-1` sentinel is established statically, by three facts together**
+(**R7**). The env concretizes canopy as **`~profiling`** (`spack find
+--variants canopy`); the installed `Canopy::Canopy` INTERFACE target exports
+**no `INTERFACE_COMPILE_DEFINITIONS` property at all**
+(`share/cmake/Canopy/Canopy_Targets.cmake:61-66`) and `CANOPY_ENABLE_PROFILING`
+appears nowhere in Beatnik's own CMake, so the macro is undefined in every
+Beatnik translation unit; and in that case Canopy's `_m2l_demanded_op_count`
+keeps its **`-1`** member default, the only write to it being inside
+`#ifdef CANOPY_ENABLE_PROFILING` (`Canopy_DownwardSweep.hpp:1769-1771`). So
+`local_m2l_demanded_op_count` is `-1` and not `0` in this build. Nothing in
+Beatnik prints it yet, by design; **T3's probe is what observes it at
+runtime.**
+
 ---
 
 ### T3 — Beatnik: the demand probe binary — **NOT STARTED**
 
 **Depends on:** T2 **DONE**.
-**Fill in:** a new `tests/regression_tests/Beatnik_Probe_FmmKeyDemand.cpp` (or
-`tools/`, if a non-test installed binary already has a home — check
-`tests/CMakeLists.txt` and `examples/CMakeLists.txt` before choosing);
-`tests/CMakeLists.txt` for build and install only, with **no** label and **no**
-manifest line.
+**Fill in:** a new `tests/regression_tests/Beatnik_Probe_FmmKeyDemand.cpp`;
+`tests/CMakeLists.txt` — one entry appended to `BEATNIK_DRIVER_SOURCES`
+(`:617-630`) and nothing else, since that loop already supplies build, install,
+no label and no manifest line; a new `scripts/tuolumne/t6b_key_demand.flux`
+carrying the level-3 validation launch this task's exit criterion needs, which
+T5 **extends** with the level-4 matrix rather than creating.
 **Reference:** the state-driving sequence to reproduce is `evaluateClaimA`
-(`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp:1396-1436`) — one whole
+(`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp:1397-1437`) — one whole
 tuple halo exchange, geometry at current positions, then the sheet vector, in
-the order `Beatnik_ZModelSolver.hpp` steps 0-2 establish them. The parameter set
-is `makeParams` and `makeFmmParams` in the same file; the level switch is
-`BEATNIK_M0_FMM_LEVEL` (`:230-235`, `:250`). The launch and binding pattern is
-`scripts/tuolumne/t6_l3_member.flux`; the direct/FMM comparison harness pattern
-is `scripts/tuolumne/t3_fmm_velocity.flux`.
+the order `Beatnik_ZModelSolver.hpp` steps 0-2 establish them. The FMM knobs are
+that member's `makeFmmParams` (`:1027-1032`), which sets only `ncrit = kNcrit`
+and is level-independent, so it carries over verbatim.
+
+**The level-parameterization precedent is `Beatnik_Test_Milestone0Run.cpp`, not
+the member.** The member's `makeParams` (`:945`) reads the compile-time
+`kSubdivisions` (`:250`, from `BEATNIK_M0_FMM_LEVEL` at `:230-235`) and cannot
+take a level at runtime, and its `kVertices` (`:429`, `:511`) and
+`kP2PFractionBound` (`:468`, `:544`) live in per-level `#if` arms.
+`Beatnik_Test_Milestone0Run.cpp` is the driver that already solves this:
+`makeParams( int subdivisions, int steps, … )` (`:175`) takes the level as a
+parameter, `verticesForLevel( int )` (`:158`) computes `10*4^L + 2` rather than
+tabulating it — the arithmetic step 6's round-trip check needs — and `argv[1]`
+is the level (`:283`). The five values step 7 checks are all level-independent,
+so the probe needs no per-level literal table.
+
+The registration home is the **"Measurement drivers — IN NO TIER"** loop
+(`tests/CMakeLists.txt:585-665`), whose two existing members,
+`Beatnik_Test_FmmScan.cpp` and `Beatnik_Test_Milestone0Run.cpp`, are the closest
+structural precedents; `Beatnik_Test_FmmScan.cpp`'s file header states the
+in-no-tier contract and the P2P-fraction discipline the probe inherits. Because
+that loop generates one translation unit per backend, the probe's targets are
+`Beatnik_Probe_FmmKeyDemand_MPI_SERIAL` and `..._MPI_HIP`.
+
+The launch and binding pattern is `scripts/tuolumne/t6_l3_member.flux`, whose
+binding block is `:200-208`; the direct/FMM comparison harness pattern is
+`scripts/tuolumne/t3_fmm_velocity.flux`.
 **Do:**
 1. Drive the **direct** trajectory at a level selected on the command line (3 or
    4), at the milestone-0 configuration, `--checkpoint-every-steps 25`, 2000
@@ -580,17 +648,39 @@ is `scripts/tuolumne/t3_fmm_velocity.flux`.
    `ncrit`, `order`, `basis`, `mac_theta` and `max_depth` out of
    `fmm.farField().params()` and compare them against compiled-in literals that
    match `kNcrit` (`:340`), `kProductionOrder` (`:345`) and the values asserted
-   at `:1371-1386`, failing loudly on a mismatch. A probe measuring a different
+   at `:1376-1387`, failing loudly on a mismatch. All five are level-independent
+   — `ncrit` 8, `order` 3, `CartesianTaylor`, `mac_theta` 0.3, `max_depth` 10 —
+   so the check is one table, not one per level. A probe measuring a different
    configuration than the member is worse than no probe.
 
-**Exit criterion:** the binary is installed by `spack install` and
-`beatnik_exe Beatnik_Probe_FmmKeyDemand` resolves it;
-`ctest -N -L milestone` lists exactly the four existing milestone members and
-not the probe; `grep -c Beatnik_Probe_FmmKeyDemand
-$(dirname $(which beatnik_milestone_manifest.txt 2>/dev/null || echo
-/dev/null))/beatnik_milestone_manifest.txt` returns 0. In the failure direction:
-run at level 3 against a `~profiling` canopy and confirm it prints the loud
-"demand unavailable" line and still exits 0, rather than reporting demand as 0.
+**Exit criterion:** `spack install` succeeds and **both**
+`beatnik_exe Beatnik_Probe_FmmKeyDemand_MPI_SERIAL` and
+`beatnik_exe Beatnik_Probe_FmmKeyDemand_MPI_HIP` resolve; the per-backend suffix
+is not optional, since the driver loop names its targets `<stem>_MPI_<BACKEND>`
+and `beatnik_exe` in installed mode is `command -v <basename>` exactly
+(`scripts/lib/beatnik_env.sh:269-278`).
+
+**The tier check is against the two manifests, not against `ctest`.** Locate
+each by scanning `$PATH` for the file the way
+`scripts/tuolumne/t6_l3_member.flux:120-136` does, then confirm that
+`grep -c Beatnik_Probe_FmmKeyDemand` returns 0 in both
+`beatnik_milestone_manifest.txt` and `beatnik_gate_manifest.txt`, and that the
+milestone manifest still carries its **12** non-comment lines (four members x
+three backends). Neither manifest is reachable through `which` — they are data
+files, not executables — and a `grep -c` against a path that does not exist
+prints nothing and exits 2, which reads as a pass.
+
+Then a `pdebug` submission of `scripts/tuolumne/t6b_key_demand.flux` runs the
+probe at level 3 on HIP at np1 and np4 and exits 0, the np4 launch showing the
+rank-local fields printed once per rank rather than reduced.
+
+In the failure direction: that run is against the `~profiling` canopy this env
+still concretizes, so it must print the loud "demand unavailable" line with
+`local_m2l_demanded_op_count` at `-1` and `local_m2l_demand_saturated` at
+`false` — never demand as 0 (**R7**) — while in the same rows
+`local_m2l_occupied_depths` and `local_m2l_cells_at_max_depth` read real
+non-zero counts, because `m2l_cells_at_depth()` is ungated and live in this
+build. A probe reporting `-1` for those two is reporting its own bug.
 
 ---
 
@@ -629,8 +719,9 @@ binary compiled without the define cannot be the thing that ran.
 ### T5 — Measure the level-4 demand series — **NOT STARTED**
 
 **Depends on:** T3 **DONE**, T4 **DONE**.
-**Fill in:** a new `scripts/tuolumne/t6b_key_demand.flux`; results into
-`tasks/add-canopy-t6-progress-log.md`.
+**Fill in:** `scripts/tuolumne/t6b_key_demand.flux`, which T3 created for its
+level-3 validation launch and this task extends with the level-4 matrix; results
+into `tasks/add-canopy-t6-progress-log.md`.
 **Reference:** copy the runner structure, repo-root discovery, provenance block
 and rank-to-node binding from `scripts/tuolumne/t6_l3_member.flux` — the binding
 must be copied exactly, because a wrong binding does not fail, it
@@ -718,7 +809,7 @@ defaulted by a constant at `:556-557`.
    `effective_op_cap` read (`:1330`), the cache-overflow guard (`:1733`), the
    `:1755` bound check, the two message sites (`:1635-1636`, `:1688-1689`), the
    profiling printf (`:1683`), and in Beatnik `readDiagnostics`
-   (`Beatnik_FarFieldInterface.hpp:844`). The signature does not change, so
+   (`Beatnik_FarFieldInterface.hpp:890`). The signature does not change, so
    none needs editing; all are listed because each reads a number whose
    provenance moves from a constant to a config field.
 9. Extend the T1 test cases: one driving a small `m2l_op_count_cap` with a
@@ -740,9 +831,9 @@ yields zero columns with every pair on the fallback path.
 
 **Depends on:** T6 **DONE**.
 **Fill in:** `src/Beatnik_Params.hpp` (a new member beside `:395`, and the
-doc comment at `:382-394`); `src/Beatnik_FarFieldInterface.hpp:995`.
+doc comment at `:382-394`); `src/Beatnik_FarFieldInterface.hpp:1068`.
 **Reference:** `m2l_op_table_byte_budget` at `Beatnik_Params.hpp:395` routed at
-`Beatnik_FarFieldInterface.hpp:995` is the exact pattern — no CLI option, no
+`Beatnik_FarFieldInterface.hpp:1068` is the exact pattern — no CLI option, no
 Python counterpart, reaching one `FmmConfig` member.
 **Do:**
 1. Add `int m2l_op_count_cap = 32768;` to `FmmParams`, documented as reaching
@@ -750,7 +841,7 @@ Python counterpart, reaching one `FmmConfig` member.
    exists: under `FarFieldBasis::CartesianTaylor` the keys carry the tree level,
    so occupied depth multiplies the key count and this is the cap that binds.
    Cite the measured level-4 peak from T5.
-2. Route it at `Beatnik_FarFieldInterface.hpp:995` beside the byte budget.
+2. Route it at `Beatnik_FarFieldInterface.hpp:1068` beside the byte budget.
 3. Rewrite the doctrine paragraph at `Beatnik_Params.hpp:382-394`. It currently
    says "the response to realized overflow is a lower `max_depth` or `order`,
    not a smaller table" — true about the *byte budget*, and it must now also say
@@ -937,8 +1028,15 @@ with no symptom at all. T3 step 7 echoes those five out of
 
 **R6 — The probe is picked up by the tier runner.** A label or a manifest line
 would put an assertion-free binary into a tier, where it would report `PASS`
-unconditionally and inflate the tier's member count. T3's exit criterion checks
-both `ctest -N -L milestone` and the installed manifest.
+unconditionally and inflate the tier's member count. The
+`BEATNIK_DRIVER_SOURCES` loop (`tests/CMakeLists.txt:585-665`) forecloses this
+by construction — it applies no `LABELS`, calls no `add_test` and appends to
+neither manifest — and T3's exit criterion checks both installed manifests.
+**`ctest` is not the check.** In `spack` mode this checkout has no build tree of
+its own, and the tree spack builds in registers only
+`Beatnik_Example_02_adaptive_mesh_bubble_help`, so `ctest -N -L milestone`
+reports zero tests whether the probe is labelled or not — a green reading there
+is evidence of nothing.
 
 **R7 — `~profiling` demand reads as zero rather than unavailable.** A `0`
 returned instead of `-1` would read as "the tree wants no keys", which would
