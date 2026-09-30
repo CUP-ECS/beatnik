@@ -1929,10 +1929,17 @@ reference implementation's own fidelity.
 
 ## T6
 
-**INCOMPLETE BY DESIGN — see the closing note. `T6` is not DONE.** This entry
-was written by the session that implemented the two members and submitted the
-tier run; the tier's results, the `**Met.**` paragraph and the `**Affects:**`
-line belong to the session that reads that job.
+**`T6` is not DONE, and the tier run is why.** This entry was opened by the
+session that implemented the two members and submitted the tier run, and
+**completed in place** by the session that read that job (task `T0` of
+[../add-canopy-t6.md](../add-canopy-t6.md)). The tier came back **red**: 12 of
+16 launches green, all four `Milestone0FmmL4` launches red on Canopy's M2L
+operator-column count cap. The tier results are below, under *The tier run*;
+the `**Met.**` paragraph is still absent and stays absent until a green re-run,
+which is `T9b` of that document. The diagnosis of the cap and the work that
+follows from it live there. `T6-handoff.log` in the repo root was the handoff
+for this completion and is now spent — every branch it names is resolved in
+this entry.
 
 **Both members are written, registered and installed, and the level-3 member is
 green at full step count on both backends.** `Beatnik_Test_Milestone0Fmm`
@@ -2206,10 +2213,247 @@ apply). All six binaries — `Beatnik_Test_Milestone0Fmm{,L4}_MPI_{SERIAL,OPENMP
 — are installed in the view, and the milestone manifest carries all six rows
 with the **correct per-level gold directory** in each.
 
-### What is deliberately missing from this entry
+### The tier run: RED. 12 of 16 launches green, all four `FmmL4` launches red
 
-**The `**Met.**` paragraph, the tier-run results and the `**Affects:**` line are
-not here, and their absence is intentional** — they belong to the session that
-reads the tier job. `T6` is **not DONE**. The handoff for that session is
-`T6-handoff.log` in the repo root, which names the job, what is already in the
-tree, what the numbers should be, and every failure branch.
+**Job `f3azynKNQFCb`**, `flux batch scripts/tuolumne/run_milestone.flux`,
+`-q pbatch -t 1440m`. Log `beatnik_milestone.f3azynKNQFCb.log` in the repo root.
+**`[milestone] FAIL (label=milestone)`**, broker `Exited (rc=1)` after
+**31 265.7 s = 8.685 h** against the 24 h cap. No launch was cut off; the job
+ran to completion and failed on assertions, which is the only failure mode that
+leaves every measurement below usable.
+
+| launch | verdict | rank-0 checks |
+| --- | --- | --- |
+| `Milestone0Frozen` SERIAL np1 / np4 | **PASS** | 2337/2337 |
+| `Milestone0FrozenL4` SERIAL np1 / np4 | **PASS** | 2337/2337 |
+| `Milestone0Fmm` SERIAL np1 / np4 | **PASS** | 3097/3097 |
+| `Milestone0FmmL4` SERIAL np1 | **FAIL** | 3017/3097 |
+| `Milestone0FmmL4` SERIAL np4 | **FAIL** | 3017/3097 (2839/2919 elsewhere) |
+| `Milestone0Frozen` HIP np1 / np4 | **PASS** | 2337/2337 |
+| `Milestone0FrozenL4` HIP np1 / np4 | **PASS** | 2337/2337 |
+| `Milestone0Fmm` HIP np1 / np4 | **PASS** | 3097/3097 |
+| `Milestone0FmmL4` HIP np1 | **FAIL** | 3015/3097 |
+| `Milestone0FmmL4` HIP np4 | **FAIL** | 3013/3097 (2835/2919 elsewhere) |
+
+So the **frozen pair is fully green at both levels on both backends**, the
+**level-3 FMM member is fully green on both backends at both rank counts** —
+closing the `SERIAL np4` launch the pre-submission check could not finish — and
+**the level-4 FMM member is red on all four of its launches**. The failure is
+the same on all four, is not rank- or backend-dependent, and is not a tolerance
+that needs widening.
+
+### The failure, precisely: Canopy's M2L operator-column count cap
+
+One message, emitted to stderr once per overflowing interaction-list build:
+
+```
+[Canopy] M2L op count exceeded cap 32768 (count cap 32768, byte budget
+2147483648 B at 3200 B per key); remaining pairs route to fallback path.
+```
+
+**2732 occurrences in the `FmmL4` SERIAL np1 launch and 2733 in `FmmL4` HIP
+np1** — and **none anywhere else in the 20 613-line log**, consistent with
+level 3's zero fallback. Note for anyone reading a log for this signal: the two
+**np4** launches emit the message **zero times** despite non-zero fallback at 71
+of 81 states, so **the warning's presence in a log is not a per-launch
+indicator of overflow**; the fallback counter is. Read the counter.
+
+**Four distinct assertion sites fail**, not three — the τ_A bound fails in
+**both** of the forms the member deliberately asserts it in, which is what makes
+each exceeding state cost two checks:
+
+| site | expression | what it is | failures per rank |
+| --- | --- | --- | --- |
+| `Beatnik_Test_Milestone0Fmm.cpp:1456` | `p.m2l_fallback == 0` | claim A's per-state purity precondition | **71** in every launch |
+| `:1461` | `p.rel <= kTauA` | the bound, relative form | 4 / 4 / 5 / 6 |
+| `:1462` | `p.max_abs <= kTauA * p.scale` | the bound, absolute form | 4 / 4 / 5 / 6 |
+| `:1923` | `diag.global_m2l_fallback_pair_count == 0LL` | the same purity check on **claim B's own final state** | **1** in every launch |
+
+`71 + 4 + 4 + 1 = 80` is exactly `3097 − 3017` at SERIAL np1, and `71 + 6 + 6 +
+1 = 84` is exactly `3097 − 3013` at HIP np4. Nothing else failed.
+
+**Level 3 is clean on the same code path.** `m2l_fallback` is **exactly 0 at all
+81 states in all four level-3 launches**, so the cap is a level-4 phenomenon at
+this configuration, not a defect in the member.
+
+**Level 4 is clean through step 225 and trips at step 250.** The fallback column
+is 0 at the first ten checkpointed states — steps 0, 25, …, 225 — in every one
+of the four launches, and non-zero at all 71 states from step 250 on. The onset
+step is identical across backends and rank counts.
+
+**Fallback pair counts are globally reduced, and more ranks means *less*
+fallback.** The cap is **per rank**, so four ranks carry four times the key
+budget and overflow less: at step 1375 the count is **13 274** (SERIAL np1) and
+**13 420** (HIP np1) against **5 300** (SERIAL np4) and **5 392** (HIP np4).
+Claim B's own final state at step 2000 reports **3 938** at np1 against **2 610**
+at np4 the same way. Any demand or fallback figure from this member is
+**unreadable without its rank count**.
+
+**The fallback peak is not where the error peaks** — the error peaks at step
+1375, the fallback at **step 1650** (16 283 pairs SERIAL np1, 16 370 HIP np1).
+This is `R3` of [add-canopy-t6.md](../add-canopy-t6.md) observed, before the
+demand counter exists: whatever sizes the cap must be sized from the demand
+peak, not from the error peak.
+
+### Claim A at level 4: the four worst errors, and why they are not a measurement
+
+| launch | worst relative velocity error | at step | fallback there | realized P2P fraction (81 states) | states above τ_A |
+| --- | --- | --- | --- | --- | --- |
+| SERIAL np1 | `0.0012513022396595567` | 1375 | 13 274 | `0.205688 .. 0.394338` | **4** |
+| SERIAL np4 | `0.0012474182160902654` | 1375 | 5 300 | `0.207413 .. 0.397630` | **4** |
+| HIP np1 | `0.0012498660607555461` | 1375 | 13 420 | `0.207418 .. 0.394205` | **5** |
+| HIP np4 | `0.0012435185167586275` | 1375 | 5 392 | `0.206496 .. 0.396957` | **6** |
+
+All four peak at **step 1375**, at **1.2435x to 1.2513x** τ_A = `1e-3`. The
+P2P fraction runs **0.2057 .. 0.3976** across all four launches, comfortably
+under `kP2PFractionBound = 0.75`, so **the far field is genuinely live** — this
+is not a direct sum wearing an FMM's name.
+
+The offending steps, by launch:
+
+| launch | steps above τ_A |
+| --- | --- |
+| SERIAL np1 | 1000, 1350, 1375, 1475 |
+| SERIAL np4 | 1000, 1350, 1375, 1475 |
+| HIP np1 | 1000, **1325**, 1350, 1375, 1475 |
+| HIP np4 | **975**, 1000, **1325**, 1350, 1375, 1475 |
+
+So four steps are common to every launch and HIP adds 1325 at both rank counts,
+with HIP np4 adding 975 as well. The two extra steps are both marginal —
+`0.0010017067012314624` at HIP np1 step 1325 and `0.0010008550590611203` at HIP
+np4 step 975, i.e. 1.002x and 1.001x over — which is why they appear on one
+backend and not the other.
+
+**Every state above τ_A is a state with non-zero fallback**, verified
+state-by-state in all four launches. The fallback path is the same mathematics
+reassociated and bitwise different from the table path
+(`canopy/src/Canopy_CartesianTaylorBasis.hpp:510-517`), so **level-4 claim A has
+never been measured on a pure FMM path** and **this exceedance is not evidence
+about τ_A**. `kTauA` must not be widened on it. Establishing that path is the
+whole subject of [add-canopy-t6.md](../add-canopy-t6.md).
+
+### Claim A at level 3, for contrast
+
+| launch | worst relative velocity error | at step | fallback | P2P fraction |
+| --- | --- | --- | --- | --- |
+| SERIAL np1 | `0.00030977653582364744` | 250 | 0 | `0.707364 .. 0.949341` |
+| SERIAL np4 | `0.00030956117473918756` | 250 | 0 | `0.724571 .. 0.947875` |
+| HIP np1 | `0.00030945486992828075` | 250 | 0 | `0.724566 .. 0.943867` |
+| HIP np4 | `0.00030957978709796177` | 250 | 0 | `0.716132 .. 0.947987` |
+
+The tier's level-3 peak is **`3.0977653582364744e-4` at step 250** (SERIAL np1),
+a **3.23x margin** under τ_A, all four launches agreeing to four digits and all
+four peaking at the same step. This supersedes the pre-submission check's
+`3.0958115097968656e-4`: same step, same margin to two digits, a different run.
+
+### What was clean at level 4 — everything except the cap
+
+- **All five horizon rungs land exactly on T5's envelope** in every one of the
+  four launches: `25 / 25 / 25 / 25 / 50`, verdict `ok` on each, with the
+  load-bearing `1e-4`/`1e-6` rung at 50 against envelope 50.
+- **All three negative cases fired in every FMM launch**, level 3 and level 4
+  alike: claim A's final state against the step-0 gold exited exactly 1; the
+  perturbed-state case failed naming τ_A; and the fabricated horizon (step 25
+  against the load-bearing envelope of 50) was rejected.
+- **The unpairable window is exactly steps 1350–1900**, all 23 checkpointed
+  steps in it, identically in all four level-4 launches — T5's measured window,
+  neither a pass nor a failure. **Zero unpairable steps at level 3**, all four
+  launches.
+- **Volume drift is well inside the derived bound.** Level 4 final drift
+  `4.7032282513015389e-09` (np1) / `4.7032275851677241e-09` (np4), worst
+  deviation from the reference series **`0.0213767` at step 350** against
+  `kFmmVolumeDriftRtol = 5.0e-2` — the offline derivation predicted
+  `2.137678e-02` at step 350, confirmed to six digits by a real run.
+- **`FrozenL4` is green on both backends at both rank counts**, so the level-4
+  *geometry* and its gold set are not in question; only the FMM path at that
+  geometry is.
+
+### Measured tier cost: 31 265.7 s (8.685 h) against the 24 h cap
+
+The whole job: **31 265.7 s = 8.685 h**, about a third of `pbatch`'s ceiling.
+The FMM members' claim A + claim B account for **28 831.6 s**, the frozen pair
+for **2 192.4 s**, leaving roughly 242 s of runner and launch overhead.
+
+| launch | claim A | claim B | member total | claim B share |
+| --- | --- | --- | --- | --- |
+| `Fmm`(L3) SERIAL np1 | 177.439 s | 2 559.447 s | 2 736.9 s | 93.5% |
+| `Fmm`(L3) SERIAL np4 | 155.181 s | 6 014.210 s | 6 169.4 s | 97.5% |
+| `Fmm`(L3) HIP np1 | 46.005 s | 232.985 s | 279.0 s | 83.5% |
+| `Fmm`(L3) HIP np4 | 66.574 s | 213.568 s | 280.1 s | 76.2% |
+| `FmmL4` SERIAL np1 | **1 432.245 s** | 5 304.059 s | 6 736.3 s | 78.7% |
+| `FmmL4` SERIAL np4 | 522.673 s | **8 059.084 s** | 8 581.8 s | 93.9% |
+| `FmmL4` HIP np1 | 84.543 s | 2 365.838 s | 2 450.4 s | 96.5% |
+| `FmmL4` HIP np4 | 100.154 s | 1 497.626 s | 1 597.8 s | 93.7% |
+
+Frozen pair, from the members' own `[m0t3] COST` lines: L3 SERIAL 122.298 s /
+78.742 s, L4 SERIAL 1 334.190 s / 422.749 s, L3 HIP 41.717 s / 63.547 s, L4 HIP
+53.743 s / 75.427 s — **2 192.4 s** together, against M0-T3's measured 2 235 s
+for the same eight launches.
+
+**Claim B is 76–98% of every launch**, and that is the fact the whole
+measurement topic rests on: **key demand is a property of one interaction-list
+build at one geometry, and claim A already visits the geometries of interest.**
+Claim A at level 4 is 1 432 s SERIAL np1, 523 s SERIAL np4, **84.5 s HIP np1 and
+100.2 s HIP np4** — the two HIP claim-A halves together are **three minutes**,
+and all four together about **35 minutes**. A measurement of demand over the
+same 81 states therefore fits `pdebug`'s 1 h cap with room, which is what makes
+`tasks/add-canopy-t6.md`'s T3–T5 cheap.
+
+**Two cost predictions from this entry's own estimate table above
+(`:2146-2156`) were wrong in ways worth keeping.**
+The table's widest term, `Fmm`(L3) SERIAL np4 at 2 700–13 200 s, measured
+**6 169 s** — inside the band, and its claim B at 6 014 s against np1's 2 559 s
+confirms the **SERIAL-specific np4 penalty (2.35x slower)** that the level-3
+HIP pair had contradicted. It hits level 4 too: `FmmL4` SERIAL np4's claim B is
+8 059 s against np1's 5 304 s, **1.52x slower at four ranks**. Meanwhile
+`FmmL4` SERIAL np1 was predicted at ~22 900 s from the 9.2x SERIAL/HIP
+trajectory ratio and measured **5 304 s** — the realized ratio is **2.24x**, not
+9.2x, so the single biggest term in the estimate was **4.3x high** and that is
+most of the gap between the predicted ~13–17 h and the measured 8.685 h.
+
+### `run_milestone.flux` stays at `-t 1440m`
+
+Deliberately, and this departs from `T6-handoff.log` §6 step 3, which asked for
+`-t` to be set from the measured total. It is not set here because **the run
+that produced the measurement is red**, and its most expensive member does a
+different amount of work than a fixed version will: the fallback path that makes
+the level-4 member fail is also the path it spends time on, and whatever
+`tasks/add-canopy-t6.md` does about the cap — a larger operator table, a
+shallower tree, a different `order` — changes the cost of exactly that member.
+Re-timing now would bake in a cost that is about to change. The runner keeps
+`-q pbatch` and `-t 1440m`; `T9b` sets `-t` from the first green tier run.
+`CLAUDE.md` and `README.md` likewise keep saying the `1440m` is pbatch's
+ceiling and not a measurement, which is still true.
+
+### What this entry does not establish
+
+- **The OPENMP backend.** All six binaries are built and installed, but the
+  tier runs `backends='SERIAL HIP'` only. OPENMP has never been run in a tier.
+- **Claim A at level 4 on a pure FMM path.** This run is the first to evaluate
+  it over all 81 states, and it did so on a path contaminated by fallback at 71
+  of them. The number `1.2513e-3` is not a property of the expansion.
+- **Anything about self-contact or a deformed-sheet far field beyond step
+  2000**, which is where the trajectory stops.
+- **The size the cap should be.** The realized count saturates at 32 768 by
+  construction, and the fallback *pair* count is not a proxy for refused *keys*.
+  That is the gap [add-canopy-t6.md](../add-canopy-t6.md) exists to close.
+
+**Affects:**
+- **`T7` (of `add-canopy.md`)** — unchanged starting point. Nothing here touched
+  the Riesz path; `computeSurfaceRieszScalar` still throws.
+- **`T8` (of `add-canopy.md`)** — its walltime planning should use the realized
+  per-launch costs in the table above rather than the estimates at `:2146-2156`,
+  and in particular the **measured SERIAL/HIP trajectory ratio of 2.24x at
+  level 4** rather than level 3's 9.2x, and the **SERIAL np4 penalty (2.35x at
+  level 3, 1.52x at level 4)** which is now measured at both levels. T6
+  contributes no `MaintenanceAction` histogram.
+- **`R9` (of `add-canopy.md`)** — not the risk that fired. The job was not
+  truncated: it ran 8.685 h of a 24 h allocation and failed on assertions, so
+  the tier's cost is measured and comfortable and walltime is not the control
+  that matters here.
+- **All of `tasks/add-canopy-t6.md`** — this entry is that document's premise.
+  Its `T0` records these numbers; `T3`/`T5` inherit the 81 claim-A states, the
+  step-250 onset, the step-1650 fallback peak and the per-rank reading of every
+  fallback figure; `T8` chooses between raising the cap and reducing demand on
+  the measurement T5 makes; and `T9b` owns the green re-run, the `**Met.**`
+  paragraph and `run_milestone.flux`'s `-t`.

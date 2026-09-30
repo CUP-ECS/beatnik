@@ -2,7 +2,9 @@
 
 **Status:** IN PROGRESS — **T1** through **T5** are **DONE**; **T6** is **IN
 PROGRESS** (both members written, registered and green at level 3; the
-confirming full-tier run is outstanding — see `## T6` in the progress log);
+full-tier run came back **red** on all four level-4 FMM launches, on Canopy's
+M2L operator-column count cap — see `## T6` in the progress log, and
+[../add-canopy-t6.md](../add-canopy-t6.md) for the programme that fixes it);
 **T7** and **T8** are NOT STARTED. The far field is measured and published: $\tau_A$ is
 $5.01\times10^{-4}$ on the gradient at the production order, which is better than
 the reference implementation's own fidelity, so **X1** does not fire. No upstream
@@ -1785,12 +1787,19 @@ in the gold files.
 ### T6 — The two milestone-tier FMM members — **IN PROGRESS**
 
 > **Where it stands.** Both members are written, registered and installed, and
-> the level-3 member is green at full step count on both backends at np1
-> (3097/3097 checks each). What is outstanding is the **full-tier run** that
-> the exit criterion below turns on. Read `## T6` in
-> [add-canopy-progress-log.md](add-canopy-progress-log.md) — which is
-> deliberately incomplete — and `T6-handoff.log` in the repo root before
-> resuming.
+> the level-3 member is green at full step count on both backends at both rank
+> counts (3097/3097 checks each). **The full-tier run has now been made and came
+> back red**: job `f3azynKNQFCb`, 12 of 16 launches green in 8.685 h, with all
+> four `Milestone0FmmL4` launches failing on Canopy's per-rank M2L
+> operator-column count cap — the fallback path contaminates 71 of claim A's 81
+> level-4 states and τ_A is exceeded at four to six of them, peaking at
+> `1.2513e-3`. **That cap, not the tolerance, is what has to move**, and the
+> measurement-then-decide programme for it is its own document:
+> [../add-canopy-t6.md](../add-canopy-t6.md), whose `T9b` owns the green re-run
+> that closes this task. Read `## T6` in
+> [add-canopy-progress-log.md](add-canopy-progress-log.md) for the tier run's
+> full numbers, then that document, before resuming. (`T6-handoff.log` in the
+> repo root drove the tier-run completion and is now spent.)
 
 **Depends on:** T5 (for $\tau_A$, the horizon envelope, the volume-drift bound
 and the measured M2L share at each level) and T4 (for the comparison harness). No upstream gate:

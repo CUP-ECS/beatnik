@@ -280,7 +280,7 @@ later tasks whose stated plan that entry changed.
 
 ## Task sequence
 
-### T0 — Record T6's tier-run result; leave T6 IN PROGRESS — **NOT STARTED**
+### T0 — Record T6's tier-run result; leave T6 IN PROGRESS — **DONE**
 
 **Depends on:** none.
 **Fill in:** `tasks/canopy/add-canopy-progress-log.md` — the `## T6` section
@@ -343,9 +343,34 @@ missing; `git diff --stat` shows no file changed outside the two task documents;
 and `grep -n 'pbatch -t 1440m' scripts/tuolumne/run_milestone.flux` still
 matches.
 
+**Met.** The `## T6` section of `tasks/canopy/add-canopy-progress-log.md` was
+completed **in place** — `grep -c '^## T6$'` returns 1 — and its
+"INCOMPLETE BY DESIGN" opening and "What is deliberately missing" closing
+subsection are both gone, replaced by the tier run's numbers: job
+`f3azynKNQFCb`, **12 of 16 launches green**, all four `Milestone0FmmL4`
+launches red, **31 265.7 s = 8.685 h** against the 24 h cap, fallback clean
+through step 225 and non-zero at all 71 states from step 250, the four
+step-1375 worst errors at 17 digits (`0.0012513022396595567`,
+`0.0012474182160902654`, `0.0012498660607555461`, `0.0012435185167586275`),
+the per-launch claim-A/claim-B cost table, and an `**Affects:**` line naming
+T7, T8, R9 and this document. `git diff --stat` shows only files under
+`tasks/`; no code, script, tolerance or walltime changed, and
+`scripts/tuolumne/run_milestone.flux` still carries `# flux: -t 1440m` and
+`# flux: -q pbatch` at `:5` and `:7`. **Three figures in this task's Do steps
+disagreed with the log and the log won** — the total is 8.685 h not 8.687 h,
+the FMM members sum to 28 831.6 s not 29 237 s, and the frozen pair to
+2 192.4 s not 2 028 s — and the failing-assertion count is **four** sites,
+not three, because the τ_A bound fails in both of the forms the member
+asserts it in. All are recorded in `## T0` of the progress log. The exit
+criterion's own `grep -n 'pbatch -t 1440m'` pattern matches nothing in the
+pristine tree either, since the two flux directives are on separate lines;
+that is noted there too. **No `Met.` paragraph was written for T6 and T6
+stays IN PROGRESS**, per this task's own instruction — T9b owns that after a
+green re-run.
+
 ---
 
-### T1 — Canopy: count and expose the demanded key set, profiling-gated — **NOT STARTED**
+### T1 — Canopy: count and expose the demanded key set, profiling-gated — **DONE**
 
 **Depends on:** none.
 **Fill in:** `canopy/src/Canopy_DownwardSweep.hpp` (the merge loop at
@@ -417,6 +442,54 @@ tree builds the same suite and passes with `m2l_n_demanded_ops()` returning
 `-1`, and the constrained-budget case's *realized* count, fallback pair count
 and `m2l_realized_keys()` contents are identical between the two trees — which
 is what proves the counter changed no answer.
+
+**Met.** Two cmake trees in the Canopy clone at
+`/g/g20/stewartj/spack_envs/tuolumne_beatnik/canopy`, both configured with
+`run_cmake_tuolumne.sh`'s arguments under
+`spack env activate ${HOME}/spack_envs/tuolumne_trilinos`:
+**`build-t1-prof-on`** (`-DCanopy_ENABLE_PROFILING=ON
+-DCanopy_PROFILING_LEVEL=2`) and **`build-t1-prof-off`**
+(`-DCanopy_ENABLE_PROFILING=OFF -DCanopy_PROFILING_LEVEL=2`, which cmake
+resolved to `level=0` — the kill switch exercised, not bypassed). Both built
+`Canopy_Test_LaplaceSolve_MPI_SERIAL` clean and both ran the suite at ranks
+1-6 in one `pdebug` job, `f3bPfi66qz4X`
+(`scripts/tuolumne/run_t1_demand.flux`): **`100% tests passed, 0 tests failed
+out of 6` in each tree**, combined rc 0.
+
+The two new cases, over all **21 `(nprocs, rank)` pairs** at ranks 1-6:
+
+- **`m2lKeyDemandConstrained`** at a one-column budget (21 952 B, one
+  `bytes_per_key`): `eff_cap=1`, **`realized=1`** everywhere, and
+  **`demanded` from 111 to 718** — strictly greater than the realized 1 at
+  every pair, `saturated=0` everywhere, `fallback` from 186 to 1 702, always
+  positive.
+- **`m2lKeyDemandDefault`** at the default budget: **`demanded == realized` at
+  every one of the 21 pairs**, with realized from **111 to 686** — exactly
+  the per-rank range `LS_BUDGET_KEYS`'s comment already records for the frozen
+  configuration — and `fallback=0` everywhere.
+- In the `OFF` tree both cases report **`demanded=-1`** at every pair, never
+  0, and emit **zero** `[Canopy Diagnostics]` lines against the `ON` tree's
+  1 536.
+
+**On R1: the two builds' realized output is NOT byte-identical, and the
+`~profiling` build is not byte-identical to itself either** — which is what
+makes the counter exonerated rather than suspect. The two new cases' realized
+figures (`realized`, `fallback`, `m2l_realized_keys()` contents,
+`cells_at_depth`) **match line for line between the trees at all 21 pairs**,
+with `demanded=` the only differing field, and the whole `[laplace-solve]`
+output is identical at **np 1, 2, 4 and 5**. At **np 3 and np 6** other tests'
+solves differ — `crossRankAgreement`'s `n_unique_ops` reads 285/189 in one
+tree and 273/204 in the other. A second job, `f3bPhuxP1JNT`
+(`scripts/tuolumne/run_t1_repro.flux`), ran three identical passes per tree
+and found **the `OFF` tree disagreeing with itself in the same fields at the
+same two rank counts**, so this is pre-existing run-to-run nondeterminism in
+the tree/partition path at np ≥ 3, not a write from the instrumentation. Full
+detail in `## T1` of the progress log.
+
+**The budget that buys exactly one column is `Kernel::bytes_per_key * 1`** —
+21 952 B for `LaplaceKernel<double, 6, 1>` — recorded as
+`LS_DEMAND_BUDGET_KEYS = 1` and derived from the trait, never a literal. T6
+extends these same cases and needs it.
 
 ---
 
