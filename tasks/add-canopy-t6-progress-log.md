@@ -1779,3 +1779,252 @@ these cases this time, exactly as T1 measured it does not.
   member and no milestone member — the two new cases live in Canopy's own
   `Canopy_Test_LaplaceSolve_MPI_SERIAL` suite — so Beatnik's gate is still
   five `regression` members and 60 launches.
+
+## T7
+
+Beatnik only, no Canopy file touched. Four existing files edited —
+`src/Beatnik_Params.hpp` (**+47 −7**), `src/Beatnik_FarFieldInterface.hpp`
+(**+5 −2**), `tests/regression_tests/Beatnik_Probe_FmmKeyDemand.cpp`
+(**+59 −12**) and `README.md` (**+2 −1**) — and one new script,
+`scripts/tuolumne/t7_cap_knob.flux`. One `spack install`, two `pdebug` jobs.
+
+### Decisions taken as given by the task, recorded so they are not reopened
+
+- **The default is 32768 and T7 did not change it.** `FmmParams` ships the
+  constant that was already in force, so every existing configuration's
+  overflow set is unchanged bit for bit. **T8 chooses the value**, and a T7
+  that had also raised the cap would have destroyed T8's before/after
+  measurement.
+- **No CLI option and no Python counterpart**, matching
+  `m2l_op_table_byte_budget`. The probe's `argv[2]` is a measurement driver's
+  argument, not a CLI surface on the solver.
+- **`FmmParams` does not validate.** A negative value throws from
+  `DownwardSweep::set_m2l_op_count_cap()` inside the `Canopy::Solver`
+  constructor, and Beatnik lets it: with no CLI option the only route to one is
+  a programmer's literal, Canopy already rejects it, and the byte budget beside
+  it is likewise unvalidated here. The doc comment states this rather than the
+  code policing it.
+- **0 is legal and means zero.** Canopy's test-only `with_laplace_solve`
+  convention, where 0 means "leave the config default", is NOT copied — T6's
+  `**Affects:** T7` line asked for exactly this and it was followed.
+- **`Beatnik_Test_Milestone0Fmm.cpp` was not touched.** Its `makeFmmParams` is
+  T8's.
+- **clang-format was not run**, per the standing rule. Nothing was committed or
+  pushed, in this repo or in the Canopy clone; T1's and T6's Canopy edits remain
+  uncommitted working-tree modifications at `develop` commit `d3145e0`, and
+  `spack develop` compiled them in place. The clone was not pulled.
+
+### The probe's changed argument contract
+
+**`argv[2]` is new and optional: `m2l_op_count_cap`, absent meaning the
+`FmmParams` default.** The ARGUMENTS block previously said "there is no option
+surface here and none may be added"; it now says there is no *option* surface
+(the arguments are positionals, from the batch script) and restates the
+step-count refusal as the standing rule it actually is — "the step count stays
+the compiled `kSteps` and no argument will ever move it". The cap is admitted on
+that same reasoning: it shortens nothing, all 81 states are still measured, and
+it is printed in the header so a run records what it was configured with.
+
+Three mechanical consequences worth knowing before the next edit:
+
+- **`makeFmmParams` gained a defaulted parameter**, `int op_count_cap = -1`,
+  where `-1` is the "absent" sentinel and **not** reachable from the command
+  line: `runProbe` rejects a negative `argv[2]` through `rec.fail` first, the
+  way the level is rejected. So the sentinel cannot collide with a caller's
+  value, and an omitted argument leaves the member's configuration exactly as
+  `Beatnik_Test_Milestone0Fmm.cpp` has it.
+- **An empty `argv[2]` is a trap the runner pays for, not the probe.**
+  `std::atoi("")` is 0, which is a *legal* cap meaning "admit no column", so a
+  script that passed an empty string would measure a different configuration
+  and still exit 0. `t7_cap_knob.flux` therefore builds its argument vector
+  conditionally and omits the argument rather than passing `""`; the comment
+  there says why.
+- **The `[t6probe] header` line gained `op_count_cap=` between `byte_budget=`
+  and `op_cap=`.** Any script parsing that line positionally will need
+  updating; `t6b_key_demand.flux` does not parse it and was not touched. The
+  distinction the two fields carry is the whole point: `op_count_cap` is what
+  was **configured** (read back out of `fmm.farField().params()`), `op_cap` is
+  what is **in force** (`m2l_effective_op_cap()`, the smaller of the count cap
+  and what the byte budget buys).
+
+### The doctrine paragraph, and the figures that replaced its arithmetic
+
+`Beatnik_Params.hpp`'s byte-budget paragraph reasoned from "at `order` ≤ 4 a
+column costs at most about 9.8 KB, so the full 32768 keys occupy roughly
+0.3 GiB", which makes the two constraints look close. At CartesianTaylor order 3
+a column is **3200 B**, so 2 GiB buys **671 088** columns and the count cap
+binds by a factor of **20** — it is the only constraint that ever binds on this
+path. That figure and T5's level-4 peak (**37 678** keys worst-observed at HIP
+np1 step 1650, 1.150x the cap, 115 MiB of table, 17 144 at the worst np4 rank)
+are now carried in the comment. The statement that lowering the byte budget is
+the wrong lever is kept.
+
+`FarFieldDiagnostics::local_m2l_op_cap`'s comment no longer says "Canopy's own
+32768-key count cap": it names `FmmParams::m2l_op_count_cap` and says the
+default is 32768 and that the cap is configurable rather than a constant.
+
+### Build
+
+`spack install` in the dev env, **rc 0 in 5 m 47 s** (347 s), against T3's
+12 m 20 s and T4's 12 m 52 s for a full tree. `HIPCC_LINK_FLAGS_APPEND` and
+`HIPCC_COMPILE_FLAGS_APPEND` were cleared before installing, per the system doc.
+`canopy@develop+profiling` hash `w4woraj` was cached and did not rebuild;
+`beatnik@develop` came back `nnbspfy`. No `touch` was needed — `Beatnik_Params.hpp`
+is a header, but `Beatnik_Probe_FmmKeyDemand.cpp` is a TU in the same build and
+changed too, so the header-only no-op trap the system doc warns about did not
+apply. The install fit inside one command timeout for the first time in this
+topic, which is a consequence of the trim below rather than of anything else.
+
+**THE BUILD WAS TRIMMED AND THE TRIM WAS KEPT FOR THE FINAL BUILD, ON THE
+USER'S INSTRUCTION.** The prompt's own plan was to trim for iteration and then
+revert and run one full `spack install`; the user said to skip the full build as
+well. So **"`spack install` succeeds" is verified for the two exit-criterion
+targets, not for the whole project**: `tests/CMakeLists.txt` had every
+`BEATNIK_REGRESSION_TEST_SOURCES` entry, three of four
+`BEATNIK_MILESTONE_TEST_SOURCES`, two of three `BEATNIK_DRIVER_SOURCES` and
+`add_subdirectory(unit_tests)` commented out, the root `CMakeLists.txt` had
+`add_subdirectory(examples)` commented out, and
+`cmake/test_harness/test_harness.cmake` had `set(BEATNIK_TEST_DEVICES HIP)`
+appended after the device loop. The build log confirms the trim bit: exactly two
+targets compiled, at 25 % and 50 %. Two things follow and both matter.
+
+- **The trims are fully reverted in the tree and were never committed.**
+  `git diff --name-only` carries no `cmake/` file, no `CMakeLists.txt` and no
+  `tests/CMakeLists.txt`; T7's diff is four files plus the new script. A stale
+  trim is how the gate silently shrinks, so this was checked rather than
+  assumed.
+- **The INSTALLED VIEW IS STILL THE TRIMMED ONE.** The spack prefix currently
+  holds only `Beatnik_Test_Milestone0Fmm_MPI_HIP` and
+  `Beatnik_Probe_FmmKeyDemand_MPI_HIP`; there is no regression binary, no unit
+  test, no example and no SERIAL target in it, and
+  `beatnik_gate_manifest.txt` is correspondingly empty. **Any later task that
+  runs the gate, the unit tier, the milestone tier or a SERIAL anything must
+  `spack install` the reverted tree first.** It is one full install away and
+  nothing is lost, but a gate run against this prefix would report a clean pass
+  over zero tests.
+
+### Measured: job `f3bZYbHfZ7bM` — the failure-direction pair
+
+`scripts/tuolumne/t7_cap_knob.flux`, `-q pdebug -t 30m`, HIP level 3 np1, two
+launches, at commit `37f9128` + 8 modified files. `flux job status` rc 0,
+`SUMMARY: PASS (2/2 launches)`, **37 s total job wall** (21 s and 16 s), both
+launches `[PASS] Beatnik_Probe_FmmKeyDemand (174/174 checks)` and 81 rows.
+
+| launch | `op_count_cap` | `op_cap` | fallback over 81 rows | `unique_ops` | `demand` | `first_exceed_step` |
+| --- | --- | --- | --- | --- | --- | --- |
+| no `argv[2]` | **32768** | **32768** | **0 in 81 of 81** | 828 – 5 790 | 828 – 5 790 | `-1` |
+| `argv[2]=1024` | **1024** | **1024** | **non-zero in 72 of 81**, peak 14 451 at step 400 | 828 – **1 024** | 828 – **6 178** | **225** |
+
+**Both header fields move together, and that is the whole result.** A knob that
+is accepted and dropped produces a byte-identical run at the default, which is
+why one launch could not have shown anything; and `op_count_cap` moving while
+`op_cap` stayed at 32768 would have meant Beatnik stored the value and Canopy
+never saw it. `op_cap` is `m2l_effective_op_cap()` read back through the
+diagnostics, so the second field moving is Canopy's own answer.
+
+Four internal consistencies, none of them assumed:
+
+- **`unique_ops` clamps at exactly 1 024 while `demand` still reaches 6 178.**
+  Keys are refused, not un-demanded — the demand counter is measuring the same
+  key set in both launches and only admission moved.
+- **The 72 non-zero-fallback rows are exactly the 72 rows with
+  `demand > op_cap`.** Not approximately: the two sets coincide.
+- **The 9 zero-fallback rows in the capped launch are the 9 shallow states**,
+  steps 0 through 200, all at `occupied_depths=4` with demand 828–864, which is
+  genuinely under 1 024. So the cap binds from step 225 onward and not before,
+  and `first_exceed_step=225` agrees.
+- **The `[Canopy] M2L op count exceeded cap` warning appears 72 times**, again
+  exactly the over-cap count. T5 found the warning faithful at np1 and silent at
+  np4; this is np1 and it is faithful.
+
+The default launch's peak demand is **5 790 at step 1300**, inside the five-draw
+5 586 – 6 624 level-3 band `## T5` widened, so the apparatus is where it was.
+`demand == unique_ops` in all 81 default rows, as at T3 and T4 and for the same
+reason — the cap does not bind there. `global_p2p_frac` is 0.70876 – 0.94509 at
+the default and 0.70737 – 0.94337 capped, both far past level 4's
+`kP2PFractionBound = 0.75`, which is the level-3 member's declared
+`kFarFieldIsLive = false` showing through and the reason the probe asserts on
+nothing.
+
+### Measured: job `f3bZYbR41Y31` — the default direction
+
+`scripts/tuolumne/t6_l3_member.flux HIP`, rc 0, `SUMMARY: PASS (2/2 launches)`,
+**615 s total**. The runner prints its own loud
+`*** BACKEND SET OVERRIDDEN: HIP ***` line, which is correct and expected — the
+member's full share of the tier is SERIAL and HIP, and only HIP was run.
+
+| launch | wall | checks |
+| --- | --- | --- |
+| HIP np1 | **308 s** | **`3097/3097`** |
+| HIP np4 | 307 s | `3097/3097` rank 0, `2919/2919` on the other three |
+
+**308 s against T2's 316 s budget and the same 3097/3097 check count**, which is
+the comparison that matters — the trajectory is run-to-run nondeterministic and
+the wall time is a budget, not an assertion. np4 came free in the same job and
+was not required by the exit criterion.
+
+### What only building or running revealed
+
+- **Nothing failed.** No build error, no failed launch, no resubmission. Both
+  jobs came back rc 0 on the first submission. Recorded deliberately: a knob
+  whose default is the constant it replaces has no runtime surface until
+  something sets it, and the capped launch is what turns that from an
+  assumption into a measurement.
+- **A default-only verification would have proved nothing, and this is worth
+  stating because it is cheap to get wrong.** The level-3 member passing
+  unchanged is consistent with the knob being routed AND with it being dead
+  code. Only the capped launch separates them, and it costs 16 s.
+- **The trim is a large lever on this topic's iteration cost** — 5 m 47 s
+  against 12 m 52 s, better than 2x — and the build log's target percentages
+  (25 %, 50 %) are the cheapest check that it bit. The `FATAL_ERROR` guards on
+  the argument-list loops never fired, because sources were commented out and
+  argument lists were not.
+- **`pdebug` absorbed both submissions immediately**; neither job spent
+  measurable time in `SCHED`.
+
+### Departures from T7's stated Do steps
+
+- **`README.md` WAS edited, against Do step 6's expectation.** The step's own
+  test — does an example's accepted arguments change? — is satisfied: they do
+  not, the member has no CLI option, and the probe is a measurement driver in no
+  tier rather than an example. But `README.md:349-351` is a table titled "The
+  FMM-only members, none of which has a CLI option", enumerating exactly these
+  public `FmmParams` members, and CLAUDE.md's "Keep `README.md` in sync" rule
+  covers a public API addition. A row for `m2l_op_count_cap` was added and the
+  byte-budget row beside it corrected, since it said "Canopy's own 32768-key
+  count cap binds first" of what is now a configurable default. Recorded as a
+  departure rather than done quietly.
+- **The final build was NOT the full untrimmed one the prompt specified**, on
+  the user's instruction — see Build above for what that scopes the
+  `spack install` claim to and for the state the installed view is left in.
+- **`max_depth`'s doc comment (`:272-291`) was left alone.** It also refers to
+  "Canopy's 32768-key cap", which is now this member's default rather than a
+  constant, but Do step 3 names only the byte-budget paragraph and editing it
+  would have been a drive-by. Flagged here instead: it is stale in wording, not
+  in arithmetic.
+
+**Affects:**
+- **T8** — the knob it sets exists, is reachable, and is **demonstrated** to
+  reach Canopy rather than assumed to. Four things shape its work. First,
+  **T8 changes a value and nothing else**: the plumbing, the doc comments and
+  the README row are done, so a cap change is one literal in
+  `FmmParams::m2l_op_count_cap`'s default or in the level-4 member's
+  `makeFmmParams`. Second, **the probe can now drive a cap from the command
+  line**, so T8 can measure a candidate cap at level 4 without rebuilding —
+  `beatnik_exe Beatnik_Probe_FmmKeyDemand_MPI_HIP 4 <cap>` — which makes
+  branch A's "does the demand fit" question a 60 s launch rather than an
+  install. Third, **`t7_cap_knob.flux` is the shape of a before/after pair** and
+  T8's exit criterion wants exactly that at level 4; it is level-3-and-np1 by
+  construction and should be copied rather than edited. Fourth, **the installed
+  view is trimmed** (see Build), so T8 must `spack install` the reverted tree
+  before running any member other than `Beatnik_Test_Milestone0Fmm_MPI_HIP`.
+- **T9a, T9b** — the installed view is trimmed, and **T9b's full milestone tier
+  cannot run against this prefix at all**: three of its four members and the
+  entire SERIAL half are not built. T9b's Do step 1 already requires a
+  finalizing `spack install` before submitting, so this costs nothing as long as
+  that step is not skipped on the grounds that a recent install exists. Nothing
+  else: T7 changed no default, no tolerance, no gate member and no milestone
+  member.
+- **The gate is unchanged** — still five `regression` members and 60 launches on
+  tuolumne. T7 added no test to any tier; the probe is in none, and the only new
+  file is a batch script.

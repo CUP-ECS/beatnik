@@ -294,8 +294,10 @@ struct FarFieldDiagnostics
 
     /// **Rank-local.** `DownwardSweep::m2l_effective_op_cap()` — the operator
     /// column cap actually in force, i.e. the smaller of what
-    /// `FmmParams::m2l_op_table_byte_budget` buys and Canopy's own 32768-key
-    /// count cap. The number `local_m2l_unique_op_count` is read *against*;
+    /// `FmmParams::m2l_op_table_byte_budget` buys and the column-count cap
+    /// `FmmParams::m2l_op_count_cap` (whose default, 32768, is Canopy's own
+    /// `M2L_OP_COUNT_CAP`; the count cap is configurable rather than a
+    /// constant). The number `local_m2l_unique_op_count` is read *against*;
     /// which of the two floors it is follows from the byte budget and
     /// `local_m2l_bytes_per_key`. **Added by T5 step 5** (R6).
     int local_m2l_op_cap = 0;
@@ -1066,6 +1068,7 @@ class FarFieldSolver
         cfg.softening = softening;
         cfg.near_softening_factor = _params.near_softening_factor;
         cfg.m2l_op_table_byte_budget = _params.m2l_op_table_byte_budget;
+        cfg.m2l_op_count_cap = _params.m2l_op_count_cap;
         return cfg;
     }
 

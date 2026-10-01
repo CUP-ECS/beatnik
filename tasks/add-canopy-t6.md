@@ -1051,7 +1051,7 @@ tier, so the gate is still five `regression` members and 60 launches.
 
 ---
 
-### T7 — Beatnik: plumb the count cap through `FmmParams` — **NOT STARTED**
+### T7 — Beatnik: plumb the count cap through `FmmParams` — **DONE**
 
 **Depends on:** T6 **DONE**.
 **Fill in:** `src/Beatnik_Params.hpp` (a new member beside `:395`, and the
@@ -1129,6 +1129,53 @@ prints `op_count_cap=1024` and `op_cap=1024` in its header and non-zero
 is what proves the knob reaches Canopy rather than being accepted and dropped. A
 cap of 1024 binds with certainty at level 3: T3 and T4 measured peak
 `unique_ops` there at about 6 400 and demand at 5 938 – 6 624.
+
+**Met.** `int m2l_op_count_cap = 32768;` is in `FmmParams`
+(`src/Beatnik_Params.hpp`), routed to `FmmConfig::m2l_op_count_cap` at
+`src/Beatnik_FarFieldInterface.hpp` beside the byte budget, with **no CLI
+option and no Python counterpart**. `spack install` in the dev env succeeded
+**rc 0 in 5 m 47 s** — against a tree trimmed to the two exit-criterion
+targets, on the user's explicit instruction to skip the full rebuild, so the
+claim is scoped to `Beatnik_Test_Milestone0Fmm_MPI_HIP` and
+`Beatnik_Probe_FmmKeyDemand_MPI_HIP`, not to the whole project; the trims are
+reverted and no `cmake/` file, no `CMakeLists.txt` and no `tests/CMakeLists.txt`
+appears in T7's diff.
+
+**The default direction**, job `f3bZYbR41Y31`
+(`scripts/tuolumne/t6_l3_member.flux HIP`, rc 0, 615 s): the level-3 FMM member
+passes **`[PASS] Beatnik_Test_Milestone0Fmm (3097/3097 checks)`** at HIP np1 in
+**308 s**, the same check count T2 recorded, against the 316 s budget. np4 came
+free in the same job and also passed (3097/3097 on rank 0, 2919/2919 on the
+other three), `SUMMARY: PASS (2/2 launches)`. A default `FmmParams` therefore
+produces the same cap and the same answers.
+
+**The failure direction**, job `f3bZYbHfZ7bM`
+(`scripts/tuolumne/t7_cap_knob.flux`, rc 0, 37 s total — 21 s and 16 s), both
+launches `174/174 checks`, 81 rows each:
+
+| launch | header | fallback over 81 rows | `unique_ops` | `demand` |
+| --- | --- | --- | --- | --- |
+| no `argv[2]` | `op_count_cap=32768 op_cap=32768` | **0 in 81 of 81**, `first_exceed_step=-1` | 828 – 5 790 | 828 – 5 790 |
+| `argv[2]=1024` | `op_count_cap=1024 op_cap=1024` | **non-zero in 72 of 81**, peak 14 451 at step 400, `first_exceed_step=225` | 828 – **1 024** | 828 – 6 178 |
+
+**Both header fields moved together**, which is the claim: `op_count_cap` is
+what `FmmParams` was configured with and `op_cap` is
+`DownwardSweep::m2l_effective_op_cap()`, so the second moving proves Canopy saw
+the value rather than Beatnik storing it and dropping it. `unique_ops` is
+clamped at exactly 1 024 while `demand` still reaches 6 178 — keys are refused,
+not un-demanded — and the 72 non-zero-fallback rows are **exactly** the 72 rows
+with `demand > op_cap`. The 9 zero-fallback rows are the 9 shallow
+`occupied_depths=4` states at steps 0–200, whose demand of 828–864 is genuinely
+under 1 024; the `[Canopy] M2L op count exceeded cap` warning appears 72 times,
+again exactly the over-cap count.
+
+**The cap's value was not chosen here.** T7 ships 32768, byte-for-byte today's
+behaviour; T8 is the task that changes it on T5's measurement. One deliberate
+departure from Do step 6: `README.md` gained a `m2l_op_count_cap` row in the
+CLI-less `FmmParams` table and a correction to the byte-budget row beside it.
+No example's accepted arguments moved — the step's own test is satisfied — but
+that table enumerates exactly these public `FmmParams` members, and CLAUDE.md's
+README-sync rule covers a public API addition. See `## T7` in the progress log.
 
 ---
 

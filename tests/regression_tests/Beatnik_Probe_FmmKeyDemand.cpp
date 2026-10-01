@@ -100,13 +100,25 @@
  * round-trip check needs no per-level literal table. All five checked knobs
  * are level-independent, so neither does the parameter check.
  *
- * ARGUMENTS. One required positional. There is no option surface here and none
- * may be added — a driver's arguments come from the batch script that measures
- * with it (`tests/CMakeLists.txt`, the driver loop). In particular there is no
- * step-count override, deliberately: a knob that can silently shorten a
- * 2000-step run is how a truncated run reads as a shorter pass.
+ * ARGUMENTS. One required positional and one optional one. There is no option
+ * surface here — a driver's arguments come from the batch script that measures
+ * with it (`tests/CMakeLists.txt`, the driver loop), as positionals. **The
+ * standing refusal is a step-count override**: a knob that can silently
+ * shorten a 2000-step run is how a truncated run reads as a shorter pass, so
+ * the step count stays the compiled `kSteps` and no argument will ever move
+ * it. `argv[2]` is admitted on exactly that reasoning — a column-count cap
+ * shortens nothing, every state is still measured, and the cap is printed in
+ * the header beside the effective one, so a run records what it was configured
+ * with as well as what was in force.
  *
  *   argv[1]  --icosphere-subdivisions   the level to probe (3 or 4)
+ *   argv[2]  m2l_op_count_cap          OPTIONAL. Canopy's M2L operator
+ *                                      column-count cap, reaching
+ *                                      `FmmParams::m2l_op_count_cap`. Absent
+ *                                      means the `FmmParams` default (32768).
+ *                                      0 is legal and admits no column; a
+ *                                      negative value is rejected here rather
+ *                                      than left to Canopy's own throw.
  *
  * Checkpoints go to
  * `${BEATNIK_TEST_SCRATCH}/keydemand_sub<L>_<space>_np<N>`, a subdirectory
@@ -124,7 +136,8 @@
  *     [t6probe] header level=<L> vertices=<n> ranks=<n> space=<s> steps=<n>
  *               every=<n> ncrit=<n> order=<n> basis=<b> mac_theta=<t>
  *               max_depth=<d> near_soft_factor=<f> bytes_per_key=<n>
- *               byte_budget=<n> op_cap=<n> demand_available=<0|1>
+ *               byte_budget=<n> op_count_cap=<n> op_cap=<n>
+ *               demand_available=<0|1>
  *     [t6probe] row rank=<r>/<n> step=<s> demand=<n> demand_saturated=<0|1>
  *               unique_ops=<n> op_cap=<n> occupied_depths=<n>
  *               cells_at_max_depth=<n> cache=<n> keys_built=<n>
@@ -300,10 +313,19 @@ Beatnik::SolverParams makeParams( int subdivisions,
 /// `FmmParams` for the probed evaluations — field for field the member's
 /// `makeFmmParams` (`Beatnik_Test_Milestone0Fmm.cpp:1027-1032`), which sets
 /// only `ncrit` and is level-independent, so it carries over verbatim.
-Beatnik::FmmParams makeFmmParams()
+///
+/// `op_count_cap` is the one place this probe departs from the member's set,
+/// and only when `argv[2]` is given: a negative value means "absent", which
+/// leaves `FmmParams::m2l_op_count_cap` at its own default so that the
+/// configuration measured is the member's exactly. The caller rejects a
+/// negative `argv[2]` before reaching here, so the sentinel cannot be a user's
+/// value.
+Beatnik::FmmParams makeFmmParams( int op_count_cap = -1 )
 {
     Beatnik::FmmParams f;
     f.ncrit = kNcrit;
+    if ( op_count_cap >= 0 )
+        f.m2l_op_count_cap = op_count_cap;
     return f;
 }
 
@@ -392,8 +414,8 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
 
     if ( argc < 2 )
     {
-        rec.fail( "usage: <icosphere-subdivisions>; see the ARGUMENTS block in "
-                  "this file's header. Got " +
+        rec.fail( "usage: <icosphere-subdivisions> [m2l-op-count-cap]; see the "
+                  "ARGUMENTS block in this file's header. Got " +
                   std::to_string( argc - 1 ) + " argument(s)." );
         return;
     }
@@ -402,6 +424,24 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
     {
         rec.fail( "the level must be a non-negative integer" );
         return;
+    }
+
+    // OPTIONAL `argv[2]`: the M2L operator column-count cap. `-1` is this
+    // driver's "absent" sentinel and not a value a caller can supply -- a
+    // negative cap is refused here rather than allowed to reach Canopy, whose
+    // `DownwardSweep::set_m2l_op_count_cap()` throws from inside the
+    // `Canopy::Solver` constructor. 0 IS legal and is passed through: it admits
+    // no column and puts every pair on the overflow path, which is a
+    // measurable configuration rather than a mistake.
+    int op_count_cap = -1;
+    if ( argc > 2 )
+    {
+        op_count_cap = std::atoi( argv[2] );
+        if ( op_count_cap < 0 )
+        {
+            rec.fail( "the m2l op count cap must be a non-negative integer" );
+            return;
+        }
     }
 
     const long long want_vertices = verticesForLevel( level );
@@ -425,7 +465,10 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
            << ", icosphere subdivisions " << level << " (" << want_vertices
            << " vertices), " << kSteps
            << " DIRECT steps with one FMM evaluation every "
-           << kCheckpointEvery << " step(s), checkpoints to " << dir.str();
+           << kCheckpointEvery << " step(s), m2l op count cap "
+           << ( op_count_cap >= 0 ? std::to_string( op_count_cap )
+                                  : std::string( "default" ) )
+           << ", checkpoints to " << dir.str();
         rec.note( os.str() );
     }
 
@@ -455,7 +498,7 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
     // exercised the way a real run exercises it. A solver rebuilt per state
     // would report a cold cache at every state and `keys_built_delta` would
     // measure nothing.
-    fmm_type fmm( comm, makeFmmParams() );
+    fmm_type fmm( comm, makeFmmParams( op_count_cap ) );
 
     //-----------------------------------------------------------------------//
     // R5 -- THE PARAMETER SET, echoed out of the solver and checked against the
@@ -591,14 +634,16 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
             "[t6probe] header level=%d vertices=%lld ranks=%d space=%s "
             "steps=%d every=%d ncrit=%d order=%d basis=%s mac_theta=%.17g "
             "max_depth=%d near_soft_factor=%.17g bytes_per_key=%zu "
-            "byte_budget=%zu op_cap=%d demand_available=%d\n",
+            "byte_budget=%zu op_count_cap=%d op_cap=%d "
+            "demand_available=%d\n",
             level, want_vertices, comm_size, ExecSpace::name(), kSteps,
             kCheckpointEvery, live.ncrit, live.order,
             Beatnik::toString( live.basis ),
             static_cast<double>( live.mac_theta ), live.max_depth,
             static_cast<double>( live.near_softening_factor ),
             fmm.farField().diagnostics().local_m2l_bytes_per_key,
-            live.m2l_op_table_byte_budget, p0.op_cap, avail_min );
+            live.m2l_op_table_byte_budget, live.m2l_op_count_cap, p0.op_cap,
+            avail_min );
         if ( avail_min == 0 )
         {
             // R7. `-1` is "this Canopy build carries no profiling", and `0`

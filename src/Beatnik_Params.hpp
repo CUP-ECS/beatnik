@@ -384,15 +384,53 @@ struct FmmParams
     /// `FmmConfig::m2l_op_table_byte_budget`.
     ///
     /// Canopy bounds the table by the smaller of this budget's worth of
-    /// operator columns and its own 32768-key count cap, so the default is
-    /// chosen to be the **non-binding** half of that minimum: at `order`
-    /// \f$\le4\f$ a column costs at most about 9.8 KB, so the full 32768 keys
-    /// occupy roughly 0.3 GiB and the count cap binds first at every order
-    /// this path supports. Lowering this is the only way to make the byte
-    /// budget bind instead, and that is the wrong lever — the constraint to act
-    /// on is the count cap, and the response to realized overflow is a lower
-    /// `max_depth` or `order`, not a smaller table.
+    /// operator columns and the column-count cap `m2l_op_count_cap` below, so
+    /// the default is chosen to be the **non-binding** half of that minimum —
+    /// and the margin is not close. Under `FarFieldBasis::CartesianTaylor` at
+    /// `order` 3 a column costs 3200 bytes
+    /// (`Canopy_CartesianTaylorBasis.hpp:506-508`), so 2 GiB buys 671088
+    /// columns against the 32768-key default count cap: **the count cap binds
+    /// by a factor of 20**, and on this path it is the only constraint that
+    /// ever binds. Measured demand at `--icosphere-subdivisions` 4 is 37678
+    /// operator keys worst-observed at HIP np1 step 1650 — 1.150x the default
+    /// cap, and 115 MiB of table against the 2 GiB here — with 17144 at the
+    /// worst of four ranks.
+    ///
+    /// Lowering this budget is the only way to make it bind instead, and that
+    /// is the wrong lever. The constraint to act on is the count cap, which is
+    /// configurable through `m2l_op_count_cap`; the response to realized
+    /// overflow is that cap or a lower `max_depth` or `order`, never a smaller
+    /// table.
     std::size_t m2l_op_table_byte_budget = 2ull * 1024ull * 1024ull * 1024ull;
+
+    /// Per-rank cap on the **number** of operator columns Canopy's hashed M2L
+    /// table may hold. Default 32768, which is Canopy's own `M2L_OP_COUNT_CAP`
+    /// and therefore the cap that has always been in force, so every
+    /// configuration leaving this alone keeps today's overflow set bit for bit.
+    /// Reaches `FmmConfig::m2l_op_count_cap`. No CLI option and no Python
+    /// counterpart, exactly as `m2l_op_table_byte_budget` above has none.
+    ///
+    /// **This is the cap that binds**, and it is why it is configurable at all.
+    /// Under `FarFieldBasis::CartesianTaylor` the M2L operator keys carry the
+    /// tree level, so occupied depth multiplies the key count while the
+    /// per-key byte cost is unchanged — see the byte budget above for the
+    /// factor-of-20 arithmetic and for the measured level-4 demand of 37678
+    /// keys against this default. Keys past the cap are not an error: they
+    /// route to a per-pair translate that is slower and bitwise different from
+    /// the table path, so an overflowing run reports an accuracy number that
+    /// mixes two code paths.
+    ///
+    /// **Two edges, stated here because `FmmParams` does not police them.** A
+    /// negative value raises `std::runtime_error` from
+    /// `DownwardSweep::set_m2l_op_count_cap()` inside the `Canopy::Solver`
+    /// constructor rather than clamping, and Beatnik lets it: with no CLI
+    /// option the only route to one is a programmer's literal, Canopy already
+    /// rejects it, and the byte budget beside it is likewise unvalidated here.
+    /// And **0 is legal** — it admits no column and puts every pair on the
+    /// overflow path. Canopy's test-only `with_laplace_solve` convention, in
+    /// which 0 means "leave the config default", is deliberately **not**
+    /// copied: this member carries 32768 as its own default, and 0 means zero.
+    int m2l_op_count_cap = 32768;
 };
 
 //---------------------------------------------------------------------------//
