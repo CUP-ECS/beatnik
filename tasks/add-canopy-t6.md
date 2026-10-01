@@ -1325,7 +1325,7 @@ build failure that cost five minutes.
 
 ---
 
-### T8b — Identify the non-cap refusal path at level 4 — **NOT STARTED**
+### T8b — Identify the non-cap refusal path at level 4 — **DONE**
 
 **Depends on:** T8 **DONE**.
 **Fill in:** `canopy/src/Canopy_DownwardSweep.hpp` (the merge and classify
@@ -1404,6 +1404,40 @@ progress log names the reason that accounts for the np4 fallback with its
 per-state counts. In the failure direction: in a `~profiling` build every
 per-reason counter reads `-1` and not `0`, and the identity check is skipped
 rather than passing vacuously on a row of sentinels (**R7**).
+
+**Met.** Job **`f3bbMmxgc4ZD`** (`scripts/tuolumne/t8b_fallback_reasons.flux`,
+`-q pdebug -t 15m`, 132 s of job wall, `SUMMARY: PASS (2/2 launches)`) ran the
+probe at level 4 on HIP at np1 and np4, both at the post-T8 cap **65536**,
+against `canopy@develop+profiling`. `fallback_breakdown_available=1` in both
+headers and **0 of 405 rows carry a sentinel**, so every figure is a
+measurement. **The identity holds at all 405 rows** — 81 np1 states and 324 np4
+(state, rank) pairs — checked both by the probe's own assertion
+(`337/337 checks` on all five rank reports, up from T8's 174 by the 162
+per-state identity checks and the one availability check) and independently by
+re-deriving it from the logged rows.
+
+**The reason is the classify pass's RANGE GUARD, and it accounts for 100 % of
+the fallback at both rank counts.** `fb_count_cap_total = 0` and
+`fb_range_guard_total = fb_total` at np1 (**215 302** pairs) and at np4
+(**215 742** pairs), with `fb_count_cap > 0` in **0 of 405 rows** and
+`fb_dropped = 0` everywhere — no pair is placed in neither table, so nothing is
+silently dropped. Every reconciliation T5 and T8 set holds: **71 of 81** states
+non-zero at both rank counts, the ten zero-fallback states exactly steps 0
+through 225 at `occupied_depths` 5 or 6, first fallback at step 250, and the
+np1 total within 0.5 % of T8's 216 288 at the same cap. **The dominant reason
+is a representability limit of the basis's key encoding, not a budget**:
+`M2L_KEY_DD_MAX` and `M2L_KEY_OFFSET_MAX` were not changed, and no cap value
+reaches this path. The fallback peak is 6 884 pairs at step 1550 at np1 against
+6 832 at np4 — essentially rank-count-independent, as a geometric limit should
+be and a per-rank budget should not.
+
+The `~profiling` direction was taken in **Canopy**, job **`f3bbHk4tFmkK`**
+(`canopy/scripts/tuolumne/run_t8b_fallback_reasons.flux`), in both of T1's
+cmake trees at ranks 1-6: `100% tests passed, 0 tests failed out of 6` in each.
+The new `m2lFallbackReasonBreakdown` case reads all three counters as **`-1`
+and not `0`** at 21 of 21 `(nprocs, rank)` pairs in the `OFF` tree with the
+identity **skipped**, and `fb_range_guard + fb_count_cap == fallback` with
+`fb_dropped = 0` at 21 of 21 pairs in the `ON` tree (**R7**).
 
 ---
 

@@ -347,6 +347,55 @@ struct FarFieldDiagnostics
     /// without this is a number with no mechanism behind it. `0` before
     /// `setup()`; **ungated**, so no `-1` case. **Added by T6 T2.**
     int local_m2l_occupied_depths = 0;
+
+    /// **Global, reduced**, in pairs: the per-reason breakdown of
+    /// `global_m2l_fallback_pair_count`, from
+    /// `DownwardSweep::m2l_n_fallback_pairs_range_guard()`. Pairs the classify
+    /// pass never hashed a key for, because `max_d` fell outside
+    /// \f$[0,\texttt{max\_depth}]\f$ or one of `dd`, `ii`, `jj`, `kk`
+    /// exceeded the key encoding's own bound. A **representability** limit of
+    /// the basis's key, not a budget, so neither `m2l_op_count_cap` nor
+    /// `m2l_op_table_byte_budget` can move it at any value.
+    ///
+    /// **`-1` means the Canopy build carries no profiling**
+    /// (`CANOPY_ENABLE_PROFILING` undefined), and never `0`: zero range-guard
+    /// refusals is the normal, legal reading, so a consumer must test for
+    /// `-1` before reading this as a count — and must **skip** the sum
+    /// identity below rather than evaluate it on sentinels, which would be a
+    /// vacuous pass. Also `-1` before the first evaluation.
+    ///
+    /// **Reduced, unlike the `local_m2l_*` fields above**, and deliberately:
+    /// the identity this and the next field exist to check is
+    /// `range_guard + count_cap == global_m2l_fallback_pair_count`, which is a
+    /// claim between **global** figures. A rank-local breakdown printed beside
+    /// a reduced total would fail that sum at every rank but one.
+    /// **Added by T6 T8b.**
+    long long global_m2l_fallback_pairs_range_guard = -1;
+
+    /// **Global, reduced**, in pairs: the other half of the breakdown, from
+    /// `DownwardSweep::m2l_n_fallback_pairs_count_cap()`. Pairs whose key
+    /// *was* hashed and which the merge then refused a column, because the
+    /// realized table had reached `local_m2l_op_cap`. A **budget**, and the
+    /// only one of the two reasons `FmmParams::m2l_op_count_cap` moves: this
+    /// field is what "the cap bound" means in pairs rather than in keys.
+    /// Same `-1` sentinel and same reduction as the field above.
+    /// **Added by T6 T8b.**
+    long long global_m2l_fallback_pairs_count_cap = -1;
+
+    /// **Global, reduced**, in pairs: refused pairs that reached **neither**
+    /// an operator column **nor** the fallback table, from
+    /// `DownwardSweep::m2l_n_fallback_pairs_depth_dropped()` — their target
+    /// depth lies outside \f$[0,\texttt{max\_depth}]\f$, so Canopy's
+    /// fallback-table assembly `continue`s past them and
+    /// `global_m2l_fallback_pair_count` cannot see them.
+    ///
+    /// **Must be 0.** A non-zero reading is a pair whose contribution is never
+    /// evaluated at all — a wrong velocity, not a slow one — and it is also
+    /// the only way the two counters above can fail to sum to the fallback
+    /// total. Carried beside them so the sum identity has something to name
+    /// when it fails. Same `-1` sentinel and same reduction.
+    /// **Added by T6 T8b.**
+    long long global_m2l_fallback_pairs_depth_dropped = -1;
 };
 
 /// Spelling for `FarFieldDiagnostics::Maintenance`, so a diagnostic that
@@ -898,6 +947,21 @@ class FarFieldSolver
             // count.
             d.local_m2l_demanded_op_count = down.m2l_n_demanded_ops();
             d.local_m2l_demand_saturated = down.m2l_demand_saturated();
+            // T6 T8b. The per-reason fallback breakdown, mirrored verbatim
+            // and sentinel and all for the same reason: -1 is "no profiling"
+            // and 0 is the normal reading for the range guard, so the two
+            // must not be substituted for each other (R7). These three are
+            // RANK-LOCAL as read here and the three fields are spelled
+            // `global_`, exactly as `global_m2l_pair_count` and
+            // `global_m2l_fallback_pair_count` above are: the caller's single
+            // MPI_Allreduce replaces them with the reduced sums, because the
+            // identity they exist to check is against a reduced total.
+            d.global_m2l_fallback_pairs_range_guard =
+                down.m2l_n_fallback_pairs_range_guard();
+            d.global_m2l_fallback_pairs_count_cap =
+                down.m2l_n_fallback_pairs_count_cap();
+            d.global_m2l_fallback_pairs_depth_dropped =
+                down.m2l_n_fallback_pairs_depth_dropped();
             // One scan of the per-depth cell counts, whose accessor is
             // ungated and so has no sentinel. The vector is `max_depth + 1`
             // long and carries trailing zeros, so the deepest OCCUPIED depth
@@ -1492,15 +1556,37 @@ class FarFieldSolver
         // check, rather than one apiece: they are all sums over the same
         // communicator at the same point in the sequence.
         _impl->readDiagnostics( _diagnostics );
-        long long local[5] = {
+        // T6 T8b: the per-reason fallback breakdown rides this reduction
+        // rather than a second one, because the identity it exists to check
+        // -- the two reasons summing to the fallback total -- is a claim
+        // between GLOBAL figures and would fail at every rank but one if the
+        // breakdown stayed rank-local.
+        //
+        // THE SENTINEL CANNOT BE SUMMED. Canopy reports `-1` for all three in
+        // a `~profiling` build, and MPI_SUM over R ranks would turn that into
+        // `-R` -- a number that is neither a count nor the sentinel, and that
+        // reads as a measurement at R = 1. So the three are contributed as
+        // `max(0, local)` and availability travels as its own element; the
+        // reduced values are only published if EVERY rank had the counters,
+        // and the fields are reset to the `-1` sentinel otherwise (R7).
+        const bool breakdown_local =
+            ( _diagnostics.global_m2l_fallback_pairs_range_guard >= 0 &&
+              _diagnostics.global_m2l_fallback_pairs_count_cap >= 0 &&
+              _diagnostics.global_m2l_fallback_pairs_depth_dropped >= 0 );
+        auto nonneg = []( long long v ) { return ( v > 0 ) ? v : 0; };
+        long long local[9] = {
             static_cast<long long>( num_local ),
             p2pPairCountLocal(),
             _diagnostics.global_m2l_pair_count,
             _diagnostics.global_m2l_fallback_pair_count,
             static_cast<long long>( num_returned != ns ) +
-                static_cast<long long>( scatter_bad ) };
-        long long global[5] = { 0, 0, 0, 0, 0 };
-        MPI_Allreduce( local, global, 5, MPI_LONG_LONG, MPI_SUM, _comm );
+                static_cast<long long>( scatter_bad ),
+            nonneg( _diagnostics.global_m2l_fallback_pairs_range_guard ),
+            nonneg( _diagnostics.global_m2l_fallback_pairs_count_cap ),
+            nonneg( _diagnostics.global_m2l_fallback_pairs_depth_dropped ),
+            breakdown_local ? 0LL : 1LL };
+        long long global[9] = { 0, 0, 0, 0, 0, 0, 0, 0, 0 };
+        MPI_Allreduce( local, global, 9, MPI_LONG_LONG, MPI_SUM, _comm );
 
         if ( global[4] != 0 )
             throw std::runtime_error(
@@ -1514,6 +1600,25 @@ class FarFieldSolver
         _diagnostics.global_p2p_pair_count = global[1];
         _diagnostics.global_m2l_pair_count = global[2];
         _diagnostics.global_m2l_fallback_pair_count = global[3];
+        // `global[8]` counts the ranks that could NOT measure. Zero means
+        // every rank carried the counters and the sums are a measurement;
+        // anything else and the breakdown is unavailable, which is reported
+        // as the `-1` sentinel on all three and never as the partial sum.
+        // Mixed availability cannot happen with one binary, and is treated as
+        // unavailable rather than silently published for the ranks that had
+        // it.
+        if ( global[8] == 0 )
+        {
+            _diagnostics.global_m2l_fallback_pairs_range_guard = global[5];
+            _diagnostics.global_m2l_fallback_pairs_count_cap = global[6];
+            _diagnostics.global_m2l_fallback_pairs_depth_dropped = global[7];
+        }
+        else
+        {
+            _diagnostics.global_m2l_fallback_pairs_range_guard = -1;
+            _diagnostics.global_m2l_fallback_pairs_count_cap = -1;
+            _diagnostics.global_m2l_fallback_pairs_depth_dropped = -1;
+        }
         const double n = static_cast<double>( global[0] );
         _diagnostics.p2p_pair_fraction =
             ( n > 0.0 ) ? static_cast<double>( global[1] ) / ( n * n ) : 0.0;

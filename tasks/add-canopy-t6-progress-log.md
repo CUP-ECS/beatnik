@@ -2420,3 +2420,332 @@ confirmation that the 65536 landed in the level-4 arm only.
   level-4 member will still fail `p.m2l_fallback == 0` at 71 of 81 states
   unless T8b has landed first: **T8 raised the cap, and the member's failing
   assertion is not fixed by it.**
+
+## T8b
+
+Canopy and Beatnik, two files each, plus one new batch script on each side. Two
+`pdebug` jobs, one `spack install`, and two `make` invocations in T1's cmake
+trees. **The answer is unambiguous and it is not a budget:** at the post-T8 cap
+the range guard accounts for **100 %** of level-4 fallback at both rank counts.
+
+### Decisions taken as given by the task, recorded so they are not reopened
+
+- **The per-reason counters JOIN the existing `MPI_Allreduce`** at
+  `src/Beatnik_FarFieldInterface.hpp`, which went from five elements to nine.
+  They are global, unlike T1's rank-local demand counters, because the identity
+  the exit criterion checks is between two global figures.
+- **The `~profiling` failure direction was taken in Canopy, not Beatnik.** This
+  env concretizes `canopy +profiling` and has since T4, so the sentinel is
+  unobservable from any Beatnik binary in it. The Beatnik env's canopy variant
+  was **not** flipped.
+- **Measured at 65536, not 32768**, so that nothing seen is cap-driven. No
+  32768 control was run: T8's job `f3bafaXSEZT5` already carries that pair in
+  the same shape.
+- **`M2L_KEY_DD_MAX` and `M2L_KEY_OFFSET_MAX` were not touched**, and neither
+  was `kTauA`, the gate, the `milestone` tier's membership, or `makeFmmParams`.
+- **clang-format was not run** on any of the four edited files.
+
+### Do step 1: the full enumeration of sites that route a pair to fallback
+
+A pair takes the per-pair `m2l_translate` path exactly when `pair_op_idx[p] < 0`
+after the remap. There are **two** origins for that `-1` and **one** further
+site that can lose a refused pair entirely. All line numbers are post-edit in
+`canopy/src/Canopy_DownwardSweep.hpp`.
+
+| site | line | condition it tests | kind |
+| --- | --- | --- | --- |
+| classify pass's **range guard** | `:1631-1636` | `max_d >= 0 && max_d <= _max_depth && abs(dd) <= M2L_KEY_DD_MAX && abs(ii\|jj\|kk) <= M2L_KEY_OFFSET_MAX`; the `else` leaves `local_op = -1` and **no key is ever hashed** | **representability** — `dd` over [-6,6] (`Canopy_CartesianTaylorBasis.hpp:469`), `ii,jj,kk` over [-32,32] (`:570`). Hard bounds, not budgets |
+| merge's **cap refusal** | `:1869-1876` (the `else` after `ops.size() < effective_op_cap`) | the key **was** hashed; `ops` has reached `effective_op_cap`, so `g = -1` and the once-per-build `[Canopy]` warning fires at `:1872` | **budget** — the one T8 moved |
+| the **remap**, where the two meet | `:1935-1941` | `pair_op_idx[p] = (lo >= 0) ? l2g[lo] : -1`. `lo < 0` is a range-guard refusal; `lo >= 0` with `l2g[lo] < 0` is a cap refusal. **After this line the two are the same `-1`** | the only site where they are separable |
+| fallback-table assembly's **depth drop** | `:2286-2290` and `:2304-2308` (both `if (d < 0 \|\| d > _max_depth) continue;`) | a refused pair whose `pair_target_depth` is out of range is placed in **neither** an operator column nor the fallback table | **a dropped pair** — invisible to `total_fallback_pair_count()`, a wrong velocity rather than a slow one |
+
+`m2l_effective_op_cap()` is called **once**, at `:1478`, into the local
+`effective_op_cap`, so there is exactly one cap-driven threshold. The remap's
+thread partition covers `[0, total_pairs)` exactly and disjointly —
+`entry_begin[0] = 0`, `entry_begin[nthreads] = n_entries` (`:1543`) and
+`entry_pair_offset[n_entries] = total_pairs` — which is what makes a
+per-thread accumulator there a complete count rather than a sample.
+
+### Do step 2: the three counters, and why they are counted where they are
+
+All in `canopy/src/Canopy_DownwardSweep.hpp`. Signature changes: **none**.
+Nothing existing was removed or renamed.
+
+| addition | where |
+| --- | --- |
+| `long long _m2l_fallback_pairs_range_guard = -1;` | `:824`, beside `_m2l_demand_saturated` |
+| `long long _m2l_fallback_pairs_count_cap = -1;` | `:825` |
+| `long long _m2l_fallback_pairs_depth_dropped = -1;` | `:826` |
+| `long long m2l_n_fallback_pairs_range_guard() const` | `:1113`, after `m2l_demand_saturated()` |
+| `long long m2l_n_fallback_pairs_count_cap() const` | `:1121` |
+| `long long m2l_n_fallback_pairs_depth_dropped() const` | `:1132` |
+| three per-thread accumulators + the post-loop sum | `:1918-1972`, in and around the remap `parallel_for` |
+| `fb_range_guard=`, `fb_count_cap=`, `fb_dropped=` | the `[Canopy Diagnostics] M2L operator table:` printf |
+| `testM2LFallbackReasonBreakdown` + its `TEST()` registration | `canopy/tests/tstLaplaceSolve.hpp:2234`, `:2390` |
+| `run_t8b_fallback_reasons.flux` | `canopy/scripts/tuolumne/` (new, untracked) |
+
+**Counted at the remap and nowhere else, because that is the only site where
+the two reasons are still distinguishable.** `lo` is in hand there beside the
+value being written. Accumulated into one `std::vector<long long>` slot per
+thread rather than an atomic — the pair slices are disjoint by construction —
+and summed after the `parallel_for` returns.
+
+**How read-only discipline is kept (R1).** The block is a
+`#ifdef CANOPY_ENABLE_PROFILING` function-local accumulator that **reads**
+`pair_op_idx[p]`, `pair_target_depth[p]` and `lo`, and **writes** only its own
+three vectors. It touches none of `ops`, `key_to_op`, `local_to_global`,
+`pair_op_idx`, `_m2l_realized_keys`, the operator cache or the fallback tables.
+The Canopy job below is the measurement that discharges R1 rather than the
+argument: the `ON` and `OFF` trees' fallback totals are **identical at all 21
+`(nprocs, rank)` pairs** (1677, 826, 822, 526, 432, 673, 502, 306, 429, 377,
+323, 320, 279, 364, 329, 291, 291, 232, 301, 175, 309), which also reproduces
+T6's recorded 175..1677 range exactly.
+
+**The depth test comes FIRST, with the same bounds the assembly uses**, so the
+two reason counters hold exactly the pairs that table will place and their sum
+is `total_fallback_pair_count()` with nothing left over. Getting that order
+wrong is the one way to build a breakdown that is off by the dropped pairs and
+still looks plausible.
+
+**No reset was added.** `build_interaction_list_device()`'s only early return
+is `if (!_interaction_list_dirty) return;` (`:1429`), under which the demand
+counter and the fallback tables also keep their previous values — so the three
+counters describe the same build everything else on the sweep describes.
+
+### Do step 3: the Beatnik surface, and the one thing the reduction cannot do naively
+
+`src/Beatnik_FarFieldInterface.hpp`, **+113 −8**. Three fields on
+`FarFieldDiagnostics`, each `long long` defaulting to **`-1`**, spelled
+`global_` and not `local_`:
+`global_m2l_fallback_pairs_range_guard`, `global_m2l_fallback_pairs_count_cap`,
+`global_m2l_fallback_pairs_depth_dropped`. Populated in the single
+`readDiagnostics` override verbatim from the three Canopy accessors, sentinel
+and all.
+
+**THE SENTINEL CANNOT BE SUMMED, and this is the bug the design would have
+had.** `MPI_SUM` over `-1` on R ranks gives `-R` — neither a count nor the
+sentinel, and *indistinguishable from the sentinel at R = 1*, which is exactly
+the np1 launch. So the reduction carries **nine** elements, not eight: the
+three counters contributed as `max(0, local)`, plus a ninth element counting
+the ranks that could **not** measure. The reduced values are published only
+when that ninth element is `0`; otherwise all three fields are reset to `-1`.
+Mixed availability is impossible with one binary and is treated as unavailable
+rather than partially published.
+
+`tests/regression_tests/Beatnik_Probe_FmmKeyDemand.cpp`, **+127 −8**: three
+`DemandPoint` fields, three columns on the per-state `[t6probe] row`,
+`fallback_breakdown_available=` on the header with its own loud R7 block, and a
+new `[t8bprobe] trailer` per rank carrying the series totals and state counts.
+
+**The identity is asserted, not inspected**, per the Do step: two
+`BEATNIK_CHECK_EQ` per state, **skipped under the sentinel rather than
+evaluated** (R7) — `-1 + -1 == fallback` is a claim about nothing, and a row of
+sentinels must not read as a verified identity. That moves the probe's check
+count from T8's **174 to 337** (174 + 2x81 + one availability check). **This is
+the first runner of this probe whose rc is part of the result**: every other
+column it prints is still asserted on by nothing, but a breakdown that fails to
+account for a fallback pair now fails the launch.
+
+### Measured: job `f3bbHk4tFmkK` — Canopy, both trees, ranks 1-6, the `~profiling` direction
+
+`canopy/scripts/tuolumne/run_t8b_fallback_reasons.flux`, `pdebug`,
+`--time-limit=40`, `flux job status` rc 0.
+**`100% tests passed, 0 tests failed out of 6` in both trees**, combined rc 0.
+The suite is now **nine** gtest cases per rank count. Both trees rebuilt one TU
+and relinked, clean on the first attempt.
+
+| case | `ON` tree | `OFF` tree |
+| --- | --- | --- |
+| `m2lFallbackReasonBreakdown`, cap 4 | `fb_range_guard=0`, `fb_count_cap = fallback` **exactly** at all 21 pairs (175 .. 1677), `fb_dropped=0`, `breakdown_available=1`; the identity is **asserted** | all three read **`-1`** at all 21 pairs, `breakdown_available=0`, and the identity is **skipped**; the two ungated preconditions (`eff_cap=4`, `fallback > 0`) still pass |
+
+The `ON` tree's `fb_range_guard = 0` on this frozen 600-particle tree is the
+expected reading and is asserted as such: a healthy MAC traversal produces no
+out-of-range pair, and that case drives the **count cap** reason deliberately so
+the identity has a non-trivial right-hand side.
+
+### Measured: job `f3bbMmxgc4ZD` — the answer
+
+`scripts/tuolumne/t8b_fallback_reasons.flux`, `-q pdebug -t 15m`, HIP level 4
+at the 65536 cap, at commit `c0c924e` + 2 modified files. `flux job status`
+rc 0, `SUMMARY: PASS (2/2 launches)`, **132 s of job wall** — np1 62 s, np4
+70 s. `canopy@develop+profiling` echoed in the header,
+`fallback_breakdown_available=1` in both `[t6probe] header` lines, and **0 of
+405 rows carry a sentinel in any of the three columns**.
+
+| launch | states | rows | `fb_total` | `fb_range_guard_total` | `fb_count_cap_total` | `fb_dropped_total` | `fb_states` | `fb_range_guard_states` | `fb_count_cap_states` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **np1** | 81 | 81 | **215 302** | **215 302** | **0** | **0** | **71** | **71** | **0** |
+| **np4** | 81 | 324 | **215 742** | **215 742** | **0** | **0** | **71** | **71** | **0** |
+
+**THE RANGE GUARD ACCOUNTS FOR 100 % OF LEVEL-4 FALLBACK AT BOTH RANK COUNTS.**
+`fb_count_cap > 0` in **0 of 405 rows**, which is what measuring at 65536 buys:
+at that cap nothing is cap-driven, T8 having already shown
+`unique_ops == demand` at every state, so the whole remaining total belongs to
+the other path and now has a counter naming it.
+
+**The identity holds at every one of the 405 rows.** Verified twice and
+independently: the probe's own per-state assertion (`337/337 checks` on all
+five rank reports, five of five `[PASS]`), and a re-derivation from the logged
+rows afterwards — `fb_range_guard + fb_count_cap == global_m2l_fallback` with
+**0 failures** and `fb_dropped == 0` in 405 of 405. **No pair is dropped**: the
+fallback-table assembly's depth guard never fires at this configuration, so
+`total_fallback_pair_count()` sees every refused pair.
+
+**Every figure T8 and T5 set as a reconciliation point is reproduced:**
+
+| what had to hold | source | measured |
+| --- | --- | --- |
+| non-cap path accounts for **100 %** of np4 fallback | T5, T8 `**Affects:**` | `fb_count_cap_total = 0` at np4. **Exactly 100 %** |
+| `fb_count_cap` reads **0 at every state** at 65536 | T8 `**Affects:**` | 0 of 405 rows non-zero |
+| **71 of 81** states non-zero, both rank counts | T5, T8 | 71 at np1 and 71 at np4 |
+| the ten zero-fallback states are steps **0 through 225** | T8 | exactly `[0, 25, 50, 75, 100, 125, 150, 175, 200, 225]`, both launches |
+| those states at `occupied_depths` **5 or 6** | T8 | depths `[5, 6]`, both launches |
+| np1 total near T8's **216 288** at the same cap | T8 | **215 302**, −0.46 %, inside T5's own draw spread |
+| first fallback at step **250** | T5 | `first_fb_step = 250`, both launches |
+
+### The finding, and it is the one the Do step warned about
+
+**The dominant reason is a REPRESENTABILITY limit of the basis's key encoding,
+not a budget.** Three readings say so and they are independent of each other:
+
+1. **The counter says so directly.** 100 % `fb_range_guard` at both rank
+   counts, 0 % `fb_count_cap`, at a cap that admits every demanded key.
+2. **A cap raise already failed to move the state count.** T8 removed 44.3 % of
+   np1 fallback *pairs* and moved the non-zero *state* count by **zero**. The
+   pairs it removed were the cap's; the states were never the cap's.
+3. **The fallback is essentially rank-count-independent.** The peak is **6 884
+   pairs at step 1550 at np1** against **6 832 at step 1550 at np4** — 0.8 %
+   apart, at the same step, on a 4x different partition. A *per-rank budget*
+   cannot behave that way; a *geometric* limit on the tree must. `occupied_depths`
+   spans 5 to 8 in both launches and every zero-fallback state is at depth 5 or
+   6, so the guard starts firing when the tree deepens.
+
+Per the Do step, **nothing was changed**: `M2L_KEY_DD_MAX`
+(`Canopy_CartesianTaylorBasis.hpp:469`, `dd` over [-6,6]) and
+`M2L_KEY_OFFSET_MAX` (`Canopy_DownwardSweep.hpp:570`, `ii,jj,kk` over [-32,32])
+stand exactly as they were. **This is a finding to raise and a new task at the
+basis's key encoding, not an edit here.**
+
+**The "additional information needed" is answered, and the answer is NO.**
+Whether the dominant reason is reachable from a Beatnik-side configuration at
+all: **it is not.** Both bounds are `static constexpr` — one on the basis, one
+on the sweep — with **no setter, no `FmmConfig` member and no `FmmParams`
+member**, unlike `m2l_op_table_byte_budget` and (since T6) `m2l_op_count_cap`.
+Nothing a Beatnik caller can set moves either one. The Beatnik-side levers that
+*might* reduce how often the guard fires are indirect and all already rejected
+upstream: a shallower `max_depth` (rejected in T8), a larger `ncrit`
+(`ncrit = 8` is near its liveness floor, T8), or a `mac_theta` change — each of
+which changes the tree rather than the encoding, and none of which is a
+configuration of the refusal path itself.
+
+### What only running revealed
+
+- **The CMake device pin landed in the wrong block and silently did nothing.**
+  `set(BEATNIK_TEST_DEVICES HIP)` was appended after line 109 of
+  `cmake/test_harness/test_harness.cmake`, which puts it **inside** the
+  `if(_device STREQUAL CUDA)` branch of the device loop — a branch that never
+  runs here, since CUDA is off. So the trim built the probe for **SERIAL,
+  OPENMP and HIP** instead of HIP alone. It cost build time and nothing else:
+  the HIP binary is correct and is the one that ran. **The line belongs after
+  `endforeach()`, not after the `CUDA_UVM` append.** The reverted tree carries
+  neither, and the next session that trims should check which line
+  `endforeach()` is on rather than reusing an offset.
+- **The sentinel-and-`MPI_SUM` collision is real and is invisible at np1.**
+  See Do step 3. A reduction that summed `-1` would have reported `-1` at np1
+  — the correct sentinel, by accident — and `-4` at np4, so the bug would have
+  presented as a nonsense np4 column beside a plausible np1 one.
+- **The install was 4 m 31 s** on the trimmed tree (build 4 m 27 s), matching
+  T8's 4 m 33 s. `canopy@develop+profiling` rebuilt in 18 s and kept hash
+  `w4woraj`; `beatnik@develop` came back `nnbspfy`. `HIPCC_LINK_FLAGS_APPEND`
+  and `HIPCC_COMPILE_FLAGS_APPEND` were cleared first, the probe `.cpp` was
+  `touch`ed per the header-only caveat, and **no file in the tree was edited
+  while the install ran** (T8's rule, observed).
+- **`pdebug` absorbed both submissions immediately**; neither job spent
+  measurable time in `SCHED`.
+- **Nothing failed twice and nothing needed a second submission.** Both jobs
+  came back rc 0 on the first try and both Canopy trees compiled on the first
+  attempt.
+
+### THE BUILD WAS TRIMMED, THE TRIM IS REVERTED, AND THE INSTALLED VIEW IS STILL TRIMMED
+
+Same trim T8 used, with the device-pin caveat above: all five
+`BEATNIK_REGRESSION_TEST_SOURCES`, all four `BEATNIK_MILESTONE_TEST_SOURCES`
+(not just the two Frozen — the argument-list `FATAL_ERROR` guards iterate over
+the **sources**, so an empty source list fires nothing), the two
+`BEATNIK_DRIVER_SOURCES` that are not the probe, `add_subdirectory(unit_tests)`
+and `add_subdirectory(examples)`. **Sources were commented, never argument
+lists.**
+
+- **The trims are fully reverted and were never committed.** `git diff
+  --name-only` in Beatnik is exactly `src/Beatnik_FarFieldInterface.hpp` and
+  `tests/regression_tests/Beatnik_Probe_FmmKeyDemand.cpp`, plus the untracked
+  `scripts/tuolumne/t8b_fallback_reasons.flux`. **No `cmake/` file, no
+  `CMakeLists.txt`, no `tests/CMakeLists.txt`.** Checked, not assumed.
+- **THE INSTALLED PREFIX IS STILL TRIMMED.** It holds only the three
+  `Beatnik_Probe_FmmKeyDemand_MPI_*` binaries; `beatnik_gate_manifest.txt` and
+  `beatnik_milestone_manifest.txt` both carry **zero** test entries, and there
+  is no unit test, no example and **not even the two FMM milestone members T8
+  left behind**. **T9a and T9b must `spack install` the reverted tree first**;
+  a gate or tier run against this prefix would report a clean pass over zero
+  tests.
+- The Canopy clone is at `develop` commit `fd89815` with a clean tree apart
+  from the two modified headers and two untracked scripts. **Nothing was
+  pulled, committed or pushed there.**
+
+### Departures from T8b's stated Do steps
+
+- **Three counters, not two.** The Do step asks for "one profiling-gated
+  counter per distinct reason" summing to `total_fallback_pair_count()`. The
+  dropped-pair case it names in the same breath is not a *refusal reason* — it
+  is a pair that reached neither table — so counting it inside either reason
+  would have broken the sum identity by exactly the dropped count. It is its
+  own counter, held to `== 0`, and the two reason counters are the ones that
+  sum.
+- **The two reason counters count only pairs whose target depth is in range.**
+  The alternative (count all refusals by reason, subtract the dropped ones)
+  makes the identity `range + cap − dropped == fallback`, which is harder to
+  read and fails less legibly. Documented in both headers.
+- **The `OFF` tree's new case asserts the `-1` sentinel explicitly**, as T1's
+  and T6's do, rather than compiling to nothing there. The exit criterion's
+  failure direction is otherwise unverifiable from the log.
+- **The probe gained a `fallback_breakdown_available` of its own**, separate
+  from `demand_available` even though both are gated on the same macro, and
+  the two are checked equal. A build where one is live and the other is not is
+  a build whose instrumentation has drifted, and that is worth seeing as a
+  failed check rather than as a column of `-1` beside a column of counts.
+- **The new Canopy script carries no BSD-3-Clause header**, per T1's and T6's
+  precedent; the Beatnik script carries one, per Beatnik's rule.
+- **The gate is unchanged** — still five `regression` members and 60 launches
+  on tuolumne. T8b added one `unit`-adjacent case to Canopy's **own**
+  `Canopy_Test_LaplaceSolve_MPI_SERIAL` suite and no Beatnik test to any tier;
+  the probe is in no tier. The `milestone` tier still has four members and
+  sixteen launches.
+
+**Affects:**
+
+- **T9a — ITS PRECONDITION IS UNREACHABLE AS WRITTEN, and this is the finding
+  it has to absorb.** T9a wants "zero fallback at all 81 states". **The
+  non-cap path is NOT reachable from any Beatnik-side configuration**:
+  `M2L_KEY_DD_MAX` and `M2L_KEY_OFFSET_MAX` are `static constexpr` with no
+  setter, no `FmmConfig` member and no `FmmParams` member, and they carry
+  **100 %** of the level-4 fallback at both rank counts at the post-T8 cap. **No
+  value of `m2l_op_count_cap` or `m2l_op_table_byte_budget` can drive
+  `p.m2l_fallback` to zero at level 4.** T9a therefore cannot confirm claim A
+  by waiting for zero fallback; either it proceeds with the fallback present
+  and says so (the path is the same mathematics evaluated pair by pair — slower
+  and bitwise different, not wrong), or **a new task at the basis's key
+  encoding has to land first**. That task is not T8b's to design and T8b
+  deliberately did not attempt a remedy. T9a also still owns the
+  `makeFmmParams` / claim-B cap divergence T8 left open, and **must `spack
+  install` the reverted tree** before it runs anything.
+- **T9b — the level-4 member will still fail `p.m2l_fallback == 0` at 71 of 81
+  states**, and now for a reason with a name and a number rather than a
+  direction. T8 raised the cap and that assertion did not move; T8b shows it
+  cannot move at any cap. **T9b must not be submitted against the current
+  trimmed prefix** — its own `spack install` of the reverted tree is mandatory
+  — and the question of whether that assertion is the right one is now a
+  question about the key encoding, not about a budget.
+- **T5, T6, T7, T8** — none. T8b changed no cap, no default, no tolerance, no
+  bound, no key encoding and no existing signature; every number those entries
+  record still stands, and the `OFF`/`ON` fallback identity at 21 of 21 pairs
+  is fresh evidence that the instrumentation added since T1 is still read-only.

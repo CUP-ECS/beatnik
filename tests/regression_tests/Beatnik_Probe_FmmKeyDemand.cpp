@@ -372,6 +372,12 @@ struct DemandPoint
     long long keys_built_delta = 0;
     long long global_m2l_pairs = 0;
     long long global_m2l_fallback = 0;
+    // T8b's per-reason breakdown of the line above, in PAIRS and GLOBAL (the
+    // adapter reduces all three), with -1 the "no profiling" sentinel and 0 a
+    // legal count for each.
+    long long fb_range_guard = -1;
+    long long fb_count_cap = -1;
+    long long fb_dropped = -1;
     double global_p2p_fraction = 0.0;
     long long global_particles = 0;
     double eval_wall = 0.0;
@@ -386,12 +392,15 @@ void printRow( int rank, int comm_size, const DemandPoint& p )
         "[t6probe] row rank=%d/%d step=%lld demand=%d demand_saturated=%d "
         "unique_ops=%d op_cap=%d occupied_depths=%d cells_at_max_depth=%d "
         "cache=%d keys_built=%lld keys_built_delta=%lld "
-        "global_m2l_pairs=%lld global_m2l_fallback=%lld global_p2p_frac=%.17g "
+        "global_m2l_pairs=%lld global_m2l_fallback=%lld "
+        "fb_range_guard=%lld fb_count_cap=%lld fb_dropped=%lld "
+        "global_p2p_frac=%.17g "
         "global_particles=%lld eval_wall=%.6f\n",
         rank, comm_size, p.step, p.demand, p.demand_saturated ? 1 : 0,
         p.unique_ops, p.op_cap, p.occupied_depths, p.cells_at_max_depth,
         p.cache, p.keys_built, p.keys_built_delta, p.global_m2l_pairs,
-        p.global_m2l_fallback, p.global_p2p_fraction, p.global_particles,
+        p.global_m2l_fallback, p.fb_range_guard, p.fb_count_cap, p.fb_dropped,
+        p.global_p2p_fraction, p.global_particles,
         p.eval_wall );
     std::fflush( stdout );
 }
@@ -589,6 +598,9 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
         keys_built_prev = diag.local_m2l_op_keys_built;
         p.global_m2l_pairs = diag.global_m2l_pair_count;
         p.global_m2l_fallback = diag.global_m2l_fallback_pair_count;
+        p.fb_range_guard = diag.global_m2l_fallback_pairs_range_guard;
+        p.fb_count_cap = diag.global_m2l_fallback_pairs_count_cap;
+        p.fb_dropped = diag.global_m2l_fallback_pairs_depth_dropped;
         p.global_p2p_fraction = diag.p2p_pair_fraction;
         p.global_particles = diag.global_particle_count;
         p.eval_wall = t1 - t0;
@@ -599,6 +611,31 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
         BEATNIK_CHECK_EQ( rec, p.global_particles, want_vertices );
         BEATNIK_CHECK_EQ( rec, countNonFinite<ExecSpace>( comm, u_fmm, n_owned ),
                           0 );
+
+        // T8b'S SUM IDENTITY, STRUCTURAL and not a measurement: a breakdown
+        // that does not account for every fallback pair can name the wrong
+        // reason and still read like a number. Both figures are global --
+        // Canopy reduces the fallback total itself and the adapter reduces the
+        // breakdown into the same MPI_Allreduce -- so the identity is checked
+        // at every rank against the same two sides.
+        //
+        // SKIPPED, NOT PASSED, UNDER THE SENTINEL (R7). In a `~profiling`
+        // Canopy build all three counters are -1 and `-1 + -1 == fallback` is
+        // a claim about nothing; asserting it would make a row of sentinels
+        // read as a verified identity at the one state where fallback happens
+        // to be -2. The skip is reported in the header and the trailer rather
+        // than being silent.
+        if ( p.fb_range_guard >= 0 && p.fb_count_cap >= 0 &&
+             p.fb_dropped >= 0 )
+        {
+            BEATNIK_CHECK_EQ( rec, p.fb_range_guard + p.fb_count_cap,
+                              p.global_m2l_fallback );
+            // A refused pair whose target depth is out of range reaches
+            // neither an operator column nor the fallback table, so its
+            // contribution is never evaluated: a wrong velocity, not a slow
+            // one.
+            BEATNIK_CHECK_EQ( rec, p.fb_dropped, 0 );
+        }
         return p;
     };
 
@@ -627,6 +664,22 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
     MPI_Allreduce( &avail_local, &avail_max, 1, MPI_INT, MPI_MAX, comm );
     BEATNIK_CHECK_EQ( rec, avail_min, avail_max );
 
+    // T8b's breakdown has its OWN availability, read separately from the
+    // demand counter's even though both are gated on the same
+    // CANOPY_ENABLE_PROFILING. They are separate measurements, and a build in
+    // which one is live and the other is not is a build whose instrumentation
+    // has drifted -- worth seeing as a disagreement here rather than as a
+    // column of -1 beside a column of counts. The adapter reduces the
+    // breakdown, so a disagreement between ranks is impossible by
+    // construction and the value is read off this rank.
+    const int fb_avail =
+        ( series.front().fb_range_guard >= 0 &&
+          series.front().fb_count_cap >= 0 &&
+          series.front().fb_dropped >= 0 )
+            ? 1
+            : 0;
+    BEATNIK_CHECK_EQ( rec, fb_avail, avail_min );
+
     if ( rank == 0 )
     {
         const DemandPoint& p0 = series.front();
@@ -635,7 +688,7 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
             "steps=%d every=%d ncrit=%d order=%d basis=%s mac_theta=%.17g "
             "max_depth=%d near_soft_factor=%.17g bytes_per_key=%zu "
             "byte_budget=%zu op_count_cap=%d op_cap=%d "
-            "demand_available=%d\n",
+            "demand_available=%d fallback_breakdown_available=%d\n",
             level, want_vertices, comm_size, ExecSpace::name(), kSteps,
             kCheckpointEvery, live.ncrit, live.order,
             Beatnik::toString( live.basis ),
@@ -643,7 +696,7 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
             static_cast<double>( live.near_softening_factor ),
             fmm.farField().diagnostics().local_m2l_bytes_per_key,
             live.m2l_op_table_byte_budget, live.m2l_op_count_cap, p0.op_cap,
-            avail_min );
+            avail_min, fb_avail );
         if ( avail_min == 0 )
         {
             // R7. `-1` is "this Canopy build carries no profiling", and `0`
@@ -661,6 +714,23 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
                 "occupied_depths and cells_at_max_depth columns ARE live in "
                 "this build -- m2l_cells_at_depth() is ungated -- so a -1 in "
                 "THOSE would be this probe's own bug. ***\n" );
+        }
+        if ( fb_avail == 0 )
+        {
+            // R7 again, for T8b's three counters. The sum identity is SKIPPED
+            // rather than evaluated in this build, so the per-reason columns
+            // below carry no information at all and the absence of a failed
+            // identity check is not evidence that one holds.
+            std::printf(
+                "[t8bprobe] *** FALLBACK BREAKDOWN UNAVAILABLE: the "
+                "fb_range_guard, fb_count_cap and fb_dropped columns below "
+                "are the -1 SENTINEL and NOT zero counts. Zero range-guard "
+                "refusals is the NORMAL reading, so a 0 here would be a "
+                "measurement this build did not make. THE SUM IDENTITY "
+                "fb_range_guard + fb_count_cap == global_m2l_fallback IS "
+                "SKIPPED, not passed -- its absence from the check tally is "
+                "the point. Rebuild against `canopy +profiling` to measure. "
+                "***\n" );
         }
         std::fflush( stdout );
     }
@@ -738,9 +808,44 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
     long long peak_delta = -1;
     long long peak_delta_step = -1;
     double eval_wall_total = 0.0;
+    // T8b. The per-reason breakdown summed over the series, plus the state
+    // counts, because the question T8b answers is "which reason accounts for
+    // the fallback" and the per-state rows above are 81 lines to add up by
+    // hand. `fb_states` is the count of states with non-zero fallback --
+    // T8 measured 71 of 81 at both rank counts and both caps, and that count
+    // is the observable the level-4 member's `p.m2l_fallback == 0` assertion
+    // actually fails on.
+    long long fb_total = 0;
+    long long fb_range_total = 0;
+    long long fb_cap_total = 0;
+    long long fb_dropped_total = 0;
+    long long fb_states = 0;
+    long long fb_range_states = 0;
+    long long fb_cap_states = 0;
+    long long first_fb_step = -1;
     for ( const DemandPoint& p : series )
     {
         eval_wall_total += p.eval_wall;
+        fb_total += p.global_m2l_fallback;
+        if ( p.global_m2l_fallback > 0 )
+        {
+            ++fb_states;
+            if ( first_fb_step < 0 )
+                first_fb_step = p.step;
+        }
+        // The totals stay at 0 under the sentinel rather than accumulating
+        // -1 per state, and `fallback_breakdown_available=0` in the header is
+        // what says they are not measurements (R7).
+        if ( p.fb_range_guard >= 0 )
+        {
+            fb_range_total += p.fb_range_guard;
+            fb_cap_total += p.fb_count_cap;
+            fb_dropped_total += p.fb_dropped;
+            if ( p.fb_range_guard > 0 )
+                ++fb_range_states;
+            if ( p.fb_count_cap > 0 )
+                ++fb_cap_states;
+        }
         if ( p.keys_built_delta > peak_delta )
         {
             peak_delta = p.keys_built_delta;
@@ -769,6 +874,20 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
                  rank, comm_size, avail_min, first_exceed, peak_demand,
                  peak_demand_step, peak_delta, peak_delta_step, series.size(),
                  eval_wall_total );
+    std::fflush( stdout );
+
+    // T8b's answer in one line per rank. `global_*` here are Canopy's own
+    // reductions and the adapter's, so every rank prints the same figures;
+    // they are printed per rank anyway, as the trailer above is, so a ragged
+    // column is visible rather than inferred.
+    std::printf( "[t8bprobe] trailer rank=%d/%d breakdown_available=%d "
+                 "states=%zu fb_states=%lld first_fb_step=%lld "
+                 "fb_total=%lld fb_range_guard_total=%lld "
+                 "fb_count_cap_total=%lld fb_dropped_total=%lld "
+                 "fb_range_guard_states=%lld fb_count_cap_states=%lld\n",
+                 rank, comm_size, fb_avail, series.size(), fb_states,
+                 first_fb_step, fb_total, fb_range_total, fb_cap_total,
+                 fb_dropped_total, fb_range_states, fb_cap_states );
     std::fflush( stdout );
 
     MPI_Barrier( comm );
