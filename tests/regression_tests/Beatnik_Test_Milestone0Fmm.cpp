@@ -468,6 +468,15 @@ constexpr double kP2PFractionReference = 0.854631;
 constexpr double kP2PFractionBound = 1.0;
 constexpr bool kFarFieldIsLive = false;
 
+/// **THE M2L OPERATOR COLUMN-COUNT CAP, AND AT THIS LEVEL IT IS UNCHANGED.**
+/// `FmmParams::m2l_op_count_cap`'s own default, restated here so the two arms
+/// are read side by side. T5 measured level-3 demand at 828 - 6 624 keys over
+/// five draws against this 32768 cap and `global_m2l_fallback` exactly zero in
+/// all 243 rows, so the cap does not bind at this level and raising it would
+/// change nothing except to move this member's overflow set off the value
+/// every number it asserts was measured at.
+constexpr int kM2LOpCountCap = 32768;
+
 /// **THE DIVERGENCE HORIZON ENVELOPE**, T5 step 7, first failing checkpointed
 /// step per rung, FMM-driven against this level's Python gold set under the
 /// bijective nearest-neighbour pairing. Level 3's loosest rung is **75** rather
@@ -543,6 +552,35 @@ constexpr double kP2PFractionReference = 0.253650;
 /// field would make `tau_A` a claim about something else.
 constexpr double kP2PFractionBound = 0.75;
 constexpr bool kFarFieldIsLive = true;
+
+/// **THE M2L OPERATOR COLUMN-COUNT CAP, RAISED ABOVE `FmmParams`' 32768
+/// DEFAULT FOR THIS LEVEL ONLY** (T8). At 2562 vertices, `ncrit` 8 and a
+/// `key_needs_level` basis, a self-contacting roll-up occupies up to 8 tree
+/// depths and every occupied depth multiplies the realized key count: T5
+/// measured a worst-observed **37 678** demanded operator keys at HIP np1
+/// rank 0, step 1650 -- **1.150x** the 32768 default -- over three draws
+/// whose spread is 0.46 %, with `demand_saturated` never set, so that figure
+/// is a peak and not a lower bound. T8's own control draw at the 32768 cap
+/// peaked slightly higher still, at **37 846** keys at the same step -- within
+/// T5's spread and the worst of four draws. 65536 covers that with **73 %**
+/// headroom, and T8 measured `unique_ops == demand` at all 81 states on every
+/// rank at np1 and np4 with it in force.
+///
+/// **WHAT IT COSTS, AND WHAT IT DOES NOT BUY.** The table is
+/// `cap x bytes_per_key` = 65536 x 3200 B = **200 MiB** per rank, against a
+/// 2 GiB byte budget that buys 671 088 columns -- so the count cap is still
+/// the binding constraint, by 10.2x, and the byte budget is nowhere near it.
+/// The per-evaluation REBUILD cost is bounded by demand and not by the cap
+/// (only admitted keys are built, and `keys_built_delta == unique_ops` in 405
+/// of 405 measured rows, so the cache retains nothing on a drifting bounding
+/// box), so the raise costs at most 1.150x at the demand peak and nothing at
+/// the 44 of 81 np1 states already under 32768.
+///
+/// **IT CANNOT MAKE `p.m2l_fallback == 0` BY ITSELF.** At np4 no rank's demand
+/// ever reaches even the old cap, and fallback is still non-zero at 71 of 81
+/// states, so those refusals are not cap-driven. Raising the cap removes the
+/// cap-driven ones; the rest are a different refusal path.
+constexpr int kM2LOpCountCap = 65536;
 
 /// **THE DIVERGENCE HORIZON ENVELOPE**, T5 step 7. Identical across **four**
 /// independent runs — two at np1 (reduction order only) and two at np4 (which
@@ -1028,6 +1066,12 @@ Beatnik::FmmParams makeFmmParams()
 {
     Beatnik::FmmParams f;
     f.ncrit = kNcrit;
+    // The M2L operator column-count cap, per level (`kM2LOpCountCap`, set in
+    // the `#if BEATNIK_M0_FMM_LEVEL` block above). It is read here rather than
+    // written as a literal because this function sits OUTSIDE those arms: a
+    // literal would move level 3's overflow set too, and level 3 keeps the
+    // 32768 default byte for byte.
+    f.m2l_op_count_cap = kM2LOpCountCap;
     return f;
 }
 

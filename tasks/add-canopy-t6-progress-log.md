@@ -2028,3 +2028,395 @@ was not required by the exit criterion.
 - **The gate is unchanged** — still five `regression` members and 60 launches on
   tuolumne. T7 added no test to any tier; the probe is in none, and the only new
   file is a batch script.
+
+---
+
+## T8
+
+One repo file changed and one added: **+49 −0** in
+`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp` (a per-level
+`kM2LOpCountCap` in each arm of the `#if BEATNIK_M0_FMM_LEVEL` block and the
+one line in `makeFmmParams` that reads it) and a new
+`scripts/tuolumne/t8_cap_raise.flux`. **No Canopy file, no CMake file in the
+diff, no `README.md`, no `docs/`.** Two `spack install`s (the first failed, see
+Build) and two `pdebug` jobs.
+
+### Decisions taken as given by the task, recorded so they are not reopened
+
+- **The cap is 65536 and no other value was considered.** T5's worst-observed
+  demand is 37 678 at HIP np1 rank 0 step 1650 against a 32 768 cap, 0.46 %
+  run-to-run spread, `demand_saturated` never set. The instruction was to
+  measure that candidate and stop if it did not admit every key rather than
+  pick another number. It admitted every key, so nothing was re-derived.
+- **Lowering `max_depth`, raising `ncrit` and a level-blind key stayed
+  rejected**, each for the reason the T8 entry states. Not revisited.
+- **Fallback is recorded, not asserted on.** A cap raise cannot drive
+  `p.m2l_fallback == 0`; `T8b` owns that path. The fallback column below is a
+  measurement and its non-zero values are not a T8 failure.
+- **`makeFmmParams` reads the constant; claim B's `SolverParams` does NOT.**
+  See "The one place the two claims now differ" below — this is a real
+  consequence of the instructed scope and the next task to touch the member
+  needs to know about it.
+- **clang-format was not run**, per the standing rule.
+
+### The change, and why the constant is per level rather than in `makeFmmParams`
+
+`makeFmmParams` (`:1062`) sits **outside** the `#if BEATNIK_M0_FMM_LEVEL`
+arms, so `f.m2l_op_count_cap = 65536;` written there would move the level-3
+member's overflow set too. The value therefore lives in each arm beside
+`kP2PFractionBound` — `kM2LOpCountCap = 32768` in the level-3 arm (`:471`,
+below `kFarFieldIsLive = false`) and `kM2LOpCountCap = 65536` in the level-4
+arm (`:556`) — and `makeFmmParams` reads the name. Level 3's overflow set is
+unchanged bit for bit, which the 308 s / `3097/3097` run below confirms from
+the outside.
+
+**No new assertion was added to the compiled-defaults block at `:1376-1387`,
+deliberately.** `BEATNIK_CHECK_EQ(rec, fmm.farField().params().m2l_op_count_cap,
+kM2LOpCountCap)` would fit that block's "asserted rather than assumed" pattern
+exactly, and it would also add one check to every launch — turning level 3's
+`3097/3097` into `3098/3098` and destroying the "passes unchanged" half of T8's
+own exit criterion. If it is wanted, it is a change that re-baselines the check
+counts and belongs to whichever task next moves them.
+
+### Measured: job `f3bafaXSEZT5` — the four-launch cap matrix
+
+`scripts/tuolumne/t8_cap_raise.flux`, `-q pdebug -t 30m`, HIP level 4, at commit
+`4ae5dbf` + 2 modified files, **before** the source change (the probe takes the
+cap as `argv[2]`, so step 1 needed no rebuild). `flux job status` rc 0,
+`SUMMARY: PASS (4/4 launches)`, **260 s total job wall** — np1 60 s and 56 s,
+np4 75 s and 69 s. All ten rank reports `[PASS] Beatnik_Probe_FmmKeyDemand
+(174/174 checks)`, 81 states in every one of them, 810 rows in total.
+`canopy@develop+profiling` echoed in the header, `demand_available=1` in all
+four `[t6probe] header` lines and `demand=-1` in **0 of 810 rows**, so nothing
+here is the `~profiling` sentinel.
+
+| launch | `op_count_cap` | `op_cap` | peak demand | step | `unique_ops == demand` | `first_exceed_step` | `keys_built_delta` at peak |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| np1 32768 (control) | **32768** | **32768** | **37 846** | 1650 | **44 of 81** | **900** | **32 768** — the cap |
+| np1 65536 | **65536** | **65536** | 37 490 | 1650 | **81 of 81** | **−1** | **37 490** — the demand |
+| np4 32768 (control) | 32768 | 32768 | 17 086 (rank 0) | 1375 | 81 of 81, all 4 ranks | −1, all 4 ranks | = demand |
+| np4 65536 | **65536** | **65536** | 17 253 (rank 0) | 1350 | **81 of 81, all 4 ranks** | **−1**, all 4 ranks | = demand |
+
+**Every condition the exit criterion names on the probe is met.**
+`demand_saturated` is **0 in all 810 rows**, at both caps and both rank counts,
+so every figure here is a peak and not a lower bound. `keys_built_delta ==
+unique_ops` in **810 of 810 rows**, R4's signature again and now at the raised
+cap as well.
+
+**The control is what makes the candidate readable**, and it reproduced T5
+exactly: at np1 and 32768, `unique_ops` clamps at **exactly 32 768** at the 37
+over-cap states while `demand` goes on to 37 846, and `first_exceed_step` is
+**900** — T5's figure in all three of its draws. Without that half, the
+candidate's clean 81-of-81 series would be equally consistent with a draw in
+which demand simply stayed low, which at np4 is in fact what happens.
+
+**T8's own control draw peaked HIGHER than T5's worst**: **37 846** against
+37 678, at the same step 1650, **1.155x** the old cap. That is inside T5's
+0.46 % spread and makes this the worst of four np1 draws. It is recorded in the
+level-4 arm's comment, and it moves the headroom at 65536 from 74 % to **73 %**
+— nowhere near the margin, but the figure to size from if the cap is ever
+revisited.
+
+**The np4 pair is a null result by construction and was run anyway.** No rank
+reaches even the old cap at either value (per-rank peaks 15 857 – 17 253), so
+`unique_ops == demand` at 32768 already; the raise perturbs nothing, which is
+what it should do. The exit criterion asserts the identity at both rank counts
+and both now carry it.
+
+### The full np1 series, control against candidate
+
+81 states, HIP np1 rank 0. The **bolded** rows are the 37 states where demand
+exceeds 32 768 — the only states the raise can touch. `fb` is
+`global_m2l_fallback`, Canopy's global reduction.
+
+| step | dep | dem@32768 | uniq | kbd | fb | dem@65536 | uniq | kbd | fb | wall32 ms | wall65 ms |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | 5 | 10902 | 10902 | 10902 | 0 | 10902 | 10902 | 10902 | 0 | 428.0 | 299.9 |
+| 25 | 5 | 10902 | 10902 | 10902 | 0 | 10902 | 10902 | 10902 | 0 | 164.6 | 176.4 |
+| 50 | 5 | 10902 | 10902 | 10902 | 0 | 10902 | 10902 | 10902 | 0 | 166.7 | 171.1 |
+| 75 | 5 | 10902 | 10902 | 10902 | 0 | 10902 | 10902 | 10902 | 0 | 164.3 | 171.9 |
+| 100 | 5 | 10886 | 10886 | 10886 | 0 | 10904 | 10904 | 10904 | 0 | 164.9 | 172.8 |
+| 125 | 5 | 10892 | 10892 | 10892 | 0 | 10892 | 10892 | 10892 | 0 | 166.0 | 174.0 |
+| 150 | 5 | 10898 | 10898 | 10898 | 0 | 10898 | 10898 | 10898 | 0 | 166.7 | 174.5 |
+| 175 | 6 | 12054 | 12054 | 12054 | 0 | 12064 | 12064 | 12064 | 0 | 180.8 | 189.8 |
+| 200 | 6 | 12040 | 12040 | 12040 | 0 | 12032 | 12032 | 12032 | 0 | 181.4 | 191.4 |
+| 225 | 6 | 14948 | 14948 | 14948 | 0 | 14248 | 14248 | 14248 | 0 | 216.1 | 218.8 |
+| 250 | 6 | 18136 | 18136 | 18136 | 60 | 17712 | 17712 | 17712 | 50 | 695.4 | 371.3 |
+| 275 | 6 | 17394 | 17394 | 17394 | 112 | 17580 | 17580 | 17580 | 200 | 257.9 | 269.7 |
+| 300 | 6 | 20662 | 20662 | 20662 | 1504 | 20890 | 20890 | 20890 | 1596 | 296.9 | 306.2 |
+| 325 | 6 | 21408 | 21408 | 21408 | 1828 | 21456 | 21456 | 21456 | 1872 | 326.5 | 340.3 |
+| 350 | 6 | 18938 | 18938 | 18938 | 924 | 18828 | 18828 | 18828 | 968 | 294.2 | 299.6 |
+| 375 | 6 | 18788 | 18788 | 18788 | 1914 | 18832 | 18832 | 18832 | 1920 | 293.4 | 295.1 |
+| 400 | 6 | 19202 | 19202 | 19202 | 976 | 19202 | 19202 | 19202 | 976 | 295.5 | 297.8 |
+| 425 | 6 | 17730 | 17730 | 17730 | 364 | 17880 | 17880 | 17880 | 364 | 272.9 | 277.6 |
+| 450 | 6 | 17496 | 17496 | 17496 | 584 | 17600 | 17600 | 17600 | 604 | 262.2 | 268.0 |
+| 475 | 6 | 19160 | 19160 | 19160 | 666 | 19160 | 19160 | 19160 | 666 | 284.9 | 286.7 |
+| 500 | 6 | 22466 | 22466 | 22466 | 1096 | 22452 | 22452 | 22452 | 1096 | 327.7 | 329.7 |
+| 525 | 6 | 22320 | 22320 | 22320 | 1164 | 22222 | 22222 | 22222 | 1144 | 338.1 | 350.0 |
+| 550 | 6 | 23642 | 23642 | 23642 | 1288 | 23644 | 23644 | 23644 | 1288 | 354.1 | 359.4 |
+| 575 | 6 | 23492 | 23492 | 23492 | 1184 | 23492 | 23492 | 23492 | 1184 | 351.5 | 351.2 |
+| 600 | 6 | 23166 | 23166 | 23166 | 1108 | 23166 | 23166 | 23166 | 1108 | 346.6 | 347.3 |
+| 625 | 6 | 24240 | 24240 | 24240 | 1080 | 23810 | 23810 | 23810 | 1032 | 361.9 | 355.3 |
+| 650 | 6 | 23770 | 23770 | 23770 | 820 | 23846 | 23846 | 23846 | 844 | 368.6 | 357.1 |
+| 675 | 6 | 24934 | 24934 | 24934 | 1126 | 24900 | 24900 | 24900 | 1138 | 385.5 | 384.8 |
+| 700 | 7 | 26134 | 26134 | 26134 | 1078 | 27082 | 27082 | 27082 | 1164 | 392.6 | 407.1 |
+| 725 | 6 | 24656 | 24656 | 24656 | 894 | 24656 | 24656 | 24656 | 894 | 374.5 | 369.9 |
+| 750 | 6 | 25116 | 25116 | 25116 | 1036 | 25116 | 25116 | 25116 | 1036 | 385.1 | 374.9 |
+| 775 | 7 | 26836 | 26836 | 26836 | 1060 | 26772 | 26772 | 26772 | 1044 | 400.5 | 409.4 |
+| 800 | 7 | 29206 | 29206 | 29206 | 1646 | 28734 | 28734 | 28734 | 1566 | 455.7 | 437.1 |
+| 825 | 7 | 27840 | 27840 | 27840 | 1352 | 28030 | 28030 | 28030 | 1440 | 417.6 | 417.5 |
+| 850 | 7 | 31950 | 31950 | 31950 | 2004 | 31080 | 31080 | 31080 | 1882 | 476.0 | 454.4 |
+| 875 | 7 | 29100 | 29100 | 29100 | 1966 | 29084 | 29084 | 29084 | 1966 | 450.9 | 447.0 |
+| 900 | 7 | **33130** | **32768** | 32768 | 2850 | **32958** | **32958** | 32958 | 2488 | 501.3 | 504.4 |
+| 925 | 7 | **32814** | **32768** | 32768 | 2346 | **32798** | **32798** | 32798 | 2300 | 492.4 | 496.7 |
+| 950 | 7 | 31082 | 31082 | 31082 | 1768 | 31074 | 31074 | 31074 | 1768 | 476.7 | 475.8 |
+| 975 | 7 | 31916 | 31916 | 31916 | 1996 | 31682 | 31682 | 31682 | 1914 | 483.4 | 486.5 |
+| 1000 | 7 | **33938** | **32768** | 32768 | 4395 | **34170** | **34170** | 34170 | 3092 | 493.0 | 522.6 |
+| 1025 | 7 | **33458** | **32768** | 32768 | 3449 | **33794** | **33794** | 33794 | 2832 | 513.9 | 518.4 |
+| 1050 | 7 | **33444** | **32768** | 32768 | 4186 | **33422** | **33422** | 33422 | 3460 | 500.8 | 496.3 |
+| 1075 | 7 | **33950** | **32768** | 32768 | 5625 | **33752** | **33752** | 33752 | 3866 | 491.3 | 512.0 |
+| 1100 | 7 | 32352 | 32352 | 32352 | 3088 | 32408 | 32408 | 32408 | 3132 | 497.7 | 493.6 |
+| 1125 | 7 | 31612 | 31612 | 31612 | 2538 | 31556 | 31556 | 31556 | 2524 | 490.7 | 485.0 |
+| 1150 | 7 | **32994** | **32768** | 32768 | 3976 | **32908** | **32908** | 32908 | 3756 | 510.3 | 488.4 |
+| 1175 | 7 | **34070** | **32768** | 32768 | 5921 | **33992** | **33992** | 33992 | 4212 | 497.4 | 516.0 |
+| 1200 | 7 | **33196** | **32768** | 32768 | 3989 | **32876** | **32876** | 32876 | 3376 | 498.3 | 506.8 |
+| 1225 | 7 | **34828** | **32768** | 32768 | 7731 | **34828** | **34828** | 34828 | 4332 | 517.5 | 535.2 |
+| 1250 | 7 | **35024** | **32768** | 32768 | 8485 | **35258** | **35258** | 35258 | 4796 | 506.6 | 536.9 |
+| 1275 | 7 | **35330** | **32768** | 32768 | 7348 | **35136** | **35136** | 35136 | 3920 | 500.9 | 537.6 |
+| 1300 | 7 | **34584** | **32768** | 32768 | 7174 | **34540** | **34540** | 34540 | 4252 | 498.3 | 525.9 |
+| 1325 | 7 | **36490** | **32768** | 32768 | 12073 | **36488** | **36488** | 36488 | 5188 | 515.6 | 555.7 |
+| 1350 | 7 | **36518** | **32768** | 32768 | 12462 | **36508** | **36508** | 36508 | 5096 | 509.4 | 570.3 |
+| 1375 | 7 | **36612** | **32768** | 32768 | 13282 | **36630** | **36630** | 36630 | 5322 | 512.9 | 551.4 |
+| 1400 | 7 | **35670** | **32768** | 32768 | 10722 | **35676** | **35676** | 35676 | 5016 | 510.8 | 544.6 |
+| 1425 | 7 | **35896** | **32768** | 32768 | 10821 | **35892** | **35892** | 35892 | 5208 | 510.8 | 538.5 |
+| 1450 | 7 | **36616** | **32768** | 32768 | 10978 | **36626** | **36626** | 36626 | 4620 | 508.9 | 540.1 |
+| 1475 | 7 | **35334** | **32768** | 32768 | 10118 | **35348** | **35348** | 35348 | 5408 | 504.1 | 532.8 |
+| 1500 | 7 | **34068** | **32768** | 32768 | 8282 | **34068** | **34068** | 34068 | 6080 | 502.2 | 502.0 |
+| 1525 | 7 | **34042** | **32768** | 32768 | 8093 | **34074** | **34074** | 34074 | 6158 | 485.3 | 502.7 |
+| 1550 | 7 | **34622** | **32768** | 32768 | 10326 | **34654** | **34654** | 34654 | 6832 | 500.9 | 508.7 |
+| 1575 | 7 | 32042 | 32042 | 32042 | 2928 | 32076 | 32076 | 32076 | 2960 | 486.8 | 469.6 |
+| 1600 | 7 | **33084** | **32768** | 32768 | 3940 | **33130** | **33130** | 33130 | 3640 | 497.9 | 504.1 |
+| 1625 | 7 | **33904** | **32768** | 32768 | 6273 | **33914** | **33914** | 33914 | 4512 | 496.0 | 497.4 |
+| 1650 | 7 | **37846** | **32768** | 32768 | 15672 | **37490** | **37490** | 37490 | 6290 | 512.5 | 570.4 |
+| 1675 | 7 | **33002** | **32768** | 32768 | 5598 | **33402** | **33402** | 33402 | 5380 | 492.5 | 495.1 |
+| 1700 | 7 | **33784** | **32768** | 32768 | 6667 | **33904** | **33904** | 33904 | 4964 | 502.9 | 499.1 |
+| 1725 | 7 | 30376 | 30376 | 30376 | 1976 | 30360 | 30360 | 30360 | 1976 | 465.2 | 464.5 |
+| 1750 | 7 | 29874 | 29874 | 29874 | 1642 | 30240 | 30240 | 30240 | 1732 | 468.0 | 455.1 |
+| 1775 | 7 | 31972 | 31972 | 31972 | 2964 | 32054 | 32054 | 32054 | 3012 | 485.4 | 475.8 |
+| 1800 | 7 | **34308** | **32768** | 32768 | 8197 | **34466** | **34466** | 34466 | 4864 | 512.0 | 523.2 |
+| 1825 | 7 | **35310** | **32768** | 32768 | 13327 | **35302** | **35302** | 35302 | 6268 | 504.2 | 541.0 |
+| 1850 | 7 | **34754** | **32768** | 32768 | 10386 | **34740** | **34740** | 34740 | 5584 | 496.4 | 537.5 |
+| 1875 | 7 | **36648** | **32768** | 32768 | 13880 | **36524** | **36524** | 36524 | 5474 | 526.2 | 562.1 |
+| 1900 | 7 | **36780** | **32768** | 32768 | 11307 | **36826** | **36826** | 36826 | 4718 | 502.8 | 554.1 |
+| 1925 | 7 | **36478** | **32768** | 32768 | 10367 | **36510** | **36510** | 36510 | 4514 | 512.8 | 553.4 |
+| 1950 | 7 | **36536** | **32768** | 32768 | 10449 | **36546** | **36546** | 36546 | 4240 | 502.3 | 561.7 |
+| 1975 | 7 | **35440** | **32768** | 32768 | 7254 | **35380** | **35380** | 35380 | 3214 | 503.8 | 540.1 |
+| 2000 | 8 | **33598** | **32768** | 32768 | 3922 | **33726** | **33726** | 33726 | 2956 | 512.1 | 521.6 |
+
+### The cost of the raise: R4, measured
+
+**R4's cost is real, small and in the direction the arithmetic predicted.**
+Per-evaluation wall time at np1, summed over the 81 states, is **33.977 s** at
+32768 and **34.416 s** at 65536 — **1.3 %**. Split by regime it is sharper and
+matches the model exactly:
+
+| regime | states | wall @32768 | wall @65536 | ratio |
+| --- | --- | --- | --- | --- |
+| demand > 32 768 (the raise bites) | 37 | 18.657 s | 19.505 s | **1.045** |
+| demand ≤ 32 768 (nothing changes) | 44 | 15.320 s | 14.911 s | 0.973 |
+
+The over-cap states pay **4.5 %**, against the 15.5 % a naive "the whole table
+got twice as big" reading would predict and consistent with the real bound —
+rebuilt columns are `min(demand, cap)`, so the raise costs the ratio of demand
+to the old cap at those states and nothing anywhere else. The under-cap states
+come back 2.7 % *faster*, which is noise of the same size, and that is the
+point: the two regimes bracket zero except where the cap actually bound. At np4
+the whole-launch comparison is 21.546 s against **20.270 s** — the raised-cap
+launch is *faster*, because no np4 rank was ever capped and the difference is
+trajectory nondeterminism. **A 1.3 % per-evaluation cost at np1 does not
+threaten a 2000-step trajectory**, so R4's timeout scenario is not what this
+raise buys; T9a re-measures at `pdebug` scale regardless.
+
+Memory, for the record: 65536 × 3200 B = **200 MiB** of table per rank at the
+cap, against a 2 GiB byte budget that buys 671 088 columns. The count cap is
+still the binding constraint, now by **10.2x** rather than 20x, and
+`bytes_per_key=3200 byte_budget=2147483648` in all four headers confirms the
+budget never moved.
+
+### The finding T8b should start from: the raise removes 44 % of np1 fallback and 0 % of the rest
+
+Fallback is recorded and not asserted on, as instructed, and what it records is
+worth more than a pass/fail:
+
+| np1 state set | states | Σ fallback @32768 | Σ fallback @65536 | change |
+| --- | --- | --- | --- | --- |
+| demand > 32 768 | 37 | 301 871 | 168 228 | **−44.3 %** |
+| demand ≤ 32 768 | 44 | 47 734 | 48 060 | +0.7 % (noise) |
+| all 81 | 81 | 349 605 | 216 288 | −38.1 % |
+
+**The raise moves fallback at exactly the states where the cap bound, and
+nowhere else.** At the demand peak (step 1650) fallback falls from 15 672 pairs
+to 6 290. The **count of non-zero-fallback states does not move at all**: 71 of
+81 at both caps, with the same ten zero-fallback states (steps 0 through 225,
+all at `occupied_depths` 5 or 6) in both launches. At np4 the picture is
+unchanged in every respect — 71 of 81 non-zero at both caps, peak 6 796 against
+6 936, with no rank anywhere near either cap.
+
+So the cap-driven component of level-4 fallback is now measured at np1 by
+subtraction — **about 44 % of the pairs, 0 % of the states** — and the rest is
+a different refusal path that the cap cannot reach at any value. **That is
+T8b's subject, and it now has a number to be measured against.**
+
+`global_p2p_frac` over all four launches is **0.2058 – 0.3976**, well inside
+the level-4 `kP2PFractionBound = 0.75`, so the far field still dominates at
+every state at the raised cap and claim A's liveness bound is not at risk from
+this change. `occupied_depths` spans 5 to 8 in every launch, as T5 measured.
+
+### The one place the two claims now differ, and it was not an oversight
+
+`makeFmmParams`'s own doc comment says it builds "the same struct claim B's
+`SolverParams` carries, built the same way, **so the two claims cannot be at
+different configurations**". After T8 they are, in exactly one field: claim A
+evaluates at `m2l_op_count_cap = 65536` and claim B's 2000-step trajectory
+(`p.fmm` at `:991`) still runs at the `FmmParams` default of 32768.
+
+**This is the instructed scope** — T8's exit criterion names `makeFmmParams`
+and only `makeFmmParams`, and there is a good reason behind it: claim B's
+level-4 trajectory is the 2373 s run that moved the milestone runner to
+`pbatch`, and silently changing the configuration it runs at, in a task whose
+Do steps never execute it, is how R4's timeout arrives unannounced. Claim A is
+also where `p.m2l_fallback == 0` is asserted, so claim A is where the raise has
+to land for the member's failing assertion to move at all.
+
+**But the invariant in that comment is now false**, and the next task to touch
+the member has to decide deliberately rather than discover it. Either claim B
+gains `p.fmm.m2l_op_count_cap = kM2LOpCountCap` — one line, and then T9a's
+`pdebug` check is also the first measurement of its cost — or the comment is
+corrected to say the two claims share everything **except** the cap and why.
+**T9a is the right place for that call**, because it is the first task that
+runs claim B's trajectory after T8.
+
+### Build
+
+**The first `spack install` FAILED, and the cause was mine.** Both FMM member
+translation units died with `clang++: error: clang frontend command failed due
+to signal` (segmentation fault), under a spray of interleaved, character-shuffled
+diagnostics including `warning: null character ignored [-Wnull-character]` and
+a bogus `static assertion failed: Including non-public Kokkos header files is
+not allowed` attributed to `Beatnik_MeshInterface.hpp`, a file T8 never touched.
+**I edited `Beatnik_Test_Milestone0Fmm.cpp` while that build was compiling it** —
+a one-sentence addition to the level-4 constant's comment, made in the window
+between `build (37s)` and the member TUs being handed to clang. The sources were
+byte-clean on disk afterwards (`grep -aP '\x00'` found nothing in any of the
+three files the diagnostics named) and the second install of the identical tree
+succeeded, so the failure was the compiler reading a file mid-rewrite and not
+anything in the change. **The rule this earns: no edit to any file in the build
+tree while `spack install` is running**, including a comment-only one. The
+failure mode does not look like a race — it looks like a corrupted header three
+levels up the include chain, which is an hour of the wrong investigation.
+
+The second `spack install`, against the stable tree, came back **rc 0 in
+4 m 33 s** (273 s), against T7's trimmed 5 m 47 s and T3/T4's 12-13 minute full
+builds. `HIPCC_LINK_FLAGS_APPEND` and `HIPCC_COMPILE_FLAGS_APPEND` were cleared
+before both. `canopy@develop+profiling` hash `w4woraj` was cached and did not
+rebuild; `beatnik@develop` came back `nnbspfy`.
+
+**THE BUILD WAS TRIMMED, THE TRIM IS REVERTED IN THE TREE, AND THE INSTALLED
+VIEW IS STILL THE TRIMMED ONE.** `tests/CMakeLists.txt` had all five
+`BEATNIK_REGRESSION_TEST_SOURCES` entries, the two `Frozen`
+`BEATNIK_MILESTONE_TEST_SOURCES` entries, two of three `BEATNIK_DRIVER_SOURCES`
+and `add_subdirectory(unit_tests)` commented out; the root `CMakeLists.txt` had
+`add_subdirectory(examples)` commented out; and
+`cmake/test_harness/test_harness.cmake` had `set(BEATNIK_TEST_DEVICES HIP)`
+appended after the device loop. Sources were commented, never argument lists, so
+the `FATAL_ERROR` guards on the argument-list loops never fired.
+
+- **The trims are fully reverted and were never committed.**
+  `git diff --name-only` is exactly
+  `tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp`, plus the untracked
+  `scripts/tuolumne/t8_cap_raise.flux`. No `cmake/` file, no `CMakeLists.txt`,
+  no `tests/CMakeLists.txt`. Checked, not assumed.
+- **THE SPACK PREFIX HOLDS THREE BINARIES AND NOTHING ELSE**:
+  `Beatnik_Test_Milestone0Fmm_MPI_HIP`, `Beatnik_Test_Milestone0FmmL4_MPI_HIP`
+  and `Beatnik_Probe_FmmKeyDemand_MPI_HIP`. `beatnik_milestone_manifest.txt`
+  has **two** entries instead of four, `beatnik_gate_manifest.txt` is **empty**,
+  and there is no unit test, no example and no SERIAL target anywhere in the
+  view. **T9a and T9b must `spack install` the reverted tree first**, which both
+  already have as their own first step; a gate run against this prefix would
+  report a clean pass over zero tests.
+
+### Measured: job `f3baoXyQyE7Z` — the level-3 member, unchanged
+
+`scripts/tuolumne/t6_l3_member.flux HIP`, rc 0, `SUMMARY: PASS (2/2 launches)`,
+**614 s total**, run against the installed binary built from the changed source.
+
+| launch | wall | checks |
+| --- | --- | --- |
+| HIP np1 | **308 s** | **`3097/3097`** |
+| HIP np4 | 306 s | `3097/3097` rank 0, `2919/2919` on the other three |
+
+**308 s and 3097/3097, identical to T7's measurement of the same two launches**
+— same wall to the second at np1, same check counts everywhere. The level-3
+arm's `kM2LOpCountCap = 32768` is the `FmmParams` default it replaced, so this
+is the result the per-level split exists to produce, and it is the external
+confirmation that the 65536 landed in the level-4 arm only.
+
+### What only building or running revealed
+
+- **The mid-build edit**, above. The single most expensive thing in this task,
+  at 5 minutes of wasted build and a diagnostic that pointed at Kokkos headers.
+- **The raise is cheaper than R4's framing suggests.** 4.5 % on the 37 states
+  that were capped and nothing elsewhere. The rebuild-cost risk is real but the
+  measured number is small; it is the *fallback* that the raise does not fix.
+- **44 % of np1 fallback pairs were cap-driven and none of its 71 non-zero
+  states were.** The state count is the observable `assertClaimA` uses, and it
+  did not move by one state at either rank count. A reader who expected "raise
+  the cap, fallback drops" gets the pair count and not the state count, and the
+  member's assertion is on neither — it is on `p.m2l_fallback == 0` per
+  evaluation, which is still non-zero at 71 of 81 states at both caps.
+- **`pdebug` absorbed both submissions immediately**; neither job spent
+  measurable time in `SCHED`.
+
+### Departures from T8's stated Do steps
+
+- **The level-4 arm's comment carries T8's own 37 846 peak alongside T5's
+  37 678.** The Do steps say to record the number T5 measured; T8's control
+  draw exceeded it, and a constant whose comment cites a figure the next
+  session's own control will beat is a comment that invites re-derivation. Both
+  are stated, with the spread that reconciles them.
+- **No assertion was added to the member's compiled-defaults block**, which is
+  a deliberate non-action rather than an omission — see "The change" above for
+  why it would break T8's own exit criterion.
+- **The Canopy clone was found already committed, not dirty.** The task states
+  T1's and T6's Canopy edits are uncommitted working-tree modifications at
+  `develop` commit `d3145e0`; the clone is in fact at commit `fd89815`
+  ("Complete t6-t6") with a clean tree apart from an untracked
+  `scripts/tuolumne/run_t6_count_cap.flux`. Nothing was pulled, committed or
+  pushed there, and `spack develop` compiled it in place exactly as before — but
+  the premise in T9a's and T9b's prompts, if they repeat it, is stale.
+- **The gate is unchanged** — still five `regression` members and 60 launches on
+  tuolumne. T8 added no test to any tier; the only new file is a batch script,
+  and the probe it drives is in no tier.
+
+**Affects:**
+
+- **T8b** — it now has a number rather than a direction. The non-cap refusal
+  path accounts for **100 % of np4 fallback, 100 % of the np1 fallback at the
+  44 under-cap states, and 56 % of the pairs at the 37 over-cap states** (168 228
+  of 301 871 survive the raise). The state count it has to explain is **71 of
+  81 at both rank counts and both caps** — unmoved by a cap raise that removed
+  44 % of the pairs, which is the strongest available evidence that the
+  remaining path is not a budget at all. T8b should measure at **65536**, not
+  32768, so that nothing it sees is cap-driven.
+- **T9a** — first task to run claim B's trajectory after T8, so it owns the
+  decision in "The one place the two claims now differ": give claim B the
+  raised cap or correct the invariant comment. It also inherits the trimmed
+  prefix and must `spack install` the reverted tree first. The per-evaluation
+  cost it should expect is **+1.3 % overall, +4.5 % at the capped states** at
+  np1, which is small enough that a large wall-time regression in its own
+  measurement means something other than the cap.
+- **T9b** — unchanged in scope, but it must not be submitted against this
+  prefix. Its own `spack install` of the reverted tree is mandatory, and its
+  level-4 member will still fail `p.m2l_fallback == 0` at 71 of 81 states
+  unless T8b has landed first: **T8 raised the cap, and the member's failing
+  assertion is not fixed by it.**

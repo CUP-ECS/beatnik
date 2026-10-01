@@ -1194,7 +1194,7 @@ README-sync rule covers a public API addition. See `## T7` in the progress log.
 
 ---
 
-### T8 — Raise the level-4 count cap to 65536 — **NOT STARTED**
+### T8 — Raise the level-4 count cap to 65536 — **DONE**
 
 **Depends on:** T5 **DONE**, T7 **DONE**.
 **Fill in:** `tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp` — a new
@@ -1283,6 +1283,40 @@ the same script's `argv[2] = 32768` launches reproduce T5's reading —
 `first_exceed_step = 900` — so the raised-cap launches are known to be
 measuring the change and not a flake. **Fallback is recorded, not asserted on:
 it does not reach zero at either rank count, and T8b is why.**
+
+**Met.** `kM2LOpCountCap` is a per-level constant in each arm of the
+`#if BEATNIK_M0_FMM_LEVEL` block — **65536** in the level-4 arm beside
+`kP2PFractionBound`, **32768** in the level-3 arm — and `makeFmmParams` reads
+the name rather than a literal, so the level-3 overflow set is unchanged. The
+level-3 FMM member passes unchanged at HIP np1, **308 s and `3097/3097`
+checks**, identical to T7's measurement (job `f3baoXyQyE7Z`, rc 0, np4 free in
+the same job). The probe matrix (job `f3bafaXSEZT5`,
+`scripts/tuolumne/t8_cap_raise.flux`, four launches, 260 s, 810 rows, all
+`174/174 checks`) meets every condition: the `argv[2] = 65536` launches report
+`op_count_cap=65536 op_cap=65536`, **`unique_ops == demand` at all 81 states on
+every rank at both np1 and np4**, `first_exceed_step = -1` on every rank,
+`demand_saturated` unset in all 810 rows, and `keys_built_delta` at the np1
+peak equal to that state's demand (**37 490**) rather than to 32 768. The
+failure direction holds: the `argv[2] = 32768` launches reproduce T5 —
+`unique_ops` clamped at exactly 32 768 at the 37 np1 over-cap states and
+`first_exceed_step = 900`. T8's own control peaked at **37 846** keys, above
+T5's 37 678 at the same step 1650 and within its spread, making 65536 a **73 %**
+headroom rather than 74 %; the constant's comment carries both.
+
+Three things the exit criterion did not ask for and a later task needs.
+**Fallback was recorded, not asserted on**, and the raise removes **44.3 %** of
+np1 fallback *pairs* (301 871 → 168 228 over the 37 over-cap states) while
+moving the non-zero *state* count by **zero** — still 71 of 81 at both caps and
+both rank counts, which is the observable `assertClaimA` uses. **R4's cost is
++1.3 % of per-evaluation wall overall and +4.5 % at the capped states**, not a
+timeout. And **claim B's `SolverParams` (`:991`) still runs at the 32768
+default**, so `makeFmmParams`'s "the two claims cannot be at different
+configurations" comment is now false in that one field — the instructed scope,
+but T9a owns the decision to extend the cap to claim B or to correct the
+comment. The installed prefix is left **trimmed** (three HIP binaries, an empty
+gate manifest); T9a and T9b must `spack install` the reverted tree first.
+`tasks/add-canopy-t6-progress-log.md` `## T8` has the series, the table and the
+build failure that cost five minutes.
 
 ---
 
