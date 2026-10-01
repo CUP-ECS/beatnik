@@ -13,15 +13,18 @@ count cap:
 2147483648 B at 3200 B per key); remaining pairs route to fallback path.
 ```
 
-At `--icosphere-subdivisions 4` the level-4 interaction list stays under the cap
-through step 225, first trips it at step 250, and by step 1375 routes about
+At `--icosphere-subdivisions 4` the level-4 fallback count is zero through step
+225, first becomes non-zero at step 250, and by step 1375 routes about
 13 000 pairs to the per-pair fallback **at np1** — the cap is per rank, so np4
-routes far fewer at the same step, 5 300 (SERIAL) and 5 392 (HIP). Four assertion sites fail as a result:
+routes far fewer at the same step, 5 300 (SERIAL) and 5 392 (HIP). The onset at
+step 250 is not itself a cap exceedance: demand there is 18 396 keys, 56 % of
+the cap, and does not exceed it until step 900 (T5). Four assertion sites fail
+as a result:
 the purity precondition `p.m2l_fallback == 0`
 (`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp:1456`) at 71 of the 81
 states, the same check on claim B's final state (`:1923`), and — at four to six
 of the 81 states — **both** forms in which the member asserts the accuracy
-bound, `p.rel <= kTauA` (`:1461`) and `p.max_abs <= kTauA * p.scale` (`:1462`),
+bound, `p.max_abs <= kTauA * p.scale` (`:1461`) and `p.rel <= kTauA` (`:1462`),
 peaking at `1.2513e-3` against `kTauA = 1.0e-3` (defined at `:320`).
 
 **The τ_A exceedance is not yet a measurement of the FMM.** The fallback path is
@@ -41,8 +44,9 @@ not a proxy: it counts *pairs* refused a column, not *keys* refused one, and
 many pairs share a key.
 
 So the cap cannot be sized. This document makes the demand observable, measures
-it on Beatnik's own level-4 geometry, and then either raises the cap or reduces
-the demand on that number.
+it on Beatnik's own level-4 geometry, raises the cap to cover that number, and
+then separates out the refusal path that routes pairs to the fallback where the
+cap is not reached at all.
 
 ### Why this does not need a 24-hour job
 
@@ -104,10 +108,12 @@ anything:
 3. **Measure on the real geometry** (T3, T4, T5). A standalone probe that drives
    the direct trajectory and evaluates the FMM once per checkpointed state,
    printing the demand series. Minutes on HIP.
-4. **Act on the number** (T6, T7, T8). Plumb the count cap through `FmmConfig`
-   and `FmmParams` with the default unchanged, then choose between raising it at
-   the level-4 member and reducing the demand — on the measurement, with both
-   branches specified in advance.
+4. **Act on the number** (T6, T7, T8, T8b). Plumb the count cap through
+   `FmmConfig` and `FmmParams` with the default unchanged, raise it at the
+   level-4 member to cover the measured demand, and then identify the refusal
+   path that routes pairs to the fallback where the cap is not reached. That
+   path is not hypothetical: at np4 no rank's demand ever reaches the cap and
+   `global_m2l_fallback` is still non-zero at 71 of 81 states.
 
 ### The two facts that shape every decision here
 
@@ -130,13 +136,21 @@ configuration". T5 supplies that evidence.
 whenever the root half-width changes (`src/Canopy_DownwardSweep.hpp:406-416`,
 recorded at `Canopy_CartesianTaylorBasis.hpp:481-485`), so on a drifting
 bounding box the cache empties on every rebuild and every admitted column is
-built again. A cap of $N$ keys on a drifting box means up to $N$ operator builds
-per rebuild. `local_m2l_op_keys_built`
+built again. `local_m2l_op_keys_built`
 (`src/Beatnik_FarFieldInterface.hpp:279-283`) is the counter that shows it:
 "climbing by the full cache size at every build is the signature of a cache that
 retains nothing, which is what a level-keyed basis on a drifting bounding box
-does." **So T5 must measure build cost alongside the key count, and T8 decides
-on both.**
+does." T3, T4 and T5 measured exactly that — `keys_built_delta == unique_ops` in
+405 of 405 rows at level 3 and again at level 4, including in the regime where
+the cap binds.
+
+**What that costs a cap raise is bounded by demand, not by the cap.** The
+rebuilt column count per evaluation is `min(demand, effective_cap)`, because
+only admitted keys are built, so raising the cap above the demand peak buys no
+extra rebuild work at all and raising it to cover the peak costs the ratio of
+peak demand to the old cap — **1.150x** at the measured level-4 peak, and
+nothing at the 44 of 81 np1 states or at any np4 rank where demand is already
+under 32 768. Memory scales with the cap and rebuild time does not.
 
 ### Conventions
 
@@ -144,7 +158,7 @@ on both.**
 | --- | --- | --- |
 | Demand counter gating | `#ifdef CANOPY_ENABLE_PROFILING` | Zero cost and zero memory in a production build. Two mechanisms set the define, for two consumers. **Into Beatnik** (T4): Canopy's exported INTERFACE target (`canopy/src/CMakeLists.txt:27-33`), so a `canopy +profiling` spec is sufficient and no Beatnik CMake change is needed. **Into a standalone Canopy build** (T1's own two builds): the cmake option `Canopy_ENABLE_PROFILING` (`canopy/CMakeLists.txt:252-277`), as `-DCanopy_ENABLE_PROFILING=ON` or `=OFF` — `OFF` is an authoritative kill switch there, forcing the level to 0 whatever `Canopy_PROFILING_LEVEL` says. |
 | "Unavailable" sentinel | `-1` | Zero demand is legal — a tree with no M2L pairs realizes no keys — so `0` must never mean "not compiled in". Every accessor and diagnostic field returns `-1` in a `~profiling` build. |
-| Diagnostic set bound | `M2L_DEMAND_COUNT_CAP = 1048576` | $2^{20}$ keys, about 56 MB of `unordered_set`. Chosen to exceed what the 2 GiB byte budget could ever buy at this basis's 3200 B per key (671 088 columns), so a *saturated* demand counter already decides T8's branch without needing the exact figure. Reported through a separate `demand_saturated` flag, never conflated with the count. |
+| Diagnostic set bound | `M2L_DEMAND_COUNT_CAP = 1048576` | $2^{20}$ keys, about 56 MB of `unordered_set`. Chosen to exceed what the 2 GiB byte budget could ever buy at this basis's 3200 B per key (671 088 columns), so a *saturated* demand counter would already say the cap is the wrong instrument without needing the exact figure. Reported through a separate `demand_saturated` flag, never conflated with the count. |
 | Naming | `m2l_n_demanded_ops()`, `_m2l_demanded_op_count`, `local_m2l_demanded_op_count` | Mirrors the existing `m2l_n_unique_ops()` / `_m2l_realized_keys` / `local_m2l_unique_op_count` triple exactly. "Demanded" against "unique/realized" is the distinction the whole document turns on. |
 | Cap knob name | `FmmConfig::m2l_op_count_cap`, `FmmParams::m2l_op_count_cap` | Mirrors `m2l_op_table_byte_budget` (`Canopy_Solver.hpp:95`, `Beatnik_Params.hpp:395`) in name, placement and plumbing. |
 | Cap knob default | `32768`, the current `M2L_OP_COUNT_CAP` | Every existing configuration's overflow set is unchanged bit-for-bit, which is the property the deviation note protects. |
@@ -251,8 +265,9 @@ on both.**
 - `m2l_op_table_byte_budget`'s doc comment (`Beatnik_Params.hpp:382-394`) states
   the current doctrine: "the constraint to act on is the count cap, and the
   response to realized overflow is a lower `max_depth` or `order`, not a
-  smaller table." T7 makes the count cap itself actionable and must update that
-  paragraph; T8's demand-reduction branch is the `max_depth` lever it names.
+  smaller table." T7 made the count cap itself actionable and rewrote that
+  paragraph around the measured figures; `max_depth` 10 (`:291`) stays, and the
+  lever its own comment at `:272-291` names was considered and rejected in T8.
 - The level-4 member runs `kNcrit = 8`
   (`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp:340`),
   `kProductionOrder = 3` (`:345`), `kVertices = 2562` (`:511`),
@@ -931,7 +946,7 @@ on it. Second, **fallback at level 4 is not all cap-driven**: at np4 no rank's
 demand ever reaches the cap, yet `global_m2l_fallback` is non-zero at 71 of 81
 states in all three draws, and at np1 about half the fallback states sit at or
 under the cap. **A cap raise alone therefore cannot drive
-`p.m2l_fallback == 0`** — a constraint on T8's branch A that this task's own
+`p.m2l_fallback == 0`** — a constraint on T8 that this task's own
 Do steps did not ask for and T8 must now carry. Full per-rank series, both
 findings and the discarded overlapping submissions that forced the scratch path
 to become per job: `## T5` in `tasks/add-canopy-t6-progress-log.md`.
@@ -1179,66 +1194,151 @@ README-sync rule covers a public API addition. See `## T7` in the progress log.
 
 ---
 
-### T8 — Decide: raise the cap, or reduce the demand — **NOT STARTED**
+### T8 — Raise the level-4 count cap to 65536 — **NOT STARTED**
 
 **Depends on:** T5 **DONE**, T7 **DONE**.
-**Fill in:** whichever the decision selects — `FmmParams::m2l_op_count_cap`'s
-default or the level-4 member's `makeFmmParams`
-(`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp`), or
-`FmmParams::max_depth` (`src/Beatnik_Params.hpp:291`). The decision and its
-evidence go in the progress log either way.
-**Reference:** the memory arithmetic is `demand × bytes_per_key` at
-3200 B (`Canopy_CartesianTaylorBasis.hpp:506-508`); the rebuild-cost signature
-is `local_m2l_op_keys_built` (`Beatnik_FarFieldInterface.hpp:279-283`) against
-the cache-clear rule for a `key_needs_level` basis
-(`Canopy_DownwardSweep.hpp:406-416`); the `max_depth` lever and its standard of
-evidence are at `Beatnik_Params.hpp:272-291`; the `ncrit` liveness inequality is
-at `:238-251`.
-**Do:** take the branch the measurement selects, and record which criterion
-decided it.
+**Fill in:** `tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp` — a new
+per-level constant in the level-4 arm of the `#if BEATNIK_M0_FMM_LEVEL` block
+(`:425` opens the level-3 arm, `:508` the level-4 arm, `:585` the `#endif`),
+beside `kP2PFractionBound` (`:468` and `:544`), read by `makeFmmParams`
+(`:1027-1032`). **`makeFmmParams` sits outside those arms**, so an unguarded
+literal there would move the level-3 member too; the level-3 arm keeps 32768.
+Also a new `scripts/tuolumne/t8_cap_raise.flux`. The decision and its evidence
+go in the progress log.
+**Reference:** the knob is `FmmParams::m2l_op_count_cap`
+(`src/Beatnik_Params.hpp:433`), routed to `FmmConfig::m2l_op_count_cap` from
+`src/Beatnik_FarFieldInterface.hpp`, with its doctrine paragraph at
+`Beatnik_Params.hpp:382-404`. The memory arithmetic is `demand × bytes_per_key`
+at 3200 B (`Canopy_CartesianTaylorBasis.hpp:506-508`). The before/after script
+shape is `scripts/tuolumne/t7_cap_knob.flux`, which is level-3-and-np1 by
+construction and should be copied rather than edited; the level-4 matrix and
+binding are in `scripts/tuolumne/t6b_key_demand.flux:154` and `:233-243`.
+**The probe takes the cap as an optional `argv[2]`**, so a candidate cap is
+measurable at level 4 without any rebuild:
+`beatnik_exe Beatnik_Probe_FmmKeyDemand_MPI_HIP 4 65536`. An **empty** `argv[2]`
+is a trap — `std::atoi("")` is 0, a legal cap meaning "admit no column" — so a
+script must omit the argument rather than pass `""`.
 
-- **Branch A — raise the cap.** Take this if T5's peak demand is at most about
-  4x the current cap (roughly 130 000 keys, about 420 MB per rank at 3200 B per
-  key) **and** the per-evaluation `local_m2l_op_keys_built` increment at the peak
-  does not dominate the evaluation's wall time. Set
-  `FmmParams::m2l_op_count_cap` to the measured peak rounded up with headroom,
-  at the level-4 member. Confirm the byte budget still does not bind:
-  $\texttt{cap}\times3200<2^{31}$ holds up to 671 088 keys.
-- **Branch B — reduce the demand.** Take this if the peak is 10x the cap or
-  more, if `demand_saturated` was set, or if the rebuild cost dominates. The cap
-  is then not the fix, because a level-keyed basis on a drifting bounding box
-  rebuilds every admitted column on every rebuild. Lower `FmmParams::max_depth`
-  from 10 — the lever `Beatnik_Params.hpp:272-291` names, on exactly the
-  evidence it asks for — and re-run T5 to confirm the demand falls below the cap
-  and the realized P2P fraction stays under `kP2PFractionBound = 0.75`
-  (`Beatnik_Test_Milestone0Fmm.cpp:544`), since a shallower tree moves work into
-  the near field.
-- **Not available: raising `ncrit`.** It would reduce depth and therefore
-  demand, but `ncrit = 8` (`:340`) is near its floor already: the liveness
-  inequality puts the far field's existence at $N\gg840$ against 2562 vertices,
-  and the default 64 would require $N\gg6720$. Raising it buys a cheaper solve
-  that is a direct sum wearing an FMM's name, which is the one failure mode
-  claim A's P2P-fraction bound exists to catch. Record it as considered and
-  rejected; do not take it without a new liveness measurement.
-- **Not available: a level-blind key.** `canonicalize_key` cannot zero `max_d`
-  for this basis — the operator is physical, so two pairs with the same integer
-  offset at different levels have different operators and would alias
-  (`Canopy_CartesianTaylorBasis.hpp:471-486`). This would be a change to the
+**The measurement that sizes the cap.** Worst-observed demand across three
+draws is **37 678 keys at HIP np1 rank 0, step 1650**, 1.150x the 32 768 cap,
+with 17 144 at the worst np4 rank and a run-to-run spread of 0.46 % at np1.
+`demand_saturated` was never set — 0 of 1944 rows — so that figure is a peak
+and not the $2^{20}$ lower bound. **65536** covers it with 74 % headroom,
+costs 65536 × 3200 B = **200 MiB** of table per rank, and leaves the byte
+budget still not binding by 10.2x: 2 GiB buys 671 088 columns.
+
+**Do:**
+1. Confirm the candidate fits before changing any source. Run the probe at
+   level 4 on HIP np1 and np4 at `argv[2] = 65536` and at `argv[2] = 32768`,
+   the second reproducing T5's reading as the control. No rebuild is needed for
+   either.
+2. Add the per-level cap constant to the level-4 arm and read it from
+   `makeFmmParams`. The level-3 arm keeps 32768, so the level-3 member's
+   overflow set is unchanged bit for bit.
+3. `spack install`, then confirm the level-3 FMM member still passes unchanged
+   at HIP np1 — 308 s and `3097/3097` checks is the measured baseline.
+4. Record the number, the three conditions below that it was tested against,
+   and the realized P2P fraction at the raised cap.
+
+**What raising the cap does not do.** It cannot drive `p.m2l_fallback == 0`
+(`Beatnik_Test_Milestone0Fmm.cpp:1456`). At np4 no rank's demand ever reaches
+the cap — `first_exceed_step` is `-1` for all four ranks in all three draws —
+and fallback is still non-zero at 71 of 81 states, so **zero** np4 fallback
+states are cap-driven; at np1 only about 36 of the 71 are. **T8b owns that
+path**, and T9a does not run until it is understood.
+
+**Considered and rejected, so neither is reopened:**
+
+- **Reducing the demand by lowering `max_depth`** from 10
+  (`Beatnik_Params.hpp:291`, the lever its comment at `:272-291` names). Demand
+  at the measured peak is 1.150x the cap, not the 10x that would make the cap
+  the wrong instrument; `demand_saturated` was never set; and the rebuild cost
+  a raise pays is bounded by demand rather than by the cap. A shallower tree
+  would also move work into the near field, which claim A bounds at
+  `kP2PFractionBound = 0.75` (`:544`), and it would not touch the np4 fallback
+  either, since no np4 rank reaches the cap.
+- **Raising `ncrit`.** It would reduce depth and therefore demand, but
+  `ncrit = 8` (`:340`) is near its floor: the liveness inequality
+  (`Beatnik_Params.hpp:238-251`) puts the far field's existence at $N\gg840$
+  against 2562 vertices, and the default 64 would require $N\gg6720$. Raising
+  it buys a cheaper solve that is a direct sum wearing an FMM's name, which is
+  the one failure mode claim A's P2P-fraction bound exists to catch. Do not
+  take it without a new liveness measurement.
+- **A level-blind key.** `canonicalize_key` cannot zero `max_d` for this basis
+  — the operator is physical, so two pairs with the same integer offset at
+  different levels have different operators and would alias
+  (`Canopy_CartesianTaylorBasis.hpp:471-486`). That would be a change to the
   basis's normalization, not to a cap.
 
-**Exit criterion:** the progress log names the branch, the measured number that
-selected it, and the criterion it was tested against; the selected change is in
-the tree; and a T5 re-run at level 4 on HIP np1 and np4 reports
-`global_m2l_fallback_pair_count == 0` at all 81 states. In the failure
-direction: the same re-run at the *unchanged* configuration still reports
-non-zero fallback from step 250, so the re-run is known to be measuring the
-change and not a flake.
+**Exit criterion:** the level-4 arm carries the 65536 constant and
+`makeFmmParams` reads it, the level-3 arm still reads 32768, and the level-3
+FMM member passes unchanged at HIP np1 with `3097/3097` checks. The probe's
+level-4 launches at `argv[2] = 65536` report `op_count_cap=65536` and
+`op_cap=65536` in the header, **`unique_ops == demand` at all 81 states on
+every rank** at both np1 and np4, `first_exceed_step == -1` on every rank,
+`demand_saturated` never set, and `keys_built_delta` at the np1 peak state
+equal to that state's demand rather than to 32 768. In the failure direction:
+the same script's `argv[2] = 32768` launches reproduce T5's reading —
+`unique_ops` clamped at exactly 32 768 at the np1 over-cap states and
+`first_exceed_step = 900` — so the raised-cap launches are known to be
+measuring the change and not a flake. **Fallback is recorded, not asserted on:
+it does not reach zero at either rank count, and T8b is why.**
+
+---
+
+### T8b — Identify the non-cap refusal path at level 4 — **NOT STARTED**
+
+**Depends on:** T8 **DONE**.
+**Fill in:** `canopy/src/Canopy_DownwardSweep.hpp` (the merge and classify
+passes, and the fallback accounting beside `total_fallback_pair_count()`);
+`src/Beatnik_FarFieldInterface.hpp` (`FarFieldDiagnostics`, the struct and the
+single `readDiagnostics` override);
+`tests/regression_tests/Beatnik_Probe_FmmKeyDemand.cpp` (the per-state row).
+**Reference:** T1's demand counter is the pattern to mirror for a new
+profiling-gated counter — a function-local accumulator that feeds nothing in
+the solve, an `m2l_n_*` accessor beside `m2l_n_demanded_ops()`, `-1` as the
+"not compiled in" sentinel with `0` a legal count, and one field per counter on
+`FarFieldDiagnostics`. The refusal sites that read `m2l_effective_op_cap()` are
+enumerated in T6: the merge's `effective_op_cap` read, the cache-overflow
+guard, and the bound check beside it; those are the cap-driven ones and T8 has
+already raised their threshold. The key space's **hard** bounds are
+`dd` over $[-6,6]$ (`Canopy_CartesianTaylorBasis.hpp:469`) and `ii,jj,kk` over
+$[-32,32]$ (`Canopy_DownwardSweep.hpp:526`) — representability limits, not
+budgets, and the obvious candidate. T5's per-rank series is the data the
+breakdown must reconcile against.
+**Do:**
+1. Enumerate **every** site that routes a pair to the per-pair fallback rather
+   than to an operator column, by reading the classify and merge passes. Name
+   each with its file and line and say what condition it tests.
+2. Add one profiling-gated counter per distinct reason, each counting *pairs*
+   rather than keys, so the counters sum to `total_fallback_pair_count()`
+   exactly. Assert that identity rather than inspecting for it.
+3. Surface them through `FarFieldDiagnostics` and print them in the probe's
+   per-state row beside `global_m2l_fallback_pair_count`.
+4. Measure at level 4 on HIP np1 and np4 at the post-T8 cap, and record which
+   reason accounts for the np4 fallback at all 71 states and for the np1
+   states whose demand is under the cap.
+5. **Do not change the key encoding or any bound.** If the dominant reason is a
+   representability limit rather than a budget, that is a finding and a new
+   task at the basis's key encoding, not an edit here.
+
+**Additional information needed:** whether the dominant reason is reachable
+from a Beatnik-side configuration at all. Step 1 answers it; until then the
+remedy cannot be designed and this task does not attempt one.
+
+**Exit criterion:** the probe's level-4 rows at HIP np1 and np4 carry a
+per-reason fallback breakdown whose counters **sum exactly** to
+`global_m2l_fallback_pair_count` at every one of the 81 states, and the
+progress log names the reason that accounts for the np4 fallback with its
+per-state counts. In the failure direction: in a `~profiling` build every
+per-reason counter reads `-1` and not `0`, and the identity check is skipped
+rather than passing vacuously on a row of sentinels (**R7**).
 
 ---
 
 ### T9a — Confirm claim A on a pure FMM path, before any long job — **NOT STARTED**
 
-**Depends on:** T8 **DONE**.
+**Depends on:** T8 **DONE**, T8b **DONE**.
 **Fill in:** no source changes. A `pdebug` submission of the T5 script at the
 post-T8 configuration, plus the progress log.
 **Reference:** `kTauA = 1.0e-3` (`Beatnik_Test_Milestone0Fmm.cpp:320`); the
@@ -1315,27 +1415,30 @@ million keys at `max_depth` 10, far more than fits. `M2L_DEMAND_COUNT_CAP` at
 $2^{20}$ bounds the set at roughly 56 MB against the level-3 member's measured
 peak RSS of 1 060 488 kB. Presentation if the bound is hit:
 `demand_saturated` set, and the reported count is a lower bound, not a peak.
-T5's exit criterion requires that case to be reported as a lower bound; T8
-treats it as branch B outright.
+T5 measured the flag unset in 0 of 1944 rows across four complete draws, so the
+bound never bound and the figure T8 sizes from is a peak. A later measurement
+that does set it is reporting a lower bound and must not be read as a peak.
 
-**R3 — Demand is measured but the peak is not where the error peaks.** Three
-steps are already distinct: the cap first trips at step 250, claim A's error
-peaks at step 1375, and the fallback pair count peaks at step 1650. Demand and
-error need not be monotone in each other, and sizing the cap from the error peak
-rather than the demand peak would leave the cap short at some other step. T5
-step 9 records the demand peak against all three and says which step drives
-each.
+**R3 — Demand is measured but the peak is not where the error peaks.** Four
+steps are distinct and T5 measured all four: fallback first becomes non-zero at
+step 250, demand first exceeds the cap at step 900, claim A's error peaks at
+step 1375, and demand and the fallback pair count both peak at step 1650.
+Demand at step 1375 is 97.2 % of the peak, so a cap sized from the error peak
+would be short by about 1 050 keys at step 1650. T8 sizes from the demand peak
+at step 1650 for that reason; any later resizing must do the same.
 
-**R4 — Branch A is taken and the rebuild cost destroys the run.** Raising the
-cap on a `key_needs_level` basis with a drifting bounding box means rebuilding
-every admitted column on every rebuild
-(`Canopy_DownwardSweep.hpp:406-416`). This presents as a *timeout*, not as a
-wrong answer, and a timeout in a `pbatch` job is expensive to diagnose.
-Distinguishing measurement: `local_m2l_op_keys_built`'s increment per
-evaluation, printed by the probe at every state. If it climbs by the full cache
-size each time, the cache retains nothing and branch A's cost scales with the
-cap. T8's branch-A criterion tests this before committing, and T9a re-measures
-at `pdebug` scale before T9b is submitted.
+**R4 — The raised cap's rebuild cost destroys the long run.** On a
+`key_needs_level` basis with a drifting bounding box the operator cache retains
+nothing between evaluations (`Canopy_DownwardSweep.hpp:406-416`), measured at
+`keys_built_delta == unique_ops` in 405 of 405 rows at both levels. The raise
+is therefore bounded — rebuilt columns are `min(demand, cap)`, so at most
+1.150x at the level-4 demand peak and nothing below it — but bounded is not
+free, and the cost presents as a *timeout*, not as a wrong answer. A timeout in
+a `pbatch` job is expensive to diagnose. Distinguishing measurement:
+`local_m2l_op_keys_built`'s increment per evaluation, printed by the probe at
+every state, read beside the per-evaluation wall time. T8's exit criterion
+pins the increment to demand rather than to the cap, and T9a re-measures at
+`pdebug` scale before T9b is submitted.
 
 **R5 — The probe measures a different configuration than the member.** The
 probe re-derives claim A's parameter setup rather than sharing it, so a drift in
@@ -1363,14 +1466,6 @@ returned instead of `-1` would read as "the tree wants no keys", which would
 retire the whole question with a wrong answer. The sentinel is fixed by
 convention above; T2's and T3's failure-direction exit criteria both check that
 a `~profiling` build reports `-1` and says so loudly.
-
-**R8 — Branch B lowers `max_depth` and kills the far field.** A shallower tree
-moves work into the near field, and past some depth the solve becomes a direct
-sum that agrees with `BRSolverDirect` to round-off at any order — reading as a
-*pass* with a better error than before. Distinguishing measurement: the realized
-P2P pair fraction, which claim A bounds at `kP2PFractionBound = 0.75`
-(`:544`) and the probe prints at every state. T8's branch B requires it to stay
-under that bound.
 
 **R9 — τ_A still fails on a pure path.** Entirely possible: the contaminated
 peak is 1.25x over, and removing the contamination may not close that gap. It
