@@ -244,7 +244,12 @@ under 32 768. Memory scales with the cap and rebuild time does not.
   remote, same `develop` commit — owns the `build-tuolumne` tree that
   `canopy/scripts/tuolumne/run_ctest_laplace_solve.flux:30-31` runs `ctest` in.
   T1's and T6's builds are configured **in this clone**, not that one, so T2 and
-  T4 read their edits with no cross-clone push and pull.
+  T4 read their edits with no cross-clone push and pull. The clone sits at
+  `develop` commit `fd89815` with a clean tree apart from an untracked
+  `scripts/tuolumne/run_t6_count_cap.flux` — T1's and T6's edits are committed
+  there, not uncommitted working-tree modifications. `canopy@=develop` is a
+  `spack develop` spec either way, so `spack install` compiles the clone in
+  place and a pull would move `develop` past the commit the work sits on.
 
 **Beatnik** (`/g/g20/stewartj/spack_envs/tuolumne_beatnik/beatnik`):
 
@@ -1327,28 +1332,60 @@ build failure that cost five minutes.
 passes, and the fallback accounting beside `total_fallback_pair_count()`);
 `src/Beatnik_FarFieldInterface.hpp` (`FarFieldDiagnostics`, the struct and the
 single `readDiagnostics` override);
-`tests/regression_tests/Beatnik_Probe_FmmKeyDemand.cpp` (the per-state row).
+`tests/regression_tests/Beatnik_Probe_FmmKeyDemand.cpp` (the per-state row);
+`canopy/tests/tstLaplaceSolve.hpp`, which carries the exit criterion's
+`~profiling` direction. That direction is **not observable from any Beatnik
+binary** — this env concretizes `canopy +profiling` since T4 — so it is taken
+the way T1 and T6 took theirs: a case in that suite, built in both of T1's cmake
+trees (`build-t1-prof-on` and `build-t1-prof-off` under
+`/g/g20/stewartj/spack_envs/tuolumne_beatnik/canopy`), run at ranks 1-6 in one
+`pdebug` job shaped like `canopy/scripts/tuolumne/run_t6_count_cap.flux`.
 **Reference:** T1's demand counter is the pattern to mirror for a new
 profiling-gated counter — a function-local accumulator that feeds nothing in
 the solve, an `m2l_n_*` accessor beside `m2l_n_demanded_ops()`, `-1` as the
 "not compiled in" sentinel with `0` a legal count, and one field per counter on
-`FarFieldDiagnostics`. The refusal sites that read `m2l_effective_op_cap()` are
-enumerated in T6: the merge's `effective_op_cap` read, the cache-overflow
-guard, and the bound check beside it; those are the cap-driven ones and T8 has
-already raised their threshold. The key space's **hard** bounds are
-`dd` over $[-6,6]$ (`Canopy_CartesianTaylorBasis.hpp:469`) and `ii,jj,kk` over
-$[-32,32]$ (`Canopy_DownwardSweep.hpp:526`) — representability limits, not
-budgets, and the obvious candidate. T5's per-rank series is the data the
-breakdown must reconcile against.
+`FarFieldDiagnostics`. **There is exactly one cap-driven refusal site.**
+`m2l_effective_op_cap()` is called once, at `Canopy_DownwardSweep.hpp:1478`,
+into the local `effective_op_cap`, and that single value feeds the merge's
+admit test `ops.size() < effective_op_cap` (`:1806-1826`), whose `else` branch
+assigns `g = -1` and emits the once-per-build `[Canopy]` warning. T8 already
+raised that threshold, so it is the one reason a measurement at 65536 should
+no longer see.
+
+The second site is the classify pass's range guard (`:1631-1636`), which leaves
+`local_op = -1` when `max_d` falls outside $[0,\texttt{max\_depth}]$ or any of
+`dd`, `ii`, `jj`, `kk` exceeds its bound. Those bounds are **hard**:
+`dd` over $[-6,6]$ is `KernelType::m2l_key_dd_max`
+(`Canopy_CartesianTaylorBasis.hpp:469`) and `ii,jj,kk` over $[-32,32]$ is
+`M2L_KEY_OFFSET_MAX` (`Canopy_DownwardSweep.hpp:570`) — representability
+limits, not budgets, and the obvious candidate. Both kinds of `-1` meet at the
+remap (`:1845-1852`), where a pair with `lo < 0` is a range-guard refusal and a
+pair with `lo >= 0` whose `l2g[lo] < 0` is a cap refusal; that single site is
+where the two reasons are still distinguishable. T5's per-rank series is the
+data the breakdown must reconcile against.
 **Do:**
 1. Enumerate **every** site that routes a pair to the per-pair fallback rather
    than to an operator column, by reading the classify and merge passes. Name
-   each with its file and line and say what condition it tests.
+   each with its file and line and say what condition it tests. Cover the
+   fallback-table assembly at `Canopy_DownwardSweep.hpp:2194-2220` as well: a
+   refused pair whose `pair_target_depth` falls outside $[0,\texttt{max\_depth}]$
+   is `continue`d there and placed in **neither** an operator column nor the
+   fallback table, so it is invisible to `total_fallback_pair_count()`. If that
+   ever fires it is a dropped pair — a wrong velocity, not a slow one — and
+   step 2's sum identity is what catches it.
 2. Add one profiling-gated counter per distinct reason, each counting *pairs*
    rather than keys, so the counters sum to `total_fallback_pair_count()`
    exactly. Assert that identity rather than inspecting for it.
 3. Surface them through `FarFieldDiagnostics` and print them in the probe's
-   per-state row beside `global_m2l_fallback_pair_count`.
+   per-state row beside `global_m2l_fallback_pair_count`. **The counters join
+   the existing reduction**, unlike T1's demand counters, which are rank-local
+   and unreduced: `global_m2l_fallback_pair_count` is summed across ranks by the
+   five-element `MPI_Allreduce` at `src/Beatnik_FarFieldInterface.hpp:1494-1516`,
+   so a breakdown that did not travel with it would be a per-rank number printed
+   beside a global one and the sum identity would fail at every rank but one.
+   Extend that reduction rather than adding a second. The asymmetry against the
+   demand fields is deliberate — the identity the exit criterion checks is
+   between two global figures.
 4. Measure at level 4 on HIP np1 and np4 at the post-T8 cap, and record which
    reason accounts for the np4 fallback at all 71 states and for the np1
    states whose demand is under the cap.
@@ -1444,7 +1481,7 @@ the counter is not read-only and nothing measured with it is usable.
 **R2 — The demanded set exhausts memory.** The CartesianTaylor key space is
 bounded — `max_d` over `max_depth + 1` levels, `dd` over
 $[-6,6]$ (`Canopy_CartesianTaylorBasis.hpp:469`), and `ii,jj,kk` over
-$[-32,32]$ (`Canopy_DownwardSweep.hpp:526`) — but that product is about 39
+$[-32,32]$ (`Canopy_DownwardSweep.hpp:570`) — but that product is about 39
 million keys at `max_depth` 10, far more than fits. `M2L_DEMAND_COUNT_CAP` at
 $2^{20}$ bounds the set at roughly 56 MB against the level-3 member's measured
 peak RSS of 1 060 488 kB. Presentation if the bound is hit:
