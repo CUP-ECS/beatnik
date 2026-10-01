@@ -1572,3 +1572,210 @@ Both in `tasks/add-canopy-t6.md`, outside the T5 entry:
 - **T9b** — none directly, except that the scratch path is now per job, so a
   tier runner that ever reuses this script's scratch root cannot collide with
   a probe run.
+
+## T6
+
+Canopy only. No Beatnik file was touched and no `spack install` was run — T7
+owns the Beatnik side. Two existing cmake trees rebuilt (one target each), one
+`pdebug` job, and `git diff --stat` in the Canopy clone touches three source
+files plus one new untracked script.
+
+### Decisions taken as given by the task, recorded so they are not reopened
+
+- **`with_laplace_solve` gained a SECOND optional parameter**, `int
+  m2l_op_count_cap = 0`, applied beside the byte budget at `:906-909`,
+  mirroring the byte budget's pattern exactly rather than introducing a config
+  struct. Without it the "small count cap with a generous byte budget" case
+  cannot be driven at all.
+- **Both new assertions are UNGATED.** `m2lOpCountCapConstrained`'s `eff_cap`,
+  `realized` and `fallback` checks and `m2lKeyDemandDefault`'s
+  `eff_cap == 32768` check are claims about the cap in force and the columns
+  admitted, not about profiling state, so they sit outside the
+  `CANOPY_ENABLE_PROFILING` branch and were verified in the `~profiling` tree
+  as well. Only the `demanded >` comparison is gated.
+- **BOTH cap-printing sites were updated, not just the overflow message.** The
+  overflow `fprintf` (`:1817-1826`) and the `[Canopy Diagnostics]` profiling
+  `printf` (`:1879-1891`) each printed the constant `M2L_OP_COUNT_CAP` as their
+  "count cap" field; both now print `_m2l_op_count_cap`. The task's Do step 6
+  names only the first, and leaving the second would have made every profiling
+  log report `count_cap=32768` for a run configured otherwise — exactly the
+  class of silent wrong number this topic exists to avoid.
+- **Nothing was committed, pushed or pulled in the Canopy clone.** T1's
+  instrumentation is still uncommitted working-tree modifications at `develop`
+  commit `d3145e0`, and `canopy@=develop` is a `spack develop` spec in the
+  Beatnik env, so a pull would move `develop` past the commit those edits sit
+  on. T6's changes were added to the same working tree.
+- **The new flux script carries no BSD-3-Clause header**, per T1's precedent:
+  no sibling in `canopy/scripts/tuolumne/` has one.
+- **clang-format was not run** on any of the three edited files.
+
+### What was added, and the signatures
+
+All in the Beatnik env's spack `develop` source at
+`/g/g20/stewartj/spack_envs/tuolumne_beatnik/canopy`.
+
+| addition | where |
+| --- | --- |
+| `int m2l_op_count_cap = 32768;` | `src/Canopy_Solver.hpp:116`, in `FmmConfig` after `m2l_op_table_byte_budget` |
+| `_downward.set_m2l_op_count_cap( cfg.m2l_op_count_cap );` | `src/Canopy_Solver.hpp:217`, beside the byte-budget route at `:213` |
+| `void set_m2l_op_count_cap( int )` | `src/Canopy_DownwardSweep.hpp:350-359` |
+| `int m2l_op_count_cap() const` | `:361` |
+| `int _m2l_op_count_cap = M2L_OP_COUNT_CAP;` | `:855`, beside `_m2l_op_table_byte_budget` at `:847` |
+| `#include <stdexcept>` | with the other standard includes |
+| `LS_COUNT_CAP_KEYS = 4`, `LS_DEFAULT_OP_COUNT_CAP = 32768` | `tests/tstLaplaceSolve.hpp`, after `LS_DEMAND_BUDGET_KEYS` |
+| `testM2LOpCountCapConstrained`, `testM2LOpCountCapBounds`, their two `TEST()` registrations | `tests/tstLaplaceSolve.hpp` |
+| `run_t6_count_cap.flux` | `canopy/scripts/tuolumne/` (new, untracked) |
+
+**One existing signature changed**, and it is a test-only one:
+`with_laplace_solve` is now
+`( Fn&& after, std::size_t m2l_op_table_byte_budget = 0, int
+m2l_op_count_cap = 0 )`. Both knobs default to 0 and every existing call site
+is unchanged. `m2l_effective_op_cap()`'s signature did not change — only the
+term it reads, from `M2L_OP_COUNT_CAP` to `_m2l_op_count_cap` — so none of its
+six callers needed editing, as the task's step 8 predicted.
+
+The `[laplace-solve]` driver line gained **one field**, `op_count_cap=%d`,
+between `op_budget` and `op_cap`. That is additive: no existing field's value
+moved, but a whole-line diff of the *other* tests against a pre-T6 log will
+differ by that field by construction. The demand cases print their own lines
+and are unaffected.
+
+### Why the cap is 4 and not 1
+
+`LS_COUNT_CAP_KEYS = 4` rather than reusing `LS_DEMAND_BUDGET_KEYS = 1`:
+a cap of 1 would pass identically if the count cap were accepted and then
+silently ignored while the one-column *byte* budget was applied instead. Four
+distinguishes the two knobs. The byte budget is left at `FmmConfig`'s 2 GB
+default in that case — worth **97 823 columns** at `LaplaceKernel<double, 6,
+1>`'s 21 952 B per key — and the case asserts that explicitly, so a realized
+count of 4 can only have come from the count cap.
+
+`LS_DEFAULT_OP_COUNT_CAP = 32768` is written as a **literal**, deliberately
+against this file's own "derive, never literal" convention: the claim is that
+the default did not *move*, and a value read off the class would track any
+move and assert nothing.
+
+### Builds
+
+Both of T1's trees, same environment (`spack env activate
+${HOME}/spack_envs/tuolumne_trilinos`; Canopy is **manual** mode), one target
+each, on the login node. `make -j Canopy_Test_LaplaceSolve_MPI_SERIAL`
+recompiled one TU and relinked in each; both clean on the first attempt, no
+warnings surfaced. Nothing was reconfigured.
+
+### Measured: job `f3bZMnmTkWbZ`, both trees, ranks 1-6
+
+`scripts/tuolumne/run_t6_count_cap.flux`, `pdebug`, one node,
+`--time-limit=40`, one job running `ctest -V -R
+Canopy_Test_LaplaceSolve_MPI_SERIAL` in each tree.
+**`100% tests passed, 0 tests failed out of 6` in both**, combined rc 0. The
+suite is now **eight** gtest cases per rank count (six plus the two new ones);
+the six ctest "tests" are the six rank counts.
+
+Over the **21 `(nprocs, rank)` pairs**:
+
+| case | `ON` tree | `OFF` tree |
+| --- | --- | --- |
+| `m2lOpCountCapConstrained`, cap 4 | `eff_cap=4 realized=4` everywhere, `budget=2147483648`; **`demanded` 111 .. 718**, strictly > 4 at every pair; `saturated=0`; `fallback` **175 .. 1 677**, positive everywhere | identical but **`demanded=-1`** |
+| `m2lKeyDemandDefault` | `eff_cap=32768` at every pair | same |
+| `m2lOpCountCapBounds` | `default_cap=32768 zero_cap_eff=0 floored_eff=1 negative_raises=1` | same |
+
+**The constrained case's demanded range 111 .. 718 is exactly T1's
+one-column-budget range**, which is a free cross-check worth keeping: the two
+caps refuse from the same demanded set, so the count cap is not perturbing
+what the merge sees, only how many of those keys it admits.
+
+### Byte-identity, scoped to the two demand cases
+
+Scoped per the task, because T1 measured pre-existing run-to-run
+nondeterminism in the LaplaceSolve tree/partition path at np ≥ 3 that the
+unmodified `OFF` tree exhibits against itself. The comparison run was
+`f3bZMnmTkWbZ` against T1's `f3bPfi66qz4X`
+(`canopy_t1_demand.f3bPfi66qz4X.log`, still in the Canopy checkout root), full
+`[laplace-solve] ... m2l_demand_constrained` and `... m2l_demand_default`
+lines, sorted and diffed:
+
+| case | tree | result |
+| --- | --- | --- |
+| `m2l_demand_constrained` | `ON` | **byte-identical**, 21/21 |
+| `m2l_demand_constrained` | `OFF` | **byte-identical**, 21/21 |
+| `m2l_demand_default` | `ON` | **byte-identical**, 21/21 |
+| `m2l_demand_default` | `OFF` | **byte-identical**, 21/21 |
+
+That is every field of those lines — `eff_cap`, `realized`, `demanded`,
+`saturated`, `fallback`, the verbatim `realized_keys` string and
+`cells_at_depth`. **Which it was, for the record: byte-identical, with no
+appeal to the documented np-3/np-6 instability needed.** It did not fire in
+these cases this time, exactly as T1 measured it does not.
+
+### What only building or running revealed
+
+- **Nothing failed.** Both trees compiled on the first attempt and the single
+  job came back rc 0 on the first submission, so there is no bug to record
+  here. Recording the absence deliberately: a knob whose default is the
+  constant it replaces is a change with no runtime surface until something
+  sets it, and the measurement confirms that rather than assuming it.
+- **A count cap of 0 cannot be driven through `with_laplace_solve`**, because
+  0 is its "leave the config default" sentinel — the pattern the byte budget
+  established and the decision above fixed. Rather than invent a second
+  sentinel, the zero case is checked by `testM2LOpCountCapBounds`, which
+  constructs a bare `DownwardSweep` (its constructor is two `MPI_Comm_*`
+  calls, nothing collective or allocating) and asserts on
+  `m2l_effective_op_cap()` with no solve at all. That also makes the
+  negative-raises and still-floored-by-the-budget checks free. Zero columns
+  then implies the full-fallback path by construction: the merge's admit test
+  is `ops.size() < effective_op_cap`, which no key satisfies at 0.
+- **`DownwardSweep` had no `throw` of its own**, so `#include <stdexcept>` was
+  added. The idiom copied is `TreeBuilder`'s `std::runtime_error`
+  (`Canopy_TreeBuilder.hpp:179`); `std::invalid_argument` would have been more
+  precise but would have been the only one in the library.
+- The `ctest` wall was **about the same as T1's** despite two added cases —
+  one of them does no solve and the other is one more frozen-configuration
+  solve. `--time-limit=40` was far more than needed and was kept from T1's
+  runner unchanged.
+
+### Departures from T6's stated Do steps
+
+- **Do step 6 was done twice**, at the profiling printf as well as the
+  overflow message — see the decisions above.
+- **Step 8's caller list dropped one entry.** It names "the profiling printf
+  (`:1683`)" *and* "the two message sites", but the profiling printf **is**
+  one of the two message sites; after T1's and T6's insertions there are
+  exactly two in this file, at `:1822` and `:1888`, plus the three
+  non-printing reads at `:1478`, `:1934` and `:1955` and Beatnik's
+  `Beatnik_FarFieldInterface.hpp:890`. The T6 entry now lists five, not six.
+- **The task document's `Canopy_DownwardSweep.hpp` citations were corrected**
+  throughout, not only in the T6 entry — they predated T1's roughly 124
+  inserted lines and T6 added about 100 more. `tasks/abstract-solver-backend.md`
+  in the Canopy checkout was likewise updated: the constant's stale `:343`
+  became `:607`, and the note now says the cap is configurable with that
+  constant as its default, still a count and still floored by the budget.
+- **The deviation note gained the CartesianTaylor arithmetic** per step 7, and
+  the contrast is sharper than the note implied: at 58 KB per key at $P=8$ the
+  count cap binds by a factor of about **1.1**, and at CartesianTaylor order
+  3's 3200 B per key the 2 GB budget buys **671 088** columns, so the count
+  cap binds by a factor of **20** and is the only constraint that ever binds
+  there.
+
+**Affects:**
+- **T7** — the Canopy side is exactly as this document specified and the
+  plumbing target is `FmmConfig::m2l_op_count_cap` (`Canopy_Solver.hpp:116`),
+  an `int` defaulting to 32768. Two things shape T7's work. First, **a
+  negative value throws** from `DownwardSweep::set_m2l_op_count_cap()` during
+  the `Canopy::Solver` constructor, so a `FmmParams` member that reaches it
+  unvalidated turns a Beatnik CLI typo into a constructor exception, not a
+  clamp — decide deliberately whether `FmmParams` validates earlier or lets it
+  throw. Second, **0 is legal and means zero columns**, so the
+  "0 means leave the default" convention `with_laplace_solve` uses must NOT be
+  copied into `FmmParams`: the Beatnik member should carry 32768 as its own
+  default, matching `m2l_op_table_byte_budget`'s pattern, not a 0 sentinel.
+- **T8** — the knob it chooses a value for now exists and is reachable, and
+  two measurements here bear on the choice. The byte budget is **not** the
+  binding constraint on the CartesianTaylor arm by a factor of 20, so T8 is
+  choosing the count and only the count. And `m2l_demand_saturated()` was
+  `false` at every pair here as it was in T1, so branch B's presentation is
+  still untested in practice.
+- **T9a, T9b** — none. T6 changed no default, no tolerance, no Beatnik gate
+  member and no milestone member — the two new cases live in Canopy's own
+  `Canopy_Test_LaplaceSolve_MPI_SERIAL` suite — so Beatnik's gate is still
+  five `regression` members and 60 launches.
