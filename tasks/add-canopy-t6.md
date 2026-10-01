@@ -837,37 +837,60 @@ oversubscribes one device and returns a plausible number.
 1. Write the script with `-q pdebug -t 60m`, one node, exclusive. Never launch
    interactively from a login node: submit with `flux batch` and read the
    `.log`.
-2. Run HIP np1 and HIP np4 at level 4 first — about 5 minutes together — then
-   level 3 at HIP np1 as the control, since level 3's fallback is known to be
-   exactly 0 at all 81 states and its demand must therefore come back at or
-   below the cap.
-3. Add SERIAL np1 and np4 at level 4 in the same submission only if the HIP
-   result is ambiguous. Budget from the measured claim-A costs: SERIAL np1
-   1432 s, SERIAL np4 523 s. All five launches together are about 38 minutes and
-   fit `-t 60m`; if they do not, split the submission rather than raising `-t`.
-4. Set `BEATNIK_TEST_SCRATCH` to a per-launch directory under `/p/lustre5`,
+2. **Run the level-4 HIP np1 and np4 matrix twice, as two separate `flux batch`
+   submissions** — not two passes inside one job. A single run is not the
+   number: two submissions of one `+profiling` binary at level 3 disagree in
+   369 of 405 rows of `unique_ops` and gave np1 peak demand 6 198 and 5 938,
+   about a 4 % spread, so the peak is a draw from a distribution. Two
+   independent allocations separate a run-to-run effect from an
+   allocation-fixed one. Each submission's level-4 HIP pair is about five
+   minutes.
+3. Run level 3 at HIP np1 in each submission as the control. Its job is
+   **reproducibility against a measured band**, not whether demand is under the
+   cap — that is already measured: np1 peak demand **6 198 at step 1600** and
+   **5 938 at step 1575**, zero `global_m2l_fallback` in all 405 rows of both
+   runs, `demand_saturated` never set, np4 per-rank peaks
+   2 332 / 1 864 / 1 932 / 1 926 and 2 135 / 2 073 / 2 039 / 1 876. A control
+   outside that band by much more than the observed 4 % means the measurement
+   apparatus moved, not the tree. Note also that `demand == unique_ops` at
+   level 3 is an artefact of the cap not binding there, so a level-4
+   `demand > realized` is the expected reading and not a level-3 regression.
+4. Add SERIAL np1 and np4 at level 4 to a submission only if the HIP result is
+   ambiguous. Budget from the measured claim-A costs: SERIAL np1 1432 s, SERIAL
+   np4 523 s. All five launches together are about 38 minutes and fit `-t 60m`;
+   if they do not, split the submission rather than raising `-t`.
+5. Set `BEATNIK_TEST_SCRATCH` to a per-launch directory under `/p/lustre5`,
    removed and recreated immediately before each launch so a stale checkpoint
    cannot be read back as this run's output.
-5. Record into the log: the full 81-state demand series for level 4 at both rank
-   counts; the step at which demand first exceeds 32768; the peak demand and its
-   step; whether `demand_saturated` was ever set; the occupied-depth count
-   against demand at the peak; and the per-evaluation
+6. Record into the log, for **both** submissions: the full 81-state demand
+   series for level 4 at both rank counts; the step at which demand first
+   exceeds 32768; whether `demand_saturated` was ever set; the occupied-depth
+   count against demand at the peak; and the per-evaluation
    `local_m2l_op_keys_built` increment at the peak.
-6. Record the implied table size at the peak, as
+7. Report the peak as the **worst observed** value per (rank count, rank)
+   across the two submissions, with its step, and state the run-to-run spread
+   between them. Never a mean, and never a single draw: T8 sizes a cap from
+   this number.
+8. Record the implied table size at the worst-observed peak, as
    $\texttt{demand}\times3200$ bytes, so T8 has the memory figure beside the
    count.
-7. State plainly whether the peak demand step coincides with step 1375, where
-   claim A's error peaks. If it does not, say which step drives each.
+9. Place the demand peak's step against the three steps the failure already
+   has: the cap's **onset at step 250**, claim A's **error peak at step 1375**,
+   and the **fallback peak at step 1650**. Say which step drives each rather
+   than assuming they coincide.
 
 **Additional information needed:** none — this task produces the number every
 later task is waiting on.
 
-**Exit criterion:** the log carries a level-4 demand series at both HIP rank
-counts with a named peak value and step, and a level-3 control series whose
-demand never exceeds `local_m2l_op_cap`. In the failure direction: if
-`demand_saturated` is set at any state, the log says so explicitly and records
-that the measurement is a lower bound of $2^{20}$ — which is already sufficient
-to select T8's demand-reduction branch, and must not be reported as a peak.
+**Exit criterion:** the log carries the level-4 demand series from **both**
+submissions at both HIP rank counts, a peak named as the worst observed across
+them with its step and rank, the run-to-run spread between the two
+submissions stated, and a level-3 control series from each whose demand stays
+inside the 5 938 – 6 198 np1 band and never exceeds `local_m2l_op_cap`. In the
+failure direction: if `demand_saturated` is set at any state, the log says so
+explicitly and records that the measurement is a lower bound of $2^{20}$ —
+which is already sufficient to select T8's demand-reduction branch, and must
+not be reported as a peak.
 
 ---
 
@@ -1107,11 +1130,13 @@ peak RSS of 1 060 488 kB. Presentation if the bound is hit:
 T5's exit criterion requires that case to be reported as a lower bound; T8
 treats it as branch B outright.
 
-**R3 — Demand is measured but the peak is not where the error peaks.** The cap
-first trips at step 250 while claim A's error peaks at step 1375. Demand and
+**R3 — Demand is measured but the peak is not where the error peaks.** Three
+steps are already distinct: the cap first trips at step 250, claim A's error
+peaks at step 1375, and the fallback pair count peaks at step 1650. Demand and
 error need not be monotone in each other, and sizing the cap from the error peak
 rather than the demand peak would leave the cap short at some other step. T5
-step 7 records both explicitly and says which step drives each.
+step 9 records the demand peak against all three and says which step drives
+each.
 
 **R4 — Branch A is taken and the rebuild cost destroys the run.** Raising the
 cap on a `key_needs_level` basis with a drifting bounding box means rebuilding
