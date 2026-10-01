@@ -97,9 +97,9 @@ anything:
    `:1495`), so the counter is one hash insert per key already in hand — not per
    pair. It feeds nothing in the solve.
 2. **Validate the counter without an HPC job** (T6's unit test, runnable at T1
-   time). `tests/tstLaplaceSolve.hpp:736` already takes
+   time). `tests/tstLaplaceSolve.hpp:793` already takes
    `m2l_op_table_byte_budget` as its one configuration knob and applies it at
-   `:848-849`. Driving it at a budget worth one column makes demand exceed
+   `:906-909`. Driving it at a budget worth one column makes demand exceed
    realized by a known margin on a tree small enough to run in seconds.
 3. **Measure on the real geometry** (T3, T4, T5). A standalone probe that drives
    the direct trajectory and evaluates the FMM once per checkpointed state,
@@ -164,7 +164,7 @@ on both.**
   observable that matters: zero fallback *is* zero refused keys. Demand is a
   sizing instrument, not a gate.
 - **`M2L_OP_COUNT_CAP` becomes a default rather than a floor.** Today
-  `m2l_effective_op_cap()` (`Canopy_DownwardSweep.hpp:324-331`) is
+  `m2l_effective_op_cap()` (`Canopy_DownwardSweep.hpp:368-374`) is
   `min(M2L_OP_COUNT_CAP, byte_budget / bytes_per_key)` and the constant is a
   hard floor on purpose — the deviation note at
   `canopy/tasks/abstract-solver-backend.md:303-311` keeps it so that a pure byte
@@ -172,7 +172,8 @@ on both.**
   different mechanism: the cap remains a count, is still floored by the byte
   budget, and its default is the same constant — so the overflow set moves only
   for a configuration that explicitly asks. The note's cited line for the
-  constant (`src/Canopy_DownwardSweep.hpp:343`) is stale; it is at `:550`.
+  constant (`src/Canopy_DownwardSweep.hpp:343`) was stale; T6 corrected it
+  to `:607`, the line the constant lands on after T6's own edit.
 - **The probe re-derives claim A's setup instead of sharing it.**
   `Beatnik_Test_Milestone0Fmm.cpp` is 2201 lines and deliberately carries no
   step-count or claim selector — "a knob that can silently shorten a 2000-step
@@ -194,12 +195,13 @@ on both.**
 **Canopy** (`/g/g20/stewartj/spack_envs/tuolumne_beatnik/canopy`):
 
 - `M2L_OP_COUNT_CAP = 32768` is a `static constexpr int` at
-  `src/Canopy_DownwardSweep.hpp:550` with no runtime path to change it.
-  `m2l_effective_op_cap()` (`:324-331`) floors it by
+  `src/Canopy_DownwardSweep.hpp:607` — and since T6 it is the DEFAULT of a
+  configurable cap rather than a constant with no runtime path to change it.
+  `m2l_effective_op_cap()` (`:368-374`) floors it by
   `_m2l_op_table_byte_budget / KernelType::bytes_per_key`.
 - The byte budget *is* configurable: `FmmConfig::m2l_op_table_byte_budget`
   (`src/Canopy_Solver.hpp:95`) is routed to `set_m2l_op_table_byte_budget()`
-  (`Canopy_DownwardSweep.hpp:309-313`) from the Solver constructor (`:192`).
+  (`Canopy_DownwardSweep.hpp:312-316`) from the Solver constructor (`:213`).
   At CartesianTaylor order 3 a column is $20\times20\times8=3200$ bytes
   (`Canopy_CartesianTaylorBasis.hpp:506-508`), so 2 GiB buys 671 088 columns and
   **the count cap binds by a factor of 20 on Beatnik's path**.
@@ -215,10 +217,10 @@ on both.**
   `:1111-1113`) hold the per-depth occupied-cell counts but have **no public
   accessor**. T1 adds one, because the occupied-depth count is what explains a
   level-keyed basis's key count.
-- No test drives the count cap. `tests/tstLaplaceSolve.hpp:736` takes
-  `m2l_op_table_byte_budget` and applies it at `:848-849`, reporting the
-  effective cap at `:1057` — the nearest existing fixture, and the one T1's and
-  T6's validation tests extend.
+- Since T6 the count cap IS driven by a test. `tests/tstLaplaceSolve.hpp:793`
+  takes `m2l_op_table_byte_budget` and `m2l_op_count_cap` and applies them at
+  `:906-909`, reporting both the configured cap and the effective one at
+  `:1108-1119` — the fixture T1's and T6's validation cases extend.
 - Canopy builds in **manual** mode — out-of-tree cmake + make under
   `spack env activate ${HOME}/spack_envs/tuolumne_trilinos`
   (`canopy/systems/tuolumne/claude.md` §1 and §3), a different environment from
@@ -396,7 +398,7 @@ green re-run.
 `:1602-1645`, the accessor block near `:926-937`, the member block near
 `:695-760`, the constant block near `:548-557`, the profiling printf at
 `:1665-1693`); `canopy/tests/tstLaplaceSolve.hpp` (a new case using the existing
-budget-parameterized driver at `:736`).
+budget-parameterized driver at `:793`).
 **Reference:** the accessor triple to mirror is `m2l_n_unique_ops()`
 (`:934-937`), `m2l_realized_keys()` (`:926-929`), `m2l_op_cache_size()`
 (`:433`). `M2LKey` and `M2LKeyHash` are at `:583-613`. The guarantee that
@@ -407,7 +409,7 @@ canonicalization call at `:1495`. The gating precedent is the printf at
 Beatnik through `canopy/src/CMakeLists.txt:27-33`.
 **Do:**
 1. Add `static constexpr int M2L_DEMAND_COUNT_CAP = 1048576;` beside
-   `M2L_OP_COUNT_CAP` (`:550`), commented with the reasoning in the conventions
+   `M2L_OP_COUNT_CAP` (`:607`), commented with the reasoning in the conventions
    table above — that it exceeds the 671 088 columns 2 GiB buys at 3200 B per
    key, so saturation is itself an answer.
 2. Add two members: `int _m2l_demanded_op_count = -1;` and
@@ -936,58 +938,65 @@ to become per job: `## T5` in `tasks/add-canopy-t6-progress-log.md`.
 
 ---
 
-### T6 — Canopy: make the count cap configurable, default unchanged — **NOT STARTED**
+### T6 — Canopy: make the count cap configurable, default unchanged — **DONE**
 
 **Depends on:** T1 **DONE**. Independent of T5 — the knob is worth having
 whichever way the measurement falls, and building it in parallel with T5 is
 fine. Choosing its *value* is T8.
-**Fill in:** `canopy/src/Canopy_Solver.hpp` (the config struct near `:84-95`,
-the constructor route near `:192`);
-`canopy/src/Canopy_DownwardSweep.hpp` (`m2l_effective_op_cap()` at `:324-331`, a
-new setter beside `:309-313`, the member block near `:755-758`, the constant at
-`:550`, the overflow message at `:1626-1640`);
+**Fill in:** `canopy/src/Canopy_Solver.hpp` (the config struct near `:84-116`,
+the constructor route near `:213`);
+`canopy/src/Canopy_DownwardSweep.hpp` (`m2l_effective_op_cap()` at `:368-374`, a
+new setter beside `:312-316`, the member block near `:841-855`, the constant at
+`:607`, the overflow message at `:1817-1826`);
 `canopy/tasks/abstract-solver-backend.md:303-311`;
 `canopy/tests/tstLaplaceSolve.hpp`.
+*(All `Canopy_DownwardSweep.hpp` lines in this entry are post-T6. T1 inserted
+about 124 lines and T6 about 100 more, so any citation of this file written
+before T6 is low by roughly that much.)*
 **Reference:** `m2l_op_table_byte_budget` is the exact template — declared at
-`Canopy_Solver.hpp:95`, routed at `:192`, set at
-`Canopy_DownwardSweep.hpp:309-313`, read at `:324-331`, stored at `:758`,
-defaulted by a constant at `:556-557`.
+`Canopy_Solver.hpp:96`, routed at `:213`, set at
+`Canopy_DownwardSweep.hpp:312-316`, read at `:368-374`, stored at `:847`,
+defaulted by a constant at `:623-624`.
 **Do:**
 1. Add `int m2l_op_count_cap = 32768;` to `FmmConfig`, documented as a per-rank
    bound on the operator **column count**, the companion of the byte budget, and
    the thing a level-keyed basis on a deep tree actually runs out of.
 2. Add `set_m2l_op_count_cap( int )` beside the byte-budget setter, invalidating
-   the interaction list the same way (`:311`), since it sizes a table built
+   the interaction list the same way (`:315`), since it sizes a table built
    there. Reject a value below 0 loudly; 0 is legal and means every pair takes
    the overflow path, matching the byte budget's documented "smaller than one
-   column is legal" behaviour (`:305-307`).
+   column is legal" behaviour (`:309-310`).
 3. Change `m2l_effective_op_cap()` to floor the configured cap by the byte
    budget's column count, replacing the `M2L_OP_COUNT_CAP` term.
 4. Keep `M2L_OP_COUNT_CAP = 32768` as the **default** the config initializer and
    `_m2l_op_count_cap` member take, so a configuration that sets nothing gets
-   today's cap and today's overflow set. Rewrite the comment at `:528-549` to
+   today's cap and today's overflow set. Rewrite the comment at `:572-606` to
    say the cap is now configurable with that default, and why the default is
    what preserves every existing answer.
-5. Route it from the Solver constructor at `:192`.
-6. Update the overflow message (`:1626-1640`) to print the configured cap
-   alongside the byte budget, so a log says which of the two bound.
+5. Route it from the Solver constructor at `:213`.
+6. Update the overflow message (`:1817-1826`) **and the profiling printf
+   (`:1879-1891`)** to print the configured cap alongside the byte budget, so a
+   log says which of the two bound. Both printed the constant before T6, so
+   either one left alone would report 32768 for a run configured otherwise.
 7. Update the deviation note at `abstract-solver-backend.md:303-311`: the cap is
    still a count and still floored by the byte budget, the default still makes
-   today's overflow set unchanged, and the constant's line is `:550`, not
+   today's overflow set unchanged, and the constant's line is `:607`, not
    `:343`. Note that at CartesianTaylor order 3 the per-key cost is 3200 B, not
    the note's 58 KB at $P=8$, so the count cap binds by a factor of 20 on that
    basis and is the only constraint that ever binds there.
 8. **Callers of `m2l_effective_op_cap()`**, enumerated: the merge's
-   `effective_op_cap` read (`:1330`), the cache-overflow guard (`:1733`), the
-   `:1755` bound check, the two message sites (`:1635-1636`, `:1688-1689`), the
-   profiling printf (`:1683`), and in Beatnik `readDiagnostics`
-   (`Beatnik_FarFieldInterface.hpp:890`). The signature does not change, so
-   none needs editing; all are listed because each reads a number whose
-   provenance moves from a constant to a config field.
+   `effective_op_cap` read (`:1478`), the cache-overflow guard (`:1934`), the
+   `:1955` bound check, the two message sites (`:1822`, `:1888`), and in Beatnik
+   `readDiagnostics` (`Beatnik_FarFieldInterface.hpp:890`). The signature does
+   not change, so none needs editing; all are listed because each reads a number
+   whose provenance moves from a constant to a config field.
 9. Extend the T1 test cases: one driving a small `m2l_op_count_cap` with a
    generous byte budget and asserting realized equals that cap while demand
    exceeds it, and one asserting that at the default the effective cap is still
    32768 and the realized key set is byte-identical to a pre-change run.
+   `with_laplace_solve` (`:793`) gains a second optional parameter for the cap,
+   mirroring the byte budget exactly; 0 means "leave the config default", so a
+   cap of **0** cannot be driven through it and gets a separate no-solve case.
 
 **Exit criterion:** in the Canopy checkout, a `+profiling` build's suite passes;
 a case at `m2l_op_count_cap = 4` reports `m2l_n_unique_ops() == 4` with
@@ -997,39 +1006,129 @@ to the same case before this task. In the failure direction: a negative
 `m2l_op_count_cap` raises rather than clamping, and `m2l_op_count_cap = 0`
 yields zero columns with every pair on the fallback path.
 
+**Met.** Measured by job **`f3bZMnmTkWbZ`**
+(`canopy/scripts/tuolumne/run_t6_count_cap.flux`, `pdebug`, one node,
+`--time-limit=40`), which ran `ctest -V -R Canopy_Test_LaplaceSolve_MPI_SERIAL`
+at ranks 1-6 in **both** of T1's trees. `100% tests passed, 0 tests failed out
+of 6` in each, combined rc 0 — so the `+profiling` suite passes, and so does
+the `~profiling` one, which matters because both new cases' cap assertions are
+ungated and must hold there too.
+
+Every clause of the criterion was observed at all **21 `(nprocs, rank)`
+pairs**:
+
+- **The cap at 4.** `m2lOpCountCapConstrained` reports `eff_cap=4 realized=4`
+  with `budget=2147483648` — the 2 GB default, worth 97 823 columns at this
+  basis's 21 952 B per key, so the **count** is unambiguously what bound.
+  `demanded` runs **111 .. 718** (strictly above 4 everywhere) and `fallback`
+  **175 .. 1 677** (non-zero everywhere), with `saturated=0`. The demanded
+  range reproduces T1's one-column case exactly, which is a free cross-check
+  that the two caps refuse from the same demanded set.
+- **The default still 32768.** `m2lKeyDemandDefault` reports
+  `eff_cap=32768` at every pair, and the generic driver line reads
+  `op_budget=2147483648 op_count_cap=32768 op_cap=32768` for every
+  default-configured solve.
+- **Byte-identity, scoped to the two demand cases.** The full
+  `m2l_demand_constrained` and `m2l_demand_default` lines — `eff_cap`,
+  `realized`, `demanded`, `saturated`, `fallback`, the verbatim
+  `realized_keys` string and `cells_at_depth` — are **byte-identical** to T1's
+  job `f3bPfi66qz4X` across all 21 pairs **in both trees**, diffed line for
+  line. Nothing in the realized output moved, including at np 3 and np 6 where
+  T1 documented pre-existing run-to-run instability in other tests.
+- **The failure direction**, by `m2lOpCountCapBounds`, which needs no solve:
+  `default_cap=32768`, a cap of 0 giving `zero_cap_eff=0` (no column, so the
+  merge's `ops.size() < 0` admits nothing and every pair takes the overflow
+  path), the byte budget still flooring a 32768 cap to `floored_eff=1` at a
+  one-column budget, and a negative cap **raising** `std::runtime_error`
+  rather than clamping, with the rejected value not stored.
+
+No default moved, and no Canopy signature changed — only the term
+`m2l_effective_op_cap()` reads, so none of its callers needed editing.
+`with_laplace_solve` gained an optional parameter and every existing call site
+is unchanged. **Beatnik's gate is untouched**: T6 adds two cases to Canopy's
+own `Canopy_Test_LaplaceSolve_MPI_SERIAL` suite and no Beatnik test of any
+tier, so the gate is still five `regression` members and 60 launches.
+
 ---
 
 ### T7 — Beatnik: plumb the count cap through `FmmParams` — **NOT STARTED**
 
 **Depends on:** T6 **DONE**.
 **Fill in:** `src/Beatnik_Params.hpp` (a new member beside `:395`, and the
-doc comment at `:382-394`); `src/Beatnik_FarFieldInterface.hpp:1068`.
+doc comment at `:382-394`); `src/Beatnik_FarFieldInterface.hpp:1068` and the
+`local_m2l_op_cap` doc comment at `:294-301`;
+`tests/regression_tests/Beatnik_Probe_FmmKeyDemand.cpp` (the ARGUMENTS block at
+`:103-110`, the argument parse at `:394-400`, the header printf at `:590-601`).
 **Reference:** `m2l_op_table_byte_budget` at `Beatnik_Params.hpp:395` routed at
 `Beatnik_FarFieldInterface.hpp:1068` is the exact pattern — no CLI option, no
-Python counterpart, reaching one `FmmConfig` member.
+Python counterpart, reaching one `FmmConfig` member. The Canopy end is
+`FmmConfig::m2l_op_count_cap` (`Canopy_Solver.hpp:116`), an `int` defaulting to
+32768 and routed to `DownwardSweep::set_m2l_op_count_cap()` at `:217`.
 **Do:**
 1. Add `int m2l_op_count_cap = 32768;` to `FmmParams`, documented as reaching
    `FmmConfig::m2l_op_count_cap`, with no CLI option, and with the reason it
    exists: under `FarFieldBasis::CartesianTaylor` the keys carry the tree level,
    so occupied depth multiplies the key count and this is the cap that binds.
    Cite the measured level-4 peak from T5.
+   **The doc comment states the two edges, because `FmmParams` does not police
+   them.** A negative value raises `std::runtime_error` from
+   `DownwardSweep::set_m2l_op_count_cap()` during the `Canopy::Solver`
+   constructor rather than clamping, and Beatnik lets it — the member has no CLI
+   option, so the only route to a negative value is a programmer's literal,
+   Canopy already rejects it, and `m2l_op_table_byte_budget` beside it is
+   likewise unvalidated here. And **0 is legal**: it admits no column and puts
+   every pair on the overflow path. Canopy's test-only `with_laplace_solve`
+   convention, where 0 means "leave the config default", is therefore **not**
+   copied — this member carries 32768 as its own default and 0 means zero.
 2. Route it at `Beatnik_FarFieldInterface.hpp:1068` beside the byte budget.
 3. Rewrite the doctrine paragraph at `Beatnik_Params.hpp:382-394`. It currently
    says "the response to realized overflow is a lower `max_depth` or `order`,
    not a smaller table" — true about the *byte budget*, and it must now also say
    that the count cap is the constraint that binds, that it is configurable, and
    what the realized level-4 demand is. Keep the statement that lowering the
-   byte budget is the wrong lever.
-4. Update `README.md` only if an example's accepted arguments change. They do
-   not — this member has no CLI option — so confirm and record that rather than
+   byte budget is the wrong lever. **Its arithmetic is measured now and the
+   paragraph's own figures are not the ones that apply**: it reasons from "at
+   `order` $\le4$ a column costs at most about 9.8 KB, so the full 32768 keys
+   occupy roughly 0.3 GiB", which makes the two constraints look close. At
+   CartesianTaylor order 3 a column is 3200 B
+   (`Canopy_CartesianTaylorBasis.hpp:506-508`), so 2 GiB buys 671 088 columns
+   and the count cap binds by a factor of **20** — it is the only constraint
+   that ever binds on this path. Carry that figure, and T5's level-4 peak:
+   **37 678 keys worst-observed at HIP np1 step 1650**, 1.150x the 32 768 cap
+   and 115 MiB of table, with 17 144 at the worst np4 rank.
+4. **Give the probe an optional `argv[2]` carrying `m2l_op_count_cap`**, absent
+   meaning the `FmmParams` default. The exit criterion's failure direction
+   cannot be driven otherwise — the probe takes one required positional and its
+   ARGUMENTS block (`:103-110`) forbids an option surface outright. That
+   prohibition is about a step-count override, "a knob that can silently shorten
+   a 2000-step run", and a cap override shortens nothing; amend the block to
+   permit this one argument on that reasoning and restate the step-count refusal
+   as the standing rule it is. Add `op_count_cap=` to the `[t6probe] header`
+   line (`:590-601`), beside the `byte_budget=` and `op_cap=` it already prints,
+   so a run records which cap was *configured* as well as which was *effective*.
+   Reject a negative `argv[2]` through `rec.fail` the way the level is rejected
+   at `:401-405`, rather than letting it reach the Canopy throw.
+5. Update `FarFieldDiagnostics::local_m2l_op_cap`'s doc comment
+   (`Beatnik_FarFieldInterface.hpp:294-301`). It describes the effective cap as
+   the smaller of what the byte budget buys and "Canopy's own 32768-key count
+   cap"; the count cap is configurable since T6 and reaches Canopy from
+   `FmmParams::m2l_op_count_cap`, so the comment must name that member rather
+   than a constant.
+6. Update `README.md` only if an example's accepted arguments change. They do
+   not — this member has no CLI option, and the probe is a measurement driver in
+   no tier rather than an example — so confirm and record that rather than
    editing.
 
 **Exit criterion:** `spack install` succeeds and the level-3 FMM member still
-passes unchanged at HIP np1 (measured 314 s), demonstrating that a default
+passes unchanged at HIP np1 (measured 316 s at T2), demonstrating that a default
 `FmmParams` produces the same cap and the same answers. In the failure
-direction: a scratch run of the T3 probe with `m2l_op_count_cap` set to 1024
-reports `local_m2l_op_cap == 1024` and non-zero fallback at level 3, where the
-default cap yields exactly zero — which is what proves the knob reaches Canopy.
+direction: `beatnik_exe Beatnik_Probe_FmmKeyDemand_MPI_HIP 3 1024` at HIP np1
+prints `op_count_cap=1024` and `op_cap=1024` in its header and non-zero
+`global_m2l_fallback` in its rows, where the same binary at level 3 with no
+`argv[2]` prints `op_cap=32768` and fallback exactly zero at every row — which
+is what proves the knob reaches Canopy rather than being accepted and dropped. A
+cap of 1024 binds with certainty at level 3: T3 and T4 measured peak
+`unique_ops` there at about 6 400 and demand at 5 938 – 6 624.
 
 ---
 
