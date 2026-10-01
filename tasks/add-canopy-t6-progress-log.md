@@ -1018,3 +1018,557 @@ all along.
   walltime moves, look here first.
 - **T6** — none directly, but note that `systems/tuolumne/spack.yaml` no longer
   describes the environment T6's tier run used.
+
+## T5
+
+Two repo files changed, both of them edits rather than additions:
+`scripts/tuolumne/t6b_key_demand.flux` (the level-4 matrix, `-t 60m`, a
+per-job scratch path, and the header and summary comments the matrix made
+false) and `tasks/add-canopy-t6.md` (the two stale figures this task was told
+to correct, outside the T5 entry). **No C++, no CMake, no Canopy file, no
+`spack install`.** The probe binary that produced every number below is the one
+T4 installed: `canopy@develop+profiling`, echoed in all three job logs.
+
+### Decisions taken as given by the task, recorded so they are not reopened
+
+- **The repeat measurement is separate `flux batch` submissions, not passes
+  inside one job.** Independent allocations separate a run-to-run effect from
+  an allocation-fixed one, and give independent logs to correlate.
+- **Three draws, not two** — the task's two, plus one, on the user's
+  instruction that each job is minutes. Each submission is about 170 s, so the
+  third draw costs nothing and turns a two-point spread into a three-point one.
+- **The peak is reported as the worst observed per (rank count, rank)**, with
+  the run-to-run spread stated. Never a mean and never a single draw: T8 sizes
+  a cap from this number.
+- **The level-3 launch is a reproducibility check against a measured band**,
+  not a test of whether level-3 demand is under the cap — already measured
+  twice at T4.
+- **Every rank-local field is reported per rank and unreduced**, and
+  `global_m2l_fallback` rather than the `[Canopy]` warning is the overflow
+  observable.
+
+### The script, as extended
+
+The matrix became `_matrix=( "3:1" "4:1" "4:4" )`, as `<level>:<ranks>`, and
+the loop reads the level out of each entry instead of a single `_level`. The
+level-3 control runs **first**, so an apparatus problem shows against its known
+band before the expensive pair spends any time. `-t` moved from `30m` to
+`60m`, which also covers the optional SERIAL level-4 pair; that pair was
+**not** added, because the HIP result is not ambiguous. The rank-to-node
+binding, the `rm -rf` + `mkdir -p` scratch handling and the provenance block
+are untouched. The failure tags gained `L${_level}`, which they needed the
+moment the matrix spanned two levels.
+
+### The scratch path had to become per job, and the first attempt is why
+
+**T5's first attempt lost a launch to a filesystem collision of its own
+making.** The script's scratch path was `${ROOT}/${_target}_L${_level}_np${_np}`
+— keyed by target, level and rank count but **not by job** — which was correct
+while only T3 and T4 ran it one submission at a time. Two submissions of the
+three-draw matrix were then put in the queue together (`f3bZ1YdD8SFy` and
+`f3bZ1YnwyidM`) and wrote the same checkpoint files. The second died at step
+1325 of its level-4 np4 launch:
+
+```
+#007: ../../src/H5FDsec2.c line 941 in H5FD__sec2_lock(): unable to lock file,
+      errno = 11, error message = 'Resource temporarily unavailable'
+[FAIL]   check 118: unexpected exception: Beatnik::CheckpointIO::write: cannot
+      reopen '.../keydemand_sub4_HIP_np4/checkpoint_t00001p693400_step0001325.h5'
+      to append the /beatnik scalar group.
+MPIDI_Cray_shared_mem_coll_bcast(515): collective tags 14 and 1 do not match
+```
+
+53 of 81 states, rc 255. **Both of that overlapping pair were discarded, not
+just the one that died** — a collision that does not abort is the worse case,
+because the probe's particle-count round trip would then read another job's
+checkpoint and report a plausible series. The fix is a `job${_jobid}/` path
+component, taken from `FLUX_JOB_ID` if set, else `flux getattr jobid`, else the
+PID. **`FLUX_JOB_ID` is not set for a batch script** — flux sets it for the
+tasks the shell launches, not for the batch instance's init program — so the
+first fixed draw landed in `jobpid3233048` and only the `flux getattr jobid`
+fallback produces a traceable `jobf3bZ93jf57sM`. Both are collision-safe; only
+the second is traceable, which is why the chain has three links.
+
+### The three draws
+
+All three submissions `COMPLETED` rc 0, `SUMMARY: PASS (3/3 launches)`,
+`174/174 checks` in all nine launches, at commit `9303470` + 2 modified files.
+
+| draw | jobid | job wall | L3 np1 | L4 np1 | L4 np4 | scratch |
+| --- | --- | --- | --- | --- | --- | --- |
+| D | `f3bZ3aqyro5y` | **169.46 s** | 19 s | 57 s | 73 s | `jobpid3233048` |
+| E | `f3bZ93jf57sM` | **171.64 s** | 20 s | 56 s | 75 s | `jobf3bZ93jf57sM` |
+| F | `f3bZAPsQynnB` | **171.47 s** | 26 s | 56 s | 69 s | `jobf3bZAPsQynnB` |
+
+A fourth complete draw exists and corroborates every figure below without being
+counted in any spread: `f3bYxvcsXMWo`, 175.32 s, the pre-fix submission that
+ran alone and so could not collide. Its level-4 np1 peak is **37 518 at step
+1650**, inside D/E/F's own 0.46 % spread.
+
+**Nine launches, 486 rows each in D, E and F — 81 states x (1 + 1 + 4) ranks,
+exactly.** The series is complete in every launch; no launch was shortened and
+no state was skipped. Total cost of the measurement: **8.5 minutes of job
+wall** across three submissions, against the `-t 60m` the script now carries
+and the 8.687 h the failing tier run spent to learn less.
+
+### `demand_saturated` was never set
+
+**0 of 1944 rows** across all four complete draws, at both rank counts and both
+levels. `M2L_DEMAND_COUNT_CAP` ($2^{20}$) is nowhere near binding, so **every peak
+below is a measurement and not a lower bound**, and the failure direction the
+exit criterion specifies did not occur. `demand_available=1` in all nine
+headers and `demand=-1` in 0 of 1944 rows, so no figure here is the `~profiling`
+sentinel. R5's parameter check passed in all nine launches: `ncrit` 8, `order`
+3, `cartesian-taylor`, `mac_theta` 0.3, `max_depth` 10,
+`near_softening_factor` 0, `bytes_per_key` 3200, `byte_budget` 2147483648,
+`op_cap` 32768.
+
+### The number T8 is waiting on
+
+**Worst observed per (rank count, rank), over draws D, E and F:**
+
+| rank count | rank | worst demand | step | draw | D / E / F | spread | depths | `cells_at_max_depth` | `unique_ops` | `keys_built_delta` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **np1** | 0 | **37 678** | **1650** | E | 37 504 / 37 678 / 37 504 | **0.46 %** | **7** | 168 | **32 768** | **32 768** |
+| np4 | 0 | 17 144 | 1375 | E | 17 013 / 17 144 / 16 890 | 1.50 % | 7 | 32 | 17 144 | 17 144 |
+| np4 | 1 | 16 309 | 1350 | E | 16 259 / 16 309 / 16 303 | 0.31 % | 7 | 37 | 16 309 | 16 309 |
+| np4 | 2 | 15 981 | 1875 | D | 15 981 / 15 892 / 15 955 | 0.56 % | 7 | 31 | 15 981 | 15 981 |
+| np4 | 3 | 16 055 | 1350 | F | 16 032 / 15 950 / 16 055 | 0.66 % | 7 | 34 | 16 055 | 16 055 |
+
+**The single number is 37 678 demanded operator keys, at HIP np1 rank 0, step
+1650.** It is **1.150x** the 32 768 count cap.
+
+- **Implied table size at that peak: 37 678 x 3200 B = 120 569 600 B =
+  114.99 MiB = 0.112 GiB.** Against the 2 GiB byte budget, which buys 671 088
+  columns, so **the byte budget is not the constraint and is not close to
+  being one** — the count cap binds by **17.8x** at the measured peak. T8's
+  branch A costs about 115 MiB of table per rank, not gigabytes.
+- **`keys_built_delta` at the np1 peak is 32 768** — the cap, not the demand,
+  because only admitted keys are built. That is the whole admitted table
+  rebuilt in that one evaluation.
+- **`occupied_depths` at the peak is 7**, against 5 at step 0 and a level-4
+  range of **5 to 8**. Level 3's range is 4 to 6. Every occupied depth
+  multiplies the key count on a `key_needs_level` basis, and the demand series
+  tracks the depth count rather than the step: all eight states at
+  `occupied_depths=5` sit in a 10 882–10 902 band, and every state above 30 000
+  is at depth 7.
+- **np4's worst rank demands 17 144 — less than half np1's, not a quarter.**
+  The cap is per rank, so the four-rank tree's largest local key set is 45.5 %
+  of the single-rank set, and **no np4 rank ever reaches the cap**
+  (`first_exceed_step=-1` for all four ranks in all three draws).
+
+### Where the demand peak sits against the three steps the failure already has
+
+**R3 is confirmed, and the three steps are four.** The demand peak is at
+**step 1650 — the fallback peak's step, not the error peak's.**
+
+| step | what is there | demand at it (np1, worst of three) |
+| --- | --- | --- |
+| 250 | fallback first becomes non-zero (40–70 pairs) | 18 396, **under the cap** |
+| **900** | **demand first exceeds the cap**, in all three draws | 33 124 / 33 142 / 33 124 |
+| 1375 | claim A's error peak (`1.2513e-3`) | 36 622 / 36 630 / 36 600 |
+| **1650** | the fallback peak **and the demand peak** | **37 504 / 37 678 / 37 504** |
+
+**A cap sized from the error peak at step 1375 would be short by about 1 050
+keys at step 1650.** Demand at 1375 is 97.2 % of the peak — close, but the two
+steps are genuinely distinct and the ordering is stable across all three draws.
+`first_exceed_step` is **900** in all three draws, not step 250: the document's
+"first trips it at step 250" describes when **fallback** starts, which is a
+different event, and 250 is 56 % of the cap.
+
+### The finding that was not in any Do step: fallback at level 4 is not all cap-driven
+
+**At np4 no rank's demand ever reaches the cap, and fallback is still non-zero
+at 71 of 81 states, in all three draws.** Per-rank peak demand is 15 892–17 144
+against a 32 768 cap, `first_exceed_step` is `-1` for all four ranks in all
+three draws, and `global_m2l_fallback` is still non-zero from step 250 onward,
+peaking at **6 884 pairs at step 1550**. No key can have been refused for a
+count-cap reason in any of those 71 states, so **some other refusal path routes
+those pairs to the per-pair fallback.** The key space itself is the obvious
+candidate — `dd` over [-6,6] (`Canopy_CartesianTaylorBasis.hpp:469`) and
+`ii,jj,kk` over [-32,32] (`Canopy_DownwardSweep.hpp:526`) are hard
+representability bounds, not budgets — but **this entry does not identify the
+mechanism and should not be read as having done so.**
+
+At np1 the same thing shows as a split rather than a total: fallback is non-zero
+at 71 of 81 states, of which **34 to 35 have demand at or under the cap**
+(steps 250 through 1775) and only 36 to 37 exceed it.
+
+**Why this matters more than the peak does.** The level-4 member asserts
+`p.m2l_fallback == 0` (`Beatnik_Test_Milestone0Fmm.cpp:1456`) and fails it at 71
+of 81 states at **both** rank counts. Raising the count cap can only fix the
+states whose fallback is cap-driven. At np4 that is **zero states**, and at np1
+about half. **A cap raise alone therefore cannot turn the level-4 member green**,
+whatever value it is raised to — which is a constraint on T8's branch A that the
+document's branch criteria do not currently carry, and a reason T9a's `pdebug`
+check exists before T9b is submitted. **Deciding what follows is T8's, not
+this entry's.**
+
+### R4 at level 4: the same total result as level 3
+
+`keys_built_delta == unique_ops` in **405 of 405** level-4 rows in every draw —
+all 81 np1 states and all 324 np4 (state, rank) pairs — exactly as T3 and T4
+measured at level 3. The operator cache retains nothing between evaluations at
+level 4 either, and now also in the regime where the cap **does** bind: at the
+37 np1 over-cap states the increment is the full 32 768, so each of those
+evaluations rebuilds the entire admitted table. **Raising the cap raises the
+per-evaluation rebuild cost by the full amount of the raise, at every one of
+the 81 states.** T3 already recorded this conclusion as T8's to draw; nothing
+here re-litigates it, and the level-4 increment at the peak is recorded above
+as the task asked.
+
+### The level-3 control, and the one place this entry misses its exit criterion
+
+**Stated plainly: the control does not stay inside the 5 938 – 6 198 np1 band
+the exit criterion names.** The three draws peak at **5 728** (step 1925),
+**6 624** (step 1575) and **5 948** (step 1575) — D below the band, E above it,
+F inside it — and the pre-fix draw A peaked at **5 586** (step 400), further
+below. The three-draw spread is **15.64 %**, against the 4 % the band was drawn
+from.
+
+Everything the control is actually testing passes, in all three draws:
+
+| check | result |
+| --- | --- |
+| rows per launch | 81, complete |
+| `demand > op_cap` | **0 of 81** in every draw |
+| `global_m2l_fallback` | **0** in all 243 rows |
+| `demand_saturated` | **0** in all 243 rows |
+| `demand == unique_ops` | **81 of 81** in every draw |
+| `occupied_depths` | 4 to 6, as T3 and T4 |
+| demand minimum | **828** in all three draws, identical |
+
+**The band is the thing that was wrong, not the apparatus.** It was a two-draw
+min/max (6 198 and 5 938) presented as a band, and five draws of the same
+binary now span **5 586 to 6 624** — a ±8.5 % window around roughly 6 100, with
+the peak's *step* moving from 400 to 1925 across draws. That is the level-3
+trajectory nondeterminism T4 characterised, sampled three more times; a
+two-point range cannot bound it. The substantive readings are stable to the
+point of being identical where they should be — the 828 minimum, the 81/81
+identity, the zero fallback — and the measurement apparatus demonstrably did
+not move. **The exit criterion's numeric band is nevertheless not met as
+written, and no level-4 figure above depends on it.** It is recorded this way
+rather than widened silently; the fix, if one is wanted, is to state the
+control as a tolerance on the band's own sample count, which is a document edit
+and not a measurement.
+
+Also worth noting for anyone who greps: **the `[Canopy] M2L op count exceeded
+cap` warning count exactly equals the np1 over-cap state count** in each draw
+(37, 36, 37) and is **zero in every np4 launch** despite non-zero fallback at 71
+states there. So the warning is faithful at np1 and silent at np4 — T0's point,
+reproduced, and the reason the demand-against-`op_cap` comparison is the
+instrument.
+
+### The full per-rank series
+
+The 81-state series at all five (rank count, rank) pairs, as the worst of the
+three draws at each state, plus the per-draw values at np1 so the spread is
+visible state by state. `demand` is per rank and unreduced; `fb` is Canopy's
+global reduction and is the same on every rank by construction.
+
+**Level 4, np1 rank 0.** `demand (worst)` is the max over D, E and F at that state; the three columns beside it are the individual draws, and the remaining columns come from the draw that supplied the worst value.
+
+| step | demand (worst) | D | E | F | uniq | depths | cmax | kbd | fb |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | **10902** | 10902 | 10902 | 10902 | 10902 | 5 | 552 | 10902 | 0 |
+| 25 | **10902** | 10902 | 10902 | 10902 | 10902 | 5 | 564 | 10902 | 0 |
+| 50 | **10902** | 10902 | 10902 | 10902 | 10902 | 5 | 560 | 10902 | 0 |
+| 75 | **10902** | 10902 | 10902 | 10902 | 10902 | 5 | 550 | 10902 | 0 |
+| 100 | **10890** | 10888 | 10882 | 10890 | 10890 | 5 | 550 | 10890 | 0 |
+| 125 | **10892** | 10892 | 10892 | 10892 | 10892 | 5 | 558 | 10892 | 0 |
+| 150 | **10902** | 10898 | 10902 | 10898 | 10902 | 5 | 562 | 10902 | 0 |
+| 175 | **12060** | 11660 | 12060 | 11642 | 12060 | 6 | 12 | 12060 | 0 |
+| 200 | **12392** | 12392 | 11684 | 11674 | 12392 | 6 | 16 | 12392 | 0 |
+| 225 | **14538** | 14374 | 14476 | 14538 | 14538 | 6 | 42 | 14538 | 0 |
+| 250 | **18396** | 18396 | 17978 | 18116 | 18396 | 6 | 119 | 18396 | 40 |
+| 275 | **17770** | 17770 | 17480 | 17416 | 17770 | 6 | 126 | 17770 | 204 |
+| 300 | **20920** | 20770 | 20774 | 20920 | 20920 | 6 | 240 | 20920 | 1536 |
+| 325 | **21456** | 21456 | 21368 | 21278 | 21456 | 6 | 286 | 21456 | 1872 |
+| 350 | **18880** | 18880 | 18822 | 18676 | 18880 | 6 | 280 | 18880 | 920 |
+| 375 | **18950** | 18826 | 18950 | 18830 | 18950 | 6 | 302 | 18950 | 1968 |
+| 400 | **19178** | 19178 | 19150 | 19178 | 19178 | 6 | 316 | 19178 | 976 |
+| 425 | **17824** | 17824 | 17728 | 17706 | 17824 | 6 | 278 | 17824 | 364 |
+| 450 | **17504** | 17496 | 17502 | 17504 | 17504 | 6 | 370 | 17504 | 584 |
+| 475 | **19160** | 19144 | 19080 | 19160 | 19160 | 6 | 374 | 19160 | 666 |
+| 500 | **22500** | 22476 | 22476 | 22500 | 22500 | 6 | 402 | 22500 | 1096 |
+| 525 | **22296** | 22210 | 22296 | 22230 | 22296 | 6 | 416 | 22296 | 1140 |
+| 550 | **23698** | 23698 | 23614 | 23644 | 23698 | 6 | 428 | 23698 | 1240 |
+| 575 | **23418** | 23414 | 23418 | 23276 | 23418 | 6 | 368 | 23418 | 1184 |
+| 600 | **23166** | 23102 | 23166 | 23070 | 23166 | 6 | 328 | 23166 | 1108 |
+| 625 | **23786** | 23738 | 23740 | 23786 | 23786 | 6 | 340 | 23786 | 1120 |
+| 650 | **23880** | 23880 | 23718 | 23676 | 23880 | 6 | 316 | 23880 | 860 |
+| 675 | **25134** | 25134 | 24820 | 24804 | 25134 | 6 | 376 | 25134 | 1134 |
+| 700 | **27006** | 26702 | 27006 | 26354 | 27006 | 7 | 8 | 27006 | 1192 |
+| 725 | **24656** | 24656 | 24598 | 24656 | 24656 | 6 | 294 | 24656 | 894 |
+| 750 | **25116** | 25116 | 25116 | 25110 | 25116 | 6 | 332 | 25116 | 1036 |
+| 775 | **26776** | 26772 | 26776 | 26290 | 26776 | 7 | 8 | 26776 | 1044 |
+| 800 | **29168** | 29168 | 28128 | 28328 | 29168 | 7 | 28 | 29168 | 1646 |
+| 825 | **28418** | 28408 | 28418 | 27590 | 28418 | 7 | 24 | 28418 | 1440 |
+| 850 | **31568** | 31466 | 30948 | 31568 | 31568 | 7 | 40 | 31568 | 1940 |
+| 875 | **29156** | 29086 | 29156 | 29064 | 29156 | 7 | 40 | 29156 | 1948 |
+| 900 | **33138** | 33138 | 32916 | 33130 | 32768 | 7 | 60 | 32768 | 2858 |
+| 925 | **32814** | 32814 | 32530 | 32798 | 32768 | 7 | 48 | 32768 | 2346 |
+| 950 | **31078** | 31078 | 31068 | 31078 | 31078 | 7 | 32 | 31078 | 1768 |
+| 975 | **32112** | 31896 | 31696 | 32112 | 32112 | 7 | 38 | 32112 | 2012 |
+| 1000 | **34182** | 33916 | 34182 | 34116 | 32768 | 7 | 72 | 32768 | 4878 |
+| 1025 | **33700** | 33472 | 33700 | 33108 | 32768 | 7 | 60 | 32768 | 3816 |
+| 1050 | **33442** | 33442 | 33118 | 33150 | 32768 | 7 | 72 | 32768 | 4183 |
+| 1075 | **33952** | 33946 | 33782 | 33952 | 32768 | 7 | 90 | 32768 | 5630 |
+| 1100 | **32408** | 32408 | 32398 | 32404 | 32408 | 7 | 60 | 32408 | 3132 |
+| 1125 | **31650** | 31548 | 31596 | 31650 | 31650 | 7 | 54 | 31650 | 2556 |
+| 1150 | **33046** | 32908 | 33002 | 33046 | 32768 | 7 | 96 | 32768 | 4014 |
+| 1175 | **34116** | 33992 | 33902 | 34116 | 32768 | 7 | 120 | 32768 | 5998 |
+| 1200 | **32934** | 32876 | 32934 | 32890 | 32768 | 7 | 90 | 32768 | 3532 |
+| 1225 | **34828** | 34828 | 34492 | 34790 | 32768 | 7 | 108 | 32768 | 7747 |
+| 1250 | **35258** | 35258 | 34698 | 35212 | 32768 | 7 | 120 | 32768 | 9074 |
+| 1275 | **35196** | 35136 | 35022 | 35196 | 32768 | 7 | 88 | 32768 | 7097 |
+| 1300 | **34594** | 34540 | 34594 | 34530 | 32768 | 7 | 102 | 32768 | 7226 |
+| 1325 | **36490** | 36488 | 36478 | 36490 | 32768 | 7 | 128 | 32768 | 12073 |
+| 1350 | **36528** | 36508 | 36528 | 36518 | 32768 | 7 | 128 | 32768 | 12478 |
+| 1375 | **36630** | 36622 | 36630 | 36600 | 32768 | 7 | 132 | 32768 | 13368 |
+| 1400 | **35684** | 35670 | 35684 | 35662 | 32768 | 7 | 120 | 32768 | 10788 |
+| 1425 | **35908** | 35712 | 35908 | 35868 | 32768 | 7 | 118 | 32768 | 10866 |
+| 1450 | **36626** | 36620 | 36116 | 36626 | 32768 | 7 | 104 | 32768 | 10928 |
+| 1475 | **35348** | 35330 | 34908 | 35348 | 32768 | 7 | 126 | 32768 | 10117 |
+| 1500 | **34066** | 34066 | 34048 | 34064 | 32768 | 7 | 152 | 32768 | 8285 |
+| 1525 | **34078** | 34078 | 34042 | 34078 | 32768 | 7 | 142 | 32768 | 8252 |
+| 1550 | **34656** | 34656 | 34640 | 34656 | 32768 | 7 | 160 | 32768 | 10486 |
+| 1575 | **32082** | 32082 | 32036 | 32082 | 32082 | 7 | 48 | 32082 | 2960 |
+| 1600 | **33134** | 33134 | 33074 | 33134 | 32768 | 7 | 84 | 32768 | 4044 |
+| 1625 | **33924** | 33924 | 33898 | 33924 | 32768 | 7 | 112 | 32768 | 6340 |
+| 1650 | **37678** | 37504 | 37678 | 37504 | 32768 | 7 | 168 | 32768 | 15503 |
+| 1675 | **33412** | 33412 | 33340 | 33412 | 32768 | 7 | 142 | 32768 | 6202 |
+| 1700 | **33962** | 33962 | 33834 | 33932 | 32768 | 7 | 133 | 32768 | 7092 |
+| 1725 | **30370** | 30216 | 30198 | 30370 | 30370 | 7 | 32 | 30370 | 1976 |
+| 1750 | **30264** | 30156 | 30226 | 30264 | 30264 | 7 | 28 | 30264 | 1732 |
+| 1775 | **32080** | 32080 | 31950 | 32080 | 32080 | 7 | 64 | 32080 | 3012 |
+| 1800 | **34484** | 34484 | 34340 | 34484 | 32768 | 7 | 120 | 32768 | 8570 |
+| 1825 | **35302** | 35302 | 35302 | 35302 | 32768 | 7 | 156 | 32768 | 13291 |
+| 1850 | **34744** | 34744 | 34740 | 34744 | 32768 | 7 | 140 | 32768 | 10368 |
+| 1875 | **36522** | 36442 | 36416 | 36522 | 32768 | 7 | 128 | 32768 | 13450 |
+| 1900 | **36824** | 36824 | 36772 | 36818 | 32768 | 7 | 98 | 32768 | 11325 |
+| 1925 | **36534** | 36534 | 36512 | 36480 | 32768 | 7 | 92 | 32768 | 10509 |
+| 1950 | **36560** | 36560 | 36552 | 36538 | 32768 | 7 | 96 | 32768 | 10498 |
+| 1975 | **35430** | 35430 | 35254 | 35338 | 32768 | 7 | 74 | 32768 | 7067 |
+| 2000 | **33692** | 33692 | 33600 | 33560 | 32768 | 8 | 7 | 32768 | 3879 |
+
+**Level 4, np4, all four ranks.** Each cell is the worst of the three draws at that (state, rank). `fb` is the global reduction, from draw E.
+
+| step | r0 | r1 | r2 | r3 | depths r0-r3 | fb (global) |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | 8151 | 5969 | 5980 | 5823 | 5/5/5/5 | 0 |
+| 25 | 8098 | 5949 | 5994 | 5926 | 5/5/5/5 | 0 |
+| 50 | 8083 | 5975 | 6033 | 5872 | 5/5/5/5 | 0 |
+| 75 | 8079 | 5936 | 5981 | 5834 | 5/5/5/5 | 0 |
+| 100 | 8075 | 5935 | 5947 | 5775 | 5/5/5/5 | 0 |
+| 125 | 8106 | 5967 | 5970 | 5855 | 5/5/5/5 | 0 |
+| 150 | 8153 | 5998 | 6019 | 5870 | 5/5/5/5 | 0 |
+| 175 | 8489 | 6550 | 6497 | 6083 | 6/6/6/6 | 0 |
+| 200 | 8404 | 6660 | 6580 | 6384 | 6/6/6/6 | 0 |
+| 225 | 9357 | 7103 | 6916 | 7087 | 6/6/6/6 | 0 |
+| 250 | 11061 | 8683 | 8622 | 8438 | 6/6/6/6 | 60 |
+| 275 | 10173 | 8177 | 8333 | 7873 | 6/6/6/6 | 110 |
+| 300 | 11433 | 9036 | 9171 | 9002 | 6/6/6/6 | 1556 |
+| 325 | 11882 | 9837 | 9728 | 9643 | 6/6/6/6 | 1896 |
+| 350 | 11131 | 8685 | 8576 | 8609 | 6/6/6/6 | 920 |
+| 375 | 10812 | 8776 | 8739 | 8712 | 6/6/6/6 | 1920 |
+| 400 | 11210 | 9117 | 9099 | 8830 | 6/6/6/6 | 976 |
+| 425 | 10939 | 8850 | 8929 | 8684 | 6/6/6/6 | 364 |
+| 450 | 10922 | 8919 | 8958 | 8823 | 6/6/6/6 | 604 |
+| 475 | 11551 | 9442 | 9637 | 9186 | 6/6/6/6 | 666 |
+| 500 | 13076 | 11079 | 10997 | 10741 | 6/6/6/6 | 1096 |
+| 525 | 13402 | 11341 | 11153 | 10940 | 6/6/6/6 | 1164 |
+| 550 | 13773 | 12015 | 11996 | 11725 | 6/6/6/6 | 1288 |
+| 575 | 13267 | 11428 | 11731 | 11466 | 6/6/6/6 | 1184 |
+| 600 | 12939 | 11416 | 11174 | 11081 | 6/6/6/6 | 1108 |
+| 625 | 13394 | 11301 | 11852 | 11398 | 6/6/6/6 | 1032 |
+| 650 | 13027 | 11317 | 11501 | 11015 | 6/6/6/6 | 860 |
+| 675 | 13547 | 11939 | 11939 | 11762 | 6/6/6/6 | 1134 |
+| 700 | 14232 | 12435 | 12681 | 12312 | 7/7/7/7 | 1096 |
+| 725 | 13300 | 11199 | 11763 | 11485 | 6/6/6/6 | 894 |
+| 750 | 13590 | 11883 | 12202 | 11873 | 6/6/6/6 | 1036 |
+| 775 | 14169 | 12177 | 12476 | 12580 | 7/7/7/7 | 1044 |
+| 800 | 14218 | 12909 | 12911 | 12812 | 7/7/7/7 | 1662 |
+| 825 | 14075 | 12532 | 12663 | 12510 | 7/7/7/7 | 1440 |
+| 850 | 15136 | 13387 | 13644 | 13521 | 7/7/7/7 | 1964 |
+| 875 | 14517 | 13173 | 13270 | 13017 | 7/7/7/7 | 1948 |
+| 900 | 16100 | 14518 | 14694 | 14408 | 7/7/7/7 | 2488 |
+| 925 | 15663 | 14329 | 14653 | 14106 | 7/7/7/7 | 2300 |
+| 950 | 15165 | 13672 | 13822 | 13746 | 7/7/7/7 | 1768 |
+| 975 | 15587 | 14164 | 14314 | 13784 | 7/7/7/7 | 1996 |
+| 1000 | 16317 | 14824 | 14730 | 14508 | 7/7/7/7 | 2968 |
+| 1025 | 15742 | 14781 | 14624 | 14394 | 7/7/7/7 | 2622 |
+| 1050 | 15710 | 14581 | 14596 | 14253 | 7/7/7/7 | 3460 |
+| 1075 | 16226 | 14867 | 14977 | 14481 | 7/7/7/7 | 4134 |
+| 1100 | 15874 | 14618 | 14600 | 14349 | 7/7/7/7 | 3132 |
+| 1125 | 15242 | 13871 | 13974 | 13716 | 7/7/7/7 | 2524 |
+| 1150 | 15717 | 14216 | 14159 | 13989 | 7/7/7/7 | 3756 |
+| 1175 | 16020 | 14949 | 14613 | 14553 | 7/7/7/7 | 4212 |
+| 1200 | 15840 | 14928 | 14422 | 14548 | 7/7/7/7 | 3376 |
+| 1225 | 16647 | 15764 | 15383 | 15493 | 7/7/7/7 | 4332 |
+| 1250 | 16304 | 15531 | 15089 | 15313 | 7/7/7/7 | 4796 |
+| 1275 | 16178 | 15345 | 14911 | 14973 | 7/7/7/7 | 3920 |
+| 1300 | 15855 | 14915 | 14510 | 14685 | 7/7/7/7 | 4252 |
+| 1325 | 16608 | 15824 | 15371 | 15613 | 7/7/7/7 | 5188 |
+| 1350 | 16970 | 16309 | 15720 | 16055 | 7/7/7/7 | 5096 |
+| 1375 | 17144 | 16027 | 15919 | 15893 | 7/7/7/7 | 5262 |
+| 1400 | 16674 | 15543 | 15549 | 15436 | 7/7/7/7 | 4944 |
+| 1425 | 16355 | 15175 | 15195 | 15075 | 7/7/7/7 | 5116 |
+| 1450 | 16189 | 15272 | 15387 | 15344 | 7/7/7/7 | 4670 |
+| 1475 | 15538 | 14774 | 14829 | 14915 | 7/7/7/7 | 5454 |
+| 1500 | 15513 | 14557 | 14621 | 14331 | 7/7/7/7 | 6080 |
+| 1525 | 15447 | 14583 | 14720 | 14392 | 7/7/7/7 | 6158 |
+| 1550 | 15676 | 15046 | 14932 | 14724 | 7/7/7/7 | 6832 |
+| 1575 | 14653 | 13752 | 13852 | 13520 | 7/7/7/7 | 2960 |
+| 1600 | 15092 | 14127 | 14172 | 14227 | 7/7/7/7 | 3640 |
+| 1625 | 15378 | 14535 | 14292 | 14177 | 7/7/7/7 | 4512 |
+| 1650 | 16657 | 15518 | 15659 | 15488 | 7/7/7/7 | 6290 |
+| 1675 | 15487 | 14337 | 14381 | 14334 | 7/7/7/7 | 5380 |
+| 1700 | 15713 | 14688 | 14680 | 14501 | 7/7/7/7 | 4964 |
+| 1725 | 14083 | 13078 | 13091 | 12996 | 7/7/7/7 | 1976 |
+| 1750 | 13647 | 12913 | 12880 | 12782 | 7/7/7/7 | 1660 |
+| 1775 | 14470 | 13734 | 13854 | 13547 | 7/7/7/7 | 3012 |
+| 1800 | 15558 | 14779 | 14853 | 14591 | 7/7/7/7 | 4864 |
+| 1825 | 16044 | 15275 | 15189 | 15399 | 7/7/7/7 | 6278 |
+| 1850 | 15970 | 15209 | 15112 | 15205 | 7/7/7/7 | 5584 |
+| 1875 | 16969 | 16054 | 15981 | 15931 | 7/7/7/7 | 5542 |
+| 1900 | 16654 | 15707 | 15866 | 15859 | 7/7/7/7 | 4738 |
+| 1925 | 16143 | 15339 | 15492 | 15483 | 7/7/7/7 | 4514 |
+| 1950 | 16629 | 15705 | 15640 | 15539 | 7/7/7/7 | 4240 |
+| 1975 | 16006 | 14958 | 14854 | 14868 | 7/7/7/7 | 3214 |
+| 2000 | 14997 | 14054 | 14052 | 14193 | 8/8/7/7 | 2934 |
+
+**Level 3, np1 rank 0 — the control.** All three draws, unreduced; `op_cap` is 32 768 in every row and `global_m2l_fallback` is 0 in every row.
+
+| step | D | E | F |
+| --- | --- | --- | --- |
+| 0 | 864 | 864 | 864 |
+| 25 | 864 | 864 | 864 |
+| 50 | 864 | 864 | 864 |
+| 75 | 864 | 864 | 864 |
+| 100 | 864 | 864 | 864 |
+| 125 | 852 | 852 | 852 |
+| 150 | 852 | 852 | 852 |
+| 175 | 828 | 828 | 828 |
+| 200 | 850 | 848 | 846 |
+| 225 | 1338 | 1360 | 872 |
+| 250 | 4348 | 3724 | 3800 |
+| 275 | 1784 | 1784 | 1100 |
+| 300 | 4130 | 4400 | 4432 |
+| 325 | 3068 | 2944 | 2944 |
+| 350 | 3748 | 3748 | 3748 |
+| 375 | 3182 | 3156 | 3070 |
+| 400 | 5416 | 5254 | 5538 |
+| 425 | 4106 | 3988 | 4102 |
+| 450 | 2174 | 2188 | 2188 |
+| 475 | 2116 | 2174 | 2206 |
+| 500 | 2442 | 2510 | 2630 |
+| 525 | 2540 | 2632 | 2692 |
+| 550 | 2540 | 2522 | 2508 |
+| 575 | 2508 | 2508 | 2508 |
+| 600 | 2974 | 2994 | 3018 |
+| 625 | 2864 | 3014 | 2864 |
+| 650 | 2714 | 2880 | 2992 |
+| 675 | 1876 | 2018 | 2090 |
+| 700 | 1756 | 1880 | 1746 |
+| 725 | 1862 | 1990 | 2002 |
+| 750 | 2186 | 2038 | 2186 |
+| 775 | 2984 | 3168 | 3206 |
+| 800 | 3302 | 3102 | 3358 |
+| 825 | 2670 | 2438 | 3236 |
+| 850 | 1984 | 1694 | 1984 |
+| 875 | 1482 | 1746 | 1534 |
+| 900 | 1472 | 1878 | 1616 |
+| 925 | 1590 | 1594 | 1650 |
+| 950 | 1614 | 1584 | 1586 |
+| 975 | 1984 | 1984 | 1984 |
+| 1000 | 3062 | 1966 | 2986 |
+| 1025 | 3800 | 3800 | 3800 |
+| 1050 | 3890 | 4012 | 4392 |
+| 1075 | 4798 | 4700 | 4402 |
+| 1100 | 3954 | 4344 | 3510 |
+| 1125 | 2226 | 2226 | 2226 |
+| 1150 | 1994 | 1994 | 1994 |
+| 1175 | 1960 | 1902 | 1902 |
+| 1200 | 2562 | 2596 | 2562 |
+| 1225 | 2682 | 2702 | 2562 |
+| 1250 | 3618 | 3660 | 3606 |
+| 1275 | 4466 | 4624 | 5078 |
+| 1300 | 5634 | 5512 | 5134 |
+| 1325 | 2706 | 4636 | 5076 |
+| 1350 | 3990 | 5420 | 5308 |
+| 1375 | 3176 | 4724 | 4690 |
+| 1400 | 3200 | 3516 | 3488 |
+| 1425 | 3242 | 3508 | 3480 |
+| 1450 | 3544 | 3510 | 3544 |
+| 1475 | 3502 | 4714 | 4176 |
+| 1500 | 4824 | 6246 | 5592 |
+| 1525 | 4514 | 5948 | 5258 |
+| 1550 | 5012 | 5794 | 5012 |
+| 1575 | 5278 | 6624 | 5948 |
+| 1600 | 5596 | 6196 | 5608 |
+| 1625 | 3730 | 3704 | 3730 |
+| 1650 | 3588 | 3560 | 3590 |
+| 1675 | 3638 | 3624 | 3642 |
+| 1700 | 3210 | 3210 | 3216 |
+| 1725 | 3216 | 3210 | 3216 |
+| 1750 | 3010 | 3012 | 3010 |
+| 1775 | 2648 | 2646 | 2648 |
+| 1800 | 3348 | 3162 | 3350 |
+| 1825 | 2976 | 2810 | 2826 |
+| 1850 | 3516 | 3648 | 3458 |
+| 1875 | 4110 | 4102 | 4108 |
+| 1900 | 4722 | 4752 | 4766 |
+| 1925 | 5728 | 5178 | 5746 |
+| 1950 | 3820 | 3854 | 3854 |
+| 1975 | 3652 | 3244 | 3694 |
+| 2000 | 3576 | 3166 | 3606 |
+
+### Departures from the standing rules: none
+
+clang-format was **not** run. Nothing was committed or pushed in this repo or
+in the Canopy clone, whose T1 edits remain uncommitted working-tree
+modifications at `develop` commit `d3145e0`. **No `spack install` was run and
+none was needed** — T5 changed a `.flux` script and a markdown file, and the
+task's own instruction was to stop and say why if a rebuild appeared necessary.
+It did not. The four jobs this task started all reached `COMPLETED`; none was
+left running and none needed `flux cancel`.
+
+### The two document corrections this task was told to make
+
+Both in `tasks/add-canopy-t6.md`, outside the T5 entry:
+
+- `:16-19` said the level-4 run "routes about 13 000 pairs to the per-pair
+  fallback" without saying at which rank count. It now says **at np1**, and
+  gives np4's 5 300 (SERIAL) and 5 392 (HIP) at the same step with the
+  per-rank cap as the reason.
+- `:64-67` said "HIP np1 and np4 roughly 140 s each. All four together are
+  about 38 minutes". It now carries the tier run's measured **84.543 s** and
+  **100.154 s**, **about 35 minutes** for all four claim-A halves, and about
+  three minutes for the two HIP ones, cited to
+  `tasks/canopy/add-canopy-progress-log.md:2377-2386`.
+
+**Affects:**
+- **T8** — has its number: **37 678 keys worst-observed at np1, 17 144 at the
+  worst np4 rank**, 1.150x the cap at np1, 115 MiB of table, run-to-run spread
+  under 1.5 %, `demand_saturated` never set so branch B is **not** forced by
+  saturation. Two things constrain the decision beyond the count. First,
+  **branch A cannot by itself turn the member green**: at np4 the cap is never
+  reached and fallback is still non-zero at 71 of 81 states, so a cap raise
+  fixes zero np4 states and about half the np1 ones. Second, **branch A's
+  rebuild cost is the full cap at every one of the 81 evaluations**, confirmed
+  at level 4 in the regime where the cap binds. Size any raise against the
+  demand peak at **step 1650**, not the error peak at 1375 — the gap is about
+  1 050 keys.
+- **T9a** — the pure-FMM-path check cannot be expected to come back clean from
+  a cap change alone, for the np4 reason above. Its distinguishing measurement
+  is still the fallback column, and this entry says that column has a
+  non-cap-driven component at level 4 that nothing in T6–T8 as currently
+  specified addresses. Budget: the probe's level-4 HIP pair is **113 s** of
+  launch time, so a `pdebug` re-measurement after any cap change is minutes.
+- **T6, T7** — none. The knob is worth having whichever way T8 falls, and the
+  default stays 32 768; this entry changed no cap, no signature and no
+  tolerance.
+- **T9b** — none directly, except that the scratch path is now per job, so a
+  tier runner that ever reuses this script's scratch root cannot collide with
+  a probe run.

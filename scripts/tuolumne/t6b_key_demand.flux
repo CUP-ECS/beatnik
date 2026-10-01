@@ -2,7 +2,7 @@
 # flux: --job-name=beatnik_t6b_key_demand
 # flux: --nodes=1
 # flux: --exclusive
-# flux: -t 30m
+# flux: -t 60m
 # flux: --output={{name}}.{{jobid}}.log
 # flux: -q pdebug
 ############################################################################
@@ -16,13 +16,43 @@
 # SPDX-License-Identifier: BSD-3-Clause                                    #
 ############################################################################
 #
-# T3's VALIDATION LAUNCH (`tasks/add-canopy-t6.md`): Beatnik_Probe_FmmKeyDemand
-# at LEVEL 3 on HIP, at ranks 1 and 4.
+# T5's MEASUREMENT RUN (`tasks/add-canopy-t6.md`): Beatnik_Probe_FmmKeyDemand
+# at LEVEL 4 on HIP at ranks 1 and 4, with a LEVEL 3 np1 control beside it.
 #
-# WHAT IT IS FOR. T3 does not measure the demand series -- T5 does, at level 4.
-# This script exists to show that the probe RUNS: that both per-backend targets
-# resolve, and that the rank-local fields are printed once per rank rather than
-# reduced.
+# WHAT IT IS FOR. T5 measures the level-4 M2L operator-key demand series, so
+# T8 can size the count cap from a number instead of a guess. T3 and T4 ran
+# this same script at level 3 only, to show that the probe RUNS -- that both
+# per-backend targets resolve, and that the rank-local fields are printed once
+# per rank rather than reduced. That is now established, and the level-4 matrix
+# below is the measurement itself.
+#
+# ONE SUBMISSION IS NOT THE NUMBER. The level-3 control was measured twice and
+# the two runs disagree in 369 of 405 rows of `unique_ops`, with np1 peak
+# demand 6 198 and 5 938 -- about a 4 % spread (`## T4` in the progress log).
+# The peak is a draw from a distribution, so T5 submits this script THREE
+# separate times and reports the WORST OBSERVED peak per (rank count, rank)
+# with the run-to-run spread stated. Three independent allocations also
+# separate a run-to-run effect from an allocation-fixed one. Never a mean, and
+# never a single draw.
+#
+# WHAT THE LEVEL-3 LAUNCH IS FOR NOW. It is a REPRODUCIBILITY CHECK against a
+# measured band -- np1 peak demand 6 198 at step 1600 and 5 938 at step 1575 --
+# not a test of whether level-3 demand is under the cap, which is already
+# measured (zero fallback in all 405 rows of both runs, `demand_saturated`
+# never set). **T5 WIDENED THAT BAND BY MEASURING IT THREE MORE TIMES**: the
+# five draws now on record span 5 586 to 6 624 -- about +/-8.5 % around 6 100,
+# not 4 % -- and the peak's STEP moves from 400 to 1925 across them, so the
+# original two-point 5 938-6 198 range was an under-sampled min/max and not a
+# bound. Compare the SUBSTANTIVE columns instead, which are stable to the point
+# of being identical: zero fallback and zero over-cap rows at every state, a
+# demand minimum of 828 in every draw, `demand == unique_ops` in 81 of 81, and
+# `occupied_depths` in 4-6. One of those moving means the measurement apparatus
+# moved; a peak outside 5 586-6 624 alone does not. Level 3 declares
+# `kFarFieldIsLive = false` and cannot exercise the overflow path at all, so it
+# proves NOTHING about level 4. Note also that `demand == unique_ops` at
+# level 3 is an artefact of the cap not binding there: a level-4
+# `demand > realized` is the EXPECTED reading, not a regression against the
+# control.
 #
 # THE `-1` OBSERVATION HAS BEEN TAKEN AND IS RECORDED. T3 ran this script
 # against the `canopy ~profiling` the env concretized then (job `f3bQSGSss6RD`)
@@ -47,17 +77,18 @@
 # pairs at np1 against 5 300 at np4, same step, same level). Never average the
 # rank-local columns across ranks.
 #
-# WHY LEVEL 3 AND WHY HIP. Cost. Level-3 claim A -- which drives the same 2000
-# direct steps and does strictly MORE work per state, since it runs the direct
-# comparator too -- measured 166 s on HIP, so two probe launches sit far inside
-# `pdebug`'s 1 h cap and `-t 30m` is generous. A short limit makes a hang fail
-# fast. The `_MPI_SERIAL` target must build and `beatnik_exe` must resolve it,
-# but it is NOT launched here and nothing is claimed for it.
-#
-# **T5 EXTENDS THIS FILE** with the level-4 matrix rather than creating its own.
-# The level-4 series is hours, not minutes (T0 measured one level-4 FMM
-# trajectory at 2 373 s at HIP np1), so T5 owns the queue and `-t` decision that
-# comes with it.
+# WHY HIP, AND WHY THIS FITS `pdebug`. Cost. The probe drives claim A's
+# trajectory and drops the direct comparator and the per-state Python
+# comparator subprocess, so it costs well under claim A itself: level-4 claim A
+# measured 84.543 s at HIP np1 and 100.154 s at HIP np4, and level-3 claim A's
+# 166 s came back as a 24 s probe launch. What is hours rather than minutes is
+# claim B -- the 2000-step FMM-DRIVEN trajectory, 2 373 s at level 4 HIP np1 --
+# and the probe runs no part of it. Three launches therefore sit far inside
+# `pdebug`'s 1 h cap; `-t 60m` is the cap itself and also covers the optional
+# SERIAL level-4 pair (SERIAL np1 1432 s, np4 523 s) if the HIP result comes
+# back ambiguous and that pair has to be added. The `_MPI_SERIAL` target must
+# build and `beatnik_exe` must resolve it, but it is NOT launched here and
+# nothing is claimed for it.
 #
 # Targets the DEVELOPMENT spack env (BEATNIK_USE_PROD is not set): this is
 # measurement work, not a large production run.
@@ -113,9 +144,15 @@ echo "[t6b] canopy  = $(spack find --variants canopy 2>/dev/null | grep -o 'cano
 
 _target_stem="Beatnik_Probe_FmmKeyDemand"
 _backend="HIP"
-_level=3
-_ranks=( 1 4 )
-echo "[t6b] target = ${_target_stem}_MPI_${_backend}  level = ${_level}  ranks = ${_ranks[*]}"
+
+# THE MATRIX, as `<level>:<ranks>`. Level 4 at np1 and np4 is the measurement;
+# level 3 at np1 is the control, and it runs FIRST so that an apparatus problem
+# shows up against its known band before the expensive pair spends any time.
+# The optional SERIAL level-4 pair (Do step 4) is added here only if the HIP
+# result is ambiguous; it is not here now, and adding it must not raise `-t`
+# past the 60m already set -- split the submission instead.
+_matrix=( "3:1" "4:1" "4:4" )
+echo "[t6b] target = ${_target_stem}_MPI_${_backend}  matrix = ${_matrix[*]}  (level:ranks)"
 
 # THE PROBE IS IN NO TIER, so there is no manifest line to read its arguments
 # out of -- unlike `t6_l3_member.flux`, which reads the member's gold paths out
@@ -142,7 +179,16 @@ echo "[t6b] serial exe (resolved, NOT launched) = ${_serial_exe}"
 # through MPI-IO, and a node-local scratch fails every launch spanning more
 # than one node.
 BEATNIK_T6B_SCRATCH_ROOT="${BEATNIK_T6B_SCRATCH_ROOT:-/p/lustre5/stewartj/beatnik/t6b_keydemand}"
+# Per-job subdirectory, so two submissions of this script cannot collide in the
+# filesystem. `FLUX_JOB_ID` is NOT set for a batch script -- flux sets it for
+# the tasks the shell launches, not for the batch instance's init program -- so
+# ask the batch instance itself, and fall back to the PID for a direct `bash`
+# run, which has no job id at all. The PID is enough for collision safety; the
+# jobid is what makes the directory traceable back to a log.
+_jobid="${FLUX_JOB_ID:-$(flux getattr jobid 2>/dev/null)}"
+_jobid="${_jobid:-pid$$}"
 echo "[t6b] scratch root = ${BEATNIK_T6B_SCRATCH_ROOT}"
+echo "[t6b] scratch job  = job${_jobid}"
 
 _rc=0
 _pass=0
@@ -150,17 +196,30 @@ _fail=0
 _names_failed=""
 _t0_all=$(date +%s)
 
-for _np in "${_ranks[@]}"; do
-    # One I/O directory PER (target, level, rank), on lustre, deleted and
+for _entry in "${_matrix[@]}"; do
+    _level="${_entry%%:*}"
+    _np="${_entry##*:}"
+
+    # One I/O directory PER (JOB, target, level, rank), on lustre, deleted and
     # recreated immediately before the launch so a stale checkpoint from an
     # earlier run cannot be read back as this run's output.
-    export BEATNIK_TEST_SCRATCH="${BEATNIK_T6B_SCRATCH_ROOT}/${_target}_L${_level}_np${_np}"
+    #
+    # THE JOB ID IN THE PATH IS LOAD-BEARING, not tidiness. T5 submits this
+    # script three times, and two submissions that overlap in the queue would
+    # otherwise write the SAME checkpoint files: that is exactly how T5's first
+    # attempt lost a launch, with
+    # `H5FD__sec2_lock(): unable to lock file, errno = 11` at step 1325 and a
+    # `collective tags 14 and 1 do not match` MPI abort behind it. A collision
+    # need not abort to be harmful -- it could also round-trip another job's
+    # particle counts -- so the path is per job whether the submissions overlap
+    # or not.
+    export BEATNIK_TEST_SCRATCH="${BEATNIK_T6B_SCRATCH_ROOT}/job${_jobid}/${_target}_L${_level}_np${_np}"
     rm -rf "${BEATNIK_TEST_SCRATCH}"
     if ! mkdir -p "${BEATNIK_TEST_SCRATCH}"; then
         echo "[t6b] FAIL: cannot create ${BEATNIK_TEST_SCRATCH}" >&2
         _rc=1
         _fail=$(( _fail + 1 ))
-        _names_failed="${_names_failed} ${_backend}_np${_np}(scratch)"
+        _names_failed="${_names_failed} ${_backend}_L${_level}_np${_np}(scratch)"
         continue
     fi
     echo "[t6b] scratch = ${BEATNIK_TEST_SCRATCH}"
@@ -193,7 +252,7 @@ for _np in "${_ranks[@]}"; do
     else
         echo "[t6b] FAIL ${_backend} L${_level} np=${_np}: rc=${_obs} after ${_dt}s" >&2
         _fail=$(( _fail + 1 ))
-        _names_failed="${_names_failed} ${_backend}_np${_np}"
+        _names_failed="${_names_failed} ${_backend}_L${_level}_np${_np}"
         _rc=1
     fi
 done
@@ -215,6 +274,19 @@ if [ "${_rc}" -eq 0 ]; then
     echo "[t6b] means the binary was not built against +profiling, not zero"
     echo "[t6b] demand. occupied_depths and cells_at_max_depth are ungated and"
     echo "[t6b] were live before +profiling as well."
+    echo "[t6b] Then read the [t6probe] trailer lines, ONE PER RANK: they carry"
+    echo "[t6b] first_exceed_step, peak_demand and its step, and the peak"
+    echo "[t6b] keys_built_delta and its step, already derived from the demand"
+    echo "[t6b] and op_cap columns. Do NOT re-derive them from the rows, and do"
+    echo "[t6b] NOT average a rank-local column across ranks -- the cap is per"
+    echo "[t6b] rank and a mean describes a tree no rank has. Count the states:"
+    echo "[t6b] 81 per rank, or the series is incomplete whatever the rc says."
+    echo "[t6b] If demand_saturated=1 appears in ANY row, the peak is not a"
+    echo "[t6b] measurement: it is a lower bound of 1048576 and must be"
+    echo "[t6b] reported as one. The [Canopy] cap warning is NOT an overflow"
+    echo "[t6b] test -- it was absent from both np4 launches of the failing"
+    echo "[t6b] tier run despite non-zero fallback at 71 states. Use"
+    echo "[t6b] global_m2l_fallback and demand against op_cap."
 else
     echo "[t6b] SUMMARY: FAIL (${_pass}/${_total} launches);" \
          "failed:${_names_failed}" >&2

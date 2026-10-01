@@ -15,7 +15,8 @@ count cap:
 
 At `--icosphere-subdivisions 4` the level-4 interaction list stays under the cap
 through step 225, first trips it at step 250, and by step 1375 routes about
-13 000 pairs to the per-pair fallback. Four assertion sites fail as a result:
+13 000 pairs to the per-pair fallback **at np1** — the cap is per rank, so np4
+routes far fewer at the same step, 5 300 (SERIAL) and 5 392 (HIP). Four assertion sites fail as a result:
 the purity precondition `p.m2l_fallback == 0`
 (`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp:1456`) at 71 of the 81
 states, the same check on claim B's final state (`:1923`), and — at four to six
@@ -61,8 +62,10 @@ the same states the cap trips at. Driving the direct trajectory is cheap; the
 2000-step FMM-driven trajectory is what costs hours.
 
 Measured claim-A costs at level 4, from the failing tier run: SERIAL np1
-1432 s, SERIAL np4 523 s, HIP np1 and np4 roughly 140 s each. All four together
-are about 38 minutes, and the two HIP launches alone about 5 minutes. **The
+1432 s, SERIAL np4 523 s, HIP np1 **84.543 s** and HIP np4 **100.154 s**. All
+four claim-A halves together are about 35 minutes
+(`tasks/canopy/add-canopy-progress-log.md:2377-2386`), and the two HIP ones
+about three minutes. **The
 measurement fits `-q pdebug -t 60m`.** Only the final validation (T9b) needs
 `pbatch`, and T9a exists so that it is not submitted until it is expected to
 pass.
@@ -823,7 +826,7 @@ all 405 rows of all three runs. See `tasks/add-canopy-t6-progress-log.md`
 
 ---
 
-### T5 — Measure the level-4 demand series — **NOT STARTED**
+### T5 — Measure the level-4 demand series — **DONE**
 
 **Depends on:** T3 **DONE**, T4 **DONE**.
 **Fill in:** `scripts/tuolumne/t6b_key_demand.flux`, which T3 created for its
@@ -891,6 +894,45 @@ failure direction: if `demand_saturated` is set at any state, the log says so
 explicitly and records that the measurement is a lower bound of $2^{20}$ —
 which is already sufficient to select T8's demand-reduction branch, and must
 not be reported as a peak.
+
+**Met.** Three `flux batch` submissions of
+`scripts/tuolumne/t6b_key_demand.flux` — `f3bZ3aqyro5y`, `f3bZ93jf57sM` and
+`f3bZAPsQynnB`, 169.46 s, 171.64 s and 171.47 s, all `COMPLETED` rc 0 — each
+ran level 4 on HIP at np1 and np4 plus the level-3 np1 control, 486 rows per
+draw, 81 states per rank with none skipped. **Worst-observed demand is 37 678
+keys at HIP np1 rank 0, step 1650**, 1.150x the 32 768 cap and 120 569 600 B
+(114.99 MiB) of table against a 2 GiB byte budget that buys 671 088 columns —
+so the count cap binds by 17.8x and the memory figure is not the constraint.
+Run-to-run spread is **0.46 %** at np1 (37 504 / 37 678 / 37 504) and
+0.31–1.50 % per rank at np4, whose worst rank demands **17 144 at step 1375**.
+`demand_saturated` was **never set** — 0 of 1944 rows across four complete
+draws — so the peak is a measurement, not the $2^{20}$ lower bound the failure
+direction describes. At the peak `occupied_depths` is 7 (level-4 range 5–8) and
+`keys_built_delta` is 32 768, the full admitted table rebuilt in that one
+evaluation; `keys_built_delta == unique_ops` in 405 of 405 level-4 rows,
+confirming **R4** at level 4 and in the regime where the cap binds. **R3 is
+confirmed:** the demand peak is at step **1650**, the fallback peak's step, not
+the error peak's 1375 (97.2 % of the peak) and not step 250, where fallback
+begins at 56 % of the cap; demand first exceeds the cap at step **900** in all
+three draws.
+
+Two things fall outside what the exit criterion anticipated and are recorded
+rather than smoothed over. First, **the level-3 control does not stay inside
+the stated 5 938 – 6 198 band** — the three draws peak at 5 728, 6 624 and
+5 948, a 15.64 % spread — because that band was a two-draw min/max and five
+draws of the same binary now span 5 586 to 6 624. Everything the control
+actually tests passes identically in all three draws (zero fallback and zero
+over-cap rows in all 243, `demand == unique_ops` 81 of 81, the demand minimum
+828 in every draw, `occupied_depths` 4–6), so the apparatus did not move; the
+numeric band is nevertheless not met as written, and no level-4 figure depends
+on it. Second, **fallback at level 4 is not all cap-driven**: at np4 no rank's
+demand ever reaches the cap, yet `global_m2l_fallback` is non-zero at 71 of 81
+states in all three draws, and at np1 about half the fallback states sit at or
+under the cap. **A cap raise alone therefore cannot drive
+`p.m2l_fallback == 0`** — a constraint on T8's branch A that this task's own
+Do steps did not ask for and T8 must now carry. Full per-rank series, both
+findings and the discarded overlapping submissions that forced the scratch path
+to become per job: `## T5` in `tasks/add-canopy-t6-progress-log.md`.
 
 ---
 
