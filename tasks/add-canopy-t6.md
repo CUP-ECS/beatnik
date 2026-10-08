@@ -51,9 +51,19 @@ relative error is `1.2536745760757648e-3` at HIP np1 and
 `1.2473681315787063e-3` at HIP np4. Both are at step 1375, with
 `fb_count_cap == 0` at every state (T9a). τ_A was set at `1e-3` from a single
 state five steps off the initial condition, where T5 measured `5.0e-4`. The
-roll-up is 2.5x worse. The response is to raise Beatnik's production `order`
-from 3 to 4 at the same `mac_theta` (T9c, T9d), which Canopy's oracle must
-first cover (`canopy/tasks/02_oracle_extension.md`).
+roll-up is 2.5x worse. **Beatnik's production `order` is chosen to match the
+reference treecode's accuracy, not its order number.** An FMM's order-$p$
+gradient carries the truncation of a treecode's order-$(p-1)$ velocity, so
+Beatnik's order 3 is the counterpart of the reference's order 2
+(`README.md:317-328`). They measure `5.0e-4` and `4.8e-4` on comparable
+2562-source early states (T5; `tasks/treecode.md` §1). Whether τ_A = 1e-3 is
+the reference's fidelity *at the roll-up* has not been measured, and T9r
+measures it on the member's own states. If the reference also exceeds 1e-3
+there, production stays at order 3 and τ_A is re-derived from the reference
+(T9e). If the reference meets it, Beatnik is less accurate than the reference,
+and the production `order` rises to 4 at the same `mac_theta` (T9c, T9d). Order
+4 needs Canopy's oracle to cover it first
+(`canopy/tasks/02_oracle_extension.md`).
 
 **The demand is unmeasurable at the current cap, and that is the first thing to
 fix.** The serial merge refuses a key once `ops.size()` reaches
@@ -98,8 +108,10 @@ pass.
 
 ### Out of scope
 
-- **Widening `kTauA`.** It is a claim about a parameter set, and no number
-  measured on a fallback-contaminated path is evidence about it.
+- **Widening `kTauA` to fit Beatnik's own output.** It is a claim about a
+  parameter set, and no Beatnik measurement is evidence for loosening it. The
+  only route by which it moves is T9e, which re-derives it from the reference
+  treecode's measured error on the same states.
 - **Changing the gate.** The `regression` tier keeps exactly five members and
   60 launches; nothing here adds or removes one.
 - **The `milestone` tier's membership.** It keeps its four members and sixteen
@@ -149,10 +161,12 @@ anything:
    path that routes pairs to the fallback where the cap is not reached. That
    path is the range guard (T8b), and it stays: the end state is zero
    cap-driven refusal, not zero fallback.
-5. **Fix the expansion** (T9c, T9d). Measure the error against `order` and
-   `mac_theta` at the states where it exceeds τ_A, and at level 5. Then raise
-   the production `order` to 4, keep `mac_theta` at 0.3, and re-derive claim
-   B's tolerances at the new order for both levels.
+5. **Settle claim A against the reference** (T9r, then T9e or T9c and T9d).
+   Measure the reference treecode's own error on the member's 81 states. If it
+   also exceeds 1e-3 at the roll-up, re-derive τ_A from it and keep order 3
+   (T9e). Otherwise measure the error against `order` and `mac_theta` at the
+   states over τ_A and at level 5, raise the production `order` to 4 at
+   `mac_theta` 0.3, and re-derive claim B at the new order (T9c, T9d).
 
 ### Why the order, and not `mac_theta`
 
@@ -1645,9 +1659,145 @@ rank counts. Per Do step 6, T9b was not submitted and τ_A was not touched.
 
 ---
 
-### T9c — Measure the claim-A error against `order` and `mac_theta` at the worst states, and at level 5 — **NOT STARTED**
+### T9r — Measure the reference treecode's own error on the member's 81 states — **NOT STARTED**
 
 **Depends on:** T9a **DONE**.
+**Fill in:**
+- a new `tests/regression_tests/reference_treecode_error.py`, carrying the
+  project's BSD-3-Clause header in `#` style as
+  `tests/regression_tests/fmm_divergence_ladder.py` does;
+- a new `scripts/tuolumne/t9r_reference_treecode.flux`, its `pdebug` runner,
+  with the preamble and provenance echo copied from
+  `scripts/tuolumne/t9a_l4_member.flux` (one node, one task, no GPU);
+- the progress log.
+
+No C++ changes, and nothing in the reference repository changes.
+**Reference:**
+- The reference package `zmodel3d` at
+  `~/research-bridges/zmodel-steve/zmodel3d-amr/zmodel3d/`, which this task
+  reads and never edits. Record its commit in the log (`ec7d7bf` when this
+  task was written).
+- `potential_mesh_birkhoff_rott_velocity(state, params)`
+  (`zmodel3d/mesh_solver.py:804-842`) on a `MeshPotentialZModelState(vertices,
+  faces, potential)` (`:122-200`). It dispatches on `params.br_approximation`
+  to `_source_velocity_direct_unsigned` (`:437-455`) or
+  `treecode_velocity_unsigned` (`zmodel3d/treecode.py:96-130`) through
+  `_mesh_birkhoff_rott_velocity_from_sources` (`mesh_solver.py:388-435`).
+- The precedent measurement in `tasks/treecode.md` §1: the same function, the
+  same `relmax`. The member's gold set,
+  `tests/regression_tests/milestone0-sub4-2000-steps/gold/`, holds 81 step
+  files whose `vertices`, `faces` and `potential` arrays are exactly that
+  state.
+
+**Do:**
+1. Write the script. For each of the 81 `checkpoint_*_stepNNNNNNN.npz` files,
+   build `MeshPotentialZModelState` from `vertices`, `faces` and `potential`.
+   Evaluate the velocity twice with `MeshZModelParams(eps=0.025,
+   use_matlab_blob=False, source_quadrature="vertex", br_approximation=...)`:
+   once at `"direct"`, and once at `"treecode"` with the reference's own
+   defaults (`br_treecode_theta=0.3`, `br_treecode_order=2`,
+   `br_treecode_ncrit=64`, `mesh_solver.py:52-54`).
+   - **Set those three explicitly** and print them, so a later change to the
+     reference's defaults cannot silently move the measurement.
+   - `use_matlab_blob=False` is the gold set's `--kernel-blob-mode length`,
+     with blob $=\varepsilon^2$ (`mesh_solver.py:394`), which is the member's
+     softening of 0.025.
+   - Error per state: `max_i |u_tree[i] - u_direct[i]| / max_i |u_direct[i]|`,
+     with row 2-norms. That is claim A's quantity exactly
+     (`Beatnik_Test_Milestone0Fmm.cpp` `fieldDifference` `:924-958` and
+     `fieldScale` `:898-912`).
+   - Step 0 has a zero field (`potential` is identically 0). Report it in
+     absolute form and exclude it from the worst, as the member does.
+   - Import `zmodel3d` by `PYTHONPATH` from the runner and never by copying;
+     the script fails loudly if the import or any of the 81 files is missing.
+   - Print one `[t9r] row step=... time=... rel=... max_direct=...` line per
+     state at 17 digits, then a `[t9r] worst` line.
+2. Run it in `pdebug` through the runner, with `/usr/tce/bin/python3` (NumPy
+   2.1.2) and `PYTHONPATH` set to the reference repository root. The direct sum
+   at 2562 sources is seconds per state. Budget `-t 30m`, and record the
+   measured wall.
+3. **Calibrate before reading.** At step 25, the reference's error must be the
+   same order as `tasks/treecode.md`'s 2562-source, order-2, θ 0.3 figure of
+   `4.8e-4`, which was measured on a smooth initial state. A figure off by
+   10x or more means the parameters or the error definition do not match.
+   Stop, and record no verdict.
+4. Tabulate the reference's error beside T9a's HIP np1 and np4 series, state
+   by state, and record the worst of each with its step.
+5. **Apply the decision rule and record the verdict.** Let `E_ref` be the
+   reference's worst error over the 80 non-zero-field states, and let `τ_ref`
+   be `E_ref` rounded **up** to two significant digits.
+   - **Verdict "order 3 matches the reference"** if `τ_ref > 1.0e-3` and T9a's
+     worst errors (`1.2536745760757648e-3` at np1, `1.2473681315787063e-3` at
+     np4) are both `<= τ_ref`. Then τ_A's stated basis, "the reference
+     implementation's own fidelity", was measured only at smooth states, and the
+     reference itself exceeds 1e-3 at the roll-up. Production stays at order 3,
+     matching the reference. **T9e** is the next task, and T9c and T9d are not
+     done.
+   - **Verdict "Beatnik is less accurate than the reference"** otherwise: either
+     the reference meets 1e-3 at every state, or Beatnik at order 3 exceeds
+     `τ_ref`. **T9c** is the next task, then T9d. T9e is not done.
+
+**Exit criterion:**
+- The log carries the reference's error at all 81 states at 17 digits, with
+  each state's simulation time.
+- The step-25 calibration is within 10x of `4.8e-4`.
+- `E_ref` is recorded with its step, along with `τ_ref`.
+- Exactly one verdict is recorded under step 5's rule, naming the next task.
+
+In the failure direction: a calibration outside 10x, fewer than 81 rows, or a
+missing printed parameter means no verdict.
+
+### T9e — Re-derive τ_A from the reference's measured fidelity; production stays at order 3 — **NOT STARTED**
+
+**Depends on:** T9r **DONE** with verdict "order 3 matches the reference".
+**Fill in:**
+- `tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp`: `kTauA` (`:320`)
+  and its provenance comment (`:280-319`). The literal is shared by both
+  levels.
+- `README.md` "FMM accuracy (measured)" (`:387`) and the order paragraph
+  (`:317-328`).
+- `CLAUDE.md:107` and `docs/testing.md:33`, which state the bound as `1e-3`.
+- `src/Beatnik_Params.hpp`, the `order` comment (`:196-228`): order 3 is the
+  reference's accuracy class, now measured at the roll-up and not only at a
+  smooth state.
+- The progress log.
+
+**Reference:** T9r's per-state table and `τ_ref`.
+**Additional information needed:** none beyond T9r's verdict. If T9r shows
+the reference's worst state differs from Beatnik's (step 1375), record that,
+because it bears on R11.
+**Do:**
+1. Set `kTauA = τ_ref`. Rewrite its comment:
+   - the bound is the reference treecode's own worst error (order 2, θ 0.3,
+     `ncrit` 64) over the member's 81 level-4 states, measured by T9r;
+   - it is not a figure fitted to Beatnik's output;
+   - give Beatnik's own worst error beside it, and its margin;
+   - keep the qualification list.
+2. Keep `kProductionOrder = 3` and every other tolerance unchanged. Negative
+   case 2 (`kPerturbationFactor`) scales with `kTauA` and needs no edit;
+   confirm that it still fails as intended.
+3. Update the README, `CLAUDE.md` and `docs/testing.md` statements of the bound.
+4. `spack install` the dev env, and edit nothing while it runs. Then run
+   `scripts/tuolumne/t6_l3_member.flux HIP`, and
+   `scripts/tuolumne/t9a_l4_member.flux` at np1 and at np4.
+
+**Exit criterion:**
+- The level-3 member reports `[PASS]` at HIP np1 and np4.
+- The level-4 member at HIP np1 and np4 has **zero** failed checks at `:1505`
+  and `:1506`, and every failed check is at `:1500` or `:1967`, which T9b step
+  0 replaces.
+- Negative case 2 still reports its perturbed state rejected.
+
+In the failure direction: a level-4 state over the new `kTauA` means T9r's
+verdict rested on a draw that did not reproduce. Stop and record it; do not
+round `τ_ref` up further.
+
+---
+
+### T9c — Measure the claim-A error against `order` and `mac_theta` at the worst states, and at level 5 — **NOT STARTED**
+
+**Depends on:** T9r **DONE** with verdict "Beatnik is less accurate than the
+reference".
 **Fill in:** no source change. A new `scripts/tuolumne/t9c_fmm_scan.flux`,
 copied from `scripts/tuolumne/t5_fmm_scan.flux` (preamble, provenance echo and
 rank-to-GPU binding unchanged), running `Beatnik_Test_FmmScan_MPI_HIP` once per
@@ -1781,8 +1931,8 @@ too few runs.
 
 ### T9b — Re-run the milestone tier; close T6 — **NOT STARTED**
 
-**Depends on:** T9d **DONE**, with the level-4 member's claim-A error under
-`kTauA` at order 4.
+**Depends on:** T9d **DONE** or T9e **DONE**, whichever T9r's verdict selects,
+with the level-4 member's claim-A error under `kTauA`.
 **Fill in:** `tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp` (the
 purity checks at `:1500` and `:1967`, claim B's `p.fmm` near `:1029`, and the
 `makeFmmParams` comment at `:1062-1064`);
@@ -1898,8 +2048,10 @@ a `~profiling` build reports `-1` and says so loudly.
 `fb_count_cap == 0` at every state, the worst level-4 claim-A error is
 `1.2537e-3` (np1) and `1.2474e-3` (np4) at step 1375. The fallback cannot
 account for it, since the fallback and table paths agree to 3.3e-15 (Canopy
-C1). **Response:** T9c measures `order` and `mac_theta` at the states over the
-bound, and T9d raises the production `order`. Never a wider τ_A.
+C1). **Response:** T9r measures the reference treecode on the same states. Its
+verdict selects T9e (τ_A re-derived from the reference, order 3 kept) or T9c
+and T9d (production `order` raised). τ_A is never widened to fit Beatnik's own
+number.
 
 **R10 — Order 4 does not clear τ_A at the roll-up.** Unlikely: order 4 bought
 8.9x at T5's early state, and 1.25x is needed. **Presents as:** T9c's `order` 4

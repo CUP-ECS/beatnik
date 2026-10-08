@@ -3132,3 +3132,37 @@ cap-driven refusal.
   R12's walltime risk, which T9d step 3 measures first.
 - **T9c** — new; ready now (depends only on T9a).
 - **T9d** — new; blocked on T9c's verdict and on Canopy O1–O3.
+
+## R9 response, revised (T9r, T9e)
+
+No code changed and nothing was run. This section records why T9r now comes
+before T9c.
+
+- **Production `order` is meant to match the reference treecode.** The
+  reference runs order 2, θ 0.3, `ncrit` 64 (`zmodel3d/treecode.py:101-103`,
+  `zmodel3d/mesh_solver.py:52-54`). An FMM loses one order to the gradient, so
+  Beatnik's counterpart of the reference's order 2 is order 3. The two measure
+  `5.0e-4` (T5, Beatnik order 3) and `4.8e-4` (`tasks/treecode.md`, reference
+  order 2) on comparable 2562-source early states. Literal order 2 in Beatnik
+  gives `5.97e-3` there, 12x worse than the reference, so it is not a match.
+- **τ_A = 1e-3 was justified as the reference's own fidelity, but that fidelity
+  was only measured at smooth states.** Nobody has measured the reference at the
+  roll-up. T9r does, on the member's own 81 gold states, through the reference's
+  own `potential_mesh_birkhoff_rott_velocity`. The gold `.npz` files carry
+  exactly `vertices`, `faces` and `potential`, which is a
+  `MeshPotentialZModelState`.
+- **T9r's verdict selects the path.** If the reference also exceeds 1e-3 at
+  the roll-up and Beatnik's order 3 is within the reference-derived bound, T9e
+  re-derives τ_A from the reference and production stays at order 3. That is a
+  derivation from the reference's evidence, not a widening to fit Beatnik.
+  Otherwise T9c and T9d proceed as designed in the section above, and Canopy's
+  `02_oracle_extension.md` still gates T9d.
+
+**Affects:**
+
+- **T9c** — now depends on T9r's "less accurate" verdict.
+- **T9d** — unchanged, and reached only through T9c.
+- **T9e** — new; reached only on T9r's "matches" verdict.
+- **T9b** — now depends on T9d or T9e.
+- **Canopy `02_oracle_extension.md`** — still worth doing on either path; it is
+  required only on the T9d path.
