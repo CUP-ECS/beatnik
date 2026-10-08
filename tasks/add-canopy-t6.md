@@ -21,18 +21,30 @@ step 250 is not itself a cap exceedance: demand there is 18 396 keys, 56 % of
 the cap, and does not exceed it until step 900 (T5). Four assertion sites fail
 as a result:
 the purity precondition `p.m2l_fallback == 0`
-(`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp:1456`) at 71 of the 81
-states, the same check on claim B's final state (`:1923`), and — at four to six
+(`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp:1500`) at 71 of the 81
+states, the same check on claim B's final state (`:1967`), and — at four to six
 of the 81 states — **both** forms in which the member asserts the accuracy
-bound, `p.max_abs <= kTauA * p.scale` (`:1461`) and `p.rel <= kTauA` (`:1462`),
+bound, `p.max_abs <= kTauA * p.scale` (`:1505`) and `p.rel <= kTauA` (`:1506`),
 peaking at `1.2513e-3` against `kTauA = 1.0e-3` (defined at `:320`).
 
-**The τ_A exceedance is not yet a measurement of the FMM.** The fallback path is
-the same mathematics reassociated — a different code path, bitwise different
-from the table path (`src/Canopy_CartesianTaylorBasis.hpp:510-517`) — and every
-state above τ_A is a state with non-zero fallback. Level-4 claim A has therefore
-never been measured on a pure FMM path. τ_A must not be widened on this
-evidence.
+**Most of that fallback is not a budget, and no configuration removes it.** T8b
+measured the classify pass's range guard carrying **100 %** of level-4 fallback
+at the raised cap — 215 302 pairs at np1, 215 742 at np4 — against bounds that
+are `static constexpr` in Canopy (`M2L_KEY_DD_MAX`, `M2L_KEY_OFFSET_MAX`) with
+no `FmmConfig` or `FmmParams` route. Zero fallback at level 4 is unreachable,
+so the `p.m2l_fallback == 0` checks at `:1500` and `:1967` can never pass there.
+The observable that matters is zero **cap-driven** refusal.
+
+**The fallback does not explain the τ_A exceedance.** The per-pair fallback
+(`m2l_translate`) and the operator-table path evaluate the same mathematics, and
+Canopy measures them agreeing to **3.27e-15** of the field, bounded at
+`CTS_PATH_DEV_TOL = 6.55e-15`, on `CartesianTaylorBasis` at order 3 — this
+member's basis and order (`canopy/tasks/tree-opt.md` C1,
+`canopy/tasks/tree-opt-progress-log.md` `## C1`). A 2.5e-4 excess over τ_A
+cannot come from a path that moves the field by 1e-14, so the level-4 peak of
+`1.2513e-3` is in substance a measurement of the expansion at order 3,
+`mac_theta` 0.3. T9a confirms it on the current configuration. τ_A must not be
+widened on this or any evidence.
 
 **The demand is unmeasurable at the current cap, and that is the first thing to
 fix.** The serial merge refuses a key once `ops.size()` reaches
@@ -84,6 +96,13 @@ pass.
   launches. The probe (T3) is registered in no tier.
 - **The unpairable level-4 window at steps 1350–1900.** A known T5 finding,
   neither a pass nor a failure, and independent of the cap.
+- **Widening or re-encoding the M2L key bounds.** Canopy keeps
+  `M2L_KEY_DD_MAX` and `M2L_KEY_OFFSET_MAX` as sized for a balanced tree and
+  treats the per-pair fallback as the correct algorithm for out-of-range pairs
+  (`canopy/tasks/tree-opt.md`, "What this is not").
+- **Enabling tree balancing** (`FmmConfig::tree_balance_max_level_delta`). It
+  raises range-guard refusals 1.6–3.5x on the only measured draw, which is why
+  its default stays off (`canopy/tasks/tree-opt.md` A3).
 - **Setting `run_milestone.flux`'s `-t` from a measurement.** It stays at
   `-t 1440m` until a tier run passes; re-timing from a failing run whose most
   expensive member does a different amount of work than the fixed version would
@@ -112,14 +131,16 @@ anything:
    `FmmConfig` and `FmmParams` with the default unchanged, raise it at the
    level-4 member to cover the measured demand, and then identify the refusal
    path that routes pairs to the fallback where the cap is not reached. That
-   path is not hypothetical: at np4 no rank's demand ever reaches the cap and
-   `global_m2l_fallback` is still non-zero at 71 of 81 states.
+   path is the range guard (T8b), and it stays: the end state is zero
+   cap-driven refusal, not zero fallback.
 
 ### The two facts that shape every decision here
 
 **CartesianTaylor keys carry the tree level.**
 `src/Canopy_CartesianTaylorBasis.hpp:486` sets `key_needs_level = true`, and
-`canonicalize_key` is the identity (`:497-500`), because the operator is
+`canonicalize_key` keeps `max_d` and zeroes only `dd` (`:492` declares
+`key_needs_dd = false`; `:504-507`), so the canonical key is
+$(\texttt{max\_d}, 0, \texttt{ii}, \texttt{jj}, \texttt{kk})$, because the operator is
 physical — $b_k(R)$ at the real translation vector, whose length is the integer
 offset times the half-width at the deeper depth — so two pairs with the same
 integer offset at different levels have different operators and a level-blind
@@ -133,10 +154,11 @@ configuration". T5 supplies that evidence.
 
 **Raising the cap costs rebuild time, not just memory.** For a
 `key_needs_level` basis, `set_root_half_width` clears the entire operator cache
-whenever the root half-width changes (`src/Canopy_DownwardSweep.hpp:406-416`,
-recorded at `Canopy_CartesianTaylorBasis.hpp:481-485`), so on a drifting
-bounding box the cache empties on every rebuild and every admitted column is
-built again. `local_m2l_op_keys_built`
+whenever the root half-width changes (`src/Canopy_DownwardSweep.hpp:451`), so
+on a drifting bounding box the cache empties on every rebuild and every
+admitted column is built again. `FmmConfig::quantize_root_half_width`
+(`Canopy_Solver.hpp:126`, default `false`) would let the cache survive drift
+within an octave; nothing here sets it. `local_m2l_op_keys_built`
 (`src/Beatnik_FarFieldInterface.hpp:279-283`) is the counter that shows it:
 "climbing by the full cache size at every build is the signature of a cache that
 retains nothing, which is what a level-keyed basis on a drifting bounding box
@@ -173,10 +195,13 @@ under 32 768. Memory scales with the cap and rebuild time does not.
 - **The demand counter is profiling-gated, so the level-4 member cannot assert
   on it.** An always-on counter would let `assertClaimA` check demand directly,
   but it would also build an unbounded key set on every interaction-list build
-  in every production configuration. The member keeps asserting
-  `p.m2l_fallback == 0` (`Beatnik_Test_Milestone0Fmm.cpp:1456`), which is the
-  observable that matters: zero fallback *is* zero refused keys. Demand is a
-  sizing instrument, not a gate.
+  in every production configuration. Demand is a sizing instrument, not a
+  gate. The gate-side observable is zero **cap-driven** refusal, which an
+  ungated comparison already shows: the merge refuses a key only once
+  `local_m2l_unique_op_count` reaches `local_m2l_op_cap`
+  (`Beatnik_FarFieldInterface.hpp:273`, `:303`), so a realized count below the
+  effective cap on every rank means no cap refusal. T9b puts that assertion in
+  place of `p.m2l_fallback == 0`.
 - **`M2L_OP_COUNT_CAP` becomes a default rather than a floor.** Today
   `m2l_effective_op_cap()` (`Canopy_DownwardSweep.hpp:368-374`) is
   `min(M2L_OP_COUNT_CAP, byte_budget / bytes_per_key)` and the constant is a
@@ -208,48 +233,52 @@ under 32 768. Memory scales with the cap and rebuild time does not.
 
 **Canopy** (`/g/g20/stewartj/spack_envs/tuolumne_beatnik/canopy`):
 
-- `M2L_OP_COUNT_CAP = 32768` is a `static constexpr int` at
-  `src/Canopy_DownwardSweep.hpp:607` — and since T6 it is the DEFAULT of a
-  configurable cap rather than a constant with no runtime path to change it.
-  `m2l_effective_op_cap()` (`:368-374`) floors it by
-  `_m2l_op_table_byte_budget / KernelType::bytes_per_key`.
-- The byte budget *is* configurable: `FmmConfig::m2l_op_table_byte_budget`
-  (`src/Canopy_Solver.hpp:95`) is routed to `set_m2l_op_table_byte_budget()`
-  (`Canopy_DownwardSweep.hpp:312-316`) from the Solver constructor (`:213`).
-  At CartesianTaylor order 3 a column is $20\times20\times8=3200$ bytes
-  (`Canopy_CartesianTaylorBasis.hpp:506-508`), so 2 GiB buys 671 088 columns and
-  **the count cap binds by a factor of 20 on Beatnik's path**.
-- The merge admits keys until `effective_op_cap` and assigns `-1` beyond it
-  (`:1616-1645`), warning once per build. `n_unique_ops` (`:1663`) is the
-  admitted count. There is **no counter for the refused keys** — this is the gap
-  T1 closes.
-- `m2l_n_unique_ops()` (`:934-937`), `m2l_realized_keys()` (`:926-929`),
-  `m2l_op_cache_size()` (`:433`) and `m2l_op_keys_built_count()` (`:435`) are
-  ungated public accessors. The `[Canopy Diagnostics] M2L operator table:` line
-  at `:1665-1693` is gated on `CANOPY_ENABLE_PROFILING`.
-- `_all_at_depth_local` and `_leaves_at_depth_local` (`:484-487`, filled
-  `:1111-1113`) hold the per-depth occupied-cell counts but have **no public
-  accessor**. T1 adds one, because the occupied-depth count is what explains a
-  level-keyed basis's key count.
-- Since T6 the count cap IS driven by a test. `tests/tstLaplaceSolve.hpp:793`
-  takes `m2l_op_table_byte_budget` and `m2l_op_count_cap` and applies them at
-  `:906-909`, reporting both the configured cap and the effective one at
-  `:1108-1119` — the fixture T1's and T6's validation cases extend.
-- Canopy builds in **manual** mode — out-of-tree cmake + make under
+- **The clone is on branch `investigate-m2l-cap` at commit `38658ad`**, and
+  that is what `canopy@=develop` — a `spack develop` spec, compiled in place —
+  builds. It carries T1's, T6's and T8b's instrumentation and, beyond the
+  commit T1-T8b measured on (`fd89815`), these changes that move level-4
+  numbers:
+  - a distributed **ParMETIS** cell partitioner
+    (`src/Canopy_TreePartitioner.hpp`, which includes `parmetis.h`). ParMETIS
+    4.0.3 is in the Beatnik env's view as a trilinos dependency; no Beatnik
+    `spack install` has yet compiled this partitioner;
+  - `mac_satisfied` rejects exact MAC ties;
+  - `CartesianTaylorBasis` declares `key_needs_dd = false` and its canonical key
+    drops `dd`, so the same tree realizes fewer columns;
+  - `TreeBuilder::build()` prints a rank-0
+    `[Canopy] WARNING: TreeBuilder::build: … leaves at max_depth …` line when
+    the depth limit, not `ncrit`, stops refinement
+    (`src/Canopy_TreeBuilder.hpp:994`);
+  - two `FmmConfig` knobs, both off by default and set nowhere in Beatnik:
+    `quantize_root_half_width` (`src/Canopy_Solver.hpp:126`) and
+    `tree_balance_max_level_delta` (`:135`).
+
+  **Every T5, T8 and T8b demand and fallback figure predates these**, so a
+  re-measurement on this clone is a new draw, not a reproduction. Canopy line
+  citations in the DONE task entries below are against `fd89815` and have
+  shifted.
+- `M2L_OP_COUNT_CAP = 32768` (`src/Canopy_DownwardSweep.hpp:608`) is the
+  default of the configurable `FmmConfig::m2l_op_count_cap`.
+  `m2l_effective_op_cap()` (`:368-374`) floors the configured cap by
+  `_m2l_op_table_byte_budget / KernelType::bytes_per_key`. At CartesianTaylor
+  order 3 a column is 3200 B, so the 2 GiB default budget buys 671 088 columns
+  and **the count cap is the only constraint that binds on Beatnik's path**.
+- The range guard's bounds are `static constexpr` with no setter:
+  `M2L_KEY_OFFSET_MAX = 32` (`src/Canopy_DownwardSweep.hpp:571`) and
+  `CartesianTaylorBasis::m2l_key_dd_max = 6`
+  (`src/Canopy_CartesianTaylorBasis.hpp:470`).
+- Accessors: `m2l_n_unique_ops()` (`:1069`), `m2l_n_demanded_ops()` (`:1093`),
+  `m2l_n_fallback_pairs_range_guard()` (`:1114`),
+  `m2l_n_fallback_pairs_count_cap()` (`:1121`),
+  `m2l_n_fallback_pairs_depth_dropped()` and `m2l_cells_at_depth()` (`:1152`).
+  The demand and per-reason counters return `-1` without
+  `CANOPY_ENABLE_PROFILING`; the unique count and the per-depth occupancy are
+  ungated.
+- Canopy's own test builds are **manual** mode — out-of-tree cmake + make under
   `spack env activate ${HOME}/spack_envs/tuolumne_trilinos`
-  (`canopy/systems/tuolumne/claude.md` §1 and §3), a different environment from
-  the one that builds Beatnik. **This clone carries no cmake build tree**: the
-  `build-linux-rhel8-zen4-*` directories in it are spack's. A second clone of
-  the same repo at `/g/g20/stewartj/research-bridges/canopy-dev/Canopy` — same
-  remote, same `develop` commit — owns the `build-tuolumne` tree that
-  `canopy/scripts/tuolumne/run_ctest_laplace_solve.flux:30-31` runs `ctest` in.
-  T1's and T6's builds are configured **in this clone**, not that one, so T2 and
-  T4 read their edits with no cross-clone push and pull. The clone sits at
-  `develop` commit `fd89815` with a clean tree apart from an untracked
-  `scripts/tuolumne/run_t6_count_cap.flux` — T1's and T6's edits are committed
-  there, not uncommitted working-tree modifications. `canopy@=develop` is a
-  `spack develop` spec either way, so `spack install` compiles the clone in
-  place and a pull would move `develop` past the commit the work sits on.
+  (`canopy/systems/tuolumne/claude.md` §1 and §3). T1's two trees,
+  `build-t1-prof-on` and `build-t1-prof-off`, live in this clone beside spack's
+  `build-linux-rhel8-zen4-*` directories.
 
 **Beatnik** (`/g/g20/stewartj/spack_envs/tuolumne_beatnik/beatnik`):
 
@@ -265,8 +294,10 @@ under 32 768. Memory scales with the cap and rebuild time does not.
   is, and it saturates there.
 - `FmmParams` (`src/Beatnik_Params.hpp:167`) carries `mac_theta = 0.3` (`:194`),
   `order = 3` (`:229`), `ncrit = 64` (`:256`), `max_depth = 10` (`:291`) and
-  `m2l_op_table_byte_budget` (`:395`), the last routed to `FmmConfig` at
-  `Beatnik_FarFieldInterface.hpp:1068`. **There is no count-cap member.**
+  `m2l_op_table_byte_budget` and `m2l_op_count_cap` (default 32768), both
+  routed to `FmmConfig` in `Beatnik_FarFieldInterface.hpp` with no CLI option.
+  T8b added three globally reduced per-reason fallback fields to
+  `FarFieldDiagnostics`, `-1` when Canopy carries no profiling.
 - `m2l_op_table_byte_budget`'s doc comment (`Beatnik_Params.hpp:382-394`) states
   the current doctrine: "the constraint to act on is the count cap, and the
   response to realized overflow is a lower `max_depth` or `order`, not a
@@ -281,7 +312,12 @@ under 32 768. Memory scales with the cap and rebuild time does not.
   $N\gg\pi(\sqrt3/\theta)^2\cdot\texttt{ncrit}$ (`Beatnik_Params.hpp:238-251`)
   is about 840 at `ncrit = 8` against 2562 vertices, and 6720 at the default 64.
   **`ncrit = 8` is itself a demand driver** — it deepens the tree to make the
-  far field live at all — which is why T8 cannot simply raise it.
+  far field live at all — which is why T8 cannot simply raise it. The column
+  cap is the per-level `kM2LOpCountCap` — 32768 in the level-3 arm (`:478`),
+  65536 in the level-4 arm (`:583`) — read by `makeFmmParams` (`:1074`) for
+  claim A only; claim B's `SolverParams` (`p.fmm`, `:1029`) still takes the
+  `FmmParams` default 32768, so the comment at `:1062-1064` saying the two
+  claims cannot be at different configurations is false in that one field.
 - The milestone tier has four members and sixteen launches, registered at
   `tests/CMakeLists.txt:439-495`, run by
   `scripts/tuolumne/run_milestone.flux` at `-q pbatch -t 1440m`.
@@ -300,12 +336,18 @@ under 32 768. Memory scales with the cap and rebuild time does not.
   its arguments out of `beatnik_milestone_manifest.txt`, which it locates by
   scanning `$PATH` for the file (`:120-136`) — a manifest is a data file and
   `which` cannot find one. T3's and T5's runners follow its structure.
-- **T6 remains IN PROGRESS in `tasks/canopy/add-canopy.md`.** The failing tier
-  run's numbers are recorded nowhere; T0 records them.
+- **T6 remains IN PROGRESS in `tasks/canopy/add-canopy.md`**, its failing tier
+  run recorded by T0.
+- **The installed prefix is trimmed.** It holds only the three
+  `Beatnik_Probe_FmmKeyDemand_MPI_*` binaries, and both manifests carry zero
+  test entries (log `## T8b`); the source tree is untrimmed. A `spack install`
+  is required before any member, gate or tier run, and it also compiles the
+  current Canopy clone.
 
 **Environment** (`/g/g20/stewartj/spack_envs/tuolumne_beatnik/spack.yaml`, whose
 committed snapshot `systems/tuolumne/spack.yaml` is byte-identical to it):
-`canopy@develop` at `:16` carries **no** `+profiling`; `beatnik@develop` at
+`canopy@develop` at `:16` carries `+profiling` (dev only — the production
+snapshot `systems/tuolumne/spack-production.yaml` does not); `beatnik@develop` at
 `:17` carries `+testing +canopy +examples +profiling profiling_level=2` — a
 Beatnik variant, unrelated to `CANOPY_ENABLE_PROFILING`. This checkout is
 **`spack` mode**: build with `spack install`, never `cmake`/`make`, and there is
@@ -1441,43 +1483,81 @@ identity **skipped**, and `fb_range_guard + fb_count_cap == fallback` with
 
 ---
 
-### T9a — Confirm claim A on a pure FMM path, before any long job — **NOT STARTED**
+### T9a — Measure level-4 claim A at zero cap-driven refusal, before any long job — **NOT STARTED**
 
 **Depends on:** T8 **DONE**, T8b **DONE**.
-**Fill in:** no source changes. A `pdebug` submission of the T5 script at the
-post-T8 configuration, plus the progress log.
-**Reference:** `kTauA = 1.0e-3` (`Beatnik_Test_Milestone0Fmm.cpp:320`); the
-contaminated peaks T0 recorded.
-**Do:**
-1. Re-run the probe at level 4, HIP np1 and np4, and confirm zero fallback at
-   all 81 states and demand at or below the cap.
-2. Extend the probe run, or run the level-4 member's claim A by other cheap
-   means, to obtain the **fallback-free** worst relative error and its step.
-   Claim A at level 4 is 140 s at HIP np1 and 1432 s at SERIAL np1 — both fit
-   `pdebug`.
-3. Record that number against τ_A. This is the first honest measurement of
-   level-4 claim A.
-4. **If it still exceeds τ_A on a pure path, stop here and do not submit T9b.**
-   That is a finding about the expansion at level 4 — a new task, at order,
-   `mac_theta` or the bound's derivation — not a number to widen. Record it and
-   raise it.
+**Fill in:** no source changes. A new `scripts/tuolumne/t9a_l4_member.flux`
+copied from `scripts/tuolumne/t6_l3_member.flux`, running
+`Beatnik_Test_Milestone0FmmL4_MPI_HIP`; the progress log.
+**Reference:** `kTauA = 1.0e-3` (`Beatnik_Test_Milestone0Fmm.cpp:320`), checked
+at `:1505-1506`; the contaminated peaks T0 recorded; the fallback/table path
+agreement of 3.27e-15 (`canopy/tasks/tree-opt-progress-log.md` `## C1`);
+`scripts/tuolumne/t8b_fallback_reasons.flux` (untracked, present) for the
+per-reason probe matrix. Measured member costs at HIP: **2 450 s at np1 and
+1 598 s at np4** (`tasks/canopy/add-canopy-progress-log.md`, T6 cost table) —
+67 minutes together, over `pdebug`'s 60-minute cap.
 
-**Exit criterion:** the log carries a level-4 worst relative error measured at
-zero fallback, at 17 digits, with its step and the realized P2P fraction, and
-states whether it is under `kTauA`. In the failure direction: the run's own
-per-state fallback column is zero at every state, so a "pure path" claim is
-backed by the measurement rather than assumed from T8.
+**The pure-path condition is zero cap-driven refusal, not zero fallback.** The
+range guard's fallback is present at 71 of 81 level-4 states and stays (see
+[Problem](#problem)); it evaluates the same mathematics as the table to
+3.3e-15 and cannot move a 1e-3 error. A pair refused by the **cap** is likewise
+the same mathematics, but a cap-driven refusal means the configuration is not
+the post-T8 one, so it is the contamination this task rules out.
+
+**Do:**
+1. `spack install` the dev env (the prefix is trimmed; see [Current
+   state](#current-state)). This is the first Beatnik build against the
+   ParMETIS partitioner. Record the canopy commit and branch, and the beatnik
+   commit, in the log.
+2. Run the probe at level 4, HIP np1 and np4, cap 65536, with
+   `t8b_fallback_reasons.flux` unchanged. Confirm `fb_count_cap == 0` at all
+   81 states at both rank counts and that the per-reason identity holds.
+   Record `fb_range_guard`, demand and `unique_ops` against T8b's, as a new
+   draw on the changed Canopy, not a reproduction.
+3. Run `Beatnik_Test_Milestone0FmmL4_MPI_HIP` at np1 and at np4 as **two
+   separate `pdebug` submissions** of the new runner. The member reports
+   **FAIL by construction** on `p.m2l_fallback == 0` (`:1500`, 71 states) and
+   claim B's final-state check (`:1967`); read the per-state claim-A lines,
+   never the summary alone.
+4. Record the worst claim-A relative error at 17 digits with its step and the
+   realized P2P fraction, at both rank counts, and state whether it is under
+   `kTauA`. Record claim B's cost too: this is the first claim-B run since T8,
+   and it still runs at cap 32768.
+5. Record that T9b, not this task, replaces the member's zero-fallback checks
+   and gives claim B `kM2LOpCountCap`.
+6. **If the error exceeds τ_A, stop here and do not submit T9b.** That is
+   **R9**: a finding about the expansion at level 4 and a new task, at `order`,
+   `mac_theta` or the bound's derivation — never a wider τ_A.
+
+**Exit criterion:** the log carries the level-4 worst relative error at 17
+digits, with step and P2P fraction, from the member's HIP np1 and np4 launches,
+and states whether each is under `kTauA`; and the probe's rows at HIP np1 and
+np4 at cap 65536 show `fb_count_cap == 0` at all 81 states with the per-reason
+identity holding. In the failure direction: a non-zero `fb_count_cap` at any
+state means the run was cap-contaminated, and its error is not the number.
 
 ---
 
 ### T9b — Re-run the milestone tier; close T6 — **NOT STARTED**
 
 **Depends on:** T9a **DONE** and its measured error under `kTauA`.
-**Fill in:** `scripts/tuolumne/run_milestone.flux` (`-t` only, and only after
-the run); `tasks/canopy/add-canopy.md` (T6 status); both progress logs.
+**Fill in:** `tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp` (the
+purity checks at `:1500` and `:1967`, claim B's `p.fmm` near `:1029`, and the
+`makeFmmParams` comment at `:1062-1064`);
+`scripts/tuolumne/run_milestone.flux` (`-t` only, and only after the run);
+`tasks/canopy/add-canopy.md` (T6 status); both progress logs.
 **Reference:** the runner's own header comment says how to set `-t` from a tier
 run. The gate is untouched: five `regression` members, 60 launches on tuolumne.
 **Do:**
+0. Make the member assert what level 4 can satisfy. Replace
+   `p.m2l_fallback == 0` (`:1500`) and
+   `diag.global_m2l_fallback_pair_count == 0LL` (`:1967`) with an ungated
+   no-cap-refusal check — `local_m2l_unique_op_count < local_m2l_op_cap` on
+   every rank — since the per-reason counters read `-1` in a `~profiling`
+   build. Give claim B's `p.fmm` `kM2LOpCountCap` so both claims run one
+   configuration, and correct the `makeFmmParams` comment to match. Check
+   counts may re-baseline; the level-3 member must pass again at HIP np1
+   before the tier is submitted.
 1. Finalize the env before submitting: pull the canopy and beatnik clones to the
    intended commits and `spack install` **first**, so the binary reflects them.
    Never `spack install` against the production env while a production job is
@@ -1572,10 +1652,12 @@ retire the whole question with a wrong answer. The sentinel is fixed by
 convention above; T2's and T3's failure-direction exit criteria both check that
 a `~profiling` build reports `-1` and says so loudly.
 
-**R9 — τ_A still fails on a pure path.** Entirely possible: the contaminated
-peak is 1.25x over, and removing the contamination may not close that gap. It
-would present identically to today's failure — a τ_A exceedance at level 4 —
-which is why T9a exists as a `pdebug` step before the `pbatch` tier run, and why
-its step 4 forbids proceeding. The distinguishing measurement is the fallback
-column: zero at every state means the number is about the expansion, and the
-response is a task at `order` or `mac_theta`, never a wider τ_A.
+**R9 — τ_A fails on the expansion at level 4.** Likely: the peak is 1.25x
+over, and the fallback cannot account for it, since the fallback and table paths
+agree to 3.3e-15 (Canopy C1). It presents identically to the original failure —
+a τ_A exceedance at level 4 — which is why T9a runs at `pdebug` scale before
+the `pbatch` tier run, and why its step 6 forbids proceeding. The
+distinguishing measurement is `fb_count_cap == 0` at every state: with no
+cap-driven refusal the configuration is the post-T8 one, the error is about the
+expansion, and the response is a task at `order` or `mac_theta`, never a wider
+τ_A.
