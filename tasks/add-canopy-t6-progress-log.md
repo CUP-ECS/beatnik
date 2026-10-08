@@ -3095,3 +3095,40 @@ and 1 801 s (np4) of launch wall**, against T6's 2 450 s and 1 598 s.
 - **T6 in `tasks/canopy/add-canopy.md`** stays IN PROGRESS.
 - **T5, T8, T8b** — their numbers stand as draws on `fd89815`. This task's
   demand figures are lower because of B1, and that supersedes nothing in them.
+
+## R9 response design (T9c, T9d)
+
+No code changed and nothing was run. This section records the decisions behind
+T9c and T9d, which were added after T9a found claim A over τ_A at zero
+cap-driven refusal.
+
+- **The fix is Beatnik's production `order`, not a level-4 override.** AMR
+  roll-ups of millions of points are the configuration the default has to
+  serve. They concentrate points in exactly the geometry where T9a's error
+  peaks, and a per-level constant in the member would certify a parameter set
+  no production run uses. Both members therefore move, and both levels' claim-B
+  tolerances are re-derived.
+- **Order, not `mac_theta`, is the preferred lever**, for the reasons in the
+  design's "Why the order, and not `mac_theta`". Order leaves the tree, the
+  interaction lists, the key demand and the range guard exactly as T5–T9a
+  measured them. θ is measured in T9c and adopted only under its rule.
+- **Measure before adopting.** `Beatnik_Test_FmmScan` already takes a spin-up
+  step count, so T9c can scan the exact states T9a found over τ_A with no
+  source change. The 2x margin is required at the worst measured state, because
+  T5's 2.0x at one early state did not cover the trajectory.
+- **Level 5 is in T9c** to test the assumption that relative error is flat in N
+  at fixed `order` and θ, before a production default rests on it (R11).
+- **Canopy's oracle extension is a Canopy task**, written for a reader with no
+  Beatnik context: `canopy/tasks/02_oracle_extension.md` (O1–O3), committed
+  `bd10c8f` on `investigate-m2l-cap`. Its main design finding is that the
+  existing finite-difference oracle cannot be extended: it loses about 40x per
+  degree to roundoff, which extrapolates to no resolution at $|k|=8$. O1
+  instead asserts the ladder against a `long double` separable closed form,
+  cross-validated against both existing oracles where they overlap.
+
+**Affects:**
+
+- **T9b** — now depends on T9d. Step 0 is unchanged. Its tier run carries
+  R12's walltime risk, which T9d step 3 measures first.
+- **T9c** — new; ready now (depends only on T9a).
+- **T9d** — new; blocked on T9c's verdict and on Canopy O1–O3.

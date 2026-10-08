@@ -43,8 +43,17 @@ member's basis and order (`canopy/tasks/tree-opt.md` C1,
 `canopy/tasks/tree-opt-progress-log.md` `## C1`). A 2.5e-4 excess over τ_A
 cannot come from a path that moves the field by 1e-14, so the level-4 peak of
 `1.2513e-3` is in substance a measurement of the expansion at order 3,
-`mac_theta` 0.3. T9a confirms it on the current configuration. τ_A must not be
-widened on this or any evidence.
+`mac_theta` 0.3. τ_A must not be widened on this or any evidence.
+
+**With no cap-driven refusal anywhere, claim A is still over τ_A, so the
+expansion has to change.** At order 3, `mac_theta` 0.3, the worst level-4
+relative error is `1.2536745760757648e-3` at HIP np1 and
+`1.2473681315787063e-3` at HIP np4. Both are at step 1375, with
+`fb_count_cap == 0` at every state (T9a). τ_A was set at `1e-3` from a single
+state five steps off the initial condition, where T5 measured `5.0e-4`. The
+roll-up is 2.5x worse. The response is to raise Beatnik's production `order`
+from 3 to 4 at the same `mac_theta` (T9c, T9d), which Canopy's oracle must
+first cover (`canopy/tasks/02_oracle_extension.md`).
 
 **The demand is unmeasurable at the current cap, and that is the first thing to
 fix.** The serial merge refuses a key once `ops.size()` reaches
@@ -58,7 +67,8 @@ many pairs share a key.
 So the cap cannot be sized. This document makes the demand observable, measures
 it on Beatnik's own level-4 geometry, raises the cap to cover that number, and
 then separates out the refusal path that routes pairs to the fallback where the
-cap is not reached at all.
+cap is not reached at all. With the cap ruled out, it raises the expansion order
+so that claim A meets τ_A at the roll-up.
 
 ### Why this does not need a 24-hour job
 
@@ -103,6 +113,12 @@ pass.
 - **Enabling tree balancing** (`FmmConfig::tree_balance_max_level_delta`). It
   raises range-guard refusals 1.6–3.5x on the only measured draw, which is why
   its default stays off (`canopy/tasks/tree-opt.md` A3).
+- **Lowering `mac_theta` as the first lever.** T9c measures it as the fallback
+  T9d may adopt only under the rule T9c states; see [Approach](#approach).
+- **Error-controlled acceptance in Canopy** (a per-interaction error estimate
+  or a per-level order) and **`FmmConfig::quantize_root_half_width`**. They are
+  the long-term answers to accuracy and rebuild cost under AMR roll-ups of
+  millions of points, and they are Canopy projects, not tasks here.
 - **Setting `run_milestone.flux`'s `-t` from a measurement.** It stays at
   `-t 1440m` until a tier run passes; re-timing from a failing run whose most
   expensive member does a different amount of work than the fixed version would
@@ -110,7 +126,7 @@ pass.
 
 ## Approach
 
-Four moves, in order, each cheap enough to verify before the next commits to
+Five moves, in order, each cheap enough to verify before the next commits to
 anything:
 
 1. **Make demand observable** (T1, T2). Count the distinct canonical keys the
@@ -133,6 +149,42 @@ anything:
    path that routes pairs to the fallback where the cap is not reached. That
    path is the range guard (T8b), and it stays: the end state is zero
    cap-driven refusal, not zero fallback.
+5. **Fix the expansion** (T9c, T9d). Measure the error against `order` and
+   `mac_theta` at the states where it exceeds τ_A, and at level 5. Then raise
+   the production `order` to 4, keep `mac_theta` at 0.3, and re-derive claim
+   B's tolerances at the new order for both levels.
+
+### Why the order, and not `mac_theta`
+
+**Raising `order` changes nothing about the tree.** The MAC, the interaction
+lists, the P2P near field, the liveness inequality, the operator-key demand and
+the range guard's refusals are all functions of `mac_theta`, `ncrit` and the
+geometry. `order` changes only the expansion length: $\binom{p+3}{3}$
+coefficients, 20 at $p=3$ and 35 at $p=4$, so `bytes_per_key` goes from 3200 to
+9800 and M2L work per pair rises about 3x. Every count T5–T9a measured carries
+over unchanged.
+
+**Lowering `mac_theta` gets worse as N grows.** On a 2-manifold the near field
+and the interaction lists both scale as $\theta^{-2}$, so going from 0.3 to 0.2
+multiplies P2P work, M2L work and key demand by about 2.25x. It also pushes more
+cross-depth pairs past the range guard into the per-pair fallback, which costs
+52–109x a table pair on HIP (`canopy/tasks/tree-opt-progress-log.md` `## C1`).
+That is the cost an AMR roll-up of millions of points pays. At level 4 it also
+moves the P2P fraction toward `kP2PFractionBound = 0.75`: T5 measured 0.566 at
+$\theta=0.2$ five steps in, and the fraction rises along the trajectory.
+
+**The error is set by the roll-up's geometry, not by N.** At fixed `order` and
+`mac_theta` the per-pair truncation is fixed by the MAC ratio, so the relative
+error is expected to be flat in N. That is reasoned and not measured; T9c
+measures it at level 5. The 2.5x between step 5 and step 1375 is geometry, and
+AMR concentrates points in exactly that regime, so the margin is sized at the
+worst roll-up state. At T5's state, order 4 bought 8.9x (`5.61e-5`) and
+$\theta=0.2$ bought 4.3x (`1.16e-4`) (`tasks/canopy/add-canopy.md` T5 Met).
+
+**Order 4 is gated upstream.** Canopy's derivative ladder at order $p$ reaches
+degree $|k|=2p$, and its independent oracle is validated only to $|k|=6$
+(`tasks/canopy/add-canopy.md` R11). Order 4 needs $|k|=8$, so
+`canopy/tasks/02_oracle_extension.md` must be **DONE** before T9d adopts it.
 
 ### The two facts that shape every decision here
 
@@ -305,6 +357,39 @@ under 32 768. Memory scales with the cap and rebuild time does not.
   smaller table." T7 made the count cap itself actionable and rewrote that
   paragraph around the measured figures; `max_depth` 10 (`:291`) stays, and the
   lever its own comment at `:272-291` names was considered and rejected in T8.
+- **`order` is a compile-time dispatch, and order 4 is already built.**
+  `FarFieldInterface` switches on `params.order` over CartesianTaylor 0, 2, 3,
+  4 and 5 (`src/Beatnik_FarFieldInterface.hpp:1024-1040`); SolidHarmonic is
+  built at 3 only (`:1047`). Changing the default needs no new instantiation.
+  Order 3 is the default, stated and reasoned at `src/Beatnik_Params.hpp:196-229`
+  and in README (`README.md:210`, `:314-328`). The callers that read the
+  *default* rather than setting `order` themselves:
+  `Beatnik_Test_Milestone0Fmm.cpp` (`kProductionOrder = 3` at `:345`, asserted
+  equal to `fmm.farField().params().order` at `:1421-1422`, and in τ_A's
+  qualification list at `:295`), and `Beatnik_Test_Milestone0Run.cpp`
+  (`argv[6]` defaults to `FmmParams::order`). `Beatnik_Test_FmmVsDirect.cpp`
+  sets `order` per arm (`:465-469`), and `Beatnik_Test_FmmScan.cpp` uses its
+  own `kBgOrder`, so a default change moves neither. No `regression`-tier
+  member uses the FMM.
+- **The FMM measurement drivers already cover what T9c and T9d need.**
+  `Beatnik_Test_FmmScan` (`argv[1]` level, `argv[2]` direct spin-up steps)
+  spins up one state on the milestone-0 dt controls (`:212-219`) and evaluates
+  an `order` axis (0, 2, 3, 4, 5), a `mac_theta` axis (0.2, 0.3, 0.4, 0.5, 0.7)
+  and others against `BRSolverDirect` on that same state (`:270-330`). Its
+  `grad_rel` is `grad_abs / max|u_direct|`, the member's claim-A quantity. It
+  runs at the `FmmParams` default count cap, 32768, and prints `ops` and
+  `op_cap` per arm. Its runner is `scripts/tuolumne/t5_fmm_scan.flux`.
+  `Beatnik_Test_Milestone0Run` (`argv[4]` `fmm`, `argv[5]` `ncrit`, `argv[6]`
+  `order`) writes FMM-driven 2000-step checkpoint series. Its runner is
+  `scripts/tuolumne/t5_divergence.flux`, which is how T5 measured claim B's
+  envelope and volume-drift bound (`tasks/canopy/add-canopy.md` T5 step 7).
+  Neither driver has a `mac_theta` argument.
+- **Claim B's tolerances are measurements at order 3.** `kHorizonEnvelope`
+  (`:485` level 3, `:591` level 4) and `kFmmVolumeDriftRtol = 5.0e-2`
+  (`:377`, from worst deviations `2.137678e-02` at level 4 and `1.540737e-02`
+  at level 3, `:364-366`) were derived from FMM-driven runs at order 3,
+  `mac_theta` 0.3, `ncrit` 8. A different order invalidates the derivation,
+  even if not the numbers.
 - The level-4 member runs `kNcrit = 8`
   (`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp:340`),
   `kProductionOrder = 3` (`:345`), `kVertices = 2562` (`:511`),
@@ -1560,9 +1645,144 @@ rank counts. Per Do step 6, T9b was not submitted and τ_A was not touched.
 
 ---
 
+### T9c — Measure the claim-A error against `order` and `mac_theta` at the worst states, and at level 5 — **NOT STARTED**
+
+**Depends on:** T9a **DONE**.
+**Fill in:** no source change. A new `scripts/tuolumne/t9c_fmm_scan.flux`,
+copied from `scripts/tuolumne/t5_fmm_scan.flux` (preamble, provenance echo and
+rank-to-GPU binding unchanged), running `Beatnik_Test_FmmScan_MPI_HIP` once per
+`(level, spin-up)` entry below; the progress log.
+**Reference:** `Beatnik_Test_FmmScan.cpp` (arguments `:91-97`, scan axes
+`:270-330`, `[t5arm]` line format `:106-110`); T9a's claim-A series in the log;
+the physical times of the level-4 states over τ_A, read from the gold set's
+filenames in `tests/regression_tests/milestone0-sub4-2000-steps/gold/`: step
+1000 at `t = 1.574929`, 1350 at `1.703397`, 1375 at `1.713585`, 1475 at
+`1.755355`.
+**Do:**
+1. Confirm the installed prefix has `Beatnik_Test_FmmScan_MPI_HIP`
+   (`beatnik_exe` resolves it). If any Beatnik or Canopy source has changed
+   since T9a's install, `spack install` the dev env first.
+2. Level 4, HIP np1, one launch per spin-up of 1000, 1350, 1375 and 1475 steps,
+   the four steps over τ_A at both rank counts in T9a; and spin-up 1375 at HIP
+   np4. Each launch prints `simulation time`. It must match the gold time above
+   to 1e-6, or the scan is not on the member's trajectory.
+3. **Cross-check before reading any arm.** At spin-up 1375 the background arm
+   (`order` 3, `ncrit` 8, θ 0.3) must reproduce T9a's
+   `1.2536745760757648e-3` (np1) and `1.2473681315787063e-3` (np4) within 1 %,
+   the size of the draw spread across T0's and T9a's six level-4 readings. A
+   larger gap means the scan is not measuring the member's state. Stop, and
+   record no verdict.
+4. Level 5, HIP np1. Level 5's `initial_min_edge` is about half level 4's and
+   the adaptive dt scales with it, so the same physical time takes about twice
+   the steps. Run at spin-up 2750, read the printed time, and if it is outside
+   `[1.703397, 1.755355]` rescale the step count once by the time ratio and run
+   again. Direct spin-up at level 5 costs about 16x level 4 per step, roughly
+   7 minutes at HIP np1, inside `pdebug`. Record the arms at that state.
+5. For every launch, record each arm of the `order` axis (0, 2, 3, 4, 5) and
+   the `theta` axis (0.2, 0.3, 0.4, 0.5, 0.7): `grad_rel` at 17 digits,
+   `p2p_frac`, `ops` and `op_cap`. An arm with `ops == op_cap` is cap-saturated.
+   Flag it, and still read its error, because a refused pair evaluates the same
+   mathematics to 3.27e-15 (`canopy/tasks/tree-opt-progress-log.md` `## C1`).
+6. Record the N-scaling point: the background arm's `grad_rel` at level 5
+   divided by level 4's at spin-up 1375.
+7. **Apply the decision rule and record the verdict:**
+   - **order 4** if the `order` 4, θ 0.3 arm's `grad_rel` is at most
+     `kTauA / 2 = 5.0e-4` at every level-4 state **and** at the level-5 state;
+   - else **θ** if, at `order` 3, the largest scanned θ below 0.3 has
+     `grad_rel <= 5.0e-4` and `p2p_frac < kP2PFractionBound = 0.75` at every
+     one of those states;
+   - else **neither**: R9 stands with both levers measured.
+
+   The 2x margin is set at the worst measured state, because T5's 2.0x margin
+   at a single early state did not cover the trajectory.
+**Exit criterion:** the log carries, for the five level-4 launches and the
+level-5 launch, the printed simulation time, every `order`- and `theta`-axis
+arm's `grad_rel` at 17 digits with `p2p_frac` and `ops`/`op_cap`, the step-3
+cross-check within 1 %, the level-5/level-4 ratio, and exactly one verdict
+under step 7's rule. In the failure direction: a cross-check outside 1 % or a
+level-5 time outside the window means the corresponding figure is not reported
+as a measurement of the member's state, and no verdict is given.
+
+### T9d — Make `order` 4 Beatnik's production default, and re-derive claim B at order 4 — **NOT STARTED**
+
+**Depends on:** T9c **DONE** with verdict **order 4**; every task in
+`canopy/tasks/02_oracle_extension.md` (O1, O2, O3) **DONE**, on a Canopy commit
+the clone is moved to before this task's `spack install`.
+**Fill in:**
+- `src/Beatnik_Params.hpp`: `order = 4` (`:229`), with its doc comment
+  (`:196-228`) rewritten around T9c's worst-state measurement and Canopy's
+  validation. The `mac_theta` comment (`:177-193`) already says 0.5 "would need
+  order 4"; check that it still reads true.
+- `README.md`: the order default at `:210` and `:314-328`, the production-order
+  statement and curve at `:425-442`, the byte-budget row at `:350` (3200 →
+  9800 B per column), and the validated parameter set.
+- `tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp`:
+  `kProductionOrder = 4` (`:345`); τ_A's qualification list and "Where the value
+  comes from" (`:295`, `:301-316`) rewritten to cite T9c, with `kTauA` itself
+  unchanged; `kHorizonEnvelope` in both arms (`:485`, `:591`); and
+  `kFmmVolumeDriftRtol` (`:377`) with its derivation comment (`:351-376`), set
+  from this task's runs.
+- `CLAUDE.md:106` and `docs/testing.md:31`, which say the FMM members run at
+  `order = 3`.
+- a new `scripts/tuolumne/t9d_divergence.flux`, copied from
+  `scripts/tuolumne/t5_divergence.flux`, driving `Beatnik_Test_Milestone0Run`
+  at `argv[4] = fmm`, `argv[5] = 8`, `argv[6] = 4`; and the progress log.
+
+**Reference:** `tasks/canopy/add-canopy.md` T5 step 7, the procedure that
+produced claim B's current envelope and drift bound; R8 there: more than one
+FMM-driven run, the envelope from the earliest observed horizon.
+**Do:**
+1. Move the Canopy clone to the commit carrying O1–O3 and record it.
+   `spack install` the dev env, with `HIPCC_*_FLAGS_APPEND` cleared, and edit
+   nothing while it runs.
+2. Change the default and its documentation (Params, README, `CLAUDE.md`,
+   `docs/testing.md`). No other caller reads the default; see [Current
+   state](#current-state).
+3. **Budget before sweeping.** Run `t9d_divergence.flux` at a reduced step
+   count at level 4 HIP np1 to measure the order-4 FMM-driven per-step cost.
+   Claim B at order 3 is 1.14042 s/step there (T9a). Project each 2000-step
+   run, and the whole milestone tier, from that measurement; see R12. A run
+   that does not fit `pdebug` goes to `pbatch` at a `-t` set from the
+   projection, and the log says so.
+4. Run 2000-step FMM-driven trajectories at order 4: at level 4, two at HIP np4
+   (which vary the partition) and one at HIP np1; at level 3, two at HIP np1.
+   Measure each against its level's gold set through `fmm_divergence_ladder.py`
+   and `milestone0_ladder.py`, as T5 step 7 did, and record per-rung horizons
+   and the worst volume-drift deviation from `kRefVolumeDrift`.
+5. Set `kHorizonEnvelope` per level from the earliest observed horizon per rung.
+   Set `kFmmVolumeDriftRtol` as the smallest one-significant-digit value giving
+   at least 2x margin over the worst deviation at both levels, the margin T6
+   took. Write the runs and jobs into each comment. `kTauA`, claim A's gold rung
+   and `kVolumeDriftRtol` do not move.
+6. Set `kProductionOrder = 4` and rewrite τ_A's provenance.
+7. Check the table size: at 9800 B per column, the level-4 cap of 65536 is
+   642 MB per rank and level 3's 32768 is 321 MB, both under the 2 GiB budget,
+   so the count cap still binds. Read `bytes_per_key=9800` and
+   `fb_count_cap=0` off the `[Canopy Diagnostics]` lines in step 8's logs.
+8. `spack install` again, and edit nothing while it runs. Then run
+   `t6_l3_member.flux HIP`, and `t9a_l4_member.flux` at np1 and at np4.
+9. Confirm the gate is untouched: no source in `BEATNIK_REGRESSION_TEST_SOURCES`
+   (`tests/CMakeLists.txt:256-266`) selects the FMM. Grep for
+   `BRApproximation::Fmm` and record the empty result. The gate stays five
+   members and 60 launches, and is not re-run.
+
+**Exit criterion:** `FmmParams{}.order == 4`. The level-3 member reports
+`[PASS] Beatnik_Test_Milestone0Fmm` at HIP np1 and np4. The level-4 member at
+HIP np1 and np4 has **zero** failed checks at `:1505`, `:1506` and the
+`kProductionOrder` check, and every failed check is at `:1500` or `:1967`,
+which T9b step 0 replaces. Its worst claim-A error is recorded at 17 digits
+with step and P2P fraction, under `kTauA`, at both rank counts. The log carries
+the order-4 per-step cost and the projected tier total. In the failure
+direction: a claim-A state over τ_A at order 4 is R10. Stop and record it; do
+not widen τ_A. A level-3 horizon failure means step 5's envelope was set from
+too few runs.
+
+---
+
 ### T9b — Re-run the milestone tier; close T6 — **NOT STARTED**
 
-**Depends on:** T9a **DONE** and its measured error under `kTauA`.
+**Depends on:** T9d **DONE**, with the level-4 member's claim-A error under
+`kTauA` at order 4.
 **Fill in:** `tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp` (the
 purity checks at `:1500` and `:1967`, claim B's `p.fmm` near `:1029`, and the
 `makeFmmParams` comment at `:1062-1064`);
@@ -1674,12 +1894,40 @@ retire the whole question with a wrong answer. The sentinel is fixed by
 convention above; T2's and T3's failure-direction exit criteria both check that
 a `~profiling` build reports `-1` and says so loudly.
 
-**R9 — τ_A fails on the expansion at level 4.** Likely: the peak is 1.25x
-over, and the fallback cannot account for it, since the fallback and table paths
-agree to 3.3e-15 (Canopy C1). It presents identically to the original failure —
-a τ_A exceedance at level 4 — which is why T9a runs at `pdebug` scale before
-the `pbatch` tier run, and why its step 6 forbids proceeding. The
-distinguishing measurement is `fb_count_cap == 0` at every state: with no
-cap-driven refusal the configuration is the post-T8 one, the error is about the
-expansion, and the response is a task at `order` or `mac_theta`, never a wider
-τ_A.
+**R9 — τ_A fails on the expansion at level 4.** Confirmed by T9a: with
+`fb_count_cap == 0` at every state, the worst level-4 claim-A error is
+`1.2537e-3` (np1) and `1.2474e-3` (np4) at step 1375. The fallback cannot
+account for it, since the fallback and table paths agree to 3.3e-15 (Canopy
+C1). **Response:** T9c measures `order` and `mac_theta` at the states over the
+bound, and T9d raises the production `order`. Never a wider τ_A.
+
+**R10 — Order 4 does not clear τ_A at the roll-up.** Unlikely: order 4 bought
+8.9x at T5's early state, and 1.25x is needed. **Presents as:** T9c's `order` 4
+arm above `5.0e-4` at a level-4 state, or a T9d claim-A state over τ_A.
+Without Canopy's oracle at $|k|=8$, a recurrence defect at degrees 7–8 and a
+genuine truncation plateau at the roll-up look identical. That is why
+`canopy/tasks/02_oracle_extension.md` gates T9d. **Distinguishing
+measurement:** O1's ladder deviation at degrees 7 and 8. If O1 passes and the
+gain is still small, the cause is geometry. T9c's rule then selects θ, and
+T9d's text no longer describes the work and must be rewritten before it
+starts.
+
+**R11 — The error grows with N at fixed `order` and `mac_theta`.** The design
+assumes it is flat in N, set by the MAC ratio and the roll-up geometry. That is
+reasoned, not measured. **Presents as:** T9c's level-5/level-4 ratio well above
+1 at matched physical time. A production default sized at level 4 would then
+not be sized for AMR. The T9c rule already demands margin at level 5, so this
+risk fails T9c's verdict rather than passing silently. Record the ratio either
+way.
+
+**R12 — Order 4's cost breaks the milestone tier's walltime.** Claim B is 76–98
+% of every FMM launch, and at level 4 the downward sweep (M2L) is about 89 % of
+an evaluation; order 4 makes each M2L about 3x dearer. T6's tier ran 31 266 s
+at order 3 against `pbatch`'s 86 400 s ceiling (`-t 1440m`). A uniform 2.5x on
+the FMM members' 28 832 s would take the tier to roughly 75 000 s, near the
+ceiling, and SERIAL np4's level-4 claim B (8 059 s at order 3) is the largest
+single term. **Presents as:** a T9b tier killed by walltime, which costs a
+day. **Distinguishing measurement:** T9d step 3's measured per-step cost and
+projected tier total. If the projection exceeds about 80 % of 1440 minutes,
+T9b is not submitted until the tier is split or re-timed, and that becomes a
+new task.
