@@ -2749,3 +2749,349 @@ lists.**
   bound, no key encoding and no existing signature; every number those entries
   record still stands, and the `OFF`/`ON` fallback identity at 21 of 21 pairs
   is fresh evidence that the instrumentation added since T1 is still read-only.
+
+## T9a
+
+**Outcome: claim A at level 4 is OVER τ_A with no cap-driven refusal
+anywhere, so T9b is blocked by R9.** The worst relative error is
+`1.2536745760757648e-3` at HIP np1 and `1.2473681315787063e-3` at HIP np4, both
+at step 1375, against `kTauA = 1.0e-3`. The probe and the member both show
+`fb_count_cap == 0` at every state. No source file changed. The repo diff is one
+new untracked runner, `scripts/tuolumne/t9a_l4_member.flux`, plus the two task
+documents. One `spack install` and three `pdebug` jobs. **Do step 6 applies: T9b
+was not submitted, and τ_A was not touched.**
+
+### Decisions taken as given by the task, recorded so they are not reopened
+
+- **Measured with range-guard fallback present.** Zero fallback at level 4 is
+  unreachable (T8b: the range guard carries 100 % of it, against `static
+  constexpr` bounds with no configuration route), and Canopy declined to widen
+  or re-encode the key bounds. **"Pure path" here means `fb_count_cap == 0` at
+  every state, at cap 65536.** This is legitimate because the fallback and table
+  paths agree to 3.27e-15 of the field on this basis and order (Canopy
+  `tree-opt-progress-log.md` `## C1`): a path that moves the field by 1e-14
+  cannot produce a 2.5e-4 excess.
+- **T9a changes no source.** **It is decided that T9b step 0, not T9a**,
+  replaces the member's `p.m2l_fallback == 0` (`:1500`) and
+  `diag.global_m2l_fallback_pair_count == 0LL` (`:1967`) with an ungated
+  no-cap-refusal check (`local_m2l_unique_op_count < local_m2l_op_cap` on every
+  rank). It is also decided that T9b gives claim B's `p.fmm` the per-level
+  `kM2LOpCountCap`, which settles the claim-A/claim-B cap divergence T8 left
+  open in favour of one configuration. The member was not touched.
+- **If the error exceeds `kTauA`, stop at Do step 6.** It does, and T9a stopped
+  there. No T9b submission, no wider τ_A, no shorter run, no other cap, no
+  SERIAL substitute.
+- `M2L_KEY_DD_MAX`, `M2L_KEY_OFFSET_MAX`, `kTauA`, `kM2LOpCountCap`, the gate,
+  `run_milestone.flux` and the `milestone` tier's membership are untouched.
+  **clang-format was not run.** Nothing was pulled, committed or switched in
+  `../canopy`.
+
+### Provenance and build (Do step 1)
+
+- **Canopy:** branch `investigate-m2l-cap`, commit
+  `38658adbebbd764332d99c277093cf493990c761`, clean tracked tree (the job
+  header's `canopy dirty = 0`), built by spack as `canopy@develop+profiling`
+  hash `w4woraj`.
+- **Beatnik:** commit `7b27cb0e84ebe180919e46e2ae8ecb2d7afdd436`. The job
+  header's `dirty = 3` is `.claude/settings.json` plus the two untracked runners
+  (`t8b_fallback_reasons.flux`, `t9a_l4_member.flux`), none of them compiled.
+  `beatnik@develop+canopy+examples+profiling+rocm+testing` hash `nnbspfy`.
+  Compiler: Cray clang 20.0.0 (`%cce` in `spack.yaml`).
+- **`spack install` rc 0, 659.55 s real** (canopy 30 s, beatnik 10 m 28 s),
+  with `HIPCC_LINK_FLAGS_APPEND` and `HIPCC_COMPILE_FLAGS_APPEND` cleared first.
+  No `spack concretize -f` was needed, and **no file in the tree was edited
+  while it ran**: the runner was written before the install started. Both spack
+  hashes are unchanged from T8/T8b, as they are for `spack develop` specs.
+- **The prefix is untrimmed again.** `share/Beatnik/tests` holds 45 binaries.
+  `beatnik_milestone_manifest.txt` names all four milestone members on SERIAL,
+  OPENMP and HIP, including `Beatnik_Test_Milestone0FmmL4_MPI_HIP`, and
+  `beatnik_gate_manifest.txt` is populated again. T8b's three-probe prefix is
+  gone.
+- **The ParMETIS partitioner compiled cleanly on the first attempt.** The L4
+  member links `libparmetis.so` (parmetis 4.0.3, `rq7ply5`) and `libmetis.so`
+  (metis 5.1.0), and it references `ParMETIS_V3_PartKway` and
+  `ParMETIS_V3_AdaptiveRepart` as undefined symbols. So the partitioner really
+  is compiled into the binary, not merely present in the view.
+
+### Measured: job `f3cx8dG3H7MZ` — the probe at cap 65536 (Do step 2)
+
+`scripts/tuolumne/t8b_fallback_reasons.flux`, unchanged, `-q pdebug -t 15m`.
+`flux job status` rc 0, `SUMMARY: PASS (2/2 launches)`, 126 s of launch wall
+(np1 57 s, np4 69 s). `canopy@develop+profiling` is in the header, and both
+`[t6probe] header` lines read `op_count_cap=65536 op_cap=65536
+demand_available=1 fallback_breakdown_available=1`. All five rank reports read
+`[PASS] Beatnik_Probe_FmmKeyDemand (337/337 checks)`.
+
+**`fb_count_cap == 0` in 405 of 405 rows, and the identity
+`fb_range_guard + fb_count_cap == global_m2l_fallback` holds in 405 of 405.**
+That was re-derived from the logged rows, not taken from the trailers: 81
+distinct steps per rank, `fb_dropped = 0`, `demand_saturated = 0` and
+`unique_ops == demand` in every row, and `op_cap = 65536` throughout.
+
+| figure | T8b (`f3bbMmxgc4ZD`, `fd89815`) | **T9a (`f3cx8dG3H7MZ`, `38658ad`)** |
+| --- | --- | --- |
+| np1 `fb_total` = `fb_range_guard_total` | 215 302 | **215 916** (+0.29 %) |
+| np4 `fb_total` = `fb_range_guard_total` | 215 742 | **215 452** (−0.13 %) |
+| `fb_count_cap_total`, both | 0 | **0** |
+| non-zero states, both | 71 | **71** |
+| zero-fallback steps, both | 0 – 225 | **0 – 225**, at `occupied_depths` 5–6 |
+| first fallback step, both | 250 | **250** |
+| fallback peak | 6 884 @1550 (np1), 6 832 @1550 (np4) | **6 832 @1550, both** |
+| np1 peak demand | 37 490 @1650 (T8, cap 65536) | **27 524 @1650** (−26.6 %) |
+| np1 step-0 demand | 10 902 | **7 498** (−31.2 %) |
+| np4 per-rank peak demand | 15 857 – 17 253 (T8) | **15 236 – 15 849** |
+| `keys_built_delta == unique_ops` | all rows | **405 of 405** (R4's signature persists) |
+| np1 Σ eval wall, 81 states | 34.416 s (T8, cap 65536) | **27.727 s** (−19 %) |
+| np4 Σ eval wall, rank 0 | 20.270 s (T8) | **19.913 s** |
+| `global_p2p_frac` | 0.2058 – 0.3976 | **0.2065 – 0.3976** |
+
+This is a new draw on a changed Canopy, not a reproduction, and no difference
+above is a regression. **Two readings matter.** First, **the range guard's
+fallback is untouched by B1, H2 and F4**: the totals move by less than T5's
+own draw spread, and the state set, onset and peak step are identical. Second,
+**B1 (dropping `dd` from the canonical key) cut np1 demand by about 27–31 %, so
+level-4 demand is now under even the old 32 768 cap at every state at both rank
+counts.** `kM2LOpCountCap = 65536` is therefore pure headroom on this Canopy
+and changes nothing at claim A. That is not a reason to change it: the task
+forbids it, and a cap sized below the T8 draw would be reasoning from one draw.
+
+### Measured: jobs `f3cx8dQGf86b` (np1) and `f3cx8dYQ7BiF` (np4) — the member (Do steps 3–4)
+
+`scripts/tuolumne/t9a_l4_member.flux`, a copy of `t6_l3_member.flux`'s preamble,
+manifest scan, provenance block and exact rank-to-GPU binding, cut down to one
+target (`Beatnik_Test_Milestone0FmmL4_MPI_HIP`) and one rank count per
+submission. Scratch is per job under `/p/lustre5/stewartj/beatnik/t9a_l4_member/job<jobid>/`.
+Submitted as `flux batch scripts/tuolumne/t9a_l4_member.flux 1` (the script's
+`-t 55m`) and `flux batch -t 40m scripts/tuolumne/t9a_l4_member.flux 4`.
+
+| job | launch | `flux job status` | launch wall | job runtime | checks | claim A | claim B |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `f3cx8dQGf86b` | HIP np1 | rc 1 (by construction) | **2 407 s** | 40.62 min of 55 | `3015/3097` | 83.744 s | **2 280.841 s** |
+| `f3cx8dYQ7BiF` | HIP np4 | rc 1 (by construction) | **1 801 s** | 30.44 min of 40 | `3017/3097` rank 0, `2839/2919` ranks 1–3 | 97.244 s | **1 655.515 s** |
+
+**Every failed check is one of the three permitted sites, and the arithmetic
+closes exactly.** This was read from the `at:` lines of each rank's report:
+
+| site | expression | np1 | np4, each of 4 ranks |
+| --- | --- | --- | --- |
+| `:1500` | `p.m2l_fallback == 0` | 71 | 71 |
+| `:1505` | `p.max_abs <= kTauA * p.scale` | 5 | 4 |
+| `:1506` | `p.rel <= kTauA` | 5 | 4 |
+| `:1967` | `diag.global_m2l_fallback_pair_count == 0LL` | 1 | 1 |
+| **total** | | **82 = 3097 − 3015** | **80 = 3097 − 3017 = 2919 − 2839** |
+
+There is no other failed check, no walltime kill (both jobs ended well inside
+their limits), and all **81** claim-A states are present at both rank counts.
+Step 0 is the expected absolute-form zero-field state. Claim B reached step 2000
+at both rank counts.
+
+**Claim A is uncontaminated by the cap, observed inside the member itself**
+and not only in the probe. Every claim-A `[Canopy Diagnostics] M2L operator
+table` line reads `fb_count_cap=0` at `effective_cap=65536`: 81 of 81 at np1,
+324 of 324 rank-evaluations at np4. The highest np1 `n_unique_ops` is 27 442.
+Neither log carries a single `M2L op count exceeded cap` warning, or a
+`TreeBuilder::build … max_depth` warning.
+
+**THE NUMBER (Do step 4):**
+
+| launch | worst relative error (17 digits) | step | realized P2P fraction there | fallback there (range guard only) | under `kTauA`? | states over τ_A |
+| --- | --- | --- | --- | --- | --- | --- |
+| HIP np1 | **`1.2536745760757648e-3`** | **1375** | `0.337366` | 5 300 | **NO — 1.254x** | 1000, 1325, 1350, 1375, 1475 |
+| HIP np4 | **`1.2473681315787063e-3`** | **1375** | `0.339265` | 5 322 | **NO — 1.247x** | 1000, 1350, 1375, 1475 |
+
+Realized P2P fraction over the 81 states: `0.206591 .. 0.395938` (np1) and
+`0.204972 .. 0.394346` (np4), far under `kP2PFractionBound = 0.75`, so the far
+field is live and this is a far-field bound.
+
+**Against T0's cap-contaminated figures this is R9 confirmed, not a new
+problem.** T0's HIP peaks were `1.2498660607555461e-3` (np1, with 13 420
+fallback pairs at step 1375) and `1.2435185167586275e-3` (np4, 5 392), both at
+step 1375. Removing about 8 100 cap-refused pairs at np1's worst state moved
+its error by **+0.30 %**, and np4, which was never capped, moved by **+0.31 %**.
+Both moves are inside the draw-to-draw spread T6 recorded across backends. The
+error does not care about the cap, the fallback count or the rank count. **It is
+the expansion at order 3, `mac_theta` 0.3, at level 4.** The states over τ_A
+are the same cluster as T0's (1000, 1325–1375, 1475). np4 lost T0's 975 and
+1325, which now sit at `0.99541e-3` and `0.99423e-3`, just under the bound, so
+they are draw noise at the threshold and not an improvement.
+
+The full series, at 17 digits. The member's own columns come from the two jobs
+above. The last two columns are the probe job's demand at the same step, from a
+separate run of the same direct trajectory, given for reading demand beside
+error. **Bold** marks a state over τ_A.
+
+| step | rel err np1 | p2p np1 | fb np1 | rel err np4 | p2p np4 | fb np4 | probe demand np1 | probe max-rank demand np4 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 0 | abs 0 | 0.253650 | 0 | abs 0 | 0.253650 | 0 | 7498 | 6440 |
+| 25 | 0.00050620703991922998 | 0.251815 | 0 | 0.00050622167073708399 | 0.251813 | 0 | 7498 | 6452 |
+| 50 | 0.00050712857045995274 | 0.250275 | 0 | 0.00050705035287530959 | 0.250273 | 0 | 7498 | 6452 |
+| 75 | 0.00051608299297409939 | 0.259167 | 0 | 0.00051598856681835754 | 0.259164 | 0 | 7498 | 6421 |
+| 100 | 0.00051761647746966974 | 0.253529 | 0 | 0.00051580564145066964 | 0.252150 | 0 | 7498 | 6410 |
+| 125 | 0.00052803701210094468 | 0.253937 | 0 | 0.00052801037546954606 | 0.253936 | 0 | 7498 | 6427 |
+| 150 | 0.00060703183983972561 | 0.253666 | 0 | 0.00060857631911570532 | 0.253661 | 0 | 7498 | 6491 |
+| 175 | 0.00050310990026321929 | 0.249264 | 0 | 0.00050605767221846207 | 0.247840 | 0 | 8592 | 6667 |
+| 200 | 0.00054752649168044885 | 0.251457 | 0 | 0.00054753902166025279 | 0.252172 | 0 | 8616 | 6638 |
+| 225 | 0.00059244744983016917 | 0.240747 | 0 | 0.00059409339485196738 | 0.240756 | 0 | 10968 | 7660 |
+| 250 | 0.0006816680287945572 | 0.243984 | 40 | 0.00067566517071425446 | 0.245029 | 60 | 13392 | 8388 |
+| 275 | 0.00053171158805793625 | 0.256932 | 188 | 0.00053840803565031428 | 0.253257 | 102 | 13450 | 8131 |
+| 300 | 0.00059730292352604857 | 0.242565 | 1500 | 0.00051445719649149404 | 0.244424 | 1524 | 16152 | 9991 |
+| 325 | 0.00060744394290307771 | 0.228243 | 1848 | 0.00060632036814489709 | 0.227055 | 1848 | 17154 | 10081 |
+| 350 | 0.00076182867384010371 | 0.209127 | 944 | 0.00075527910741030122 | 0.210660 | 928 | 15278 | 9690 |
+| 375 | 0.00079367862839195807 | 0.206591 | 1920 | 0.00081341087570382866 | 0.204972 | 1952 | 15578 | 9715 |
+| 400 | 0.00052822076633929609 | 0.211227 | 976 | 0.00052716730508107872 | 0.210344 | 976 | 15786 | 10204 |
+| 425 | 0.00046041159792434511 | 0.242440 | 364 | 0.00045578379759946762 | 0.240413 | 364 | 14704 | 9338 |
+| 450 | 0.00058560778125087511 | 0.221349 | 584 | 0.00058631864463656337 | 0.219421 | 624 | 15196 | 9862 |
+| 475 | 0.00062189821576369138 | 0.233585 | 666 | 0.00062418069070457524 | 0.233618 | 666 | 16542 | 10419 |
+| 500 | 0.00063182494542524592 | 0.270415 | 1096 | 0.00063189536894304977 | 0.270417 | 1096 | 18698 | 11601 |
+| 525 | 0.00064862166593899844 | 0.242717 | 1164 | 0.00064035808702505453 | 0.240616 | 1164 | 18700 | 11891 |
+| 550 | 0.00088729595923820457 | 0.272923 | 1336 | 0.000882188715832547 | 0.269725 | 1288 | 19726 | 12160 |
+| 575 | 0.00080247758015747784 | 0.305435 | 1184 | 0.00079889265532778211 | 0.305090 | 1184 | 19552 | 11916 |
+| 600 | 0.00081953035514326089 | 0.317958 | 1108 | 0.00081512374539024091 | 0.314944 | 1108 | 19278 | 11689 |
+| 625 | 0.00068099018035409735 | 0.321339 | 1096 | 0.00067306819699596411 | 0.321196 | 1032 | 19278 | 11501 |
+| 650 | 0.0006579193193448923 | 0.340426 | 896 | 0.00066380981496867784 | 0.341983 | 844 | 19176 | 11647 |
+| 675 | 0.00069560445549914118 | 0.319795 | 1194 | 0.00069166908688541966 | 0.321343 | 1138 | 19866 | 12263 |
+| 700 | 0.00076051933909077442 | 0.333884 | 1062 | 0.00076286056409094092 | 0.326379 | 1164 | 21334 | 12058 |
+| 725 | 0.00069748194427991957 | 0.374382 | 778 | 0.00076070116198634688 | 0.369206 | 894 | 19704 | 11453 |
+| 750 | 0.00082228376372573764 | 0.362412 | 1036 | 0.00082228655931738189 | 0.361360 | 1036 | 20104 | 11907 |
+| 775 | 0.00085071004045985071 | 0.368752 | 886 | 0.00085357079695933165 | 0.364427 | 1076 | 21242 | 12082 |
+| 800 | 0.00070172952561219093 | 0.365213 | 1568 | 0.00084560276011594467 | 0.362772 | 1630 | 22762 | 12153 |
+| 825 | 0.00070973813565119721 | 0.375939 | 1264 | 0.00071907906385953503 | 0.373152 | 1352 | 21952 | 12014 |
+| 850 | 0.00070460728429081626 | 0.361533 | 2092 | 0.00070077152552141782 | 0.363790 | 2034 | 24738 | 13176 |
+| 875 | 0.00051311137281777829 | 0.370289 | 1948 | 0.00050277732043014904 | 0.371728 | 1948 | 23468 | 13307 |
+| 900 | 0.0006568686626153439 | 0.349761 | 2488 | 0.00065687342741688507 | 0.352477 | 2488 | 26004 | 14210 |
+| 925 | 0.0007502450323235789 | 0.383465 | 2300 | 0.00075036645970683762 | 0.383467 | 2300 | 24594 | 13604 |
+| 950 | 0.00086635151398883783 | 0.384179 | 1768 | 0.00086646539931751218 | 0.384183 | 1768 | 23144 | 12693 |
+| 975 | 0.00099532426634342183 | 0.379419 | 1996 | 0.000995414102693737 | 0.379420 | 1996 | 23840 | 13430 |
+| 1000 | **0.0011043416067933777** | 0.378264 | 2984 | **0.0011044173117072187** | 0.379081 | 2968 | 25684 | 14311 |
+| 1025 | 0.00082686734820465696 | 0.380671 | 2724 | 0.00083894365108364965 | 0.381519 | 2708 | 25288 | 14276 |
+| 1050 | 0.00064970324979021516 | 0.377266 | 3472 | 0.00064629639130548355 | 0.378092 | 3464 | 25460 | 14016 |
+| 1075 | 0.00059641002273898237 | 0.384747 | 3990 | 0.0005970726311074349 | 0.383461 | 4018 | 25800 | 14707 |
+| 1100 | 0.00057175628768695529 | 0.366460 | 3088 | 0.00057399833858845484 | 0.368823 | 3132 | 24498 | 15013 |
+| 1125 | 0.00061646766002918213 | 0.374438 | 2522 | 0.00067935636043834984 | 0.374448 | 2524 | 23780 | 14027 |
+| 1150 | 0.00051138294971806006 | 0.383397 | 3756 | 0.0005134090395185122 | 0.383391 | 3756 | 24996 | 14396 |
+| 1175 | 0.00057008577458576317 | 0.357153 | 4170 | 0.00057773926094840283 | 0.358678 | 4212 | 26502 | 15078 |
+| 1200 | 0.00064662073916902534 | 0.350712 | 3336 | 0.00064277546518608708 | 0.350717 | 3336 | 25372 | 14937 |
+| 1225 | 0.0006973623334212112 | 0.354394 | 4286 | 0.00070301516847755133 | 0.351102 | 4286 | 26524 | 15849 |
+| 1250 | 0.00080446888734816307 | 0.369886 | 4686 | 0.00080950932615563834 | 0.365954 | 4752 | 26342 | 15322 |
+| 1275 | 0.00079510989323486271 | 0.364882 | 3920 | 0.00083309828600267087 | 0.359735 | 3920 | 25982 | 14151 |
+| 1300 | 0.00088766264386180025 | 0.363968 | 4252 | 0.00089327716799467887 | 0.363969 | 4252 | 25378 | 14411 |
+| 1325 | **0.0010000267052106752** | 0.356534 | 5188 | 0.00099423334128271755 | 0.356531 | 5188 | 26784 | 14170 |
+| 1350 | **0.0011113714923661608** | 0.350360 | 5096 | **0.0011059196755711148** | 0.350364 | 5096 | 26730 | 14167 |
+| 1375 | **0.0012536745760757648** | 0.337366 | 5300 | **0.0012473681315787063** | 0.339265 | 5322 | 26678 | 14360 |
+| 1400 | 0.00078568848979877791 | 0.330998 | 4980 | 0.00078136254104771994 | 0.332897 | 5016 | 26128 | 14704 |
+| 1425 | 0.00085529899064178821 | 0.355205 | 5166 | 0.00084988367659121161 | 0.357122 | 5198 | 26214 | 14560 |
+| 1450 | 0.00096007864867822339 | 0.354811 | 4686 | 0.00097256687597945565 | 0.349603 | 4610 | 26068 | 14453 |
+| 1475 | **0.0010684080966466428** | 0.371140 | 5454 | **0.0010727207017683187** | 0.365788 | 5408 | 25602 | 13723 |
+| 1500 | 0.00061077923598164253 | 0.378104 | 6080 | 0.00061079711721091323 | 0.378107 | 6080 | 25754 | 14156 |
+| 1525 | 0.00067628095677231938 | 0.388205 | 6118 | 0.00067378732416734023 | 0.386737 | 6078 | 25878 | 14315 |
+| 1550 | 0.0007271680613743927 | 0.391485 | 6796 | 0.00072656733841460971 | 0.389984 | 6760 | 26398 | 14645 |
+| 1575 | 0.00077144240412796081 | 0.395938 | 2944 | 0.00077071972813769034 | 0.394346 | 2928 | 22758 | 13952 |
+| 1600 | 0.00087843311093831482 | 0.379118 | 3626 | 0.00088314445250909322 | 0.374627 | 3596 | 23336 | 13572 |
+| 1625 | 0.00081269452723718401 | 0.370699 | 4474 | 0.00081265395918710798 | 0.369160 | 4436 | 24624 | 14217 |
+| 1650 | 0.00081925475605894977 | 0.361295 | 6224 | 0.00081718193932195718 | 0.356917 | 6174 | 27524 | 15232 |
+| 1675 | 0.00073365943089489345 | 0.358229 | 5322 | 0.00072285718595719293 | 0.359865 | 5284 | 24868 | 12957 |
+| 1700 | 0.00065990152515996571 | 0.360269 | 4974 | 0.00065849903234380938 | 0.360199 | 4974 | 24542 | 13070 |
+| 1725 | 0.00059003301502224344 | 0.379948 | 1976 | 0.00059938132666245746 | 0.382355 | 1880 | 20852 | 12083 |
+| 1750 | 0.00054244049151205061 | 0.384329 | 1716 | 0.00053649142575119488 | 0.387577 | 1698 | 20338 | 12080 |
+| 1775 | 0.00063531321242159473 | 0.357770 | 2956 | 0.0006265546389034245 | 0.358968 | 2998 | 22050 | 13323 |
+| 1800 | 0.00069772167128899477 | 0.352056 | 4898 | 0.0007042762431613154 | 0.351475 | 4918 | 24034 | 13810 |
+| 1825 | 0.00075658626047409494 | 0.354811 | 6268 | 0.00075668629493838015 | 0.354798 | 6278 | 24594 | 14352 |
+| 1850 | 0.00055240175087056017 | 0.349219 | 5584 | 0.00055053362904098789 | 0.349232 | 5584 | 24690 | 14717 |
+| 1875 | 0.00054855811182089314 | 0.355755 | 5474 | 0.00054582977374414369 | 0.352022 | 5478 | 25958 | 15563 |
+| 1900 | 0.00055887701769082943 | 0.360190 | 4764 | 0.00056486967600010611 | 0.356721 | 4750 | 25464 | 15087 |
+| 1925 | 0.00051905453986560526 | 0.370030 | 4514 | 0.0005182523440791446 | 0.369051 | 4520 | 25026 | 14609 |
+| 1950 | 0.00052673514279863974 | 0.345076 | 4240 | 0.00052728421101955929 | 0.345137 | 4240 | 25050 | 15581 |
+| 1975 | 0.00051512481257336108 | 0.365239 | 3214 | 0.00051510205196127114 | 0.363154 | 3376 | 24410 | 14839 |
+| 2000 | 0.00053819480515690759 | 0.362244 | 2966 | 0.00053998581209270177 | 0.360395 | 2522 | 23336 | 14295 |
+
+### Claim B's post-T8 cost (Do step 4)
+
+This is the first claim-B run since T8, still at the `FmmParams` default cap
+32 768 for its trajectory. Its final-state probe goes through `makeFmmParams`
+and so runs at 65536, which is the second `effective_cap` value its diagnostics
+show.
+
+| launch | claim B, T6 tier (`fd89815`-era, cap 32768) | **claim B, T9a** | change | claim B max per-rank demand (all evaluations) | cap refusals |
+| --- | --- | --- | --- | --- | --- |
+| HIP np1 | 2 365.838 s | **2 280.841 s** (1.14042 s/step) | −3.6 % | 28 140 over 6 001 evaluations | **0** |
+| HIP np4 | 1 497.626 s | **1 655.515 s** (0.827757 s/step) | +10.5 % | 16 493 over 24 004 rank-evaluations | **0** |
+
+**Claim B has no cap-driven refusal at 32 768 on this Canopy either**, for the
+same B1 reason the probe shows: its demand peaks at 28 140 at np1. Claim B's own
+final state now reports **2 610** fallback pairs at both rank counts, where T0
+had 3 938 at np1 and 2 610 at np4. The np1 cap-driven component is gone and only
+the rank-independent range-guard figure is left. The trajectory itself is
+unchanged in substance: final volume drift `4.703227807212329e-09` (np1),
+`4.7032273631231192e-09` (np4); worst deviation from the reference series
+`0.0213767` at step 350, rtol 0.05, which matches the four-run `2.137678e-02`
+at step 350 in the member's header. **R4 does not bite.** The np1 claim B is
+faster than T6's, and the np4 +10.5 % is not the cap, since no np4 rank came
+near either cap. The obvious candidates are H2's repartitioning and F4, which
+this run cannot separate. T9b's planned move of claim B to 65536 therefore costs
+nothing at claim B on this Canopy. **Member totals for planning: 2 407 s (np1)
+and 1 801 s (np4) of launch wall**, against T6's 2 450 s and 1 598 s.
+
+### What only building or running revealed
+
+- **The ParMETIS build was a non-event.** It was the first Beatnik compile of
+  `Canopy_TreePartitioner.hpp`, and it succeeded on the first attempt with no
+  include or link fix, because parmetis 4.0.3 and metis 5.1.0 come in through
+  trilinos. The full install took 660 s, a little under the 12–13 minute full
+  builds T3/T4 measured.
+- **B1 moved demand, not fallback.** The `dd`-free key cut np1 demand by about
+  27 % and left the range guard's 215 k pairs where they were. Both T8's raise
+  and claim B's cap are now headroom on this Canopy. Only the range guard,
+  which T9b's new check deliberately does not assert on, still routes pairs to
+  the fallback.
+- **The error is invariant to everything this document changed.** Cap
+  32768→65536, Canopy `fd89815`→`38658ad` (key, partitioner, MAC ties), rank
+  count 1→4: the step-1375 peak stays at 1.2435–1.2537e-3 across all six level-4
+  readings now on record (T0's four contaminated, T9a's two clean). The only lever left is the expansion itself.
+- **The scratchpad directory is not shared between shells here.** The first
+  install, started with its log under the session scratchpad in `/tmp`, could
+  not be read from the next shell (the node-local `/tmp` hazard in memory). It
+  was killed seconds in, before it compiled anything, and restarted with its log
+  on `/p/lustre5/stewartj/beatnik/t9a_l4_member/install.log`. That cost seconds,
+  not a build.
+- **`pdebug` took all three jobs at once.** Each went from SCHED to RUN in
+  1–3 s, and they ran concurrently on separate nodes with per-job scratch
+  directories. The ten-minute command timeout cut several `flux job status`
+  waits short. Re-running it on the same jobid worked as documented, and no job
+  was resubmitted.
+- **Nothing failed twice, and nothing needed a second submission.**
+
+### Departures from T9a's stated Do steps
+
+- **The three jobs ran concurrently** rather than probe-then-member. They are
+  independent measurements with per-job scratch, and the member result's
+  validity rests on the member's own `fb_count_cap=0` diagnostics as well as on
+  the probe. Neither depended on the other's outcome.
+- **The design doc's Current state was corrected in two bullets**: the prefix is
+  no longer trimmed, and ParMETIS has now been compiled. Both had been made
+  false by this task's own install.
+- **The gate is unchanged**: still five `regression` members and 60 launches on
+  tuolumne. The `milestone` tier still has four members and sixteen launches.
+  T9a added no test and registered nothing; the new runner is a batch script
+  only.
+
+**Affects:**
+
+- **T9b — BLOCKED BY R9.** The level-4 worst claim-A error is
+  `1.2536745760757648e-3` (np1) and `1.2473681315787063e-3` (np4) at step 1375,
+  over `kTauA = 1.0e-3` with zero cap-driven refusal. Per Do step 6, T9b must not
+  be submitted. Its step 0 (the ungated no-cap-refusal check, and claim B at
+  `kM2LOpCountCap`) is still the decided design, but landing it alone would
+  leave the member red at `:1505`/`:1506` on 4–5 states per launch. When T9b
+  does run, the prefix is now full and claim B's cap raise is free on this
+  Canopy.
+- **A new task is needed, at R9: "level-4 claim-A accuracy of the order-3
+  CartesianTaylor expansion at `mac_theta` 0.3".** Its scope is a change at
+  `order` (e.g. 4), at `mac_theta`, or in the derivation of τ_A's bound for this
+  parameter set, **never a wider τ_A**. It must re-measure with this runner and
+  probe, and it must not touch `M2L_KEY_DD_MAX`/`M2L_KEY_OFFSET_MAX`. It is not
+  yet written into `tasks/add-canopy-t6.md`. Any order or θ change also moves
+  demand (order changes `bytes_per_key`, θ changes the interaction lists), so
+  the probe has to be re-run at the new configuration before the cap is trusted.
+- **T6 in `tasks/canopy/add-canopy.md`** stays IN PROGRESS.
+- **T5, T8, T8b** — their numbers stand as draws on `fd89815`. This task's
+  demand figures are lower because of B1, and that supersedes nothing in them.

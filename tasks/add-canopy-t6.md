@@ -240,8 +240,9 @@ under 32 768. Memory scales with the cap and rebuild time does not.
   numbers:
   - a distributed **ParMETIS** cell partitioner
     (`src/Canopy_TreePartitioner.hpp`, which includes `parmetis.h`). ParMETIS
-    4.0.3 is in the Beatnik env's view as a trilinos dependency; no Beatnik
-    `spack install` has yet compiled this partitioner;
+    4.0.3 is in the Beatnik env's view as a trilinos dependency; T9a's
+    `spack install` was the first Beatnik build of this partitioner, and it
+    compiled cleanly;
   - `mac_satisfied` rejects exact MAC ties;
   - `CartesianTaylorBasis` declares `key_needs_dd = false` and its canonical key
     drops `dd`, so the same tree realizes fewer columns;
@@ -338,11 +339,11 @@ under 32 768. Memory scales with the cap and rebuild time does not.
   `which` cannot find one. T3's and T5's runners follow its structure.
 - **T6 remains IN PROGRESS in `tasks/canopy/add-canopy.md`**, its failing tier
   run recorded by T0.
-- **The installed prefix is trimmed.** It holds only the three
-  `Beatnik_Probe_FmmKeyDemand_MPI_*` binaries, and both manifests carry zero
-  test entries (log `## T8b`); the source tree is untrimmed. A `spack install`
-  is required before any member, gate or tier run, and it also compiles the
-  current Canopy clone.
+- **The installed prefix is full again.** T9a's untrimmed `spack install`
+  put back every test binary (45 in `share/Beatnik/tests`) and both manifests,
+  replacing the three-probe prefix T8b left. Any later change to Beatnik or
+  the Canopy clone still needs its own `spack install` before a member, gate or
+  tier run.
 
 **Environment** (`/g/g20/stewartj/spack_envs/tuolumne_beatnik/spack.yaml`, whose
 committed snapshot `systems/tuolumne/spack.yaml` is byte-identical to it):
@@ -1483,7 +1484,7 @@ identity **skipped**, and `fb_range_guard + fb_count_cap == fallback` with
 
 ---
 
-### T9a — Measure level-4 claim A at zero cap-driven refusal, before any long job — **NOT STARTED**
+### T9a — Measure level-4 claim A at zero cap-driven refusal, before any long job — **DONE**
 
 **Depends on:** T8 **DONE**, T8b **DONE**.
 **Fill in:** no source changes. A new `scripts/tuolumne/t9a_l4_member.flux`
@@ -1535,6 +1536,27 @@ and states whether each is under `kTauA`; and the probe's rows at HIP np1 and
 np4 at cap 65536 show `fb_count_cap == 0` at all 81 states with the per-reason
 identity holding. In the failure direction: a non-zero `fb_count_cap` at any
 state means the run was cap-contaminated, and its error is not the number.
+
+**Met — and the error is OVER τ_A, so T9b is blocked by R9.** Built with a
+full, untrimmed `spack install` of the dev env (rc 0, 660 s) against canopy
+branch `investigate-m2l-cap` at `38658ad` and beatnik `7b27cb0` (one untracked
+runner, no source change). It is the first Beatnik build of Canopy's ParMETIS
+partitioner, and it compiled cleanly on the first attempt. Probe job
+`f3cx8dG3H7MZ`
+(`t8b_fallback_reasons.flux`, unchanged): `fb_count_cap == 0` and
+`fb_range_guard + fb_count_cap == global_m2l_fallback` in **405 of 405** rows
+(81 at np1, 4×81 at np4), re-derived from the rows as well as asserted
+(`337/337` on all five rank reports), `fb_dropped = 0` everywhere. Member jobs
+`f3cx8dQGf86b` (HIP np1) and `f3cx8dYQ7BiF` (HIP np4), each a separate `pdebug`
+submission of the new `scripts/tuolumne/t9a_l4_member.flux`. The member's own
+`[Canopy Diagnostics]` lines also read `fb_count_cap=0` at `effective_cap=65536`
+in every claim-A evaluation. **Worst claim-A relative error:
+`1.2536745760757648e-3` at np1 and `1.2473681315787063e-3` at np4, both at step
+1375**, with realized P2P fraction `0.337366` and `0.339265` there. Both are
+over `kTauA = 1.0e-3`, by 1.254x and 1.247x. Every failed check is at `:1500`,
+`:1505`, `:1506` or `:1967` (np1: 71+5+5+1 = 82; np4: 71+4+4+1 = 80 per rank).
+There were no walltime kills, and all 81 claim-A states are present at both
+rank counts. Per Do step 6, T9b was not submitted and τ_A was not touched.
 
 ---
 
