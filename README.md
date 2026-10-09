@@ -292,10 +292,13 @@ implement and it isolates bugs in the rest of the code from the far-field solver
 > claims** into the `milestone`-tier members `Beatnik_Test_Milestone0Fmm` and
 > `Beatnik_Test_Milestone0FmmL4` — max relative velocity error $\le 1.5\times10^{-3}$
 > over 81 direct-driven states, plus the divergence horizon of a 2000-step
-> FMM-driven trajectory. The full-tier run confirming them on both backends at
-> both rank counts is **still outstanding**, so treat the pair as
-> registered-but-unswept. **Pass `--br-approximation direct` for any run that
-> must reproduce the reference**, and read the figures below before using `fmm`
+> FMM-driven trajectory. Task T9b (`tasks/add-canopy-t6.md`, 2026-10-09) ran
+> the full tier as eight per-(member, backend) jobs and **all 16 launches
+> passed**, both backends at ranks 1 and 4. The worst claim-A errors were about
+> $3.1\times10^{-4}$ at level 3 and $1.26\times10^{-3}$ at level 4. The tier
+> costs 8.69 h of node time and 4.2 h of wall-clock when split.
+> **Pass `--br-approximation direct` for any run that must reproduce the
+> reference**, and read the figures below before using `fmm`
 > for one that must merely be accurate. The Riesz-scalar half of the FMM path
 > (`--bernoulli-scalar-mode surface-riesz`) is not implemented at all and
 > throws.

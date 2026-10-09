@@ -1929,14 +1929,14 @@ reference implementation's own fidelity.
 
 ## T6
 
-**`T6` is not DONE, and the tier run is why.** This entry was opened by the
-session that implemented the two members and submitted the tier run, and
-**completed in place** by the session that read that job (task `T0` of
-[../add-canopy-t6.md](../add-canopy-t6.md)). The tier came back **red**: 12 of
-16 launches green, all four `Milestone0FmmL4` launches red on Canopy's M2L
-operator-column count cap. The tier results are below, under *The tier run*;
-the `**Met.**` paragraph is still absent and stays absent until a green re-run,
-which is `T9b` of that document. The diagnosis of the cap and the work that
+**`T6` is DONE**, closed by `T9b` of [../add-canopy-t6.md](../add-canopy-t6.md)
+on 2026-10-09, whose `**Met.**` paragraph ends this entry. This entry was
+opened by the session that implemented the two members and submitted the tier
+run, and **completed in place** by the session that read that job (task `T0` of
+that document). That first tier run came back **red**: 12 of 16 launches green,
+all four `Milestone0FmmL4` launches red on Canopy's M2L operator-column count
+cap. Its results are below, under *The tier run*. The sections after it, up to
+the `**Met.**`, record T6 as it stood before `T9b`, and are history. The diagnosis of the cap and the work that
 follows from it live there. `T6-handoff.log` in the repo root was the handoff
 for this completion and is now spent — every branch it names is resolved in
 this entry.
@@ -2457,3 +2457,43 @@ ceiling and not a measurement, which is still true.
   fallback figure; `T8` chooses between raising the cap and reducing demand on
   the measurement T5 makes; and `T9b` owns the green re-run, the `**Met.**`
   paragraph and `run_milestone.flux`'s `-t`.
+
+**Met.** (written by `T9b` of [../add-canopy-t6.md](../add-canopy-t6.md); the
+full record is its `## T9b` in
+[../add-canopy-t6-progress-log.md](../add-canopy-t6-progress-log.md).)
+- **Result:** the milestone tier is **green, 16/16 launches**, and every rank
+  reported `[PASS]`.
+  - It ran as eight per-(member, backend) `pbatch` jobs through
+    `scripts/tuolumne/submit_milestone_split.sh`, on 2026-10-09, on the dev
+    env.
+  - Code: beatnik `0411c47` plus the uncommitted T9e/T9b edits (later `5dfdf06`),
+    and canopy `investigate-m2l-cap` `bd10c8f`.
+  - Each job ended `[milestone] SUMMARY: PASS (2/2 launches)` with `flux job
+    status` rc 0.
+- **Checks:** both FMM members, level 4 included, are `3097/3097` at np1, and
+  `3097` plus `2919/2919` x3 at np4.
+  - Level 4 passes because T9b step 0 replaced the zero-fallback checks with a
+    per-rank no-cap-refusal check. T8b showed zero fallback is unreachable at
+    level 4. Claim A is now bounded by `kTauA = 1.5e-3` (T9e).
+- **Claim A worst:**
+  - Level 3: `3.0960873282148671e-4` (SERIAL np1) to `3.0916975892237723e-4`
+    (HIP np4), at step 250.
+  - Level 4: `1.2473199639579061e-3` (HIP np1) to `1.2559212989720775e-3`
+    (HIP np4), at step 1375.
+- **Negative cases:** all three fired in every FMM launch. Level 3 has zero
+  unpairable steps, and level 4 has the 23 at steps 1350–1900 recorded above.
+- **Measured cost:**
+
+  | member | SERIAL | HIP |
+  | --- | --- | --- |
+  | `Milestone0Frozen` | 236 s | 144 s |
+  | `Milestone0FrozenL4` | 1 781 s | 168 s |
+  | `Milestone0Fmm` | 9 581 s | 613 s |
+  | `Milestone0FmmL4` | 15 130 s | 3 614 s |
+
+  - The walls sum to **31 269 s (8.69 h)**, as in this entry's red single-job
+    run.
+  - Split, the wall-clock is **4 h 15 min**, set by level-4 FMM SERIAL.
+  - Each job's `-t` is about 1.5x its wall. `run_milestone.flux` is at
+    `-t 652m`, which replaces the `1440m` ceiling.
+- **Gate:** unchanged, five `regression` members and 60 launches.

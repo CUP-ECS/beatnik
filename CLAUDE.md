@@ -89,8 +89,12 @@ no `.h5` dataset, and it is covered by `Beatnik_Test_CheckpointSeries` in the
 grouped-io.
 There is a third tier, **`milestone`** (created by M0-T1): long end-to-end runs
 against a multi-thousand-step reference gold set, at ranks **1 and 4** on SERIAL
-and HIP, run through `scripts/<system>/run_milestone.<scheduler>` — on tuolumne
-[scripts/tuolumne/run_milestone.flux](scripts/tuolumne/run_milestone.flux). **It
+and HIP. On tuolumne it runs as **eight separate `pbatch` jobs**, one per
+(member, backend), each launching ranks 1 and 4, submitted from the login node by
+[scripts/tuolumne/submit_milestone_split.sh](scripts/tuolumne/submit_milestone_split.sh)
+through the runner
+[scripts/tuolumne/run_milestone.flux](scripts/tuolumne/run_milestone.flux). Run
+it split, not as one big job. **It
 is not part of the gate** and adding a member to it does not change the gate;
 **T6 added two members and the gate is unchanged — still five `regression`
 members and 60 launches.** The `milestone` tier has **four** members and
@@ -110,13 +114,14 @@ members and 60 launches.** The `milestone` tier has **four** members and
   2000-step FMM-driven trajectory. They reuse the frozen members' gold
   directories; no new gold set exists. Eight launches.
 
-**The FMM members are hours, not minutes**, which moved the runner from
-`-q pdebug -t 60m` to **`-q pbatch -t 1440m`**: one level-4 FMM trajectory
-alone is 2373 s at HIP np1 where the whole level-4 frozen member is 22 s. The
-`1440m` is pbatch's ceiling and **not yet a measurement** — the first tier run
-carrying these members is the measurement, and the runner's header comment says
-how to set `-t` from it. Treat the tier's total as unmeasured until that run is
-read.
+**The FMM members are hours, not minutes.** T9b's split run
+(`tasks/add-canopy-t6.md`, 2026-10-09, **16/16 launches green**) measured the
+eight job walls at 236 s and 144 s (level-3 frozen, SERIAL and HIP),
+1781 s and 168 s (level-4 frozen), 9581 s and 613 s (level-3 FMM), and 15130 s
+and 3614 s (level-4 FMM). They sum to **8.69 h**, but split, the tier's
+wall-clock is the slowest job, **level-4 FMM SERIAL at 4.2 h**. Each job's `-t`
+in the wrapper is about 1.5x its measured wall. The runner's own `-t 652m`
+(about 1.25x the sum) exists only for the one-job fallback.
 
 **`BEATNIK_TEST_SCRATCH`
 must name a path on a parallel filesystem**, not a node-local one: the

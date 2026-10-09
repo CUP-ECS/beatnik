@@ -12,9 +12,14 @@ does not cover.
 - **`milestone`** — long end-to-end runs against a multi-thousand-step reference
   gold set, at ranks **1 and 4** on SERIAL and HIP. **Not the gate**, and
   deliberately so: a 2000-step run in front of every change is a stall, not a
-  gate. Run it on demand with `ctest -L milestone`, or through the wrapper
-  `scripts/<system>/run_milestone.<scheduler>` — on tuolumne
-  [scripts/tuolumne/run_milestone.flux](../scripts/tuolumne/run_milestone.flux).
+  gate. Run it on demand with `ctest -L milestone`, or through the installed-path
+  runner `scripts/<system>/run_milestone.<scheduler>`. On tuolumne the tier runs
+  as **eight separate `pbatch` jobs**, one per (member, backend), each launching
+  ranks 1 and 4: submit them from the login node with
+  [scripts/tuolumne/submit_milestone_split.sh](../scripts/tuolumne/submit_milestone_split.sh),
+  which drives
+  [scripts/tuolumne/run_milestone.flux](../scripts/tuolumne/run_milestone.flux)
+  once per row. Run it split, not as one big job.
   Created by task M0-T1, filled by M0-T3 and extended by T6; it has **four**
   members.
 
@@ -38,15 +43,31 @@ does not cover.
   run. They reuse the frozen members' gold directories; no new gold set exists.
 
   Four members x two backends x two rank counts is **sixteen launches**. The FMM
-  pair is **hours, not minutes** — one level-4 FMM trajectory alone is 2373 s at
-  HIP np1 — which moved the wrapper from `-q pdebug -t 60m` to
-  **`-q pbatch -t 1440m`**. That `1440m` is pbatch's ceiling, **not a
-  measurement**: the first tier run carrying the FMM members is the measurement,
-  and the wrapper's header comment says how to set `-t` from it without a second
-  run. The wrapper still exits non-zero if the
-  manifest names nothing runnable, exactly as the gate wrapper does for an empty
-  gate. Its rank sweep comes from `BEATNIK_MILESTONE_MPI_RANKS`
-  (default `1;4`) for ctest and `BEATNIK_MILESTONE_RANKS` in the wrapper.
+  pair is **hours, not minutes**. T9b's split run (2026-10-09, 16/16 green)
+  measured these job walls, each holding the np1 + np4 launches:
+
+  | member | SERIAL | HIP |
+  | --- | --- | --- |
+  | `Milestone0Frozen` | 236 s | 144 s |
+  | `Milestone0FrozenL4` | 1781 s | 168 s |
+  | `Milestone0Fmm` | 9581 s | 613 s |
+  | `Milestone0FmmL4` | 15130 s | 3614 s |
+
+  They sum to **8.69 h** of node time, but the split tier's wall-clock is the
+  slowest job, **level-4 FMM SERIAL at 4.2 h** (4 h 15 min submit to last exit).
+  The wrapper requests about 1.5x each job's wall as its `-t`. The runner's own
+  `-t 652m` (about 1.25x the sum) only covers a bare one-job submission, kept as
+  a fallback.
+
+  The runner takes three optional space-separated filters from the
+  environment: `BEATNIK_MILESTONE_MEMBERS` (exact member stems; unset means all),
+  `BEATNIK_MILESTONE_BACKENDS` and `BEATNIK_MILESTONE_RANKS`. It prints
+  `[milestone] <PASS|FAIL> <target> np=<N> in <S>s` per launch and ends
+  `[milestone] SUMMARY: <PASS|FAIL> (<passed>/<run> launches)`. A job killed at
+  its wall prints no `SUMMARY`. It exits non-zero if the manifest names nothing
+  runnable, or if a member stem matches nothing, exactly as the gate runner does
+  for an empty gate. Its rank sweep comes from `BEATNIK_MILESTONE_MPI_RANKS`
+  (default `1;4`) for ctest and `BEATNIK_MILESTONE_RANKS` in the runner.
   A `milestone` failure is a real failure: fix it or record it in README
   "Known Issues" — it is never a reason to change the gate.
 - **`unit`** — utilities, kernels, single-component and single-phase tests.

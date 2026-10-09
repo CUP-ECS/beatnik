@@ -1,18 +1,23 @@
 # Canopy as Beatnik's far-field Birkhoff-Rott solver
 
-**Status:** IN PROGRESS — **T1** through **T5** are **DONE**; **T6** is **IN
-PROGRESS** (both members written, registered and green at level 3; the
-full-tier run came back **red** on all four level-4 FMM launches, on Canopy's
-M2L operator-column count cap — see `## T6` in the progress log, and
-[../add-canopy-t6.md](../add-canopy-t6.md) for the programme that fixes it);
-**T7** and **T8** are NOT STARTED. The far field is measured and published: $\tau_A$ is
-$5.01\times10^{-4}$ on the gradient at the production order, which is better than
-the reference implementation's own fidelity, so **X1** does not fire. No upstream
+**Status:** IN PROGRESS — **T1** through **T6** are **DONE**. **T6** closed on
+the milestone tier's green split run (T9b of
+[../add-canopy-t6.md](../add-canopy-t6.md), 2026-10-09): **16/16 launches**
+across eight per-(member, backend) `pbatch` jobs, 8.69 h of node time and
+4.2 h of wall-clock. That followed the first full-tier run, which came back
+**red** on the four level-4 FMM launches, on Canopy's M2L operator-column count
+cap; see `## T6` in the progress log. **T7** and **T8** are NOT STARTED. The far
+field is measured and published. T5 measured $5.01\times10^{-4}$ on the gradient
+at the production order on one early state. Claim A's compiled bound is
+$\tau_A=1.5\times10^{-3}$, the reference treecode's own worst error over the
+level-4 trajectory as T9r measured it, so **X1** does not fire. No upstream
 work gates the sequence — Canopy's derivative ladder is validated at the
 production order. Three constraints bind inside **T6** and none of them gates it:
 an FMM-driven trajectory cannot be paired against the gold set by position, the
 horizon envelope is localized only to the 25-step checkpoint interval, and the
-milestone tier no longer fits `pdebug`'s one-hour cap.
+milestone tier no longer fits `pdebug`'s one-hour cap. It runs instead as eight
+`pbatch` jobs through `scripts/tuolumne/submit_milestone_split.sh`, each with a
+measured `-t`.
 
 ## Problem
 
@@ -81,17 +86,22 @@ the potential and by $5.2\times10^{-2}$ on the gradient.
 
 ### The fidelity target, and where it comes from
 
-**$\tau_A \le 10^{-3}$ max relative velocity error against `BRSolverDirect` on
-the same state.** That is the accuracy of the reference implementation's own
+**$\tau_A = 1.5\times10^{-3}$ max relative velocity error against `BRSolverDirect`
+on the same state.** That is the accuracy of the reference implementation's own
 default far field: the Python's Barnes-Hut treecode at its defaults
 ($\theta=0.3$, order 2, `ncrit` 64) agrees with the direct sum to
 $\sim\!10^{-3}$ relative velocity, measured across mesh sizes and confirmed
 against the reference's own README ([treecode.md](../treecode.md) §1) —
 $1.6\times10^{-3}$ at 642 vertices and $4.8\times10^{-4}$ at 2562, which are
-exactly milestone-0's two levels. The reference runs that path by default
-(`--br-approximation treecode`), so a Beatnik FMM at $\tau_A\le10^{-3}$ is not a
-degraded mode: it is the fidelity the physics this port reproduces was produced
-at.
+exactly milestone-0's two levels. Those are smooth-state readings. T9r of
+[../add-canopy-t6.md](../add-canopy-t6.md) measured the same treecode on the
+level-4 member's 80 non-zero-field states and found it reaches
+$E_{ref}=1.4987010690098229\times10^{-3}$ at step 1550, on the roll-up. T9e set
+$\tau_A$ to that worst, rounded to $1.5\times10^{-3}$. Beatnik's own worst
+there is $1.25\times10^{-3}$ at step 1375 (T9b). The reference runs that path by
+default (`--br-approximation treecode`), so a Beatnik FMM within $\tau_A$ is
+not a degraded mode: it is the fidelity the physics this port reproduces was
+produced at.
 
 The comparison is closer than a shared tolerance. The reference treecode expands
 the **same** softened kernel in the **same** Cartesian-Taylor basis, to order 2 —
@@ -244,15 +254,15 @@ there is its *worst* of the three sizes in [treecode.md](../treecode.md) §1.
 comparison at a measured 14.5% M2L share, and says so on the assertion; the
 far-field accuracy claim rests on the L4 member.
 
-### Why not tighter than $10^{-3}$
+### Why claim A's bound cannot become a trajectory comparison
 
 A 2000-step FMM-driven trajectory cannot be compared against the direct gold set
 at the existing `--rtol 1e-10 --atol 1e-12`, and no order reaches far enough to
 change that. The divergence is measured: a one-ulp seed ($5.6\times10^{-17}$ on
 `vertices`) grows to $8.5\times10^{-13}$ by step 2000 at level 3
 ([milestone0-progress-log.md:320-332](../completed/milestone0-progress-log.md)), about
-$10^4$ amplification, power-law rather than exponential. A $10^{-3}$
-perturbation injected at **every** evaluation is thirteen orders above the seed
+$10^4$ amplification, power-law rather than exponential. A perturbation of
+order $\tau_A$ injected at **every** evaluation is thirteen orders above the seed
 that already exhausts the tightest rung, so the FMM-driven and direct-driven
 trajectories decorrelate long before step 2000 — the same conclusion
 [treecode.md](../treecode.md) §1 reaches for the reference treecode, and for the
@@ -422,7 +432,7 @@ field, and the only one that can carry a number as tight as $\tau_A$.
 
 **Claim B — the trajectory stays physical, and decorrelates no sooner than
 measured.** The same binary then runs 2000 steps FMM-driven. It **cannot** assert
-a gold rung: at $\tau_A\approx10^{-3}$ per evaluation the trajectories separate
+a gold rung: at errors up to $\tau_A=1.5\times10^{-3}$ per evaluation the trajectories separate
 well before step 2000 and a passing rung would only mean the rung was loose. It
 asserts instead the properties that remain meaningful after decorrelation, and
 that are exactly the ones develop-canopy's full-roll-up blow-up violated
@@ -689,7 +699,12 @@ Cited by symbol, per the conventions table.
   at $\theta=0.3$ and 7374 at $\theta=0.5$, on 2941 cells, with 246 and 0
   fallback pairs. Canopy also observed the $\theta=0.3$ table *saturating* the
   32768 cap once the trajectory was amplified, so the cap is a live constraint
-  at this $\theta$ rather than a distant one. This is **R6**.
+  at this $\theta$ rather than a distant one. This is **R6**, and it fired.
+  [../add-canopy-t6.md](../add-canopy-t6.md) made the count cap configurable
+  (`FmmConfig::m2l_op_count_cap`, reached through `FmmParams::m2l_op_count_cap`,
+  default still 32768). The level-4 milestone member runs at 65536, where no
+  rank reaches its cap. The fallback that remains at level 4 is not the cap:
+  T8b of that document traced all of it to the classify pass's range guard.
 - `FmmConfig::near_softening_factor` still exists, defaults to **4.0**, and
   still forces close pairs into P2P. Beatnik sets it to 0 under
   `CartesianTaylorBasis`; it is meaningful only under the solid-harmonic basis,
@@ -1784,7 +1799,7 @@ in the gold files.
 
 ---
 
-### T6 — The two milestone-tier FMM members — **IN PROGRESS**
+### T6 — The two milestone-tier FMM members — **DONE**
 
 > **Where it stands.** Both members are written, registered and installed, and
 > the level-3 member is green at full step count on both backends at both rank
@@ -1977,6 +1992,36 @@ cases fire: the final state against the step-0 gold exits exactly 1, the
 perturbed-state claim-A case fails naming $\tau_A$, and the fabricated early
 horizon fails naming the rung it was early on.
 
+**Met.** The first tier run was red on the level-4 FMM launches (Canopy's M2L
+count cap; `## T6` in the progress log). The green run is T9b of
+[../add-canopy-t6.md](../add-canopy-t6.md), 2026-10-09: **16/16 launches**,
+every rank `[PASS]`, every job's `flux job status` rc 0. It ran as eight
+per-(member, backend) `pbatch` jobs through
+`scripts/tuolumne/submit_milestone_split.sh`, not as one
+`flux batch scripts/tuolumne/run_milestone.flux` job. That is the one departure
+from the criterion's wording: the sixteen launches, members, backends and ranks
+are the same.
+- **Measured cost:** job walls of 236 / 144 s (level-3 frozen, SERIAL / HIP),
+  1781 / 168 s (level-4 frozen), 9581 / 613 s (level-3 FMM) and
+  15130 / 3614 s (level-4 FMM). They sum to **31 269 s (8.69 h)**, against the
+  red single-job run's 8.685 h. Split, the wall-clock was **4 h 15 min**, set by
+  level-4 FMM SERIAL. Each job's `-t` is now about 1.5x its wall, and the
+  runner's whole-tier `-t` is `652m`.
+- **Checks:** `3097/3097` at np1, and `3097` plus `2919/2919` x3 at np4, for
+  both FMM members on both backends.
+- **Claim A worst, at step 250 (level 3) and step 1375 (level 4), all under
+  $\tau_A=1.5\times10^{-3}$:**
+
+  | backend, ranks | level 3 | level 4 |
+  | --- | --- | --- |
+  | SERIAL np1 | `3.0960873282148671e-4` | `1.2473221109022944e-3` |
+  | SERIAL np4 | `3.0931902123538445e-4` | `1.2473258911241197e-3` |
+  | HIP np1 | `3.095399085318337e-4` | `1.2473199639579061e-3` |
+  | HIP np4 | `3.0916975892237723e-4` | `1.2559212989720775e-3` |
+- **Claim B:** zero unpairable steps at level 3. At level 4 the unpairable
+  window is steps 1350–1900 (23 steps), as in the first tier run.
+- **Negative cases:** all three fired in every FMM launch.
+
 ---
 
 ### T7 — The Riesz-scalar path — **NOT STARTED**
@@ -2032,7 +2077,12 @@ citing `canopy/src/Canopy_CommunicationPlan.hpp:549-665`); develop-canopy's
 measured action histogram — all 14 `auto_maintain` calls of a five-step run
 returned `Migrate`, and a 1400-step roll-up run returned
 `Migrate=1180 Rebalance=3019 Rebuild=0` (`tasks/integrate_canopy.md` row AM and
-`tasks/fmm_premature_nan.md` Validation, on that branch); the profiling
+`tasks/fmm_premature_nan.md` Validation, on that branch); for walltime
+planning, the measured milestone-tier costs (T6's `**Met.**` in
+[add-canopy-progress-log.md](add-canopy-progress-log.md), from T9b of
+[../add-canopy-t6.md](../add-canopy-t6.md)). In particular, SERIAL np4 is
+slower than np1 on the FMM path (2.2x at level 3, 1.37x at level 4), so never
+assume rank scaling on SERIAL. Also see the profiling
 convention `BEATNIK_SCOPED_TIMER_DETAILED` and the action-histogram destructor
 (`src/FmmBRSolver.hpp:122-140`, `:669-680` on that branch).
 
@@ -2078,7 +2128,7 @@ faster, or states that none was found.
 
 ---
 
-### X1 — Conditional external dependency: a geometrically-converging basis — **NOT STARTED, NOT IMPLEMENTED HERE**
+### X1 — Conditional external dependency: a geometrically-converging basis — **NOT TAKEN** (the trigger did not fire: T5's order 3 reached the target, and T9e's $\tau_A$ is met at both levels)
 
 **Depends on:** T5, which is what decides whether it is needed at all.
 
@@ -2086,7 +2136,9 @@ faster, or states that none was found.
 the fallback is named rather than re-derived under pressure, and so a session
 reading a disappointing **T5** result knows where the work lives.
 
-**The trigger.** **T5** reports the `order` needed for $\tau_A\le10^{-3}$ at an
+**The trigger.** **T5** reports the `order` needed to reach the reference's own
+fidelity (taken as $10^{-3}$ then, restated as $\tau_A=1.5\times10^{-3}$ by T9e)
+at an
 acceptable P2P fraction, together with the realized operator-key count. This task
 fires if either bound is exceeded: the order needed is outside the dispatched
 set and extending it is unaffordable, or the key count at that order and
@@ -2120,12 +2172,12 @@ care how the basis is built.
 
 **Exit criterion**, which is the acceptance test in Beatnik's terms and the only
 part of this task Beatnik owns: **T4**'s test passes at ranks 1-6 with
-$\tau_A\le10^{-3}$ at a P2P pair fraction and an operator-table size **T8**
-reports as affordable, and **T6**'s claim A passes at that $\tau_A$ at all 81
-states at both levels. A route that lands above $10^{-3}$ has not cleared it —
-record the achieved figure and what binds it, and do not widen $\tau_A$ to
-accommodate it, because $10^{-3}$ is the reference implementation's own number
-and not a Beatnik preference.
+$\tau_A=1.5\times10^{-3}$ at a P2P pair fraction and an operator-table size
+**T8** reports as affordable, and **T6**'s claim A passes at that $\tau_A$ at
+all 81 states at both levels. A route that lands above $\tau_A$ has not cleared
+it — record the achieved figure and what binds it, and do not widen $\tau_A$ to
+accommodate it, because $\tau_A$ is the reference implementation's own measured
+worst (T9r) and not a Beatnik preference.
 
 ## Known risks
 
@@ -2197,8 +2249,8 @@ with `softening = 0`. The evidence is narrower than it was —
 `CartesianTaylorSolve` drives `NComps = 3`, compares the gradient and passes at
 ranks 1-6 — but that is a different basis, order, softening and distribution, so
 it bounds the defect rather than retiring it. Beatnik's gate runs at 4 ranks and
-the milestone tier runs at 1 and 4, and Beatnik's own $\tau_A$ is $10^{-3}$ — the
-same order as the defect, so this would not present as an obvious outlier. An
+the milestone tier runs at 1 and 4, and Beatnik's own $\tau_A$ is
+$1.5\times10^{-3}$ — the same order as the defect, so this would not present as an obvious outlier. An
 error that appears at exactly one rank count is a decomposition-bug signature,
 not a budget signature: if **T4** fails at 4 ranks only, record it and raise it
 upstream — do **not** widen the budget, and do not drop 4 from the sweep.
@@ -2230,6 +2282,27 @@ counts predict. **Distinguished by** `total_fallback_pair_count()`, which
 production configuration, lower `max_depth` or the order before touching the cap,
 and record which and why — the byte budget is not the binding constraint at
 $p\le4$ and raising it will not help.
+
+**Fired, and resolved by [../add-canopy-t6.md](../add-canopy-t6.md).** T6's
+first tier run failed on all four level-4 FMM launches on this cap. That
+programme measured the level-4 key demand, and **raised the cap rather than
+lowering `max_depth` or the order**, contrary to the Do above. T8 of that
+document rejected the shallower tree for three reasons:
+- the peak demand was only 1.150x the cap, not the 10x that would make the cap
+  the wrong instrument;
+- a shallower tree moves work into the near field, against claim A's
+  `kP2PFractionBound`;
+- it would not touch the np4 fallback, since no np4 rank reached the cap.
+
+The order stays at 3, which T9r showed matches the reference's accuracy class.
+- **The cap is configurable:** `FmmParams::m2l_op_count_cap`, default 32768,
+  no CLI option. The level-4 member sets 65536.
+- **The fallback does not reach zero at level 4:** 2 610 pairs on the final
+  state. T8b showed none of it is the cap; all of it is the classify pass's
+  range guard. So the member asserts no cap refusal on each rank
+  (`local_m2l_unique_op_count < local_m2l_op_cap`), not zero fallback.
+- **The mixture this risk warns about is present at level 4**, and claim A is
+  still met under it: worst `1.2559e-3` against $\tau_A=1.5\times10^{-3}$ (T9b).
 
 **R7 — claim A passes and the FMM still destroys the physics.** Claim A measures
 the far field on states the *direct* solver produced. develop-canopy's failure
@@ -2264,7 +2337,13 @@ short probe, which under-predicts this path by 2.7x because the FMM per-step
 cost grows along the trajectory. If the measured number is unwieldy even there,
 splitting claim A and claim B into separate members is the fallback, at the cost
 of a third 2000-step trajectory per level; note it reduces the per-launch cost
-and not the total.
+and not the total. **Resolved by measurement (T9b of
+[../add-canopy-t6.md](../add-canopy-t6.md)).** The tier is 8.69 h of node time,
+which fits `pbatch`. It runs as eight per-(member, backend) jobs, each with
+`-t` at about 1.5x its measured wall, so its wall-clock is the slowest job,
+level-4 FMM SERIAL at 4.2 h. The members were not split. Every job's log
+ends in a `SUMMARY` line with a launch count, and a job killed at its wall
+prints none.
 
 **R10 — progress stalls waiting on an upstream task.** Two upstream items appear
 in this document and they are not the same kind of thing, which is the confusion

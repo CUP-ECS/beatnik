@@ -3514,3 +3514,268 @@ four launches. One `spack install` and three `pdebug` jobs, none resubmitted.
   - Line citations into `Beatnik_Test_Milestone0Fmm.cpp` and
     `Beatnik_Params.hpp` are unchanged.
 - **T9c, T9d** — not done on this path; nothing here changes them.
+
+## T9b
+
+**DONE, 2026-10-09, over two sessions split at the `pbatch` submission.**
+Session 1 did step 0, the install, the level-3 check, the runner and wrapper
+changes, the bad-stem check and the submission. Session 2 read the eight
+finished jobs and did steps 4–6. The milestone tier is green, **16/16
+launches**, and T6 of `tasks/canopy/add-canopy.md` is **DONE**. T9c and T9d are
+not taken, on T9r's verdict, so the task sequence is complete.
+
+### Decisions taken as given by the task, recorded so they are not reopened
+
+- **The tier runs as eight `pbatch` jobs**, one per (member, backend), each
+  launching ranks 1 and 4 on one node, the 4-ranks-per-node packing
+  `run_milestone.flux` already used. They run concurrently, so the wall-clock
+  is bounded by the slowest pair rather than the 8.685 h sum, and each requests
+  only the walltime its two launches need. The user confirmed in session 2 that
+  the tier stays split, so the docs present `submit_milestone_split.sh` as the
+  way to run it. A bare one-job submission remains only as a fallback.
+- **Session 1 used the per-job `-t` from T9b's table as written** (about 1.5x
+  the measured np1 + np4 cost), not rounded up. After the green run each was
+  reset to about 1.5x its measured wall, and `run_milestone.flux`'s own `-t` to
+  about 1.25x the sum.
+- **The dev env** (`/g/g20/stewartj/spack_envs/tuolumne_beatnik`), as the T6
+  tier run used. `BEATNIK_USE_PROD` was not set, and the production env was not
+  touched.
+- **Neither clone was pulled or switched.** Canopy stayed on
+  `investigate-m2l-cap` `bd10c8f`, and beatnik ran from the working tree.
+- **The no-cap-refusal check is strict** (`local_m2l_unique_op_count <
+  local_m2l_op_cap`) and per rank. It is ungated because the per-reason
+  fallback counters read `-1` in a `~profiling` build, which is what the
+  production snapshot concretizes.
+
+### The changed check, and how it fails
+
+In `tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp`:
+- `ClaimAPoint` gains `int m2l_unique_ops` and `int m2l_op_cap`.
+  `evaluateClaimA` fills them from this rank's `diag.local_m2l_unique_op_count`
+  and `diag.local_m2l_op_cap` (`:1480-1481`).
+- Claim A's `p.m2l_fallback == 0` is now
+  `BEATNIK_CHECK_TRUE( rec, p.m2l_unique_ops < p.m2l_op_cap )` at `:1519`.
+  - On failure only, it first emits `[note] …: step S: U M2L operator keys
+    realized, not below the cap C in force on this rank`, because `checkTrue`
+    prints no values.
+  - The fallback count is still printed per state in the 81-row series.
+- Claim B's `diag.global_m2l_fallback_pair_count == 0LL` is now
+  `BEATNIK_CHECK_TRUE( rec, unique_ops < op_cap )` at `:1991`.
+  - The two locals are read off the probe's diagnostics on the line above, so
+    `__LINE__` points at the check.
+  - The final-state note now also prints `this rank's m2l unique ops U of cap
+    C`.
+- Claim B's `p.fmm.m2l_op_count_cap = kM2LOpCountCap` is at `:1035`, beside
+  `p.fmm.ncrit`. `makeFmmParams`' comment (`:1068-1070`) now says the two claims
+  set the same two fields to the same values, "so the two claims cannot be at
+  different configurations", with no caveat.
+- **Check counts are unchanged**, since each check was replaced one-for-one:
+  3097 at np1, and 3097 plus 2919 x3 at np4, at both levels.
+
+**At a cap of 0** (derived from the code, not run):
+- Canopy accepts 0 (`set_m2l_op_count_cap`, `Canopy_DownwardSweep.hpp:350`).
+  `m2l_effective_op_cap()` returns `min(byte budget / bytes_per_key, 0) = 0`,
+  no column is built, and `m2l_n_unique_ops()` is 0.
+- `0 < 0` is false at all 81 claim-A states on every rank. Each prints the note
+  `step S: 0 M2L operator keys realized, not below the cap 0 in force on this
+  rank`, then `[FAIL] check N: expected true, got false / expr:
+  p.m2l_unique_ops < p.m2l_op_cap / at: …Beatnik_Test_Milestone0Fmm.cpp:1519`.
+- Claim B fails once more per rank at `:1991` (`expr: unique_ops < op_cap`),
+  with the note `unique ops 0 of cap 0`.
+- That is 82 failures per rank and rc 1. τ_A itself would likely still pass,
+  since the fallback path computes the same mathematics.
+
+### The runner's new interface
+
+`scripts/tuolumne/run_milestone.flux` changed in place:
+- **`BEATNIK_MILESTONE_MEMBERS`**, a space-separated list of member stems.
+  - It matches manifest field 1 exactly after stripping `_MPI_<BACKEND>` (in
+    awk), so `Beatnik_Test_Milestone0Fmm` never selects `…FmmL4`.
+  - Unset means every member. Non-identifier stems are refused.
+  - A stem that matches no manifest line is its own FAIL, so a typo beside a
+    valid stem cannot silently drop a member.
+  - In tree mode it becomes an anchored `ctest -R '^(stems)_MPI_<B>_np_'` with
+    `--no-tests=error`.
+- **Per launch:** `[milestone] <PASS|FAIL> <target> np=<N> in <S>s`.
+- **At the end:** `[milestone] SUMMARY: <PASS|FAIL> (<passed>/<run>
+  launches)`, beside the kept `PASS (label=…)` line. A job killed at its wall
+  prints no SUMMARY.
+- **Provenance block**, from `t9a_l4_member.flux`: the spack env status, the
+  beatnik commit and dirty count, canopy's branch, commit, dirty count and
+  variants, and the submit line, which carries both filter variables and the
+  job ID.
+- **The label line** now shows `members=`.
+- **Header and `-t`:** `-t 652m`, and the walltime prose was rewritten around
+  T9b's measured walls and the split submission.
+- **Unchanged:** the FD-3 loop and the binding (`--exclusive --gpus-per-task=1
+  --cores-per-task=24 --setopt=mpibind=verbose:1`) are byte-identical.
+
+`scripts/tuolumne/submit_milestone_split.sh` is new and runs on the login
+node:
+- It carries the BSD-3 `#` header and is executable.
+- It holds the eight rows as data, each with its measured wall beside it, and
+  `cd`s to the repo root.
+- It refuses to run if `BEATNIK_MILESTONE_RANKS` is set to anything but `1 4`,
+  or if `BEATNIK_USE_PROD` is set.
+- It names jobs `beatnik_milestone_<stem minus Beatnik_Test_>_<BACKEND>` and
+  prints `<jobid> <member> <backend> <t>` per submission.
+
+### Provenance and build
+
+- **Install.** `HIPCC_LINK_FLAGS_APPEND` and `HIPCC_COMPILE_FLAGS_APPEND` were
+  unset first. `spack install` of the dev env took **243.93 s**, rc **0**; the
+  log is `/p/lustre5/stewartj/beatnik/t9b/install.log`.
+  - Canopy `w4woraj` rebuilt in 17 s and beatnik `nnbspfy` in 3 m 45 s, an
+    incremental rebuild rather than the ~11 min full build.
+  - Nothing was edited while it ran. The source was last edited at 10:06:56,
+    and all six `Beatnik_Test_Milestone0Fmm{,L4}_MPI_{SERIAL,OPENMP,HIP}` are
+    stamped 10:11:24.
+  - The four SERIAL/HIP binaries contain the new check strings.
+- **Every tier job printed the same provenance:**
+  - beatnik commit `0411c47207717ad89b1149397e9553c1459fd98f`, **dirty 12**.
+    That is T9e's then-uncommitted edits, step 0's and the runner's, and
+    `prompt.md`. The user later committed them as `5dfdf06`.
+  - canopy branch `investigate-m2l-cap`, commit
+    `bd10c8f23c75bba0455da1ad096d521bb583ed9e`, **dirty 0**.
+  - canopy
+    `canopy@develop~cuda~examples~ipo~openmp~openmptarget+profiling+rocm~testing~threads amdgpu_target:=gfx942 build_type=Release profiling_level=default`
+    (`w4woraj`).
+  - beatnik
+    `beatnik@develop+canopy~cuda+examples~ipo~openmp+profiling+rocm+testing amdgpu_target:=gfx942 build_type=RelWithDebInfo profiling_level=2`
+    (`nnbspfy`).
+
+### The level-3 pre-submission check
+
+Job **`f3d7u1MHPt4w`** (`flux batch -t 20m scripts/tuolumne/t6_l3_member.flux
+HIP`, `pdebug`) returned rc 0 and `[t6l3] SUMMARY: PASS (2/2 launches)`:
+- **HIP np1:** `3097/3097`, 283 s (claim A 45.78 s, claim B 217.77 s).
+- **HIP np4:** `3097/3097` plus `2919/2919` x3, 306 s (claim A 72.49 s, claim
+  B 214.58 s).
+- **Zero failed checks**, and the new note never fired.
+- **Worst claim-A error:** `3.0958364452047941e-4` (np1) and
+  `3.0951661284612608e-4` (np4), at step 250.
+- **Claim B, per-rank unique ops:** 2 912 (np1), and 1 017 / 820 / 1 237 / 540
+  (np4), each of cap 32 768, with M2L fallback 0.
+
+### The failure-direction check
+
+Job **`f3d7z3hL9pqM`** submitted
+`BEATNIK_MILESTONE_MEMBERS=Beatnik_Test_NoSuchMember
+BEATNIK_MILESTONE_BACKENDS=HIP flux batch -q pdebug -t 5m
+--job-name=beatnik_milestone_badstem scripts/tuolumne/run_milestone.flux`. It
+returned rc **1** in a 15.5 s script and ended:
+
+```
+[milestone] label=milestone members='Beatnik_Test_NoSuchMember' backends='HIP' ranks='1 4'
+[milestone] no milestone binaries for HIP
+[milestone] FAIL: the manifest named no runnable milestone tests for members 'Beatnik_Test_NoSuchMember' and backends 'HIP'.
+[milestone] FAIL: member 'Beatnik_Test_NoSuchMember' matched no manifest line for backends 'HIP'.
+[milestone] FAIL (label=milestone)
+[milestone] SUMMARY: FAIL (0/0 launches)
+```
+
+### The tier run (measured)
+
+All eight jobs were submitted at 10:23:45–47 and ended `COMPLETED` with rc 0.
+Each log shows its filter pair on the `members=`/`backends=` line and the
+provenance submit line.
+
+| job | member | backend | `-t` | wall | np1 launch | np4 launch | new `-t` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `f3d7zNR4jrtF` | `Milestone0Frozen` | SERIAL | `15m` | 236.4 s | 129 s | 86 s | `6m` |
+| `f3d7zNYut4Q7` | `Milestone0Frozen` | HIP | `10m` | 144.4 s | 51 s | 72 s | `4m` |
+| `f3d7zNggaJ4w` | `Milestone0FrozenL4` | SERIAL | `45m` | 1 780.5 s | 1 338 s | 419 s | `45m` |
+| `f3d7zNpMLacP` | `Milestone0FrozenL4` | HIP | `10m` | 168.3 s | 61 s | 86 s | `5m` |
+| `f3d7zNwy8tb9` | `Milestone0Fmm` | SERIAL | `225m` | 9 581.1 s | 2 980 s | 6 578 s | `240m` |
+| `f3d7zP5no6pf` | `Milestone0Fmm` | HIP | `20m` | 613.4 s | 287 s | 304 s | `16m` |
+| `f3d7zPD9mXyy` | `Milestone0FmmL4` | SERIAL | `390m` | 15 130.5 s | 6 377 s | 8 730 s | `380m` |
+| `f3d7zPLmZqxj` | `Milestone0FmmL4` | HIP | `105m` | 3 614.4 s | 2 089 s | 1 504 s | `91m` |
+
+- **Sum: 31 268.98 s = 8.686 h**, against the T6 single job's 8.685 h. The
+  work is the same, and splitting it only changes the wall-clock.
+- **Wall-clock: 4 h 14 min 46 s**, from submission at 10:23:45 to the last
+  exit at 14:38:31. It is bounded by level-4 FMM SERIAL, which started at
+  10:26:19.
+- `run_milestone.flux -t 652m` is 1.25 × 31 269 s.
+- **Checks:**
+  - Frozen members: `2337/2337` at np1, and `2337` plus `2172/2172` x3 at np4.
+  - FMM members: `3097/3097` at np1, and `3097` plus `2919/2919` x3 at np4.
+  - No launch printed an `at:` line.
+- **Claim A worst at 17 digits:**
+  - Level 3, at step 250: `3.0960873282148671e-4` (SERIAL np1),
+    `3.0931902123538445e-4` (SERIAL np4), `3.095399085318337e-4` (HIP np1) and
+    `3.0916975892237723e-4` (HIP np4).
+  - Level 4, at step 1375: `1.2473221109022944e-3` (SERIAL np1),
+    `1.2473258911241197e-3` (SERIAL np4), `1.2473199639579061e-3` (HIP np1) and
+    `1.2559212989720775e-3` (HIP np4). The largest is 1.194x under `kTauA`.
+- **Claim B, final state at step 2000:**
+  - Level 3: M2L fallback 0. Per-rank unique ops are 2 912 of 32 768 at np1,
+    and 1 017 / 820 / 1 237 / 540 at np4.
+  - Level 4: global M2L fallback 2 610, the non-cap refusals T8b found. Per-rank
+    unique ops are 23 334 of 65 536 at np1, and 13 115 / 13 283 / 13 545 /
+    13 044 at np4. No rank got near its cap.
+  - Volume drift is `3.349e-9` (level 3) and `4.703e-9` (level 4), and the
+    worst series deviation is 0.0154 (step 300) and 0.0214 (step 350), both
+    against rtol 0.05.
+  - Level 3 had zero unpairable steps. Level 4 had 23, steps 1350–1900,
+    exactly as in the T6 tier run.
+- **Negative cases:** all three fired in every FMM launch.
+- **Gate:** unchanged. `run_regression_minset.flux` and `tests/CMakeLists.txt`
+  are untouched, and the installed `beatnik_gate_manifest.txt` names five
+  members. Times SERIAL and HIP and ranks 1–6, that is 60 launches.
+
+### What only running revealed
+
+- **`FLUX_JOB_ID` is unset inside a batch instance**, so the provenance submit
+  line printed `(job <none>)` in the bad-stem job. The runner now reads the job
+  ID with `flux getattr jobid`, and the tier jobs show it.
+- **A job's log is empty for its first ~20 s.** Flux fills it in as the job
+  runs, so an empty log early on is not a failure.
+- **SERIAL np4 is slower than np1 on both FMM members:** 2.21x at level 3
+  (6 578 against 2 980 s) and 1.37x at level 4 (8 730 against 6 377 s). This
+  replaces the T6 runner header's 5.4x extrapolation from a killed launch. HIP
+  np4 is 1.06x np1 at level 3 and 0.72x at level 4.
+- **The SERIAL estimates from before T8 were close to the measurements.**
+  Level-4 FMM SERIAL np1 is 6 377 s, against T9b's table at 6 736 s and T6's
+  derived ~21 800 s. Every job finished inside its requested `-t`. The closest
+  were level-4 FMM SERIAL at 65 % of `390m` and level-3 FMM SERIAL at 71 % of
+  `225m`.
+- **`flux job status` on the level-3 job was cut once by the 10-minute command
+  timeout.** It was re-run on the same jobid, returned rc 0, and nothing was
+  resubmitted.
+
+### Departures from T9b's stated Do steps
+
+- **Session 1 also corrected line citations moved by step 0** in T9b's own
+  entry and in Current state: `:1421-1422` → `:1427-1428`, `:1074` → `:1080`,
+  `:1029` → `:1034-1035` and `:1062-1064` → `:1068-1070`. It also fixed the
+  already-stale `:511`/`:544`/`:1385` to `:520`/`:553`/`:1435`.
+- **Step 1 did not pull either clone**, on the task's instruction. The binary
+  was built from the working tree at the commits above.
+- **The runner and wrapper go beyond the spec in four ways:**
+  - the per-stem unmatched FAIL;
+  - stem identifier validation;
+  - `--no-tests=error` in tree mode;
+  - the job ID on the submit line, plus the wrapper's
+    `BEATNIK_MILESTONE_RANKS`/`BEATNIK_USE_PROD` refusals.
+- **The two shortest jobs got `-t` below their original values** (`4m`, `5m`),
+  as 1.5x their walls. Their walls include node startup.
+- **`tasks/canopy/add-canopy.md` got two edits beyond step 5:**
+  - its Status sentence on `pdebug` now names the split submission;
+  - R9 gained a "resolved by measurement" note.
+- **The `### Why not tighter than $10^{-3}$` heading was renamed** to say what
+  the section argues, that claim A's bound cannot become a trajectory
+  comparison. Its body's "$10^{-3}$ perturbation" became "a perturbation of
+  order $\tau_A$". T5's, T9r's and the reference's historical figures are
+  unchanged.
+- **T6's exit criterion** named a single `run_milestone.flux` job. It was met
+  as eight split jobs covering the same sixteen launches, which T6's Met. says.
+
+**Affects:**
+
+- **The topic's close:** T9b was the last task taken, and T9c and T9d are not
+  taken on T9r's verdict. `tasks/add-canopy-t6.md` is **DONE**, and T6 of
+  `tasks/canopy/add-canopy.md` is **DONE**.
+- **Any future milestone member** adds a row to
+  `submit_milestone_split.sh` with `-t` at about 1.5x its first measured wall,
+  and raises `run_milestone.flux`'s `-t` by the same 1.25x rule.

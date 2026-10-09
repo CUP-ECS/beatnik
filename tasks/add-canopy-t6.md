@@ -1,6 +1,6 @@
 # Canopy M2L operator-key demand: measurement, then the cap
 
-**Status:** IN PROGRESS
+**Status:** DONE
 
 ## Problem
 
@@ -1834,7 +1834,7 @@ task documents only.
 
 ---
 
-### T9c — Measure the claim-A error against `order` and `mac_theta` at the worst states, and at level 5 — **NOT STARTED**
+### T9c — Measure the claim-A error against `order` and `mac_theta` at the worst states, and at level 5 — **NOT TAKEN** (T9r's verdict was "order 3 matches the reference", which selects T9e)
 
 **Depends on:** T9r **DONE** with verdict "Beatnik is less accurate than the
 reference".
@@ -1893,7 +1893,7 @@ under step 7's rule. In the failure direction: a cross-check outside 1 % or a
 level-5 time outside the window means the corresponding figure is not reported
 as a measurement of the member's state, and no verdict is given.
 
-### T9d — Make `order` 4 Beatnik's production default, and re-derive claim B at order 4 — **NOT STARTED**
+### T9d — Make `order` 4 Beatnik's production default, and re-derive claim B at order 4 — **NOT TAKEN** (it depends on T9c, which T9r's verdict did not select)
 
 **Depends on:** T9c **DONE** with verdict **order 4**; every task in
 `canopy/tasks/02_oracle_extension.md` (O1, O2, O3) **DONE**, on a Canopy commit
@@ -1969,7 +1969,7 @@ too few runs.
 
 ---
 
-### T9b — Re-run the milestone tier; close T6 — **IN PROGRESS**
+### T9b — Re-run the milestone tier; close T6 — **DONE**
 
 **Depends on:** T9d **DONE** or T9e **DONE**, whichever T9r's verdict selects,
 with the level-4 member's claim-A error under `kTauA`.
@@ -2106,6 +2106,46 @@ launches. In the failure direction: an unknown stem in
 message rather than report PASS, and a red job leaves `-t` at `1440m` and T6 at
 IN PROGRESS, and the failing member's per-check detail lines are read before any
 tolerance is touched.
+
+**Met.** All eight jobs `submit_milestone_split.sh` submitted on 2026-10-09
+end `[milestone] SUMMARY: PASS (2/2 launches)`, with `flux job status` rc 0:
+**16/16 launches**, and every rank's report is `[PASS]` with no `at:` line.
+They ran on the dev env, at beatnik `0411c47` plus 12 dirty files (T9e's and
+step 0's edits, committed afterwards as `5dfdf06`) and canopy
+`investigate-m2l-cap` `bd10c8f`, dirty 0. Each job's `members=`/`backends=`
+line and provenance submit line show the pair it was given.
+
+| job | member | backend | `-t` requested | measured wall (np1 + np4 launch) | new `-t` |
+| --- | --- | --- | --- | --- | --- |
+| `f3d7zNR4jrtF` | `Milestone0Frozen` | SERIAL | `15m` | 236 s (129 + 86) | `6m` |
+| `f3d7zNYut4Q7` | `Milestone0Frozen` | HIP | `10m` | 144 s (51 + 72) | `4m` |
+| `f3d7zNggaJ4w` | `Milestone0FrozenL4` | SERIAL | `45m` | 1 781 s (1 338 + 419) | `45m` |
+| `f3d7zNpMLacP` | `Milestone0FrozenL4` | HIP | `10m` | 168 s (61 + 86) | `5m` |
+| `f3d7zNwy8tb9` | `Milestone0Fmm` | SERIAL | `225m` | 9 581 s (2 980 + 6 578) | `240m` |
+| `f3d7zP5no6pf` | `Milestone0Fmm` | HIP | `20m` | 613 s (287 + 304) | `16m` |
+| `f3d7zPD9mXyy` | `Milestone0FmmL4` | SERIAL | `390m` | 15 130 s (6 377 + 8 730) | `380m` |
+| `f3d7zPLmZqxj` | `Milestone0FmmL4` | HIP | `105m` | 3 614 s (2 089 + 1 504) | `91m` |
+
+- **Checks per launch:** the frozen members `2337/2337` at np1, and `2337` plus
+  `2172/2172` x3 at np4. Both FMM members, level 4 included: `3097/3097` at np1,
+  and `3097` plus `2919/2919` x3 at np4. Level 4 lost no check, and step 0's
+  checks at `:1519` and `:1991` never fired.
+- **Level-4 worst claim-A error**, all at step 1375:
+  `1.2473221109022944e-3` (SERIAL np1), `1.2473258911241197e-3` (SERIAL np4),
+  `1.2473199639579061e-3` (HIP np1) and `1.2559212989720775e-3` (HIP np4). The
+  largest is 1.194x under `kTauA`. Level 3's worst is
+  `3.0960873282148671e-4` at step 250.
+- **Claim B at level 4**, final state: global M2L fallback 2 610, which is the
+  non-cap refusal T8b showed is unreachable to zero. Per-rank unique ops are
+  23 334 of 65 536 at np1, and 13 115 / 13 283 / 13 545 / 13 044 at np4.
+- **Cost:** the eight walls sum to **31 269 s (8.686 h)**, against the 8.685 h
+  single-job T6 run: the same work. The split tier's wall-clock was
+  **4 h 14 min 46 s** (submitted 10:23:45, last exit 14:38:31), bounded by
+  level-4 FMM SERIAL. The wrapper's `-t` is reset to about 1.5x each wall, and
+  `run_milestone.flux` to `-t 652m`, about 1.25x the sum.
+- **Gate:** unchanged. `scripts/tuolumne/run_regression_minset.flux` and the
+  test registration are untouched, and the installed gate manifest names five
+  `regression` members. Times SERIAL and HIP and ranks 1–6, that is 60 launches.
 
 ## Known risks
 

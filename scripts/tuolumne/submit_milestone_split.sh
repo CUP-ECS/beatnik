@@ -10,8 +10,8 @@
 # SPDX-License-Identifier: BSD-3-Clause                                    #
 ############################################################################
 #
-# THE MILESTONE TIER AS EIGHT JOBS, one per (member, backend), each running
-# ranks 1 and 4 through run_milestone.flux. Runs on the LOGIN node: it only
+# THE WAY TO RUN THE MILESTONE TIER: eight jobs, one per (member, backend),
+# each running ranks 1 and 4 through run_milestone.flux. Runs on the LOGIN node: it only
 # calls `flux batch` and launches nothing itself.
 #
 # Why split (tasks/add-canopy-t6.md T9b): one serial 16-launch job holds every
@@ -20,11 +20,13 @@
 # the slowest pair (level-4 FMM SERIAL), and each requests only the walltime
 # its own two launches need, which a backfilling scheduler starts sooner. A
 # bare `flux batch scripts/tuolumne/run_milestone.flux` still runs the whole
-# tier as one job.
+# tier as one job, but only as a fallback; run the tier through this script.
 #
-# Each row's -t is about 1.5x that pair's measured np1 + np4 launch time
-# (T9b's table: the T6 tier run's per-launch costs, T9a/T9e for HIP). It
-# overrides the runner's own `# flux: -t` directive.
+# Each row's -t is about 1.5x that job's MEASURED wall in the first split run
+# (T9b, 2026-10-09, jobs f3d7zNR4jrtF..f3d7zPLmZqxj, all green; the measured
+# wall is the comment beside each row). It overrides the runner's own
+# `# flux: -t` directive. The tier's wall-clock is the slowest row, level-4
+# FMM SERIAL at 4.2 h; the eight walls sum to 8.69 h.
 #
 # Usage:  scripts/tuolumne/submit_milestone_split.sh
 #
@@ -53,16 +55,16 @@ if [ -n "${BEATNIK_USE_PROD:-}" ]; then
     exit 1
 fi
 
-# member  backend  -t
+# member                          backend -t       measured wall (T9b)
 _rows=(
-    "Beatnik_Test_Milestone0Frozen    SERIAL  15m"
-    "Beatnik_Test_Milestone0Frozen    HIP     10m"
-    "Beatnik_Test_Milestone0FrozenL4  SERIAL  45m"
-    "Beatnik_Test_Milestone0FrozenL4  HIP     10m"
-    "Beatnik_Test_Milestone0Fmm       SERIAL  225m"
-    "Beatnik_Test_Milestone0Fmm       HIP     20m"
-    "Beatnik_Test_Milestone0FmmL4     SERIAL  390m"
-    "Beatnik_Test_Milestone0FmmL4     HIP     105m"
+    "Beatnik_Test_Milestone0Frozen    SERIAL  6m"    #   236 s
+    "Beatnik_Test_Milestone0Frozen    HIP     4m"    #   144 s
+    "Beatnik_Test_Milestone0FrozenL4  SERIAL  45m"   #  1781 s
+    "Beatnik_Test_Milestone0FrozenL4  HIP     5m"    #   168 s
+    "Beatnik_Test_Milestone0Fmm       SERIAL  240m"  #  9581 s
+    "Beatnik_Test_Milestone0Fmm       HIP     16m"   #   613 s
+    "Beatnik_Test_Milestone0FmmL4     SERIAL  380m"  # 15130 s
+    "Beatnik_Test_Milestone0FmmL4     HIP     91m"   #  3614 s
 )
 
 for _row in "${_rows[@]}"; do
