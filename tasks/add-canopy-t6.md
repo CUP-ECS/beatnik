@@ -56,14 +56,12 @@ reference treecode's accuracy, not its order number.** An FMM's order-$p$
 gradient carries the truncation of a treecode's order-$(p-1)$ velocity, so
 Beatnik's order 3 is the counterpart of the reference's order 2
 (`README.md:317-328`). They measure `5.0e-4` and `4.8e-4` on comparable
-2562-source early states (T5; `tasks/treecode.md` §1). Whether τ_A = 1e-3 is
-the reference's fidelity *at the roll-up* has not been measured, and T9r
-measures it on the member's own states. If the reference also exceeds 1e-3
-there, production stays at order 3 and τ_A is re-derived from the reference
-(T9e). If the reference meets it, Beatnik is less accurate than the reference,
-and the production `order` rises to 4 at the same `mac_theta` (T9c, T9d). Order
-4 needs Canopy's oracle to cover it first
-(`canopy/tasks/02_oracle_extension.md`).
+2562-source early states (T5; `tasks/treecode.md` §1). **At the roll-up the
+reference does not meet 1e-3 either.** T9r measured it on the member's own 81
+states: worst `1.4987010690098229e-3` at step 1550, over 1e-3 at 19 of 80
+states. Beatnik's worst errors are under that, so production stays at order 3
+and τ_A is re-derived from the reference as `1.5e-3` (T9e). T9c and T9d, which
+would have raised the production `order` to 4, are not taken.
 
 **The demand is unmeasurable at the current cap, and that is the first thing to
 fix.** The serial merge refuses a key once `ops.size()` reaches
@@ -77,8 +75,8 @@ many pairs share a key.
 So the cap cannot be sized. This document makes the demand observable, measures
 it on Beatnik's own level-4 geometry, raises the cap to cover that number, and
 then separates out the refusal path that routes pairs to the fallback where the
-cap is not reached at all. With the cap ruled out, it raises the expansion order
-so that claim A meets τ_A at the roll-up.
+cap is not reached at all. With the cap ruled out, it measures the reference
+treecode at the roll-up and re-derives τ_A from the reference's error there.
 
 ### Why this does not need a 24-hour job
 
@@ -1659,7 +1657,7 @@ rank counts. Per Do step 6, T9b was not submitted and τ_A was not touched.
 
 ---
 
-### T9r — Measure the reference treecode's own error on the member's 81 states — **NOT STARTED**
+### T9r — Measure the reference treecode's own error on the member's 81 states — **DONE**
 
 **Depends on:** T9a **DONE**.
 **Fill in:**
@@ -1746,6 +1744,22 @@ No C++ changes, and nothing in the reference repository changes.
 
 In the failure direction: a calibration outside 10x, fewer than 81 rows, or a
 missing printed parameter means no verdict.
+
+**Met — verdict "order 3 matches the reference"; T9e is next.**
+- **Job:** `f3d7BbCHyPu1` (`pdebug`, 76 s of measurement), rc 0, 81 `[t9r]
+  row` lines.
+- **Provenance:** reference `ec7d7bf` with a clean `zmodel3d/`;
+  `/usr/tce/bin/python3` 3.13.2 and NumPy 2.1.2.
+- **Parameters:** all printed — `eps` 0.025, `use_matlab_blob` False, `vertex`
+  quadrature, θ 0.3, order 2, `ncrit` 64.
+- **Calibration:** step 25 reads `5.8288877682024988e-4`, 1.21x of `4.8e-4`.
+- **Worst error:** `E_ref = 1.4987010690098229e-3` at step 1550 (`t =
+  1.7873730821831051`), so `τ_ref = 1.5e-3`. The reference is over 1e-3 at 19
+  of 80 states.
+- **Rule:** `τ_ref > 1.0e-3`, and T9a's `1.2536745760757648e-3` (np1) and
+  `1.2473681315787063e-3` (np4) are both `<= τ_ref`.
+- **Note:** the reference's worst state (1550) is not Beatnik's (1375). The
+  per-state table is in the progress log under `## T9r`.
 
 ### T9e — Re-derive τ_A from the reference's measured fidelity; production stays at order 3 — **NOT STARTED**
 
