@@ -1948,13 +1948,52 @@ too few runs.
 **Depends on:** T9d **DONE** or T9e **DONE**, whichever T9r's verdict selects,
 with the level-4 member's claim-A error under `kTauA`.
 **Fill in:** `tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp` (the
-purity checks at `:1500` and `:1967`, claim B's `p.fmm` near `:1029`, and the
+purity checks at `:1500` and `:1967`, claim B's `p.fmm` at `:1028`, and the
 `makeFmmParams` comment at `:1062-1064`);
-`scripts/tuolumne/run_milestone.flux` (`-t` only, and only after the run);
-`tasks/canopy/add-canopy.md` (T6 status, and every statement of the τ_A bound
-— see step 4a); both progress logs.
-**Reference:** the runner's own header comment says how to set `-t` from a tier
-run. The gate is untouched: five `regression` members, 60 launches on tuolumne.
+`scripts/tuolumne/run_milestone.flux`:
+- a member filter `BEATNIK_MILESTONE_MEMBERS`, beside the existing
+  `BEATNIK_MILESTONE_BACKENDS` and `BEATNIK_MILESTONE_RANKS` (`:144-145`);
+- a per-launch `PASS`/`FAIL … in <N>s` line;
+- a closing `[milestone] SUMMARY: <PASS|FAIL> (<passed>/<run> launches)` line;
+- its header comment and `-t`, after the run;
+
+a new `scripts/tuolumne/submit_milestone_split.sh`; `tasks/canopy/add-canopy.md`
+(T6 status, and every statement of the τ_A bound — see step 5a);
+`CLAUDE.md` and `docs/testing.md` (the `milestone` tier's runner and cost);
+both progress logs.
+**Reference:** `run_milestone.flux` reports only
+`[milestone] PASS (label=milestone)` or `FAIL` (`:297-301`). It prints no
+per-launch wall and no launch count. Its spack-mode loop (`:216-269`) selects
+manifest lines by the `_<BACKEND>` suffix of field 1, and keys scratch by target
+(`:243`). Target names are `<member>_MPI_<BACKEND>`, so jobs for distinct
+(member, backend) pairs never share a scratch directory. The milestone tier
+runs on the **dev** env, as the T6 tier run did. The gate is untouched: five
+`regression` members, 60 launches on tuolumne.
+
+**The tier runs as eight jobs, one per (member, backend), each launching ranks
+1 and 4.** One serial 16-launch job holds every result until the slowest launch
+ends. Eight independent `pbatch` jobs run concurrently, and each requests only
+the walltime its own two launches need, which a backfilling scheduler starts
+sooner. The wall-clock is bounded by the slowest pair, level-4 FMM SERIAL,
+rather than by the 8.685 h sum.
+
+The per-job `-t` is about 1.5x the measured np1 + np4 launch time. Sources:
+the T6 tier run's per-launch cost table
+(`tasks/canopy/add-canopy-progress-log.md` `## T6`); T9a and T9e for level-4
+HIP; and T9e for level-3 HIP. The SERIAL FMM figures predate T8 and Canopy
+`38658ad`, under which HIP claim B got 4–17 % cheaper:
+
+| job (member, backend) | measured np1 + np4 | `-t` |
+| --- | --- | --- |
+| `Milestone0Frozen` SERIAL | 122 + 79 s | `15m` |
+| `Milestone0Frozen` HIP | 42 + 64 s | `10m` |
+| `Milestone0FrozenL4` SERIAL | 1 334 + 423 s | `45m` |
+| `Milestone0FrozenL4` HIP | 54 + 75 s | `10m` |
+| `Milestone0Fmm` SERIAL | 2 737 + 6 169 s | `225m` |
+| `Milestone0Fmm` HIP | 324 + 307 s | `20m` |
+| `Milestone0FmmL4` SERIAL | 6 736 + 8 582 s | `390m` |
+| `Milestone0FmmL4` HIP | 2 407 + 1 801 s | `105m` |
+
 **Do:**
 0. Make the member assert what level 4 can satisfy. Replace
    `p.m2l_fallback == 0` (`:1500`) and
@@ -1969,14 +2008,38 @@ run. The gate is untouched: five `regression` members, 60 launches on tuolumne.
    intended commits and `spack install` **first**, so the binary reflects them.
    Never `spack install` against the production env while a production job is
    live.
-2. Submit the full milestone tier at `-q pbatch -t 1440m` — all four members,
-   both backends, ranks 1 and 4, sixteen launches.
-3. Only once it is green, set `-t` from the measured total with headroom, and
-   record the measurement that set it.
-4. Mark T6 **DONE** in `tasks/canopy/add-canopy.md`, replace the provisional
+2. Give `run_milestone.flux` the member filter, the per-launch line and the
+   `SUMMARY` line.
+   - `BEATNIK_MILESTONE_MEMBERS` is a space-separated list of member stems. It
+     matches field 1 of a manifest line **exactly**, after its `_MPI_<BACKEND>`
+     suffix is stripped. That way `Beatnik_Test_Milestone0Fmm` does not also
+     select `Beatnik_Test_Milestone0FmmL4`.
+   - Unset means every member, so a bare
+     `flux batch scripts/tuolumne/run_milestone.flux` still runs the whole tier.
+   - A filter that selects nothing fails through the existing `_ranks_run == 0`
+     guard (`:277-284`).
+   - In tree mode the filter must either reach `ctest -R` or fail loudly. It is
+     never silently ignored.
+3. Write `scripts/tuolumne/submit_milestone_split.sh`.
+   - It carries the project's BSD-3-Clause header.
+   - It holds the table above as data and runs one
+     `BEATNIK_MILESTONE_MEMBERS=<m> BEATNIK_MILESTONE_BACKENDS=<b> flux batch -t <t> --job-name=beatnik_milestone_<m>_<b> scripts/tuolumne/run_milestone.flux`
+     per row.
+   - It prints one `<jobid> <member> <backend> <-t>` line per submission.
+   - It submits only; it launches nothing itself.
+   - Submit it. A job killed at its wall is resubmitted **once**, alone, at
+     1.5x the killed limit, and the log records the kill. A second kill stops
+     the task.
+4. Only once all eight jobs are green, set the per-job `-t` in the wrapper's
+   table to about 1.5x each job's measured wall, and set `run_milestone.flux`'s
+   own `-t` to about 1.25x the sum of the eight. Rewrite the header comment
+   (`:46-102`) around those measurements and the split submission. Record every
+   job's wall.
+5. Mark T6 **DONE** in `tasks/canopy/add-canopy.md`, replace the provisional
    walltime wording, and state the measured tier cost. Update the `milestone`
-   tier description in `CLAUDE.md` and `docs/testing.md` if the total or the
-   `-t` changes what they claim.
+   tier description in `CLAUDE.md` and `docs/testing.md`: the split submission,
+   and the measured per-job and summed cost in place of the provisional
+   `1440m` wording.
 
    a. On the T9e path, restate τ_A in `tasks/canopy/add-canopy.md` to match the
       compiled `kTauA = 1.5e-3`. Its basis is the reference treecode's worst
@@ -1993,12 +2056,14 @@ run. The gate is untouched: five `regression` members, 60 launches on tuolumne.
       fidelity. Keep that measurement and add that T9r measured the reference
       at the roll-up, where it reaches `1.4987e-3`. On the T9d path `kTauA`
       stays `1e-3` and this step is a no-op.
-5. Confirm the gate is unchanged and say so: `regression` still has five members
+6. Confirm the gate is unchanged and say so: `regression` still has five members
    and 60 launches on tuolumne.
 
-**Exit criterion:** `scripts/tuolumne/run_milestone.flux` reports
-`SUMMARY: PASS (16/16 launches)`; `run_milestone.flux`'s `-t` is set from that
-run's measured total; `tasks/canopy/add-canopy.md` shows T6 **DONE** with the
+**Exit criterion:** the eight jobs `submit_milestone_split.sh` submitted each
+end `[milestone] SUMMARY: PASS (2/2 launches)` with `flux job status` rc 0,
+16/16 launches across them, every launch's rank-0 report `[PASS]`.
+The wrapper's table and `run_milestone.flux`'s `-t` are set from those jobs'
+measured walls; `tasks/canopy/add-canopy.md` shows T6 **DONE** with the
 measured cost, and — on the T9e path — states τ_A as `1.5e-3` with its T9r
 basis. That doc's state is checked with
 `grep -nE 'tau_A\$? *(\\le|\\approx|is) *\$?10\^\{-3\}' tasks/canopy/add-canopy.md`
@@ -2006,7 +2071,9 @@ basis. That doc's state is checked with
 current-design text: the fidelity target, the milestone members, X1 and Known
 risks). Afterwards it returns nothing. Finally, the gate runner
 `scripts/tuolumne/run_regression_minset.flux` still reports five members and 60
-launches. In the failure direction: a red tier leaves `-t` at `1440m` and T6 at
+launches. In the failure direction: an unknown stem in
+`BEATNIK_MILESTONE_MEMBERS` makes the runner fail with its no-runnable-tests
+message rather than report PASS, and a red job leaves `-t` at `1440m` and T6 at
 IN PROGRESS, and the failing member's per-check detail lines are read before any
 tolerance is touched.
 
