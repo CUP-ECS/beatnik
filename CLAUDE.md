@@ -81,7 +81,7 @@ tuolumne the gate is **60 launches** and takes correspondingly longer to run.
 **All five are green**, the full sweep as of T4c (T4c added no member — its
 tangential relaxation is a `unit`-tier test — and re-ran the gate to show the two
 new `advanceOneStep` call sites perturb nothing).
-The grouped checkpoint output (`tasks/grouped-io.md`) likewise **adds a `unit`
+The grouped checkpoint output (`tasks/completed/grouped-io.md`) likewise **adds a `unit`
 member and no gate member**, so the tier still has exactly those five: it emits
 additional light data — one master XDMF temporal collection per run — and changes
 no `.h5` dataset, and it is covered by `Beatnik_Test_CheckpointSeries` in the
@@ -104,7 +104,8 @@ members and 60 launches.** The `milestone` tier has **four** members and
 - `Beatnik_Test_Milestone0Fmm` and `Beatnik_Test_Milestone0FmmL4` (T6,
   `tasks/canopy/add-canopy.md`): the same two levels driven through the Canopy
   FMM at `ncrit = 8`, `order = 3`. Each asserts **two** claims in one binary —
-  a per-evaluation velocity bound (max relative error ≤ `1e-3`) at 81
+  a per-evaluation velocity bound (max relative error ≤ `1.5e-3`, the reference
+  treecode's own worst on the same states) at 81
   direct-driven states, and the stability and divergence horizon of a
   2000-step FMM-driven trajectory. They reuse the frozen members' gold
   directories; no new gold set exists. Eight launches.

@@ -3355,3 +3355,162 @@ written: no state was dropped, no parameter was changed, and the job ran once.
 - **T9c, T9d** — not done on this verdict. Canopy's
   `02_oracle_extension.md` is no longer on the critical path.
 - **T9b** — now depends on T9e.
+
+## T9e
+
+**Outcome: `kTauA = 1.5e-3`, and the exit criterion is met at every launch.**
+The level-3 member passes at HIP np1 and np4. The level-4 member has zero
+failed checks at `:1505`/`:1506` at both rank counts, and every failure is at
+`:1500` or `:1967`, which T9b step 0 replaces. Negative case 2 fires in all
+four launches. One `spack install` and three `pdebug` jobs, none resubmitted.
+
+### Decisions taken as given by the task, recorded so they are not reopened
+
+- **`kTauA = 1.5e-3` exactly.** That is `τ_ref`: T9r's `E_ref =
+  1.4987010690098229e-3` (step 1550, `t = 1.7873730821831051`) rounded up to
+  two significant digits. Its basis is the reference's worst over the
+  trajectory, not a per-state comparison, because the two methods' errors do
+  not track state by state (T9r).
+- **The literal stays shared by both levels.** The reference is unmeasured at
+  level 3, and the comment says so.
+- **Production stays at order 3.** `kProductionOrder`, `kPerturbationFactor`,
+  `kM2LOpCountCap`, claim B's `p.fmm` and every other tolerance are untouched.
+  So are the zero-fallback checks at `:1500`/`:1967` and the `makeFmmParams`
+  comment: T9b step 0 owns them. T9c and T9d are not done.
+- **Out of scope here**: `tasks/canopy/add-canopy.md` (its τ_A statements are
+  T9b step 4a) and `scripts/tuolumne/run_milestone.flux`. The gate is
+  untouched and was not run. None of the five `BEATNIK_REGRESSION_TEST_SOURCES`
+  (`tests/CMakeLists.txt:256`) mentions `BRApproximation::Fmm`, `BRSolverFmm`
+  or `FarFieldInterface`, so the gate stays five members and 60 launches. The
+  `milestone` tier keeps four members and sixteen launches.
+- **clang-format was not run.** No signature changed.
+
+### What changed
+
+- `Beatnik_Test_Milestone0Fmm.cpp`:
+  - `kTauA` `1.0e-3` → `1.5e-3`.
+  - Its "Where the value comes from" and "What has NOT been measured"
+    paragraphs are replaced by one block: the reference basis, Beatnik's
+    T9a worst and margin, level 3's margin, and what is still unmeasured
+    (the reference at level 3, and N-dependence, R11).
+  - The qualification list and the "Floor" paragraph are kept.
+  - The file header's "as tight as `1e-3`" now reads "as tight as `kTauA`"
+    (`:51`).
+- **Both comment rewrites were held to their original line counts on
+  purpose.** That applies here and to the `src/Beatnik_Params.hpp` `order`
+  comment (`:218-228`). This document and its T9b/T9c/T9d entries cite many
+  later lines of both files (`:345`, `:1500`, `:1505`, `:1506`, `:1967`,
+  `:1029`, `:1062-1064`, and `Beatnik_Params.hpp:229`, `:238-251`, `:291`,
+  `:382-404`). A longer comment would have silently shifted every one of
+  them. All are verified unmoved.
+- `src/Beatnik_Params.hpp` `order` comment: order 3 is now justified as the
+  reference's accuracy class measured on the sheet at both ends of the
+  trajectory, replacing the "curve on Beatnik's own geometry is unmeasured"
+  sentence that T5 and T9a/T9r made false.
+- `README.md`:
+  - The order paragraph and the T6 status blockquote's bound (`≤ 1.5×10⁻³`)
+    are updated.
+  - "FMM accuracy (measured)" gains a roll-up table, Beatnik order 3 against
+    the reference order 2 over the 80 non-zero-field states, and states τ_A's
+    derivation.
+  - "Order 3 is the production order" is now argued as matching the
+    reference, not as "smallest that reaches 10⁻³".
+  - The smooth-state order curve is unchanged.
+- `CLAUDE.md:107`, `docs/testing.md:33`: the bound's value plus one clause on
+  its source.
+- This document:
+  - T9e's conditional "Additional information needed" is answered.
+  - Do step 1 says 80 non-zero-field states.
+  - R9 is marked resolved.
+  - The Problem section's `kTauA = 1.0e-3` is now phrased as the bound then
+    compiled.
+
+### Provenance and build
+
+- Beatnik `f496db0ac7a6b8edc18ba8014bb63f234721fa5f`. The jobs' `dirty = 5`
+  is this task's edits plus `.claude/settings.json`, the untracked
+  `t8b_fallback_reasons.flux` and `prompt.md`.
+- **Canopy: branch `investigate-m2l-cap` at `bd10c8f`, clean.** T9a measured
+  on `38658ad`. `git diff --stat 38658ad bd10c8f` is
+  `tasks/02_oracle_extension.md` and its progress log only, with no source,
+  so this is the same Canopy code. Spack still rebuilt `canopy@develop`
+  (hash `w4woraj`, 39 s), as it does for a moved `spack develop` clone.
+- `spack install` of the dev env: rc 0, 638.93 s real, beatnik `nnbspfy`
+  9 m 58 s. `HIPCC_*_FLAGS_APPEND` were cleared first, the log is at
+  `/p/lustre5/stewartj/beatnik/t9e/install.log`, and nothing was edited while
+  it ran. Both member binaries are stamped 09:07, the install's end.
+- The installed binaries print `tau_A = 0.0015` in every claim-A line, so the
+  new literal is what ran.
+
+### Measured
+
+| job | launch | `flux job status` | launch wall | checks | worst claim-A rel. err (step, P2P frac) | margin | claim A / claim B |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| `f3d7PwLWDv7Z` | L3 HIP np1 | rc 0 (job) | 324 s | `3097/3097` | `3.0962040386966078e-4` (250) | 4.84x | 60.8 s / 244.2 s |
+| `f3d7PwLWDv7Z` | L3 HIP np4 | | 307 s | `3097/3097`, `2919/2919` x3 | `3.09540571172368e-4` (250) | 4.85x | 70.2 s / 218.3 s |
+| `f3d7PwVUba2b` | L4 HIP np1 | rc 1 (by construction) | 2 144 s | `3025/3097` | **`1.2473062176312833e-3`** (1375, `0.337355`) | **1.203x** | 93.1 s / 2 011.7 s |
+| `f3d7PwcwVxKH` | L4 HIP np4 | rc 1 (by construction) | 1 526 s | `3025/3097` r0, `2847/2919` r1–3 | **`1.2559617916233386e-3`** (1375, `0.337675`) | **1.194x** | 108.3 s / 1 371.0 s |
+
+- **Failed-check sites, read from every `at:` line.**
+  - np1: 71 at `:1500` and 1 at `:1967`, 72 = 3097 − 3025.
+  - np4: 284 at `:1500` (71 × 4 ranks) and 4 at `:1967`, 72 per rank.
+  - **None at `:1505` or `:1506`.** Against T9a's 82 and 80, that is exactly
+    the 5+5 and 4+4 τ_A failures gone.
+- **Cap refusal is zero inside the member.** `fb_count_cap=0` appears in
+  6 082 of 6 082 (np1) and 24 328 of 24 328 (np4) `[Canopy Diagnostics] M2L
+  operator table` lines. The logs contain no `M2L op count exceeded cap` or
+  `leaves at max_depth` warning.
+- **Negative case 2**, perturbed relative error against `tau_A = 0.0015`:
+  `2.9971116898820224e-3` (L4 np1), `2.9940682859248119e-3` (L4 np4),
+  `2.9982842099722609e-3` (L3 np1) and `3.0025669945544101e-3` (L3 np4). All
+  exceed it, so the bound is live at the new value.
+- **States over 1e-3 at level 4.**
+  - np1: 1000, 1350, 1375, 1475 (4). 1325 and 975 read `0.99423e-3` and
+    `0.99443e-3`.
+  - np4: 975 (`1.00137e-3`), 1000, 1325 (`1.00305e-3`), 1350, 1375, 1475 (6).
+  - T9a had 5 and 4. The 975/1325 pair sits on the 1e-3 line in every draw,
+    so whether it counts is draw noise.
+  - The full 81-state series are saved at
+    `/p/lustre5/stewartj/beatnik/t9e/series_np{1,4}.txt`.
+- **The draw-to-draw spread at the peak is now 0.69 % over four clean
+  readings at step 1375.** These are T9a's `1.2537e-3` (np1) and `1.2474e-3`
+  (np4), and this task's `1.2473e-3` (np1) and `1.2560e-3` (np4). np4 is the
+  higher one this time. The worst clean reading is `1.2559617916233386e-3`,
+  1.194x under `kTauA`, so the bound has about 19 % headroom over the observed
+  spread.
+
+### What only running revealed
+
+- **Claim B was faster than T9a**: 2 011.7 s against 2 280.8 s at np1 (−11.8 %)
+  and 1 371.0 s against 1 655.5 s at np4 (−17.2 %). The binary and the Canopy
+  source are the same, so this is node or filesystem variance. Level-4 member
+  totals for planning are 2 144 s (np1) and 1 526 s (np4) of launch wall,
+  against T9a's 2 407 s and 1 801 s.
+- `pdebug` started all three jobs within seconds, and they ran concurrently.
+  The ten-minute command timeout cut the `flux job status` waits on the
+  level-4 jobs short. Re-running it on the same jobid worked, and nothing was
+  resubmitted.
+
+### Departures from T9e's stated Do steps
+
+- **The comments were rewritten to fixed line counts** (above). Do step 1 does
+  not ask for this, but without it the rewrite would have invalidated line
+  citations the rest of this document depends on.
+- **`README.md:293`**, the T6 status blockquote's statement of the bound, was
+  updated. The Fill in names `:317-328` and `:387` but not that line, and left
+  alone it would have contradicted them.
+- The design doc's Problem section line 28 was rephrased so that it no longer
+  reads `kTauA = 1.0e-3` as current.
+
+**Affects:**
+
+- **T9b** — unblocked: T9e is **DONE** with the level-4 claim-A error under
+  `kTauA` at both rank counts, so its dependency is met.
+  - Step 4a applies: the T9e path was taken, so `tasks/canopy/add-canopy.md`'s
+    τ_A statements become `1.5e-3`.
+  - Its tier run should expect exactly 71 + 1 failed checks per level-4 launch
+    until step 0's replacement lands, and zero after.
+  - Budget level-4 HIP at about 2 150–2 410 s (np1) and 1 530–1 800 s (np4).
+  - Line citations into `Beatnik_Test_Milestone0Fmm.cpp` and
+    `Beatnik_Params.hpp` are unchanged.
+- **T9c, T9d** — not done on this path; nothing here changes them.

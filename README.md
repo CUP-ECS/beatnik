@@ -290,7 +290,7 @@ implement and it isolates bugs in the rest of the code from the far-field solver
 > for it are a per-evaluation bound plus a stability-and-divergence-horizon
 > measurement. Task T6 (`tasks/canopy/add-canopy.md`) **has written those two
 > claims** into the `milestone`-tier members `Beatnik_Test_Milestone0Fmm` and
-> `Beatnik_Test_Milestone0FmmL4` — max relative velocity error $\le 10^{-3}$
+> `Beatnik_Test_Milestone0FmmL4` — max relative velocity error $\le 1.5\times10^{-3}$
 > over 81 direct-driven states, plus the divergence horizon of a 2000-step
 > FMM-driven trajectory. The full-tier run confirming them on both backends at
 > both rank counts is **still outstanding**, so treat the pair as
@@ -321,11 +321,13 @@ gradient by differentiating a local expansion, and the gradient of a degree-$p$
 Taylor local is degree $p-1$ — so an FMM's order-2 gradient is one order short of
 where the treecode's order-2 velocity sits, and Beatnik reads only the gradient.
 Order 3 here is the *counterpart* of the reference's 2, not an upgrade of it. The
-default is set from measurement rather than from that argument: on a volumetric
-cloud at $\theta=0.3$ the relative error on the gradient is
-$8.996\times10^{-3}$ at $p=2$ against $7.0718\times10^{-4}$ at $p=3$, so 3 is
-the smallest order that reaches the $10^{-3}$ target and 2 misses it by an
-order. Passing `--br-treecode-order 2` explicitly still yields 2.
+default is set from measurement rather than from that argument: measured against
+the reference on the same sheet, order 3 matches its accuracy and order 2 is an
+order worse — $5.01\times10^{-4}$ and $5.97\times10^{-3}$ against the
+reference's $4.8\times10^{-4}$ at a smooth state, and a worst of
+$1.26\times10^{-3}$ at order 3 against the reference's $1.50\times10^{-3}$ over a
+full roll-up (see [FMM accuracy](#fmm-accuracy-measured)). Passing
+`--br-treecode-order 2` explicitly still yields 2.
 
 `mac_theta` and `ncrit` need no such correction — both denote the same quantity in
 both algorithms. `ncrit` carries a separate caveat that is about the mesh, not the
@@ -433,9 +435,28 @@ model $(\theta/2\sqrt3)^{p}$ that was fitted on a volumetric cloud:
 | 4 | $5.61\times10^{-5}$ | $5.6\times10^{-5}$ | 1.00 | $1.97\times10^{-6}$ |
 | 5 | $8.38\times10^{-6}$ | $4.9\times10^{-6}$ | 1.72 | $5.12\times10^{-7}$ |
 
-**Order 3 is the production order** and is the smallest that reaches
-$10^{-3}$ on the gradient: order 2 misses it by a factor of 6 and order 4 is
-not adoptable — it reaches derivative degree $|k|=8$ and Canopy's derivative
+The table above is one smooth state. Over the 81 checkpointed states of the
+level-4 sheet's 2000-step roll-up (the `Beatnik_Test_Milestone0FmmL4` member's
+claim A, HIP at 1 and 4 ranks, two independent runs each), the error at order
+3 grows with the geometry, and so does the reference treecode's on the same
+states, through the reference's own direct sum and its defaults (order 2,
+$\theta=0.3$, `ncrit` 64):
+
+| Over the roll-up | Beatnik, order 3 | Reference treecode, order 2 |
+| --- | --- | --- |
+| Worst max relative velocity error | $1.247\times10^{-3}$ to $1.256\times10^{-3}$, at step 1375 | $1.499\times10^{-3}$ at step 1550 |
+| States over $10^{-3}$ (of 80 non-zero-field) | 4–6 | 19 |
+| Smooth early state (step 25) | $5.06\times10^{-4}$ | $5.83\times10^{-4}$ |
+
+The two peak at different states, because each method's error is set by where
+its own MAC boundaries fall on the roll-up; the comparison is worst against
+worst. The milestone members therefore bound the per-evaluation error at
+$\tau_A=1.5\times10^{-3}$ — the reference's own worst, rounded up — and Beatnik
+order 3 clears it by 1.19x at level 4 and 4.8x at level 3.
+
+**Order 3 is the production order** because it matches the reference's
+accuracy: order 2 is an order worse (a factor of 12 at the smooth state) and
+order 4 is not adoptable — it reaches derivative degree $|k|=8$ and Canopy's derivative
 ladder is validated only to $|k|=6$, so an arithmetic error there would be
 indistinguishable from the truncation it would be attributed to. Orders 4 and 5
 are measurable and reported; raising the default past 3 is an upstream request
@@ -720,7 +741,7 @@ subsections above, which are intended behavior.
 
 - **A restarted run's checkpoint master and its `.xmfindex` would describe
   different frame lists.** *New with the grouped checkpoint output
-  (`tasks/grouped-io.md` T1), and **latent**: unreachable today.* `CheckpointIO`
+  (`tasks/completed/grouped-io.md` T1), and **latent**: unreachable today.* `CheckpointIO`
   holds one `Tessera::MeshSeries` per process, constructed empty, so on a restart
   the master `<prefix>.xmf` is rewritten from scratch and names only the
   post-restart frames — while Tessera **appends** to the pre-existing

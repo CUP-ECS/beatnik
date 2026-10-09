@@ -35,6 +35,26 @@
 # Submit with:   flux batch scripts/tuolumne/run_milestone.flux
 # Then read the beatnik_milestone.<jobid>.log it writes to cwd.
 #
+# Or as eight concurrent jobs, one per (member, backend), each with its own
+# -t:   scripts/tuolumne/submit_milestone_split.sh   (T9b; see its header).
+#
+# Filters, all optional, all space-separated, all read from the environment
+# (flux batch copies the submitting environment into the job):
+#
+#   BEATNIK_MILESTONE_MEMBERS   member stems, e.g. Beatnik_Test_Milestone0Fmm.
+#                               Matched EXACTLY against manifest field 1 with
+#                               its _MPI_<BACKEND> suffix stripped, so that stem
+#                               does not also select Beatnik_Test_Milestone0FmmL4.
+#                               Unset means every member. A stem that matches
+#                               nothing is a FAIL, never a silent skip.
+#   BEATNIK_MILESTONE_BACKENDS  default `SERIAL HIP`.
+#   BEATNIK_MILESTONE_RANKS     default `1 4`.
+#
+# Every launch prints `[milestone] <PASS|FAIL> <target> np=<N> in <S>s`, and the
+# job ends `[milestone] SUMMARY: <PASS|FAIL> (<passed>/<run> launches)`. A
+# job killed at its walltime prints no SUMMARY at all, so its absence is a
+# finding.
+#
 # This file is run_regression_minset.flux's structure with a different label,
 # manifest name and rank list. It is a COPY on purpose: the gate script is
 # single-sourced against CLAUDE.md's gate definition and must keep saying
@@ -135,14 +155,47 @@ fi
 # shellcheck source=../lib/beatnik_env.sh
 source "${BEATNIK_REPO}/scripts/lib/beatnik_env.sh" || exit 1
 
+##--------------------------------------------------------------------------##
+## Provenance -- a walltime or a pass in the progress log is only reusable if a
+## later session can tell which toolchain and commit produced it. Echoed before
+## any work. Copied from t9a_l4_member.flux.
+##--------------------------------------------------------------------------##
+_canopy_src="${BEATNIK_REPO}/../canopy"
 beatnik_env_summary
+echo "[milestone] spack env status:"
+spack env status 2>&1 | sed 's/^/[milestone]   /'
+echo "[milestone] commit  = $(git -C "${BEATNIK_REPO}" rev-parse HEAD 2>/dev/null || echo unknown)"
+echo "[milestone] dirty   = $(git -C "${BEATNIK_REPO}" status --porcelain 2>/dev/null | wc -l) file(s) modified"
+echo "[milestone] canopy branch = $(git -C "${_canopy_src}" rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
+echo "[milestone] canopy commit = $(git -C "${_canopy_src}" rev-parse HEAD 2>/dev/null || echo unknown)"
+echo "[milestone] canopy dirty  = $(git -C "${_canopy_src}" status --porcelain --untracked-files=no 2>/dev/null | wc -l) file(s) modified"
+echo "[milestone] submit  = BEATNIK_MILESTONE_MEMBERS='${BEATNIK_MILESTONE_MEMBERS-<unset>}'" \
+     "BEATNIK_MILESTONE_BACKENDS='${BEATNIK_MILESTONE_BACKENDS-<unset>}'" \
+     "flux batch scripts/tuolumne/run_milestone.flux" \
+     "(job $(flux getattr jobid 2>/dev/null || echo "${FLUX_JOB_ID:-<none>}"))"
+echo "[milestone] canopy variants:"
+spack find --variants canopy 2>&1 | grep -i canopy | sed 's/^/[milestone]   /'
+echo "[milestone] beatnik spec (compiler after the %):"
+spack find --variants beatnik 2>&1 | grep -i beatnik | sed 's/^/[milestone]   /'
 
 ##--------------------------------------------------------------------------##
 ## Tier parameters
 ##--------------------------------------------------------------------------##
 BEATNIK_MILESTONE_LABEL="milestone"
+BEATNIK_MILESTONE_MEMBERS="${BEATNIK_MILESTONE_MEMBERS:-}"
 BEATNIK_MILESTONE_BACKENDS="${BEATNIK_MILESTONE_BACKENDS:-SERIAL HIP}"
 BEATNIK_MILESTONE_RANKS="${BEATNIK_MILESTONE_RANKS:-1 4}"
+
+# A stem is an identifier; anything else would be read as a pattern by ctest -R
+# in tree mode and could select more than it names.
+for _m in ${BEATNIK_MILESTONE_MEMBERS}; do
+    case "${_m}" in
+        *[!A-Za-z0-9_]*)
+            echo "[milestone] FAIL: member stem '${_m}' is not an identifier." >&2
+            echo "[milestone] SUMMARY: FAIL (0/0 launches)"
+            exit 1 ;;
+    esac
+done
 
 # Parent of the per-test I/O directories. MUST be on a PARALLEL filesystem: the
 # checkpoints go through MPI-IO and a node-local scratch fails every launch that
@@ -150,16 +203,22 @@ BEATNIK_MILESTONE_RANKS="${BEATNIK_MILESTONE_RANKS:-1 4}"
 BEATNIK_MILESTONE_SCRATCH_ROOT="${BEATNIK_MILESTONE_SCRATCH_ROOT:-/p/lustre5/stewartj/beatnik/milestone0}"
 
 echo "[milestone] label=${BEATNIK_MILESTONE_LABEL}" \
+     "members='${BEATNIK_MILESTONE_MEMBERS:-<all>}'" \
      "backends='${BEATNIK_MILESTONE_BACKENDS}'" \
      "ranks='${BEATNIK_MILESTONE_RANKS}'"
 
 _milestone_rc=0
+_launches_run=0
+_launches_passed=0
 
 ##--------------------------------------------------------------------------##
 ## manual / tree mode: ctest inside the build directory
 ##--------------------------------------------------------------------------##
 # The harness already registered one ctest case per (backend, rank), so
-# `-L <label> -R <backend>` selects the whole rank sweep.
+# `-L <label> -R <backend>` selects the whole rank sweep. A member filter
+# becomes an anchored `-R` on the registered name `<stem>_MPI_<BACKEND>_np_<N>`,
+# and `--no-tests=error` then makes a stem that matches nothing fail loudly
+# rather than run zero tests and pass.
 if [ "${BEATNIK_BIN_MODE}" = "tree" ]; then
     if [ ! -d "${BEATNIK_BUILD_DIR}" ]; then
         echo "[milestone] FAIL: build dir ${BEATNIK_BUILD_DIR} does not exist." >&2
@@ -173,10 +232,17 @@ if [ "${BEATNIK_BIN_MODE}" = "tree" ]; then
     }
     echo "[milestone] scratch = ${BEATNIK_TEST_SCRATCH}"
     for _backend in ${BEATNIK_MILESTONE_BACKENDS}; do
-        echo "[milestone] ctest -L ${BEATNIK_MILESTONE_LABEL} -R ${_backend}"
+        if [ -n "${BEATNIK_MILESTONE_MEMBERS}" ]; then
+            _re="^($(echo ${BEATNIK_MILESTONE_MEMBERS} | tr ' ' '|'))_MPI_${_backend}_np_"
+            _no_tests=error
+        else
+            _re="${_backend}"
+            _no_tests=ignore
+        fi
+        echo "[milestone] ctest -L ${BEATNIK_MILESTONE_LABEL} -R ${_re}"
         ( cd "${BEATNIK_BUILD_DIR}" &&
-          ctest --output-on-failure --no-tests=ignore \
-                -L "${BEATNIK_MILESTONE_LABEL}" -R "${_backend}" ) || _milestone_rc=1
+          ctest --output-on-failure --no-tests="${_no_tests}" \
+                -L "${BEATNIK_MILESTONE_LABEL}" -R "${_re}" ) || _milestone_rc=1
     done
 
 ##--------------------------------------------------------------------------##
@@ -213,11 +279,23 @@ else
     # arguments and any path among them is MANIFEST-RELATIVE, so the whole
     # invocation runs from the manifest directory -- the same convention, and
     # the same reasoning, as the gate runner's.
+    #
+    # With BEATNIK_MILESTONE_MEMBERS set, field 1 must ALSO equal one of the
+    # stems once its `_MPI_<BACKEND>` suffix is stripped -- equality, not a
+    # prefix match, so Beatnik_Test_Milestone0Fmm never selects ...FmmL4.
     _ranks_run=0
+    _matched_stems=" "
     for _backend in ${BEATNIK_MILESTONE_BACKENDS}; do
         _lines="$(grep -v '^[[:space:]]*\(#\|$\)' "${_manifest}" |
-                  awk -v b="_${_backend}" \
-                      'substr($1, length($1) - length(b) + 1) == b' || true)"
+                  awk -v b="_${_backend}" -v m="${BEATNIK_MILESTONE_MEMBERS}" '
+                      BEGIN { n = split(m, a, " ")
+                              for (i = 1; i <= n; i++) want[a[i]] = 1 }
+                      substr($1, length($1) - length(b) + 1) == b {
+                          if (n == 0) { print; next }
+                          sfx = "_MPI" b
+                          if (substr($1, length($1) - length(sfx) + 1) != sfx) next
+                          if (substr($1, 1, length($1) - length(sfx)) in want) print
+                      }' || true)"
         if [ -z "${_lines}" ]; then
             echo "[milestone] no ${BEATNIK_MILESTONE_LABEL} binaries for ${_backend}"
             continue
@@ -233,6 +311,7 @@ else
             set -- ${_line}
             _target="$1"
             shift
+            _matched_stems="${_matched_stems}${_target%_MPI_${_backend}} "
             _exe="$(beatnik_exe "${_target}")" || { _milestone_rc=1; continue; }
 
             # One I/O directory PER TEST, on lustre, deleted and recreated
@@ -253,6 +332,8 @@ else
                 # Tuolumne packs 4 ranks per node; round the node count up.
                 _nodes=$(( (_np + 3) / 4 ))
                 echo "[milestone] === ${_target} at ${_np} ranks / ${_nodes} node(s) ==="
+                _t0=$(date +%s)
+                _launch_rc=0
                 ( cd "${_manifest_dir}" && flux run \
                     --ntasks="${_np}" \
                     --nodes="${_nodes}" \
@@ -260,8 +341,15 @@ else
                     --gpus-per-task=1 \
                     --cores-per-task=24 \
                     --setopt=mpibind=verbose:1 \
-                    "${_exe}" "$@" ) || _milestone_rc=1
+                    "${_exe}" "$@" ) || _launch_rc=1
                 _ranks_run=$(( _ranks_run + 1 ))
+                if [ "${_launch_rc}" -eq 0 ]; then
+                    _launches_passed=$(( _launches_passed + 1 ))
+                    echo "[milestone] PASS ${_target} np=${_np} in $(( $(date +%s) - _t0 ))s"
+                else
+                    _milestone_rc=1
+                    echo "[milestone] FAIL ${_target} np=${_np} in $(( $(date +%s) - _t0 ))s"
+                fi
             done
         done 3<<EOF
 ${_lines}
@@ -276,27 +364,51 @@ EOF
     # here, where the tier's whole purpose is a comparison nobody else runs.
     if [ "${_ranks_run}" -eq 0 ]; then
         echo "[milestone] FAIL: the manifest named no runnable" \
-             "${BEATNIK_MILESTONE_LABEL} tests for backends" \
+             "${BEATNIK_MILESTONE_LABEL} tests for members" \
+             "'${BEATNIK_MILESTONE_MEMBERS:-<all>}' and backends" \
              "'${BEATNIK_MILESTONE_BACKENDS}'." >&2
-        echo "  Is ${BEATNIK_ACTIVE_SPACK_ENV} installed with +testing, and do" >&2
-        echo "  the manifest's target names carry the expected _<BACKEND> suffix?" >&2
+        echo "  Is ${BEATNIK_ACTIVE_SPACK_ENV} installed with +testing, do" >&2
+        echo "  the manifest's target names carry the expected _<BACKEND> suffix," >&2
+        echo "  and is every BEATNIK_MILESTONE_MEMBERS entry a registered stem?" >&2
         _milestone_rc=1
     fi
+    # One unknown stem beside a known one runs the known one and must still not
+    # pass: a typo would otherwise silently drop a member from the tier.
+    for _m in ${BEATNIK_MILESTONE_MEMBERS}; do
+        case "${_matched_stems}" in
+            *" ${_m} "*) ;;
+            *)
+                echo "[milestone] FAIL: member '${_m}' matched no manifest line" \
+                     "for backends '${BEATNIK_MILESTONE_BACKENDS}'." >&2
+                _milestone_rc=1 ;;
+        esac
+    done
 fi
 
 ##--------------------------------------------------------------------------##
 ## Report
 ##--------------------------------------------------------------------------##
-# The milestone tier has TWO members as of M0-T3:
+# The milestone tier has FOUR members as of T6:
 # Beatnik_Test_Milestone0Frozen (2000 steps of the frozen-mesh configuration at
 # --icosphere-subdivisions 3 against the M0-G1 gold set, all 81 checkpointed
 # steps at --rtol 1e-10 --atol 1e-12) and Beatnik_Test_Milestone0FrozenL4 (the
-# same at subdivisions 4 against M0-G2). Two members x {SERIAL, HIP} x ranks
-# {1, 4} = EIGHT launches. milestone1.md's M1-T1 adds the third member. The gate
-# is unaffected and stays at five members and 60 launches.
+# same at subdivisions 4 against M0-G2), and T6's FMM pair
+# Beatnik_Test_Milestone0Fmm / ...FmmL4 at the same two levels. Four members x
+# {SERIAL, HIP} x ranks {1, 4} = SIXTEEN launches. The gate is unaffected and
+# stays at five members and 60 launches.
+#
+# In tree mode ctest reports its own per-test results above, so the launch
+# counts here are those of the installed path only.
+if [ "${BEATNIK_BIN_MODE}" = "tree" ]; then
+    _summary_counts="ctest; per-test results above"
+else
+    _summary_counts="${_launches_passed}/${_ranks_run} launches"
+fi
 if [ "${_milestone_rc}" -eq 0 ]; then
     echo "[milestone] PASS (label=${BEATNIK_MILESTONE_LABEL})"
+    echo "[milestone] SUMMARY: PASS (${_summary_counts})"
 else
     echo "[milestone] FAIL (label=${BEATNIK_MILESTONE_LABEL})" >&2
+    echo "[milestone] SUMMARY: FAIL (${_summary_counts})"
 fi
 exit "${_milestone_rc}"

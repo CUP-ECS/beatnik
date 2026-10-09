@@ -215,17 +215,17 @@ struct FmmParams
     /// gradient. Order 3 here is the counterpart of the reference's order 2,
     /// not an upgrade of it.
     ///
-    /// The default is traceable to a measurement rather than to that argument:
-    /// on Canopy's volumetric cloud at \f$\theta=0.3\f$ the relative error on
-    /// the gradient is \f$8.996\times10^{-3}\f$ at \f$p=2\f$ against
-    /// \f$7.0718\times10^{-4}\f$ at \f$p=3\f$, so 3 is the smallest order that
-    /// reaches Beatnik's \f$10^{-3}\f$ target and 2 misses it by an order.
-    /// That cloud is not a sheet; the curve on Beatnik's own geometry is
-    /// unmeasured and is what revises this value.
+    /// The default is measured, not just argued: order 3 is the reference's
+    /// accuracy class on the milestone-0 level-4 sheet. Five steps in, the
+    /// gradient error is \f$5.01\times10^{-4}\f$ at \f$p=3\f$ against the
+    /// reference's \f$4.8\times10^{-4}\f$ (\f$p=2\f$: \f$5.97\times10^{-3}\f$);
+    /// over the 2000-step roll-up the worst is \f$1.254\times10^{-3}\f$ against
+    /// the reference's own \f$1.499\times10^{-3}\f$ (`tasks/add-canopy-t6.md`
+    /// T9a, T9r), hence the milestone bound \f$1.5\times10^{-3}\f$.
     ///
     /// `--br-treecode-order` still overrides, so a Python command line that
-    /// passes 2 explicitly still gets 2 — and gets the accuracy above, which
-    /// does not meet the target.
+    /// passes 2 explicitly still gets 2 — and gets the \f$p=2\f$ accuracy
+    /// above, an order short of the reference's.
     int order = 3;
 
     /// Leaf occupancy target, particles per leaf cell. Mapped from

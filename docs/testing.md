@@ -30,7 +30,8 @@ does not cover.
   `Beatnik_Test_Milestone0Fmm` and `Beatnik_Test_Milestone0FmmL4`, the same two
   levels driven through the Canopy FMM at `ncrit = 8`, `order = 3`. Each
   asserts **two claims in one binary**: a per-evaluation velocity bound (max
-  relative error ≤ `1e-3`) over 81 direct-driven states, and the stability plus
+  relative error ≤ `1.5e-3`, the reference treecode's own worst on the same
+  states) over 81 direct-driven states, and the stability plus
   divergence horizon of a 2000-step FMM-driven trajectory. They take a **third**
   argument the frozen pair does not — `fmm_divergence_ladder.py`, which measures
   the horizon because `compare_output.py`'s pairing degenerates on an FMM-driven

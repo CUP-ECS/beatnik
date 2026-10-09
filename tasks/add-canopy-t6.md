@@ -25,7 +25,7 @@ the purity precondition `p.m2l_fallback == 0`
 states, the same check on claim B's final state (`:1967`), and — at four to six
 of the 81 states — **both** forms in which the member asserts the accuracy
 bound, `p.max_abs <= kTauA * p.scale` (`:1505`) and `p.rel <= kTauA` (`:1506`),
-peaking at `1.2513e-3` against `kTauA = 1.0e-3` (defined at `:320`).
+peaking at `1.2513e-3` against the `1.0e-3` τ_A then compiled at `:320`.
 
 **Most of that fallback is not a budget, and no configuration removes it.** T8b
 measured the classify pass's range guard carrying **100 %** of level-4 fallback
@@ -377,7 +377,7 @@ under 32 768. Memory scales with the cap and rebuild time does not.
   and in README (`README.md:210`, `:314-328`). The callers that read the
   *default* rather than setting `order` themselves:
   `Beatnik_Test_Milestone0Fmm.cpp` (`kProductionOrder = 3` at `:345`, asserted
-  equal to `fmm.farField().params().order` at `:1421-1422`, and in τ_A's
+  equal to `fmm.farField().params().order` at `:1427-1428`, and in τ_A's
   qualification list at `:295`), and `Beatnik_Test_Milestone0Run.cpp`
   (`argv[6]` defaults to `FmmParams::order`). `Beatnik_Test_FmmVsDirect.cpp`
   sets `order` per arm (`:465-469`), and `Beatnik_Test_FmmScan.cpp` uses its
@@ -404,18 +404,18 @@ under 32 768. Memory scales with the cap and rebuild time does not.
   even if not the numbers.
 - The level-4 member runs `kNcrit = 8`
   (`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp:340`),
-  `kProductionOrder = 3` (`:345`), `kVertices = 2562` (`:511`),
-  `kP2PFractionBound = 0.75` (`:544`), `max_depth` 10 asserted at `:1385`.
+  `kProductionOrder = 3` (`:345`), `kVertices = 2562` (`:520`),
+  `kP2PFractionBound = 0.75` (`:553`), `max_depth` 10 asserted at `:1435`.
   `ncrit = 8` is near its floor: the liveness inequality
   $N\gg\pi(\sqrt3/\theta)^2\cdot\texttt{ncrit}$ (`Beatnik_Params.hpp:238-251`)
   is about 840 at `ncrit = 8` against 2562 vertices, and 6720 at the default 64.
   **`ncrit = 8` is itself a demand driver** — it deepens the tree to make the
   far field live at all — which is why T8 cannot simply raise it. The column
   cap is the per-level `kM2LOpCountCap` — 32768 in the level-3 arm (`:478`),
-  65536 in the level-4 arm (`:583`) — read by `makeFmmParams` (`:1074`) for
-  claim A only; claim B's `SolverParams` (`p.fmm`, `:1029`) still takes the
-  `FmmParams` default 32768, so the comment at `:1062-1064` saying the two
-  claims cannot be at different configurations is false in that one field.
+  65536 in the level-4 arm (`:583`) — read by `makeFmmParams` (`:1080`) for
+  claim A and, since T9b step 0, by claim B's `SolverParams` too (`p.fmm`,
+  `:1034-1035`), so the comment at `:1068-1070` saying the two claims cannot
+  be at different configurations is true.
 - The milestone tier has four members and sixteen launches, registered at
   `tests/CMakeLists.txt:439-495`, run by
   `scripts/tuolumne/run_milestone.flux` at `-q pbatch -t 1440m`.
@@ -1761,7 +1761,7 @@ missing printed parameter means no verdict.
 - **Note:** the reference's worst state (1550) is not Beatnik's (1375). The
   per-state table is in the progress log under `## T9r`.
 
-### T9e — Re-derive τ_A from the reference's measured fidelity; production stays at order 3 — **NOT STARTED**
+### T9e — Re-derive τ_A from the reference's measured fidelity; production stays at order 3 — **DONE**
 
 **Depends on:** T9r **DONE** with verdict "order 3 matches the reference".
 **Fill in:**
@@ -1777,13 +1777,15 @@ missing printed parameter means no verdict.
 - The progress log.
 
 **Reference:** T9r's per-state table and `τ_ref`.
-**Additional information needed:** none beyond T9r's verdict. If T9r shows
-the reference's worst state differs from Beatnik's (step 1375), record that,
-because it bears on R11.
+**Additional information needed:** none. The reference's worst state (step
+1550) differs from Beatnik's (step 1375), because each method's error is set by
+where its own MAC boundaries fall on the roll-up; τ_A's basis is therefore the
+worst over the trajectory, not a per-state ratio.
 **Do:**
 1. Set `kTauA = τ_ref`. Rewrite its comment:
    - the bound is the reference treecode's own worst error (order 2, θ 0.3,
-     `ncrit` 64) over the member's 81 level-4 states, measured by T9r;
+     `ncrit` 64) over the member's 80 non-zero-field level-4 states (step 0 is
+     a zero field, compared absolutely), measured by T9r;
    - it is not a figure fitted to Beatnik's output;
    - give Beatnik's own worst error beside it, and its margin;
    - keep the qualification list.
@@ -1805,6 +1807,30 @@ because it bears on R11.
 In the failure direction: a level-4 state over the new `kTauA` means T9r's
 verdict rested on a draw that did not reproduce. Stop and record it; do not
 round `τ_ref` up further.
+
+**Met.** `kTauA = 1.5e-3` (`Beatnik_Test_Milestone0Fmm.cpp:320`), its comment
+rewritten around T9r's `E_ref` in the same line count, so every line this
+document cites in that file is unmoved. `spack install` of the dev env rc 0 in
+639 s, at beatnik `f496db0` plus this task's edits and canopy
+`investigate-m2l-cap` `bd10c8f`, which differs from T9a's `38658ad` by Canopy
+task documents only.
+- **Level 3**, job `f3d7PwLWDv7Z`: `[t6l3] SUMMARY: PASS (2/2 launches)`,
+  `3097/3097` at HIP np1 (324 s) and `3097/3097` plus `2919/2919` x3 at HIP
+  np4 (307 s). Worst `3.0962040386966078e-4` and `3.09540571172368e-4` at
+  step 250, 4.84x under.
+- **Level 4**, jobs `f3d7PwVUba2b` (np1) and `f3d7PwcwVxKH` (np4), rc 1 by
+  construction. Checks: `3025/3097` at np1; `3025/3097` on rank 0 and
+  `2847/2919` on ranks 1–3 at np4.
+  - **Zero** failed checks at `:1505`/`:1506`. Every failure is at `:1500`
+    (71 states) or `:1967` (1), on every rank.
+  - Worst claim-A error: `1.2473062176312833e-3` (np1, P2P fraction
+    `0.337355`) and `1.2559617916233386e-3` (np4, `0.337675`), both at step
+    1375. That is 1.203x and 1.194x under `kTauA`.
+  - `fb_count_cap=0` in all 6 082 and 24 328 `[Canopy Diagnostics]` lines.
+- **Negative case 2** fired in every launch. Perturbed relative errors are
+  `2.9971116898820224e-3` (L4 np1), `2.9940682859248119e-3` (L4 np4),
+  `2.9982842099722609e-3` (L3 np1) and `3.0025669945544101e-3` (L3 np4),
+  all `> kTauA`.
 
 ---
 
@@ -1943,16 +1969,18 @@ too few runs.
 
 ---
 
-### T9b — Re-run the milestone tier; close T6 — **NOT STARTED**
+### T9b — Re-run the milestone tier; close T6 — **IN PROGRESS**
 
 **Depends on:** T9d **DONE** or T9e **DONE**, whichever T9r's verdict selects,
 with the level-4 member's claim-A error under `kTauA`.
 **Fill in:** `tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp` (the
 purity checks at `:1500` and `:1967`, claim B's `p.fmm` at `:1028`, and the
-`makeFmmParams` comment at `:1062-1064`);
+`makeFmmParams` comment at `:1062-1064` — after step 0 the checks are at
+`:1519` and `:1991`, the cap at `:1035` and the comment at `:1068-1070`);
 `scripts/tuolumne/run_milestone.flux`:
 - a member filter `BEATNIK_MILESTONE_MEMBERS`, beside the existing
-  `BEATNIK_MILESTONE_BACKENDS` and `BEATNIK_MILESTONE_RANKS` (`:144-145`);
+  `BEATNIK_MILESTONE_BACKENDS` and `BEATNIK_MILESTONE_RANKS` (`:144-145`,
+  now `:185-187` with it);
 - a per-launch `PASS`/`FAIL … in <N>s` line;
 - a closing `[milestone] SUMMARY: <PASS|FAIL> (<passed>/<run> launches)` line;
 - its header comment and `-t`, after the run;
@@ -1961,12 +1989,13 @@ a new `scripts/tuolumne/submit_milestone_split.sh`; `tasks/canopy/add-canopy.md`
 (T6 status, and every statement of the τ_A bound — see step 5a);
 `CLAUDE.md` and `docs/testing.md` (the `milestone` tier's runner and cost);
 both progress logs.
-**Reference:** `run_milestone.flux` reports only
-`[milestone] PASS (label=milestone)` or `FAIL` (`:297-301`). It prints no
-per-launch wall and no launch count. Its spack-mode loop (`:216-269`) selects
-manifest lines by the `_<BACKEND>` suffix of field 1, and keys scratch by target
-(`:243`). Target names are `<member>_MPI_<BACKEND>`, so jobs for distinct
-(member, backend) pairs never share a scratch directory. The milestone tier
+**Reference:** `run_milestone.flux` reported only
+`[milestone] PASS (label=milestone)` or `FAIL` (`:297-301` before step 2). It
+printed no per-launch wall and no launch count. Its spack-mode loop
+(`:216-269`, now `:286-357`) selects manifest lines by the `_<BACKEND>` suffix
+of field 1, and keys scratch by target (`:243`, now `:322`). Target names are
+`<member>_MPI_<BACKEND>`, so jobs for distinct (member, backend) pairs never
+share a scratch directory. The milestone tier
 runs on the **dev** env, as the T6 tier run did. The gate is untouched: five
 `regression` members, 60 launches on tuolumne.
 
@@ -2017,7 +2046,7 @@ HIP; and T9e for level-3 HIP. The SERIAL FMM figures predate T8 and Canopy
    - Unset means every member, so a bare
      `flux batch scripts/tuolumne/run_milestone.flux` still runs the whole tier.
    - A filter that selects nothing fails through the existing `_ranks_run == 0`
-     guard (`:277-284`).
+     guard (`:277-284`, now `:365-374`).
    - In tree mode the filter must either reach `ctest -R` or fail loudly. It is
      never silently ignored.
 3. Write `scripts/tuolumne/submit_milestone_split.sh`.
@@ -2033,7 +2062,8 @@ HIP; and T9e for level-3 HIP. The SERIAL FMM figures predate T8 and Canopy
 4. Only once all eight jobs are green, set the per-job `-t` in the wrapper's
    table to about 1.5x each job's measured wall, and set `run_milestone.flux`'s
    own `-t` to about 1.25x the sum of the eight. Rewrite the header comment
-   (`:46-102`) around those measurements and the split submission. Record every
+   (`:46-102`, now `:66-122`) around those measurements and the split
+   submission. Record every
    job's wall.
 5. Mark T6 **DONE** in `tasks/canopy/add-canopy.md`, replace the provisional
    walltime wording, and state the measured tier cost. Update the `milestone`
@@ -2154,7 +2184,11 @@ account for it, since the fallback and table paths agree to 3.3e-15 (Canopy
 C1). **Response:** T9r measures the reference treecode on the same states. Its
 verdict selects T9e (τ_A re-derived from the reference, order 3 kept) or T9c
 and T9d (production `order` raised). τ_A is never widened to fit Beatnik's own
-number.
+number. **Resolved by T9r and T9e:** T9r's verdict was "order 3 matches the
+reference" (reference worst `1.4987e-3` at step 1550), and T9e set
+`kTauA = 1.5e-3` from it. Under that bound the level-4 worst errors are
+`1.2473e-3` (np1) and `1.2560e-3` (np4) at step 1375, with no failed check at
+`:1505`/`:1506`.
 
 **R10 — Order 4 does not clear τ_A at the roll-up.** Unlikely: order 4 bought
 8.9x at T5's early state, and 1.25x is needed. **Presents as:** T9c's `order` 4
