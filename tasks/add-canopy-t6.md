@@ -1951,7 +1951,8 @@ with the level-4 member's claim-A error under `kTauA`.
 purity checks at `:1500` and `:1967`, claim B's `p.fmm` near `:1029`, and the
 `makeFmmParams` comment at `:1062-1064`);
 `scripts/tuolumne/run_milestone.flux` (`-t` only, and only after the run);
-`tasks/canopy/add-canopy.md` (T6 status); both progress logs.
+`tasks/canopy/add-canopy.md` (T6 status, and every statement of the τ_A bound
+— see step 4a); both progress logs.
 **Reference:** the runner's own header comment says how to set `-t` from a tier
 run. The gate is untouched: five `regression` members, 60 launches on tuolumne.
 **Do:**
@@ -1976,13 +1977,34 @@ run. The gate is untouched: five `regression` members, 60 launches on tuolumne.
    walltime wording, and state the measured tier cost. Update the `milestone`
    tier description in `CLAUDE.md` and `docs/testing.md` if the total or the
    `-t` changes what they claim.
+
+   a. On the T9e path, restate τ_A in `tasks/canopy/add-canopy.md` to match the
+      compiled `kTauA = 1.5e-3`. Its basis is the reference treecode's worst
+      claim-A error over the level-4 member's 80 non-zero-field states,
+      `E_ref = 1.4987010690098229e-3` at step 1550 (T9r). That doc states the
+      bound as $10^{-3}$, or argues from that value, at `:84`, `:92`, `:247`
+      (the "Why not tighter than $10^{-3}$" heading and its section), `:425`,
+      `:2089`, `:2123-2127` and `:2200`. Read each, and also its other τ_A
+      mentions (`:8`, `:182`, `:419-421`, `:465`, `:1412`, `:1456`, `:1668`).
+      A statement of the bound or of its basis changes. Historical
+      measurements stay exactly as recorded: T5's `5.0e-4` figures, the
+      reference's `4.8e-4` and `1.6e-3` smooth-state readings, and the order
+      curve. `:84-92` justifies `1e-3` as the reference's smooth-state
+      fidelity. Keep that measurement and add that T9r measured the reference
+      at the roll-up, where it reaches `1.4987e-3`. On the T9d path `kTauA`
+      stays `1e-3` and this step is a no-op.
 5. Confirm the gate is unchanged and say so: `regression` still has five members
    and 60 launches on tuolumne.
 
 **Exit criterion:** `scripts/tuolumne/run_milestone.flux` reports
 `SUMMARY: PASS (16/16 launches)`; `run_milestone.flux`'s `-t` is set from that
 run's measured total; `tasks/canopy/add-canopy.md` shows T6 **DONE** with the
-measured cost; and the gate runner
+measured cost, and — on the T9e path — states τ_A as `1.5e-3` with its T9r
+basis. That doc's state is checked with
+`grep -nE 'tau_A\$? *(\\le|\\approx|is) *\$?10\^\{-3\}' tasks/canopy/add-canopy.md`
+(before this task it hits `:84`, `:92`, `:425`, `:2089`, `:2123` and `:2200`, all in
+current-design text: the fidelity target, the milestone members, X1 and Known
+risks). Afterwards it returns nothing. Finally, the gate runner
 `scripts/tuolumne/run_regression_minset.flux` still reports five members and 60
 launches. In the failure direction: a red tier leaves `-t` at `1440m` and T6 at
 IN PROGRESS, and the failing member's per-check detail lines are read before any
