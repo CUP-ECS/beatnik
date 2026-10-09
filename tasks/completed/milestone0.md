@@ -10,14 +10,14 @@ green at ranks 1 and 4 on SERIAL and HIP (job `f3Td7rshE3y1`, eight launches, ze
 plus job `f3Td5AJiqAfq`). The tier costs a measured **37.25 minutes** of its
 `-t 60m` cap.
 
-The next milestone is [`milestone1.md`](milestone1.md), whose M1-T1 registers the
+The next milestone is [`milestone1.md`](../milestone1.md), whose M1-T1 registers the
 tier's third member; `milestone0-progress-log.md`'s `## M0-T3` **Affects:** line
 carries what M0-T3 changed for it, and its per-launch cost table is what M1-T1
 sizes the walltime from.
 
 ## Problem
 
-Milestone 0 is [`milestone1.md`](milestone1.md) **minus adaptivity**: the
+Milestone 0 is [`milestone1.md`](../milestone1.md) **minus adaptivity**: the
 reference's full default *physics* — README configuration (a) of
 `~/research-bridges/zmodel-steve/zmodel3d-amr` — run with connectivity frozen for
 the whole run, on a mesh fine enough that the frozen connectivity still resolves
@@ -63,7 +63,7 @@ the asserted `1e-10` rung there is no failure for determinism to push out.
 
 What exists now is the same comparison at **10 steps** and **162 vertices**:
 `tests/regression_tests/direct-solve-10-steps` and
-[tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp](../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp),
+[tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp](../../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp),
 which passes at `--rtol 1e-10` at ranks 1-6 on SERIAL and HIP. Milestone 0 is
 that test, deeper and finer, in its own test tier, with the depth and the
 tolerances derived from measurement instead of chosen.
@@ -92,7 +92,7 @@ the answer to the question the brief asked.
 The brief asked what must be done to reach milestone 0. The answer is: generate
 gold sets, measure, decide, and write a test — not implement anything. Every
 rejection in `Solver::requireSupportedConfiguration`
-([src/Beatnik_Solver.hpp:729-870](../src/Beatnik_Solver.hpp#L729)) is guarded on
+([src/Beatnik_Solver.hpp:729-870](../../src/Beatnik_Solver.hpp#L729)) is guarded on
 
 ```
 refining  = !dynamic_remesh && amr.refine_every > 0      (:747-748)
@@ -101,9 +101,9 @@ remeshing =  dynamic_remesh && remesh_every > 0          (:749-750)
 
 and this configuration makes **both false**, so all seven adaptivity rejections
 are skipped. That includes the `--isotropic-cleanup` one
-([:769-775](../src/Beatnik_Solver.hpp#L769)), which is milestone 1's first
+([:769-775](../../src/Beatnik_Solver.hpp#L769)), which is milestone 1's first
 blocker: it fires only under `refining || remeshing`. The eighth rejection,
-`--field-filter-every > 0` ([:867](../src/Beatnik_Solver.hpp#L867)), is off by
+`--field-filter-every > 0` ([:867](../../src/Beatnik_Solver.hpp#L867)), is off by
 default. So the command above is accepted at HEAD.
 
 The reference agrees that `--isotropic-cleanup` is moot here rather than merely
@@ -130,9 +130,9 @@ outright, and it changes the *character* of the fourth's failure:
 
 The qualitative consequence is the important one: `compare_output.py` is
 structural before it is numeric — it fails outright on a differing vertex or face
-count ([:555-566](../tests/regression_tests/compare_output.py#L555-L566)) and
+count ([:555-566](../../tests/regression_tests/compare_output.py#L555-L566)) and
 requires the canonicalized face lists to be equal
-([:657-675](../tests/regression_tests/compare_output.py#L657-L675)). With
+([:657-675](../../tests/regression_tests/compare_output.py#L657-L675)). With
 connectivity frozen, the counts are the generator's for the whole run
 (`10*4^L+2` vertices, `20*4^L` faces) and the face list never changes, so **the
 structural comparison cannot fail at any step**. Failure becomes smooth and
@@ -143,16 +143,16 @@ What bounds the depth is round-off amplification, and Beatnik is **not**
 decomposition-independent today:
 
 - The direct BR sum circulates source blocks around a rank ring, **starting with
-  the rank's own block** ([src/Beatnik_BRSolverDirect.hpp:285-286](../src/Beatnik_BRSolverDirect.hpp#L285)),
+  the rank's own block** ([src/Beatnik_BRSolverDirect.hpp:285-286](../../src/Beatnik_BRSolverDirect.hpp#L285)),
   so the summation order for a given target depends on the rank count and on
   which rank owns it.
 - Three global sums per RK stage are plain `MPI_Allreduce(MPI_SUM)`, whose
   partial-sum order is the partition's: the volume-flux inner products
-  ([src/Beatnik_VolumeProjection.hpp:150](../src/Beatnik_VolumeProjection.hpp#L150)),
+  ([src/Beatnik_VolumeProjection.hpp:150](../../src/Beatnik_VolumeProjection.hpp#L150)),
   the area-weighted potential re-centring
-  ([src/Beatnik_SurfaceState.hpp:388](../src/Beatnik_SurfaceState.hpp#L388)) and
+  ([src/Beatnik_SurfaceState.hpp:388](../../src/Beatnik_SurfaceState.hpp#L388)) and
   its `ZModelSolver` twin
-  ([src/Beatnik_ZModelSolver.hpp:634](../src/Beatnik_ZModelSolver.hpp#L634)).
+  ([src/Beatnik_ZModelSolver.hpp:634](../../src/Beatnik_ZModelSolver.hpp#L634)).
 
 The reference's own handoff document names this exact hazard:
 `doc/PARALLELIZATION.tex` §"What must NOT change" item 3 — *"Summation order
@@ -168,7 +168,7 @@ it worse:
 
 - **The adaptive dt is *not* a divergence amplifier here.** `chooseStepSize`
   reduces `h_min` with `MPI_MIN`
-  ([src/Beatnik_TimeIntegrator.hpp:262](../src/Beatnik_TimeIntegrator.hpp#L262)),
+  ([src/Beatnik_TimeIntegrator.hpp:262](../../src/Beatnik_TimeIntegrator.hpp#L262)),
   and a min reduction is order-independent — so `dt` is bit-identical across rank
   counts until `h_min` itself diverges, rather than injecting fresh noise every
   step. Milestone 1's `time`-series trap does not compound here.
@@ -210,8 +210,8 @@ fire.
 ### 3. Why more faces, quantitatively — and why level 4 and not level 5
 
 The brief's instinct is right, and `--icosphere-subdivisions` is fully plumbed:
-[src/Beatnik_Params.hpp:517](../src/Beatnik_Params.hpp#L517) →
-[src/Beatnik_InitialCondition.hpp:114](../src/Beatnik_InitialCondition.hpp#L114) →
+[src/Beatnik_Params.hpp:517](../../src/Beatnik_Params.hpp#L517) →
+[src/Beatnik_InitialCondition.hpp:114](../../src/Beatnik_InitialCondition.hpp#L114) →
 `Tessera::buildIcosphere`, and `examples/02_adaptive_mesh_bubble/InputFile.hpp:303`
 parses it. Entity counts are `V = 10*4^L + 2`, `E = 30*4^L`, `F = 20*4^L`.
 
@@ -230,7 +230,7 @@ The BR column is measured, from `doc/PARALLELIZATION.tex` §"Measured"
 (`scripts/benchmark_br.py`, one evaluation). At
 `--bernoulli-scalar-mode normal-speed` — the default, and the only mode either
 gold set uses — the Bernoulli input is `u·n̂` and **not** a second all-pairs sum
-([src/Beatnik_ZModelSolver.hpp:250-255](../src/Beatnik_ZModelSolver.hpp#L250)),
+([src/Beatnik_ZModelSolver.hpp:250-255](../../src/Beatnik_ZModelSolver.hpp#L250)),
 so a step is three BR evaluations plus sparse work. That gives ~0.10 s/step at
 level 3 and ~1.5 s/step at level 4: **2000 steps is ~4 minutes and ~50 minutes**
 of single-core Python respectively. Level 5 would be ~7 hours per gold set, for
@@ -280,9 +280,9 @@ where they are not adaptivity-specific. These are milestone 0's own:
 | --- | --- |
 | Task IDs | `M0-*`. `M0-G*` = human gold-file generation, `M0-D*` = measurement, `M0-A*` = a decision to be recorded, `M0-T*` = code. No `M0-` ID appears in any source string, so unlike milestone 1's `T4d*` these are free to renumber. |
 | Test tier | the **`milestone`** label, at ranks **1 and 4** on SERIAL and HIP, outside the 60-launch ship gate. The `regression` tier keeps exactly its five members; promoting anything into it needs the user's confirmation (CLAUDE.md "Minimum test set"). |
-| Gold-set layout | `tests/regression_tests/<name>/gold/*.npz` plus that directory's `README.md` carrying the generating command **verbatim**, per [tests/regression_tests/direct-solve-10-steps/README.md](../tests/regression_tests/direct-solve-10-steps/README.md). Names: `milestone0-sub3-2000-steps`, `milestone0-sub4-2000-steps`. |
-| Finding a step's gold file | by its `_step%07d.npz` suffix, never by rebuilding the name from a time — the time is under test. `goldForStep` ([Beatnik_Test_DirectSolve10Steps.cpp:263-286](../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp#L263)) already does this and is reused. |
-| Comparator exit status | a mismatch is **exactly 1**; 2 is a load error and 127/-1 a plumbing failure, and the three are never conflated ([Beatnik_Test_DirectSolve10Steps.cpp:289-306](../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp#L289)). |
+| Gold-set layout | `tests/regression_tests/<name>/gold/*.npz` plus that directory's `README.md` carrying the generating command **verbatim**, per [tests/regression_tests/direct-solve-10-steps/README.md](../../tests/regression_tests/direct-solve-10-steps/README.md). Names: `milestone0-sub3-2000-steps`, `milestone0-sub4-2000-steps`. |
+| Finding a step's gold file | by its `_step%07d.npz` suffix, never by rebuilding the name from a time — the time is under test. `goldForStep` ([Beatnik_Test_DirectSolve10Steps.cpp:263-286](../../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp#L263)) already does this and is reused. |
+| Comparator exit status | a mismatch is **exactly 1**; 2 is a load error and 127/-1 a plumbing failure, and the three are never conflated ([Beatnik_Test_DirectSolve10Steps.cpp:289-306](../../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp#L289)). |
 | Reference numbers in tests | 17-digit literals with the measurement's provenance in a comment, as `kGoldTime` and `kGoldVolumeDrift` already are. A tolerance that was loosened without a recorded `max|e|` beside it is not a tolerance. |
 | Failure behavior | loud. A gold file missing for a compared step is a named failure, not a skipped step; a run that stops early is a reported stop step, not a shorter pass. |
 | CLI surface | unchanged. No option is added, including for determinism — framework.md's rule is that Beatnik defines no option `parse_args` does not, so M0-T2 (if taken) changes behavior unconditionally rather than behind a switch. |
@@ -327,7 +327,7 @@ True at HEAD:
 - **The `milestone` tier exists and has two members** — created empty by M0-T1
   (the label, the `BEATNIK_MILESTONE_MPI_RANKS` registration loop,
   `beatnik_milestone_manifest.txt`,
-  [scripts/tuolumne/run_milestone.flux](../scripts/tuolumne/run_milestone.flux)
+  [scripts/tuolumne/run_milestone.flux](../../scripts/tuolumne/run_milestone.flux)
   and the install rules for **both** milestone-0 gold sets) and filled by M0-T3
   with `Beatnik_Test_Milestone0Frozen` (level 3) and
   `Beatnik_Test_Milestone0FrozenL4` (level 4), which share one assertion body.
@@ -362,20 +362,20 @@ line is the index of exactly that.
 **Depends on:** none. Do it first or in parallel with the gold sets; it is
 independent of both.
 
-**Fill in:** [tests/CMakeLists.txt](../tests/CMakeLists.txt) — a third tier
+**Fill in:** [tests/CMakeLists.txt](../../tests/CMakeLists.txt) — a third tier
 alongside `regression` and `unit` — a new `scripts/tuolumne/run_milestone.flux`,
-[docs/testing.md](../docs/testing.md) and CLAUDE.md's "Minimum test set".
+[docs/testing.md](../../docs/testing.md) and CLAUDE.md's "Minimum test set".
 
-**Reference:** the tier comment at [tests/CMakeLists.txt:11-48](../tests/CMakeLists.txt#L11);
+**Reference:** the tier comment at [tests/CMakeLists.txt:11-48](../../tests/CMakeLists.txt#L11);
 the standalone regression registration loop at
-[:309-372](../tests/CMakeLists.txt#L309), which is the shape to copy (per-backend
+[:309-372](../../tests/CMakeLists.txt#L309), which is the shape to copy (per-backend
 generated translation unit pinning `BEATNIK_TEST_EXEC_SPACE`, one ctest case per
 rank count, the `_beatnik_args_<stem>_abs`/`_rel` pair with its `FATAL_ERROR` for
 a forgotten entry, and the manifest line emitted from the same loop that applied
-the label); the manifest generation at [:520-575](../tests/CMakeLists.txt#L520);
+the label); the manifest generation at [:520-575](../../tests/CMakeLists.txt#L520);
 the gold-set `install()` rules with their `FATAL_ERROR` at
-[:500-517](../tests/CMakeLists.txt#L500); and the installed-path runner
-[scripts/tuolumne/run_regression_minset.flux](../scripts/tuolumne/run_regression_minset.flux),
+[:500-517](../../tests/CMakeLists.txt#L500); and the installed-path runner
+[scripts/tuolumne/run_regression_minset.flux](../../scripts/tuolumne/run_regression_minset.flux),
 already parameterized by `BEATNIK_GATE_LABEL`/`BEATNIK_GATE_BACKENDS`/`BEATNIK_GATE_RANKS`
 (`:73-75`) but hardcoding `beatnik_gate_manifest.txt` (`:112-120`) and carrying
 the vacuous-pass guard at `:201-208`.
@@ -393,7 +393,7 @@ the vacuous-pass guard at `:201-208`.
    under `tests/regression_tests/milestone0-sub3-2000-steps/gold` and
    `.../milestone0-sub4-2000-steps/gold`, and each directory's `README.md` —
    globbed with the same guard as the T2a rule at
-   [tests/CMakeLists.txt:505-517](../tests/CMakeLists.txt#L505). They are
+   [tests/CMakeLists.txt:505-517](../../tests/CMakeLists.txt#L505). They are
    installed here rather than by M0-T3, which leaves M0-T3 a test-source task
    only. The glob excludes `checkpoint_latest.npz` (see M0-G1's exit
    criterion): it duplicates the final step and shipping it would put a second
@@ -459,7 +459,7 @@ lines. Both milestone-0 gold sets install: 81 numbered `.npz` plus the `gold/`
 that directory's `README.md`.
 
 **Reference:** the command in `## Problem` at `<L> = 3`, and
-[tests/regression_tests/direct-solve-10-steps/README.md](../tests/regression_tests/direct-solve-10-steps/README.md)
+[tests/regression_tests/direct-solve-10-steps/README.md](../../tests/regression_tests/direct-solve-10-steps/README.md)
 for the convention — the generating command recorded verbatim beside the data.
 Expect ~4 minutes of single-core Python (Read this first #3).
 
@@ -476,7 +476,7 @@ Expect ~4 minutes of single-core Python (Read this first #3).
    series `V/V0 - 1`, and **whether the run stopped early**
    (`stopping at step=… nonfinite …`) with the stop step if so.
 3. Confirm the key set matches `initial_conditions/gold.npz`'s nine keys, so
-   `compare_output.py`'s `FIELD_MAP` ([:111-135](../tests/regression_tests/compare_output.py#L111))
+   `compare_output.py`'s `FIELD_MAP` ([:111-135](../../tests/regression_tests/compare_output.py#L111))
    needs no edit.
 
 **Exit criterion:** 81 numbered `.npz` checkpoints present — fewer only if the
@@ -502,7 +502,7 @@ file, so `FIELD_MAP` needs no edit. The self-compare of
 --atol 1e-14` exits 0 with `matching (eps=1e-09): 642/642 unambiguous, ambiguous
 cpp=0 gold=0` and `max|e| = 0` on every field — **M0-R4 has not bitten this
 set**. The 81-row `step / time / min quality / V/V0 - 1` table is in
-[the gold README](../tests/regression_tests/milestone0-sub3-2000-steps/gold/README.md);
+[the gold README](../../tests/regression_tests/milestone0-sub3-2000-steps/gold/README.md);
 headline numbers: final `time = 1.998284`, min quality falls from `9.749529e-01`
 to a global minimum `3.826563e-02` at step 1700 and recovers to `6.303626e-02`
 at step 2000, and volume drift reaches `+3.352894e-09` — above T2d's
@@ -532,7 +532,7 @@ bit-identical to the last of them and not counted, no early stop, all fields
 finite, `vertices (2562, 3)` / `faces (5120, 3)` and the same nine keys in every
 file. The last-file self-compare at `--rtol 1e-12 --atol 1e-14` exits 0 with
 `2562/2562 unambiguous, ambiguous cpp=0 gold=0`. The 81-row table is in
-[the gold README](../tests/regression_tests/milestone0-sub4-2000-steps/gold/README.md);
+[the gold README](../../tests/regression_tests/milestone0-sub4-2000-steps/gold/README.md);
 final `time = 1.964304`, final min quality `1.242421e-01` (which is also this
 series' global minimum — still falling at step 2000), final volume drift
 `+4.741414e-09`.
@@ -550,11 +550,11 @@ this settles for M0-A1 is under its own entry.
 
 **Met.** The full matrix was measured in one `-q pdebug -t 1h` sweep (job
 `f3TT4psJ8it7`, 1939 s of the 3600 s cap) with a new no-tier driver
-[tests/regression_tests/Beatnik_Test_Milestone0Run.cpp](../tests/regression_tests/Beatnik_Test_Milestone0Run.cpp),
+[tests/regression_tests/Beatnik_Test_Milestone0Run.cpp](../../tests/regression_tests/Beatnik_Test_Milestone0Run.cpp),
 a new offline tabulator
-[tests/regression_tests/milestone0_ladder.py](../tests/regression_tests/milestone0_ladder.py)
+[tests/regression_tests/milestone0_ladder.py](../../tests/regression_tests/milestone0_ladder.py)
 and
-[scripts/tuolumne/milestone0_divergence.flux](../scripts/tuolumne/milestone0_divergence.flux);
+[scripts/tuolumne/milestone0_divergence.flux](../../scripts/tuolumne/milestone0_divergence.flux);
 all numbers are in `milestone0-progress-log.md` under `## M0-D1`. What was
 verified: **step 0 matches at `1e-12` at levels 2, 3 and 4** with the same single
 ulp of absolute error at every level, so **M0-R5 did not fire and the generators
@@ -595,7 +595,7 @@ is offline in Python.
 `milestone0-progress-log.md`.
 
 1. `tests/regression_tests/Beatnik_Test_Milestone0Run.cpp` and its registration
-   in [tests/CMakeLists.txt](../tests/CMakeLists.txt): a per-backend driver that
+   in [tests/CMakeLists.txt](../../tests/CMakeLists.txt): a per-backend driver that
    builds the params, runs, and writes checkpoints, and compares nothing.
    Registered in **no tier** — no `LABELS`, no ctest case, no manifest line — so
    neither the gate nor `run_milestone.flux` can pick it up, and installed under
@@ -609,23 +609,23 @@ is offline in Python.
 
 **Why not `examples/02_adaptive_mesh_bubble`.** It cannot produce the SERIAL half
 of the matrix.
-[examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp:209](../examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp#L209)
+[examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp:209](../../examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp#L209)
 fixes the execution space to `Kokkos::DefaultExecutionSpace`, and the installed
 binary is built from a `+rocm` spec, so `adaptive_mesh_bubble` is HIP-only — and
 no runtime option changes that, both because the space is a compile-time choice
 and because the CLI surface is closed (Conventions). Per-backend binaries exist
 only for **test sources**, through the generated translation unit that pins
 `BEATNIK_TEST_EXEC_SPACE`
-([tests/CMakeLists.txt:437-495](../tests/CMakeLists.txt#L437) for the milestone
-tier, [:323-386](../tests/CMakeLists.txt#L323) for the regression tier). Copy
+([tests/CMakeLists.txt:437-495](../../tests/CMakeLists.txt#L437) for the milestone
+tier, [:323-386](../../tests/CMakeLists.txt#L323) for the regression tier). Copy
 that loop's shape for the driver and stop short of the point where it applies a
 label and emits a manifest line.
 
-**Reference:** [scripts/tuolumne/run_regression_minset.flux](../scripts/tuolumne/run_regression_minset.flux)
+**Reference:** [scripts/tuolumne/run_regression_minset.flux](../../scripts/tuolumne/run_regression_minset.flux)
 for the resolver-sourcing, `beatnik_exe` and scratch conventions;
-[Beatnik_Test_DirectSolve10Steps.cpp:263-306](../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp#L263)
+[Beatnik_Test_DirectSolve10Steps.cpp:263-306](../../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp#L263)
 for the `goldForStep` + `compare_output.py` subprocess pattern; `makeParams()`
-([:308-378](../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp#L308))
+([:308-378](../../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp#L308))
 for the mapping from the Python command line to a `SolverParams`, which the
 driver's params must match field for field except
 `initial.icosphere_subdivisions` (the level under test), `time.steps = 2000` and
@@ -642,7 +642,7 @@ log**, not a reason to move queues or lengthen the walltime.
 
 1. **Step 0 first, and treat it as a gate.** For each level, compare Beatnik's
    step-0 checkpoint against the gold at `--rtol 1e-12 --atol 1e-14`: level 2
-   against [tests/regression_tests/initial_conditions/gold.npz](../tests/regression_tests/initial_conditions/gold.npz)
+   against [tests/regression_tests/initial_conditions/gold.npz](../../tests/regression_tests/initial_conditions/gold.npz)
    (step 0 at level 2, `162`/`320`, carrying the same nine keys as the two
    milestone-0 sets), levels 3 and 4 against the `_step0000000.npz` of their own
    gold directories. A failure here is a *generator* disagreement at that
@@ -655,12 +655,12 @@ log**, not a reason to move queues or lengthen the walltime.
    checkpointed step run `compare_output.py` **once**, at `--rtol 1e-12 --atol
    1e-14` and not `--quiet`, and harvest the per-field `max|e|` and `max|e|/|g|`
    it prints
-   ([compare_output.py:445-448](../tests/regression_tests/compare_output.py#L445)).
+   ([compare_output.py:445-448](../../tests/regression_tests/compare_output.py#L445)).
    Those two numbers give a candidate first-failing step at each of
    `--rtol 1e-12/1e-10/1e-8/1e-6/1e-4` (`--atol` two decades below) without
    re-running the comparator 5× per step. The candidate is **not** the answer:
    the pass criterion is elementwise `|e| <= atol + rtol*|g|`
-   ([:442](../tests/regression_tests/compare_output.py#L442)) and the worst-`|e|`
+   ([:442](../../tests/regression_tests/compare_output.py#L442)) and the worst-`|e|`
    entry need not be the worst-relative one, so each candidate must be confirmed
    by two real invocations at that tolerance — the candidate step, which must
    fail, and the previous checkpointed step, which must pass. Record the
@@ -818,14 +818,14 @@ determinism has no value; see the progress log's `## M0-A1`.
 take this task**.
 
 **Fill in:** `BRSolverDirect::ringAccumulate` and its two callers
-([src/Beatnik_BRSolverDirect.hpp:240-300](../src/Beatnik_BRSolverDirect.hpp#L240)),
+([src/Beatnik_BRSolverDirect.hpp:240-300](../../src/Beatnik_BRSolverDirect.hpp#L240)),
 and the three `MPI_SUM` reductions named in Read this first #2:
-[src/Beatnik_VolumeProjection.hpp:150](../src/Beatnik_VolumeProjection.hpp#L150)
-and [:257](../src/Beatnik_VolumeProjection.hpp#L257),
-[src/Beatnik_SurfaceState.hpp:388](../src/Beatnik_SurfaceState.hpp#L388) and
-[:409](../src/Beatnik_SurfaceState.hpp#L409),
-[src/Beatnik_ZModelSolver.hpp:634](../src/Beatnik_ZModelSolver.hpp#L634) and
-[:652](../src/Beatnik_ZModelSolver.hpp#L652).
+[src/Beatnik_VolumeProjection.hpp:150](../../src/Beatnik_VolumeProjection.hpp#L150)
+and [:257](../../src/Beatnik_VolumeProjection.hpp#L257),
+[src/Beatnik_SurfaceState.hpp:388](../../src/Beatnik_SurfaceState.hpp#L388) and
+[:409](../../src/Beatnik_SurfaceState.hpp#L409),
+[src/Beatnik_ZModelSolver.hpp:634](../../src/Beatnik_ZModelSolver.hpp#L634) and
+[:652](../../src/Beatnik_ZModelSolver.hpp#L652).
 
 **Reference:** `doc/PARALLELIZATION.tex` §"What must NOT change" item 3 (the
 requirement) and §"The BR sum is the ideal target" (the recommended
@@ -836,7 +836,7 @@ must stay a global reduction).
 
 **Callers of the signatures this changes:** `ringAccumulate` is `private` with
 exactly two call sites, both in `BRSolverDirect` — `computeInterfaceVelocity`
-([:274](../src/Beatnik_BRSolverDirect.hpp#L274)) and
+([:274](../../src/Beatnik_BRSolverDirect.hpp#L274)) and
 `computeSurfaceRieszScalar`. `Comm::allReduceSum`'s signature does not change;
 only its use at the five sites above does. Enumerate them again by grep before
 starting: this document's list is the state at the time it was written and
@@ -946,7 +946,7 @@ argument list, whichever keeps `_beatnik_args_<stem>_abs`/`_rel` honest. Two
 members means two argument lists either way.
 
 **And raise `run_milestone.flux`'s walltime — this task's step, not M0-A1's.**
-[scripts/tuolumne/run_milestone.flux:5](../scripts/tuolumne/run_milestone.flux#L5)
+[scripts/tuolumne/run_milestone.flux:5](../../scripts/tuolumne/run_milestone.flux#L5)
 is `# flux: -t 30m`, and **two members do not fit it.** From M0-D1 step 6, the
 level-4 member's four tier launches are `22`, `45`, `382` and `1293` s of launch
 wall — **1742 s, 29.0 minutes, on their own** — and the level-3 member adds
@@ -956,7 +956,7 @@ top, before startup and I/O. The binding launch is SERIAL at 1 rank at level 4,
 numbers in the commit message; a 30m cap would kill the second member partway and
 M0-R8 is exactly the failure mode where a truncated run reads as a shorter pass.
 
-**Reference:** [tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp](../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp)
+**Reference:** [tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp](../../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp)
 end to end. It is this test at 10 steps and level 2, and most of it transfers
 verbatim: `makeParams()` (`:308-378`), `goldForStep()` (`:263-286`),
 `runComparator()` (`:289-306`), the three R9 partition discriminators (`:92-104`
@@ -981,7 +981,7 @@ against 17-digit literals.
 3. Replace T2d's volume-drift literals with this configuration's own measured
    series from M0-D1 step 5 and the two `gold/README.md` tables. **Reuse
    `kVolumeDriftRtol = 1e-3`** (T2d's symbol, at
-   [Beatnik_Test_DirectSolve10Steps.cpp:244](../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp#L244);
+   [Beatnik_Test_DirectSolve10Steps.cpp:244](../../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp#L244);
    there is no `kGoldVolumeDriftRtol`): it survives re-derivation with a **36x**
    margin, since Beatnik's drift tracks the reference's to `2.758331e-05`
    relative, worst case over all 81 steps of all eight runs. **Re-derive
@@ -1050,7 +1050,7 @@ absolute cap re-derived for 2000 steps as the blow-up detector.
 
 **M0-R4 — the quantized vertex pairing degrades silently.**
 `compare_output.py` sorts each file's vertices *independently* at
-`--match-eps 1e-9` ([:310-343](../tests/regression_tests/compare_output.py#L310)).
+`--match-eps 1e-9` ([:310-343](../../tests/regression_tests/compare_output.py#L310)).
 Two hazards compound at milestone 0: a frozen mesh cannot collapse, so roll-up
 can crowd vertices together, and higher subdivision levels start them closer.
 *Presents as:* huge, uniform `max|e|` across all fields at once, often with

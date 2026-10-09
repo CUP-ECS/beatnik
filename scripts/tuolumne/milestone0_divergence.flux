@@ -140,7 +140,7 @@ BEATNIK_M0_BUDGET="${BEATNIK_M0_BUDGET:-3300}"
 # is non-zero -- rather than the sweep dying mid-write on an arbitrary row.
 #
 # The estimates are MEASURED, by this same script under BEATNIK_M0_MODE=probe,
-# and are recorded in tasks/milestone0-progress-log.md under `## M0-D1` beside
+# and are recorded in tasks/completed/milestone0-progress-log.md under `## M0-D1` beside
 # the wall times they predicted. They are padded above the measurement, because
 # a low estimate spends the budget and a high one only skips a run early.
 if [ "${BEATNIK_M0_MODE}" = "probe" ]; then
@@ -224,7 +224,7 @@ while IFS= read -r _row <&3; do
     if [ "${_remaining}" -lt "${_estimate}" ]; then
         echo "[m0d1] === SKIPPED ${_tag}: ${_remaining}s of budget left," \
              "estimate ${_estimate}s. THE SWEEP DOES NOT FIT pdebug's 1h cap." >&2
-        echo "  This is a performance finding for tasks/milestone0-progress-log.md," >&2
+        echo "  This is a performance finding for tasks/completed/milestone0-progress-log.md," >&2
         echo "  not a reason to run fewer steps or a coarser checkpoint interval." >&2
         _skipped=$(( _skipped + 1 ))
         _rc=1

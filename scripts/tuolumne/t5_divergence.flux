@@ -34,7 +34,7 @@
 # perturbation from the Beatnik-versus-Python drift that is present either way.
 # The two ladders nearly coincide and the reason is already measured -- the
 # direct path tracks the gold set to 8.5e-13 at step 2000
-# (tasks/milestone0-progress-log.md), so at any rung at or above 1e-10 they
+# (tasks/completed/milestone0-progress-log.md), so at any rung at or above 1e-10 they
 # agree.
 #
 # R8 BINDS HERE: Zoltan2's partition is non-deterministic across runs, so two

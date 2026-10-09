@@ -149,7 +149,7 @@ Four things to read off these numbers.
 ### What this means for validation, concretely
 
 M0-D1 measured Beatnik's divergence horizon against the Python gold sets
-([milestone0-progress-log.md](milestone0-progress-log.md), Steps 2-4): starting
+([milestone0-progress-log.md](completed/milestone0-progress-log.md), Steps 2-4): starting
 from a **1-ulp** difference in the initial condition, the trajectories stay
 inside `1e-12/1e-14` for only 775-1350 of 2000 steps, and stay inside
 `1e-10/1e-12` for all 2000. A treecode path injects a **`1e-3`** relative

@@ -64,7 +64,7 @@
  * mechanism for it here.
  *
  * ARGUMENTS. Three required positionals and three optional ones; there is no
- * option surface here and none may be added (milestone0.md Conventions, "CLI
+ * option surface here and none may be added (tasks/completed/milestone0.md Conventions, "CLI
  * surface: unchanged").
  *
  *   argv[1]  --icosphere-subdivisions   the level under test (2, 3 or 4)

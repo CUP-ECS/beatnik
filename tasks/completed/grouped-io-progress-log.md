@@ -1,7 +1,7 @@
 # Grouped HDF5/XDMF checkpoint output — progress log
 
 Session record for grouped-io. Companion to
-[tasks/grouped-io.md](grouped-io.md), which holds the design, the task sequence and
+[tasks/completed/grouped-io.md](grouped-io.md), which holds the design, the task sequence and
 the risks; this file holds what actually happened, in order.
 
 **Read this when** you need the reasoning behind a decision the design states flatly,
@@ -200,7 +200,7 @@ one argument-related finding of this work is not a Beatnik surface change at all
 usability fact recorded under T1: `adaptive_mesh_bubble` at its documented defaults
 cannot complete a step in this checkout.
 
-**Affects:** none. `tasks/grouped-io.md` is complete. The one thread that leaves this
+**Affects:** none. `tasks/completed/grouped-io.md` is complete. The one thread that leaves this
 document is the restart-versus-series inconsistency, now in README "Known Issues" and
 owned by `tasks/framework.md` **T5b** — a session implementing T5b must resolve it in the
 same change, because a restart that completes while it is open writes a master that

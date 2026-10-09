@@ -16,7 +16,7 @@
 # SPDX-License-Identifier: BSD-3-Clause                                    #
 ############################################################################
 #
-# T1 exit-criterion run for tasks/grouped-io.md: four steps of
+# T1 exit-criterion run for tasks/completed/grouped-io.md: four steps of
 # adaptive_mesh_bubble checkpointing every two steps, so the run takes
 # checkpoints at steps 0, 2 and 4 plus finalize()'s repeat of the last one --
 # the shape that makes MeshSeries' strictly-increasing-time rule fire if the

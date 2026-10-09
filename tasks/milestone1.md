@@ -194,7 +194,7 @@ introduces or sharpens.
 | Reference-state re-basing | every pass that moves a vertex or changes connectivity states, in its progress-log entry, whether it calls `AdaptiveMesh::resetReferenceState`, and why. A silent choice here changes every later refinement decision. |
 | Failure behavior | loud. A configuration Beatnik cannot reproduce is rejected before the first step, by method name and task ID, exactly as the four rejections this milestone deletes do. No pass may silently no-op. |
 | Diagnostics that must be numbers | per remesh pass: `splits`, `collapses`, `flips`, `smooth_steps`, `min_quality` before/after, R12's two shape signals, and (T4d6) the gid-space high-water mark. A milestone run that reports zero edits everywhere is M1-R7, not a pass. |
-| Test tier for the milestone comparison | the **`milestone`** label, at ranks **1 and 4** on SERIAL and HIP, outside the 60-launch ship gate. The tier is created by **M0-T1** in [`milestone0.md`](milestone0.md); M1-T1 registers a member in it. The `regression` tier keeps exactly its five members; promoting anything into it needs the user's confirmation (CLAUDE.md "Minimum test set"). |
+| Test tier for the milestone comparison | the **`milestone`** label, at ranks **1 and 4** on SERIAL and HIP, outside the 60-launch ship gate. The tier is created by **M0-T1** in [`milestone0.md`](completed/milestone0.md); M1-T1 registers a member in it. The `regression` tier keeps exactly its five members; promoting anything into it needs the user's confirmation (CLAUDE.md "Minimum test set"). |
 | Provenance comments | `// Port of <file>::<fn> (lines N-M)` against the **real** origin, per framework.md. The functions this milestone ports live in `dynamic_remesh.py` and `mesh_quality.py`; cite line ranges, not function names alone. |
 
 ### Deliberate deviations
@@ -709,7 +709,7 @@ reference, never the flip or collapse set (R7).
 
 ### M1-T1 — register milestone 1 in the `milestone` test tier — **NOT STARTED**
 
-**Depends on:** **M0-T1** ([`milestone0.md`](milestone0.md)), which **creates**
+**Depends on:** **M0-T1** ([`milestone0.md`](completed/milestone0.md)), which **creates**
 the tier — the CMake wiring, `beatnik_milestone_manifest.txt`, the installed-path
 gold-data rules, `scripts/tuolumne/run_milestone.flux` at ranks 1 and 4 on SERIAL
 and HIP, and the `docs/testing.md` / CLAUDE.md text saying the tier does not gate.
@@ -723,7 +723,7 @@ M1-G2 gold directory.
 
 **Reference:** whatever M0-T1 built, and the regression tier's own registration
 loop (`:309-372`) and gold-set `install()` rules (`:500-517`) that M0-T1 copied.
-Read the M0-T1 entry in [`milestone0-progress-log.md`](milestone0-progress-log.md)
+Read the M0-T1 entry in [`milestone0-progress-log.md`](completed/milestone0-progress-log.md)
 before starting: if M0-T1 departed from its stated plan, this is the task that
 finds out.
 

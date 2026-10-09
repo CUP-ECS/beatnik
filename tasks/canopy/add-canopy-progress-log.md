@@ -117,7 +117,7 @@ error, at both bases.
 
 ### The trajectory-comparison impossibility
 
-`tasks/milestone0-progress-log.md:320-332` measures the direct path's own
+`tasks/completed/milestone0-progress-log.md:320-332` measures the direct path's own
 divergence from a one-ulp seed: `vertices` `max|e|` goes from
 `5.55111512312578270e-17` at step 0 to `8.53317416726895317e-13` at step 2000
 (level 3, SERIAL, np1, against the Python), i.e. about $10^4$ amplification,

@@ -566,7 +566,7 @@ later-diverging one is the primary.
 
 *Consequence handed to M0-T3, and not acted on here:* two members do **not** fit
 `run_milestone.flux`'s `# flux: -t 30m`
-([scripts/tuolumne/run_milestone.flux:5](../scripts/tuolumne/run_milestone.flux#L5)).
+([scripts/tuolumne/run_milestone.flux:5](../../scripts/tuolumne/run_milestone.flux#L5)).
 Level 4's four launches alone are `22` + `45` + `382` + `1293` = **1742 s of
 launch wall, 29.0 minutes**, before level 3's ~167 s of solve and its own startup
 and I/O. **M0-T3 raises that walltime.** This task did not edit the script:

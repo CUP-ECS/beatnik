@@ -39,7 +39,7 @@ invocations at that rung before reporting anything (M0-D1 step 3). Both numbers
 are printed and both go in the progress log; the CONFIRMED one is the answer.
 
 STEPS ARE FOUND BY THEIR ``_step%07d`` SUFFIX, never by rebuilding a name from
-a time -- the time is one of the compared quantities (milestone0.md
+a time -- the time is one of the compared quantities (tasks/completed/milestone0.md
 Conventions). A step present on one side and missing on the other is reported
 by name and skipped, not silently dropped from the denominator.
 
@@ -193,7 +193,7 @@ def run_comparator(
 
     Exit status 0 is a match, **exactly 1** is compared-and-disagreed, 2 is a
     load error and anything else a plumbing failure. The three are never
-    conflated (milestone0.md Conventions): a load error reported as a mismatch
+    conflated (tasks/completed/milestone0.md Conventions): a load error reported as a mismatch
     would put a broken path into the ladder as a divergence.
     """
     cmd = [python_exe(), comparator_path(), lhs, rhs,

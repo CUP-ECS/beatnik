@@ -250,7 +250,7 @@ A 2000-step FMM-driven trajectory cannot be compared against the direct gold set
 at the existing `--rtol 1e-10 --atol 1e-12`, and no order reaches far enough to
 change that. The divergence is measured: a one-ulp seed ($5.6\times10^{-17}$ on
 `vertices`) grows to $8.5\times10^{-13}$ by step 2000 at level 3
-([milestone0-progress-log.md:320-332](../milestone0-progress-log.md)), about
+([milestone0-progress-log.md:320-332](../completed/milestone0-progress-log.md)), about
 $10^4$ amplification, power-law rather than exponential. A $10^{-3}$
 perturbation injected at **every** evaluation is thirteen orders above the seed
 that already exhausts the tightest rung, so the FMM-driven and direct-driven
@@ -1504,7 +1504,7 @@ accuracy at the same two mesh sizes ([treecode.md](../treecode.md) §1); the
 measurement-driver loop's rule that it appends to **neither** manifest
 ([tests/CMakeLists.txt:548-556](../../tests/CMakeLists.txt#L548-L556)); M0-D1's
 ladder, which is the instrument step 7 reuses
-([milestone0-progress-log.md](../milestone0-progress-log.md)).
+([milestone0-progress-log.md](../completed/milestone0-progress-log.md)).
 
 Step 7 rebuilds none of M0-D1's machinery. Three in-tree artifacts are what it
 reuses, and each carries a property that is expensive to rediscover:
@@ -1637,7 +1637,7 @@ reuses, and each carries a property that is expensive to rediscover:
    present either way. The two ladders nearly coincide and the reason is already
    measured, so it need not be re-derived — the direct path tracks the gold set
    to $8.5\times10^{-13}$ at step 2000
-   ([milestone0-progress-log.md:320-332](../milestone0-progress-log.md)), so at
+   ([milestone0-progress-log.md:320-332](../completed/milestone0-progress-log.md)), so at
    any rung at or above $10^{-10}$ they agree. Note that the two right-hand
    sides are not over the same field set; the **Reference** entry on the ladder
    says which.

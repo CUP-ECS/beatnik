@@ -14,7 +14,7 @@
  *        collection `CheckpointIO::write` maintains.
  *
  * THIS IS T2's EXIT CRITERION, MECHANIZED, and it exists to take Paraview out
- * of the loop. Risk R1 in `tasks/grouped-io.md` is that the master opens and
+ * of the loop. Risk R1 in `tasks/completed/grouped-io.md` is that the master opens and
  * shows one timestep, which looks like a broken file and is almost always the
  * reader — only the *temporal* XDMF3 reader walks a collection. A visual check
  * therefore cannot distinguish "the light data is wrong" from "the reader was

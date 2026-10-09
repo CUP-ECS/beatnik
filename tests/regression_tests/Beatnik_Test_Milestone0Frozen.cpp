@@ -121,7 +121,7 @@
  * is out of scope** — there is no mechanism for it here, and saying so is what
  * stops a later session reading its absence as an oversight.
  *
- * FAILURE BEHAVIOR IS LOUD (milestone0.md Conventions). A gold file missing for a
+ * FAILURE BEHAVIOR IS LOUD (tasks/completed/milestone0.md Conventions). A gold file missing for a
  * compared step is a named failure, not a skipped step. A run that stops early is
  * a reported stop step, not a shorter pass. A comparator exit of 2 (could not
  * load) is never conflated with 1 (compared and disagreed).
@@ -136,7 +136,7 @@
  *              regression_tests/compare_output.py
  *
  * `BEATNIK_PYTHON` overrides the interpreter (default `python3`). There is no
- * option surface here and none may be added (milestone0.md Conventions, "CLI
+ * option surface here and none may be added (tasks/completed/milestone0.md Conventions, "CLI
  * surface: unchanged").
  */
 
@@ -187,7 +187,7 @@
 /// `--no-isotropic-cleanup`), because a configuration
 /// `requireSupportedConfiguration` rejects would throw at setup and demonstrate
 /// nothing about the count assertion. It is a BUILD-TIME define and not an
-/// option: milestone0.md's conventions close the CLI surface.
+/// option: tasks/completed/milestone0.md's conventions close the CLI surface.
 #ifndef BEATNIK_M0_FORCE_DYNAMIC_REMESH
 #define BEATNIK_M0_FORCE_DYNAMIC_REMESH 0
 #endif
@@ -262,7 +262,7 @@ constexpr double kScalarRtol = 1.0e-12;
 /// steps of all eight 2000-step runs, worst case `2.758331e-05` relative
 /// (`sub3_Serial_np4` at step 1975; the level-4 worst is `1.831088e-05`). That is
 /// a **36x** margin under this literal. Do not loosen it without a new
-/// measurement in `tasks/milestone0-progress-log.md`.
+/// measurement in `tasks/completed/milestone0-progress-log.md`.
 constexpr double kVolumeDriftRtol = 1.0e-3;
 
 /// The blow-up detector, kept absolute so a drift that tracks the reference
