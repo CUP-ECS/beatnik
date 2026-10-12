@@ -584,3 +584,386 @@ Design changes made with this entry:
   spread (R2) at L5 as well as L4.
 - O1–O7 — use the new accuracy criterion.
 - V1 — the extra `ncrit 64` measurement.
+
+## T3
+
+**Provenance, pinned.**
+- **Code.** Beatnik `d45aeed` checked out. The installed dev binary is
+  `beatnik-develop-ckhvawf` (installed at T2, 11:14 the same day), built from
+  `86c32ac`; every later commit is docs or scripts. Canopy `c182348`, clean
+  porcelain in every job.
+- **Toolchain.** `canopy@develop +profiling profiling_level=2`, cce@20.0.0,
+  dev env `~/spack_envs/tuolumne_beatnik`.
+- **No install** in this task. The Beatnik porcelain the jobs logged is
+  `.claude/settings.json`, two untracked files, and this task's uncommitted
+  reducer and script, none of them compiled.
+- **Configuration.** HIP and SERIAL, CartesianTaylor order 3, θ 0.3,
+  `ncrit 8`, `m2l_op_count_cap 65536`, `canopy_report 0`, except the named
+  `ncrit` arm.
+- **Binding.** `launch()` copied from `cprof_knob_arms.flux`: `flux run
+  --ntasks=<np> --nodes=1 --exclusive --gpus-per-task=1 --cores-per-task=24
+  --setopt=mpibind=verbose:1`, for both backends. mpibind gave each np4 rank
+  its own GPU and a disjoint 24-core set.
+
+All jobs are `pdebug`, one node, `-t 58m`, budget 3300 s. All exited rc 0 with
+no `SKIPPED` or `FAIL` line. Submitted together at 12:45:16–19; queue wait
+1–2 s each.
+
+| job | `BEATNIK_CPB_SET` | runs (level steps sample_every) | launch walls | job wall |
+| --- | --- | --- | --- | --- |
+| `f3dj4QS4bmGB` | `hip_np1_l4` | L4 np1 2000 50 | 2018 s | 34.0 min |
+| `f3dj4QaHyn1D` | `hip_np1_l5l6` | L6 np1 250 25; L5 np1 800 50 | 915 + 1406 s | 39.1 min |
+| `f3dj4QiSupuD` | `hip_np4_l4` | L4 np4 2000 50 | 1411 s | 23.9 min |
+| `f3dj4Qt8o8hu` | `hip_np4_l5l6` | L6 np4 250 25; L5 np4 800 50 | 564 + 1025 s | 26.9 min |
+| `f3dj4R2EmD3D` | `hip_np4_ncrit` | L5 np4 800 50 at `ncrit` 64 and 32 | 277 + 458 s | 12.7 min |
+| `f3dj4RASfEVu` | `serial_np1` | L4 np1 500 25 | 885 s | 15.9 min |
+| `f3dj4RJLmQaT` | `serial_np4` | L4 np4 500 25 | 1931 s | 32.6 min |
+| `f3dj4RSg5NSs` | `spread_hip_np4` | SMS L5 np4 300 25 ×2; SMS L4 np4 1200 50 ×2 | 301 + 293 + 744 + 744 s | 35.1 min |
+| `f3djNiFw5apw` | `sms_hip_np1` | SMS L5 np1 300 25; SMS L4 np1 1200 50 | 384 + 1038 s | 24.1 min |
+
+The last job was submitted at 13:25, after the matrix, for the reason under
+"Departures".
+
+**Decisions, made before this task and recorded here.**
+- **Every measurement runs at `ncrit 8`**, order 3, θ 0.3,
+  `m2l_op_count_cap 65536`, the probe's defaults. `ncrit` 32 and 64 appear
+  only in the level-5 arm, which informs V1's production-`ncrit` statement.
+- **The accuracy baseline is per state.** Level 4 is held to ≤ 1.5e-3; levels
+  5 and 6 are recorded as they are and guarded by "no regression beyond the
+  measured spread". So the spread was measured at level 4 and level 5.
+- **The per-row count check lives in the reducer** (below).
+- **Untimed maintenance is reported as untimed.** T3 adds no timer; O5 owns
+  that.
+- **No new probe key.** None was needed for (a)–(f). O10's split does need
+  keys the probe lacks, so O10 adds them.
+
+**Decisions made in this task.**
+- **One script with named sets**, `canopy_profiling_baseline.flux`, selected
+  by `BEATNIK_CPB_SET`. It has nine T3 sets and four SMS sets; the
+  `BEATNIK_CPS_SWEEP` row override and the budget guard are as in
+  `cprof_knob_arms.flux`. A row is `label level np steps sample_every space
+  knob estimate`; `space` picks `Beatnik_Probe_FmmCost_MPI_{HIP,SERIAL}`.
+- **Eight jobs, not one or two.** Each holds at most about 2300 s of
+  estimated work, so no row depended on another finishing early. pdebug had
+  12 free nodes and ran all eight at once.
+- **The spread is measured at HIP np4**, which carries both the partitioner
+  and device-reduction sources of non-reproducibility. It uses the SMS rows
+  exactly, twice in one allocation. The matrix's own np4 runs, on other nodes,
+  give a cross-node comparison at level 4.
+- **Level 6 is outside the SMS.** Its spread is unmeasured and its rows cost
+  540–891 s. A tree-changing O task adds T3's level-6 rows instead (design,
+  "SMS definition").
+- **O-task IDs are kept, not renumbered.** Earlier log entries cite O1, O3 and
+  O6 by ID, so the sections were reordered in place, O8–O10 added, and O3
+  marked NOT TAKEN.
+
+**The reducer change** (`tests/regression_tests/fmm_profile_reduce.py`).
+- **`cost_count_check`** runs on every `[cost]` row at parse time. It needs
+  `steps`, `evals` and the four `maint_*` keys as non-negative integers;
+  anything else is malformed and fatal (`ReduceError`, exit 1).
+- **A well-formed row failing `maint sum == evals == 3*steps`** goes to
+  `rows["excluded"]`. It never enters `reduce_probe`'s statistics, and
+  `print_probe` reports it as `EXCLUDED [cost] run=<r> step=<s>: <reason>`
+  beside a per-run `count check: N passed, M excluded` line. It does not
+  change the exit status.
+- **The `[acc]` row at the same step is kept.** It is a standalone evaluation
+  outside the window.
+- **`--states`** prints one line per `[cost]` row, joined to its `[acc]` row:
+  - s/step, `3×ff_evaluate_total / step_wall`, `ff_solve` and `ff_maintain`
+    per evaluation;
+  - **untimed maintenance** (`ff_maintain − builder_build − repartition −
+    sort_by_leaf − comm_plan_build`);
+  - op-build share of `ff_solve`, adapter share, the action counts, P2P
+    fraction, `fb_range_guard`, `acc_rel` and `direct_step_est`.
+
+  It is the per-state before/after view the common O criterion asks for.
+- **`--self-test`** gains a passing fixture (the existing probe rows, now
+  with counts), a failing row (maint sum 59 against `evals` 60), and two
+  malformed rows (a missing `maint_rebuild`, `evals=-1`). The failing row's
+  `step_wall=9.99` must not reach any statistic.
+- **Verified.**
+  - The self-test passes.
+  - A copy with the equality forced true fails it with an `AssertionError`.
+  - The T2 smoke log, the knob-arms log and the T9b milestone log all still
+    reduce, rc 0.
+  - Every one of the nine T3 logs reduces, rc 0, with
+    **328 `[cost]` rows passing and none excluded**.
+
+**What only running revealed.**
+- **The time step is not fixed.** At level 4, dt is 0.003 to about step
+  100, then falls steadily to 0.00035 by step 1150 and stays near 0.0004 to
+  step 2000. So t = 1.573 at step 1000 and only 1.962 at step 2000.
+  - dt's plateau coincides with the per-step cost plateau (T0, R3).
+  - Per unit of physical time, the late trajectory costs about 30x the
+    early one.
+
+  **Last states, R3:**
+  - L4 2000 steps → t = 1.962; L4 1200 (SMS) → t = 1.646;
+  - L5 800 → t = 1.540, which matches L4 at about step 990, the plateau
+    onset; L5 300 (SMS) → t = 0.800;
+  - L6 250 → t = 0.688; SERIAL L4 500 → t = 1.154.
+- **`[acc]` is bit-reproducible.** `acc_rel` agrees to all nine printed
+  digits, at every matched state, between:
+  - the two repetitions in one job, at L4 and L5;
+  - runs on different nodes;
+  - np1 and np4;
+  - SERIAL and HIP.
+
+  The action histogram (e.g. 1/1363/4636/0 at L4) is identical at np1 and np4
+  and on both backends. **R2's premise does not hold for the accuracy metric;
+  only the step wall varies.**
+- **Range-guard fallback is not a level-6-only effect.** It appears at level
+  4 from step 250 (36 of 41 rows non-zero, peak 6166 pairs) and at level 5 from
+  step 200 (peak 16018). T2's "none at L4/L5" was a statement about steps
+  1–60. It costs little: `m2l_kernel`, which contains the fallback, is at most
+  4.3 % of any HIP row.
+- **The operator-table copy is a separate 9–18 %.** `ilist_s4_op_table_copy`
+  re-copies every unique column on the host and re-uploads the whole table at
+  every interaction-list build, so O1's retention does not shrink it
+  (`Canopy_DownwardSweep.hpp:2142-2172`).
+- **SERIAL's cost is the adapter's distributors**, not maintenance:
+  `ff_fwd_distribute` + `ff_rev_distribute` are 52 % (np1) and 87 % (np4) of
+  the step. T0 could only say "outside `solve()`".
+- **The non-BR step grows at HIP np4.** It is 2.4 % of the step at step 50
+  and 8.4 % at step 2000 (L4), against ≤ 0.7 % at np1. `direct_step_est`
+  inherits it, because it adds the FMM step's non-BR time: L4 np4 is 0.020 →
+  0.082 s/step. **The np4 `fmm`/`direct` ratios are therefore understated;**
+  the np1 ratios are the clean ones.
+- **Level 5 grows like level 4.** At np1 it goes from 0.98 to 2.40 s/step
+  over 800 steps (2.5x); at np4 from 0.76 to 1.77. The sizing's early rates
+  (0.83, 0.69) held only for the first 50 steps.
+- **`auto_maintain` rebalances almost every evaluation:** 77 % at L4, 98 % at
+  L5 and L6. Rebuild never fires.
+
+**(a) Phase split per step, % of step wall** (each per-evaluation phase × 3 /
+step wall), early, middle and late rows.
+- *op build* is `ilist_s4_op_table_build`; *op copy* is
+  `ilist_s4_op_table_copy`.
+- *classify + rest of ilist* is `dn_build_ilist` minus those two: mostly
+  `ilist_s3_classify_pairs`, plus 1–4 % untimed between stages.
+- *rest of downward + L2P* is `downward_total − dn_build_ilist − m2l_kernel`.
+- *maint untimed* is `ff_maintain` minus the four timed children.
+- *non-BR* is `step_wall − 3 × ff_evaluate_total`.
+
+Per evaluation, divide by 3.
+
+| run | step (t) | s/step | maint timed | maint untimed | op build | op copy | classify + rest of ilist | `m2l_kernel` | rest of downward + L2P | up + P2P | adapter + diag | non-BR |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| L4 HIP np1 | 50 (0.15) | 0.327 | 2.8 | 4.6 | 51.7 | 15.5 | 15.7 | 3.7 | 1.5 | 2.0 | 1.7 | 0.7 |
+| L4 HIP np1 | 1050 (1.59) | 1.248 | 4.5 | 4.4 | 54.4 | 18.5 | 13.3 | 1.9 | 0.8 | 1.0 | 0.9 | 0.2 |
+| L4 HIP np1 | 2000 (1.96) | 1.200 | 4.7 | 4.7 | 53.2 | 18.1 | 14.4 | 1.8 | 0.9 | 1.1 | 1.0 | 0.2 |
+| L4 HIP np4 | 50 (0.15) | 0.307 | 3.8 | 5.8 | 38.4 | 13.0 | 7.5 | 2.2 | 13.8 | 6.2 | 6.7 | 2.4 |
+| L4 HIP np4 | 1050 (1.59) | 0.795 | 6.1 | 4.5 | 41.3 | 14.2 | 6.6 | 1.5 | 11.1 | 6.7 | 3.2 | 4.8 |
+| L4 HIP np4 | 2000 (1.96) | 0.825 | 6.1 | 4.9 | 40.3 | 13.9 | 6.5 | 1.3 | 7.5 | 7.8 | 3.3 | 8.4 |
+| L5 HIP np1 | 50 (0.15) | 0.978 | 17.1 | 5.2 | 35.2 | 11.1 | 21.7 | 3.8 | 0.8 | 2.3 | 2.3 | 0.3 |
+| L5 HIP np1 | 450 (1.08) | 1.854 | 14.4 | 4.8 | 41.4 | 14.7 | 18.1 | 2.8 | 1.1 | 0.9 | 1.5 | 0.2 |
+| L5 HIP np1 | 800 (1.54) | 2.404 | 12.8 | 5.0 | 42.6 | 16.2 | 16.8 | 3.4 | 0.7 | 1.1 | 1.3 | 0.1 |
+| L5 HIP np4 | 50 (0.15) | 0.756 | 14.3 | 4.6 | 31.2 | 10.7 | 10.5 | 2.0 | 15.0 | 5.5 | 4.8 | 1.2 |
+| L5 HIP np4 | 450 (1.08) | 1.274 | 15.2 | 5.0 | 37.5 | 13.9 | 11.1 | 1.8 | 7.2 | 3.7 | 2.7 | 1.9 |
+| L5 HIP np4 | 800 (1.54) | 1.770 | 13.0 | 5.1 | 37.7 | 13.9 | 10.9 | 1.9 | 9.5 | 3.7 | 2.4 | 1.8 |
+| L6 HIP np1 | 25 (0.07) | 3.096 | 26.6 | 7.6 | 23.4 | 8.2 | 25.9 | 3.9 | 0.5 | 0.7 | 2.9 | 0.1 |
+| L6 HIP np1 | 150 (0.44) | 3.587 | 26.7 | 7.4 | 24.9 | 9.1 | 23.7 | 3.9 | 0.6 | 1.0 | 2.5 | 0.1 |
+| L6 HIP np1 | 250 (0.69) | 4.161 | 24.0 | 7.8 | 28.1 | 9.9 | 22.5 | 3.7 | 0.6 | 0.9 | 2.3 | 0.1 |
+| L6 HIP np4 | 25 (0.07) | 1.927 | 21.5 | 6.2 | 30.1 | 11.4 | 14.0 | 2.4 | 8.2 | 2.9 | 2.7 | 0.5 |
+| L6 HIP np4 | 150 (0.44) | 2.176 | 23.3 | 6.3 | 30.3 | 11.6 | 13.3 | 2.4 | 6.3 | 2.8 | 2.8 | 0.7 |
+| L6 HIP np4 | 250 (0.69) | 2.482 | 21.4 | 6.5 | 32.4 | 12.6 | 12.8 | 2.2 | 5.8 | 2.9 | 2.6 | 0.7 |
+| L4 SERIAL np1 | 25 (0.07) | 1.515 | 0.9 | 1.4 | 10.4 | 2.3 | 4.5 | 14.3 | 0.9 | 2.6 | 62.4 | 0.4 |
+| L4 SERIAL np1 | 275 (0.75) | 1.632 | 3.6 | 1.7 | 17.6 | 4.7 | 4.4 | 14.3 | 1.3 | 2.4 | 49.6 | 0.3 |
+| L4 SERIAL np1 | 500 (1.15) | 2.027 | 3.3 | 2.6 | 22.2 | 6.2 | 4.3 | 13.8 | 1.2 | 2.0 | 44.0 | 0.3 |
+| L4 SERIAL np4 | 25 (0.07) | 3.483 | 0.4 | 0.6 | 3.6 | 1.0 | 0.7 | 1.7 | 2.1 | 0.6 | 89.0 | 0.3 |
+| L4 SERIAL np4 | 275 (0.75) | 3.553 | 1.9 | 0.6 | 4.6 | 1.2 | 0.9 | 2.1 | 2.3 | 0.6 | 85.5 | 0.3 |
+| L4 SERIAL np4 | 500 (1.15) | 4.228 | 1.4 | 0.6 | 5.3 | 1.5 | 0.9 | 2.4 | 2.8 | 0.7 | 84.0 | 0.3 |
+| L5 HIP np4 `ncrit 32` | 50 (0.15) | 0.332 | 4.3 | 5.9 | 34.9 | 11.3 | 6.4 | 2.2 | 15.9 | 8.4 | 7.8 | 2.7 |
+| L5 HIP np4 `ncrit 32` | 450 (1.08) | 0.563 | 10.6 | 4.5 | 36.1 | 12.6 | 6.7 | 2.0 | 10.8 | 7.6 | 5.2 | 3.6 |
+| L5 HIP np4 `ncrit 32` | 800 (1.54) | 0.712 | 8.7 | 4.8 | 41.6 | 13.5 | 7.4 | 1.5 | 6.4 | 8.1 | 3.6 | 4.2 |
+| L5 HIP np4 `ncrit 64` | 50 (0.15) | 0.321 | 11.2 | 5.4 | 34.3 | 11.0 | 4.7 | 1.6 | 13.0 | 9.1 | 6.8 | 2.6 |
+| L5 HIP np4 `ncrit 64` | 450 (1.08) | 0.268 | 10.9 | 6.7 | 25.8 | 7.8 | 4.2 | 4.8 | 11.2 | 13.4 | 8.7 | 6.1 |
+| L5 HIP np4 `ncrit 64` | 800 (1.54) | 0.401 | 7.8 | 5.3 | 34.7 | 11.7 | 4.6 | 1.4 | 9.7 | 12.5 | 5.6 | 6.5 |
+
+**Untimed maintenance, explicitly.** As a share of `ff_maintain` (per-eval
+seconds in log rows):
+- **L4:** 42–62 %, which is 4.4–5.8 % of step wall at np1 and np4.
+- **L5:** 23–28 %; **L6:** 21–24 %.
+- **SERIAL:** 23–62 %.
+
+The timed part is dominated by `comm_plan_build`, and
+`commplan_dtt_traversal` is about two-thirds of that. At L6 np1 they are 0.26
+and 0.17 s per evaluation of a 0.35–0.44 s `ff_maintain`. `builder_build` +
+`repartition` + `sort_by_leaf` are under 3 % of step wall everywhere.
+
+**(b) and (c) Actions, operator build, retention, depth and fallback.**
+- **Retention is about zero at every row past step 1.** Keys built per
+  evaluation equal `unique_ops` (per-run medians 0.96–1.01). At step 1 it is
+  exactly 2/3: one of the first three evaluations reuses the setup's table.
+- **Occupied depth reaches 7** at level 4 by step 700 (np1; 800 as an np4
+  rank mean) and at level 5 by step 200. Level 6 starts at 7.
+
+| run | actions setup/migrate/rebalance/rebuild | op build / `ff_solve` min–med–max | keys built per eval / `unique_ops` (median) | occupied depths (first ≥ 7) | `fb_range_guard` max (rows > 0) |
+| --- | --- | --- | --- | --- | --- |
+| L4 HIP np1 | 1/1363/4636/0 | 0.57–0.61–0.63 | 1.00 | 5–8 (step 700) | 6166 (36/41) |
+| L4 HIP np4 | 1/1363/4636/0 | 0.43–0.50–0.54 | 1.01 | 5–8 (step 800) | 6166 (36/41) |
+| L5 HIP np1 | 1/45/2354/0 | 0.47–0.52–0.55 | 0.96 | 6–8 (step 200) | 16018 (13/17) |
+| L5 HIP np4 | 1/45/2354/0 | 0.42–0.47–0.50 | 0.98 | 6–8 (step 200) | 16018 (13/17) |
+| L6 HIP np1 | 1/10/739/0 | 0.37–0.39–0.43 | 0.99 | 7–8 (step 1) | 21768 (11/11) |
+| L6 HIP np4 | 1/10/739/0 | 0.44–0.45–0.47 | 0.99 | 7–8 (step 1) | 21768 (11/11) |
+| L4 SERIAL np1 | 1/358/1141/0 | 0.30–0.38–0.45 | 1.00 | 5–6 (never) | 2000 (11/21) |
+| L4 SERIAL np4 | 1/358/1141/0 | 0.34–0.37–0.41 | 1.00 | 5–6 (never) | 2000 (11/21) |
+| L5 HIP np4 `ncrit 32` | 1/546/1853/0 | 0.43–0.48–0.53 | 0.99 | 5–7 (step 800) | 2128 (11/17) |
+| L5 HIP np4 `ncrit 64` | 1/638/1761/0 | 0.38–0.46–0.48 | 1.00 | 5–6 (never) | 504 (8/17) |
+
+**(d) `fmm` against estimated `direct` per step, and the crossover.**
+`direct_step_est` is from `[acc]`, the median over the run's states.
+
+| run | fmm s/step early / mid / late | direct est s/step (median) | fmm / direct early / mid / late | P2P fraction early / late |
+| --- | --- | --- | --- | --- |
+| L4 HIP np1 | 0.327 / 1.248 / 1.200 | 0.0089 | 38.0 / 139.7 / 123.2 | 0.250 / 0.362 |
+| L4 HIP np4 | 0.307 / 0.795 / 0.825 | 0.0508 | 15.1 / 14.5 / 10.1 | 0.250 / 0.362 |
+| L5 HIP np1 | 0.978 / 1.854 / 2.404 | 0.0278 | 35.7 / 66.0 / 84.3 | 0.057 / 0.078 |
+| L5 HIP np4 | 0.756 / 1.274 / 1.770 | 0.0569 | 18.1 / 21.7 / 26.7 | 0.057 / 0.078 |
+| L6 HIP np1 | 3.096 / 3.587 / 4.161 | 0.1078 | 28.5 / 32.9 / 38.6 | 0.015 / 0.016 |
+| L6 HIP np4 | 1.927 / 2.176 / 2.482 | 0.1253 | 15.6 / 17.4 / 19.5 | 0.015 / 0.016 |
+| L4 SERIAL np1 | 1.515 / 1.632 / 2.027 | 0.6444 | 2.4 / 2.5 / 3.1 | 0.252 / 0.263 |
+| L4 SERIAL np4 | 3.483 / 3.553 / 4.228 | 0.1886 | 18.6 / 18.9 / 22.2 | 0.252 / 0.263 |
+| L5 HIP np4 `ncrit 32` | 0.332 / 0.563 / 0.712 | 0.0541 | 7.9 / 10.3 / 10.4 | 0.254 / 0.372 |
+| L5 HIP np4 `ncrit 64` | 0.321 / 0.268 / 0.401 | 0.0485 | 7.7 / 5.7 / 6.8 | 0.424 / 0.623 |
+
+- **No crossover in range, at any `ncrit` measured.**
+  - At matched early states (step 50, or 25 at L6) the clean np1 ratio is
+    38, 36 and 29 at levels 4, 5 and 6. Late states are worse: 123 at L4,
+    84 at L5.
+  - The direct estimate scales as N^0.82 from L4 to L5 and N^0.98 from L5
+    to L6; the GPU is not saturated, so it is not yet N². The early FMM
+    step scales as N^0.79 and N^0.83.
+  - So the early-state ratio falls by about 0.87x per level. Extrapolated,
+    that reaches 1 only after about 25 more levels: not a crossover in any
+    reachable range.
+- **Leaf size changes the ratio, not its sign.** At level 5 np4 the late
+  ratio is 26.7 at `ncrit 8`, 10.4 at 32 and 6.8 at 64.
+- **The `ncrit 64` arm** extends the "L5/L6 accuracy check" point along the
+  trajectory: 0.27–0.40 s/step, and `[acc]` 3.9e-4 to 7.9e-4 at every state,
+  under τ_A.
+
+**(e) Outside `solve()`, medians, % of step wall.**
+
+| run | `ff_solve` | `ff_maintain` | adapter + `ff_diagnostics` | non-BR | adapter + diag / `ff_evaluate_total` |
+| --- | --- | --- | --- | --- | --- |
+| L4 HIP np1 | 89.0 | 9.8 | 1.0 | 0.2 | 1.0 |
+| L4 HIP np4 | 78.7 | 11.8 | 3.4 | 4.8 | 3.6 |
+| L5 HIP np1 | 78.7 | 19.6 | 1.5 | 0.2 | 1.5 |
+| L5 HIP np4 | 75.4 | 19.9 | 2.8 | 1.7 | 2.8 |
+| L6 HIP np1 | 62.9 | 34.2 | 2.6 | 0.1 | 2.6 |
+| L6 HIP np4 | 67.1 | 29.5 | 2.8 | 0.7 | 2.8 |
+| L4 SERIAL np1 | 40.7 | 5.0 | 54.2 | 0.3 | 54.4 |
+| L4 SERIAL np4 | 10.8 | 2.0 | 86.8 | 0.3 | 87.0 |
+| L5 HIP np4 `ncrit 32` | 77.6 | 14.2 | 4.8 | 3.4 | 5.0 |
+| L5 HIP np4 `ncrit 64` | 73.0 | 15.9 | 7.2 | 5.6 | 7.6 |
+
+- On HIP the adapter phases plus `ff_diagnostics` are 1.0–3.4 % (medians);
+  the single-state maximum is 6.7 % at L4 np4, step 50.
+- On SERIAL they are the step (O7).
+- `ff_maintain` is the larger outside-`solve()` share on HIP: 10–34 %.
+
+**(f) The accuracy baseline, `acc_rel` at every state.** Identical at np1 and
+np4 and on SERIAL and HIP, so one list per level is the baseline for every SMS
+row. The lists are rounded to three digits for reading; because `[acc]`
+reproduces exactly, an O task compares against the full nine-digit values in
+the job logs.
+- **Level 4** (2000 steps, every 50): max **1.099e-3** (step 1000), min
+  5.01e-4. **≤ τ_A = 1.5e-3 at all 41 states.**
+  1: 5.01e-04, 50: 5.07e-04, 100: 5.17e-04, 150: 6.09e-04, 200: 5.47e-04, 250: 6.04e-04, 300: 5.15e-04, 350: 7.62e-04, 400: 5.28e-04, 450: 5.85e-04, 500: 6.32e-04, 550: 6.16e-04, 600: 8.15e-04, 650: 6.62e-04, 700: 7.56e-04, 750: 8.10e-04, 800: 7.76e-04, 850: 7.46e-04, 900: 6.56e-04, 950: 8.28e-04, 1000: 1.10e-03, 1050: 5.87e-04, 1100: 5.74e-04, 1150: 7.47e-04, 1200: 6.02e-04, 1250: 7.94e-04, 1300: 8.66e-04, 1350: 1.08e-03, 1400: 7.67e-04, 1450: 9.23e-04, 1500: 6.03e-04, 1550: 7.09e-04, 1600: 9.03e-04, 1650: 7.96e-04, 1700: 6.73e-04, 1750: 5.28e-04, 1800: 6.77e-04, 1850: 8.12e-04, 1900: 5.37e-04, 1950: 5.30e-04, 2000: 5.33e-04
+- **Level 5** (800 steps, every 50, and the SMS's every 25 to 300): max
+  **1.634e-3** (step 1), min 8.27e-4.
+  1: 1.63e-03, 50: 9.43e-04, 100: 1.57e-03, 150: 1.36e-03, 200: 9.44e-04, 250: 8.90e-04, 300: 9.09e-04, 350: 1.40e-03, 400: 1.26e-03, 450: 8.27e-04, 500: 1.18e-03, 550: 1.17e-03, 600: 1.16e-03, 650: 1.16e-03, 700: 1.14e-03, 750: 1.38e-03, 800: 1.44e-03
+  SMS states not in the line above: 25: 1.63e-03, 75: 1.36e-03, 125: 1.15e-03, 175: 1.12e-03, 225: 8.35e-04, 275: 1.31e-03
+- **Level 6** (250 steps, every 25): max **2.771e-3** (step 50), min 1.591e-3,
+  falling along the trajectory.
+  1: 2.71e-03, 25: 2.71e-03, 50: 2.77e-03, 75: 2.62e-03, 100: 2.58e-03, 125: 2.36e-03, 150: 2.18e-03, 175: 2.03e-03, 200: 1.95e-03, 225: 1.82e-03, 250: 1.59e-03
+
+**Run-to-run spread (R2)**, HIP np4, the SMS rows.
+- **`[acc]`: zero** at every state, at both levels, within the job and across
+  nodes.
+- **Step wall, L4 1200 steps, rep0 against rep1 in one job:**
+  - summed wall over the run 730.0 against 728.9 s, −0.15 %;
+  - per state, median |Δ| 0.70 %, max 4.6 % (step 800).
+- **Step wall, L4, rep0 against the matrix run on another node** (25 matched
+  states): summed −0.31 %; per state, median 1.6 %, max 4.6 % (step 250).
+- **Step wall, L5 300 steps, rep0 against rep1:**
+  - summed 282.3 against 280.0 s, −0.83 %;
+  - per state, median 1.6 %, max 6.9 % at step 1 (4.4 % excluding step 1).
+- The L5 matrix run (`sample_every 50`) is not a matched-window comparison
+  with the SMS's 25-step windows, so no cross-node L5 figure is quoted.
+- **Gain threshold (twice the spread):**
+  - run level: 0.6 % at L4 (cross-node), 1.7 % at L5;
+  - per state: 9 % at L4, 14 % at L5.
+
+**R1 — instrumentation against the milestone tier.** T0 has no per-step
+claim-B wall, so two comparisons were made against T9b's FmmL4 logs, at the same
+configuration and trajectory.
+- **Summed `solve()` per step in T0's 250-step bins.** Probe `ff_solve` over
+  T9b `solve()`:
+  - np1: 0.95, 1.00, 1.00, 1.01, 1.01, 1.02, 1.01, 1.03;
+  - np4: 1.02, 1.02, 1.06, 1.04, 1.01, 1.01, 1.01, 1.02.
+- **The 2000-step wall.** The probe's summed step wall is 1993.8 s against
+  `[t6] COST claimB` 1966.0 s at np1 (1.014), and 1383.5 against 1361.1 s at
+  np4 (1.016).
+- **The gap is under 10 %,** so O-task gains may be quoted from the probe.
+- The two builds differ in both directions: T9b printed level-1 tables, worth
+  about 2 % (T2), and the probe fences and runs level-2 timers. Their sum is
+  1.4–1.6 %. V1's tier walls bound the fence part alone.
+
+**R7 — the direct estimate.** At L4 HIP np1, `direct_step_est` has a median
+of 0.0089 s/step over 40 states (range 0.0086–0.0097), against M0-D1's
+0.0085. The ratio is **1.05** (1.01–1.14), within 10 %, so it is **not
+applied**. No `fmm`/`direct` statement above would change with it: every HIP
+ratio is at least 10.
+
+**SMS, measured.**
+- **`sms_hip_np1`** (job `f3djNiFw5apw`): 384 + 1038 s, job wall 24.1 min.
+  - Against the matrix's L4 np1 run on another node: `[acc]` is identical
+    at all 25 states, summed wall +0.29 %, per state median 1.0 % and max
+    4.7 %. That is the np1 cross-node spread, consistent with np4's.
+  - Two copies are about 2.85 ks against the 3.3 ks budget, so an np1 on/off
+    control fits one job with 14 % margin.
+- **`sms_hip_np4`** is the spread job's rep0/rep1: 297 + 744 s.
+- **SERIAL** is T3's own rows: 885 s (np1), 1931 s (np4).
+- The design's "SMS definition" carries the arguments.
+
+**Departures from the task's Do steps.**
+- **A ninth job.** The HIP np1 SMS baseline needed one: the matrix ran L5
+  np1 at `sample_every 50`, so the SMS's 25-step states had no np1 wall
+  baseline. `sms_hip_np1` was run once, after the matrix, as that baseline.
+- **Step 3's deletion rule removed O3.** Step 3's "add an O task for any
+  phase above 10 %" added three (O8, O9, O10).
+- **O6 now depends on the tasks that shrink the rest of the step.** Its
+  trigger is a share, and those tasks raise it.
+
+**Affects:**
+- **O1** — first in the sequence. The operator build is 25–54 % of HIP step
+  wall and is rebuilt at every evaluation over the full trajectory. Its
+  failure direction is restated to T3's measured keys-built pattern. Its job
+  adds T3's level-6 rows.
+- **O1, O2 and the Conventions accuracy row** — the measured `[acc]` spread
+  is **zero**, so "no regression beyond T3's spread" at levels 5 and 6 forbids
+  any increase at any state. A task that changes the tree cannot pass that
+  literally. **The user must rule on the L5/L6 bound before O1 closes.**
+- **O2, O4** — unchanged triggers, sequenced directly after O1.
+- **O3** — NOT TAKEN: `m2l_kernel`, which contains the fallback, is at most
+  4.3 % of any HIP row.
+- **O5** — scope set by measurement. The comm-plan DTT is the first target
+  (53–73 % of `ff_maintain` at L5/L6). Untimed maintenance is 42–62 % of
+  `ff_maintain` (about 5 % of step wall) at L4 and 21–28 % at L5/L6, so new
+  timers are needed only if O5 targets level 4. Rebalance is chosen on 77–98 %
+  of evaluations.
+- **O6** — trigger not met (1.0–3.4 %). It now depends on O1, O5, O8, O9 and
+  O10 and is re-evaluated after them.
+- **O7** — target identified: the adapter's forward and reverse distributors
+  on SERIAL (52 % of the step at np1, 87 % at np4).
+- **O8 (new)** — operator-table assembly copy and upload, 9–18 %.
+- **O9 (new)** — pair classification, `ilist_s3_classify_pairs`, 4–17 %.
+- **O10 (new)** — downward exchange and per-depth loop at np4, 6–11 % (max
+  18 %). It adds the probe keys T3 could not.
+- **V1** — the crossover statement is "none between levels 4 and 6 at `ncrit`
+  8, 32 or 64". R1's gap is 1.4–1.6 %. The `ncrit 64` L5 np4 trajectory is
+  0.27–0.40 s/step with `[acc]` ≤ 7.9e-4.
+- **S0** — O10's share is zero at np1 and 6–18 % at np4, so it grows with rank
+  count. HIP np4's non-BR step also grows to 8 % late.

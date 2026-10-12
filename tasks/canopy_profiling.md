@@ -1,6 +1,6 @@
 # Canopy profiling and optimization, driven through Beatnik
 
-**Status:** IN PROGRESS — T0, T1 and T2 done.
+**Status:** IN PROGRESS — T0, T1, T2 and T3 done; Phase O next, starting at O1 (sequence in [Phase O](#phase-o--optimize-single-node)).
 
 ## Problem
 
@@ -614,13 +614,17 @@ The log records the reporting ratio (1.02) and the L5/L6 sizing rates
 
 ---
 
-### T3 — The baseline cost model, the crossover, and the SMS — **NOT STARTED**
+### T3 — The baseline cost model, the crossover, and the SMS — **DONE**
 
 **Depends on:** T0, T2.
 
 **Fill in:**
 - `scripts/tuolumne/canopy_profiling_baseline.flux` (new). The HIP matrix may
   be split into `_np1` and `_np4` scripts submitted together.
+- `tests/regression_tests/fmm_profile_reduce.py`: the per-row
+  evaluation-count check T0 deferred to T3 (maintenance counts = `evals` =
+  3 × `steps`; a failing row is reported and excluded), with `--self-test`
+  fixtures for it.
 - The progress log.
 - This document's [Phase O](#phase-o--optimize-single-node) ordering, and an
   **SMS definition** subsection appended under T3 below.
@@ -634,7 +638,12 @@ The log records the reporting ratio (1.02) and the L5/L6 sizing rates
    - HIP np1 and np4 at level 5 and level 6 to the step count T2's sizing says
      fits, with `sample_every` set to give at least 10 rows.
    - An `ncrit` arm {8, 32, 64} at level 5, HIP np4, to the same step count.
-     This shows whether the crossover depends on leaf size.
+     This shows whether the crossover depends on leaf size. It informs V1's
+     production-`ncrit` statement and does **not** change the measurement
+     `ncrit`, which stays 8 ([Deliberate deviations](#deliberate-deviations)).
+     The `ncrit 64` point at L5 np4 already existed at early states (log, "L5/L6
+     accuracy check": 0.330 s/step, `[acc]` 5.4e-4); the arm extends it along
+     the trajectory.
    - SERIAL np1 and np4 at level 4 to step 500.
 
    If level 4 HIP np1 to step 2000 does not fit `pdebug`'s 60 minutes with the
@@ -672,6 +681,68 @@ reducer's per-row evaluation-count check (maintenance counts = 3 × steps) passe
 on every row it reduced. A row that fails it is reported and excluded by name,
 never silently averaged in.
 
+**Met.** Nine `pdebug` jobs on Beatnik `d45aeed` (the installed binary is
+`86c32ac`'s; nothing compiled changed since) and Canopy `c182348`, clean, all
+rc 0 with no row skipped by the budget guard ([log](canopy_profiling-progress-log.md)
+`## T3` names them). The log carries (a)–(f) for HIP np1 and np4 at levels 4
+(2000 steps), 5 (800) and 6 (250), SERIAL np1 and np4 at level 4 (500), and the
+`ncrit` 32/64 arm at level 5, all CartesianTaylor order 3, θ 0.3, `ncrit 8`
+unless named. The reducer's count check passed on all 328 `[cost]` rows of
+the nine logs; none was excluded. Its `--self-test` carries a passing and a
+failing fixture, and a copy with the check neutered fails that self-test. The
+run-to-run spread is measured at level 4 and level 5 (HIP np4, the SMS rows
+run twice in one job and once more on another node). `[acc]` is bit-identical
+across repetitions, nodes, rank counts and backends, so the spread is in step
+wall only. The Phase O sequence below is reordered from the measured shares;
+the SMS is defined next.
+
+#### SMS definition
+
+The **standard measurement set** is four `pdebug` jobs, one per backend-np
+pair, each one set of `scripts/tuolumne/canopy_profiling_baseline.flux`:
+
+```
+BEATNIK_CPB_SET=sms_hip_np1    flux batch --job-name=beatnik_cpb_sms_hip_np1    scripts/tuolumne/canopy_profiling_baseline.flux
+BEATNIK_CPB_SET=sms_hip_np4    flux batch --job-name=beatnik_cpb_sms_hip_np4    scripts/tuolumne/canopy_profiling_baseline.flux
+BEATNIK_CPB_SET=sms_serial_np1 flux batch --job-name=beatnik_cpb_sms_serial_np1 scripts/tuolumne/canopy_profiling_baseline.flux
+BEATNIK_CPB_SET=sms_serial_np4 flux batch --job-name=beatnik_cpb_sms_serial_np4 scripts/tuolumne/canopy_profiling_baseline.flux
+```
+
+Each set runs `Beatnik_Probe_FmmCost_MPI_<SPACE>` at the probe's defaults
+(`ncrit 8`, order 3, θ 0.3, `m2l_op_count_cap 65536`, `canopy_report 0`),
+with the binding of `launch()` in that script. Probe arguments are
+`<level> <steps> <sample_every> run=<label>`:
+
+| set | runs (probe arguments) | last state | T3 wall | baseline rows |
+| --- | --- | --- | --- | --- |
+| `sms_hip_np1` | `5 300 25 run=smsl5_L5_HIP_np1`; `4 1200 50 run=smsl4_L4_HIP_np1` | L5 t = 0.80, L4 t = 1.65 (occupied depth 7 from step 700) | 384 + 1038 s | job `f3djNiFw5apw` |
+| `sms_hip_np4` | `5 300 25 run=smsl5_L5_HIP_np4`; `4 1200 50 run=smsl4_L4_HIP_np4` | as above | 297 + 744 s | `smsl{5,4}rep{0,1}` in job `f3dj4RSg5NSs` |
+| `sms_serial_np1` | `4 500 25 run=smsl4_L4_SERIAL_np1` | L4 t = 1.15 | 885 s | `l4_L4_SERIAL_np1`, job `f3dj4RASfEVu` |
+| `sms_serial_np4` | `4 500 25 run=smsl4_L4_SERIAL_np4` | L4 t = 1.15 | 1931 s | `l4_L4_SERIAL_np4`, job `f3dj4RJLmQaT` |
+
+- **Why these rows.** Level 4 to step 1200 passes the occupied-depth-7 onset
+  (step 700 at np1, 800 at np4) and the plateau of the per-step cost (R3).
+  Level 5 to step 300 gives 13 states. Level 6 is not in the SMS: its spread
+  is unmeasured, and 250 steps cost 891 s at np1. A task that changes the tree
+  (O1, O2) adds T3's level-6 rows (`hip_np4_l5l6`'s `l6`) to its job.
+- **SERIAL** runs only level 4, to step 500, the T3 rows unchanged, so they are
+  their own baseline. SERIAL np4 fits one copy per job; a task needing an
+  on/off control on SERIAL np4 submits two jobs.
+- **Controls fit in one job on HIP.** Two copies of `sms_hip_np4` are about
+  2.1 ks and two of `sms_hip_np1` about 2.85 ks, against the 3.3 ks budget.
+  Pass the control's rows through `BEATNIK_CPS_SWEEP` with a knob column.
+- **Compare by state.** Read the jobs with `fmm_profile_reduce.py --format
+  probe --states`. The `[acc]` baseline at every SMS state is the T3 value in
+  the log's (f); it is identical at np1 and np4 and on SERIAL and HIP.
+- **The gain threshold (R2)** is twice T3's spread: a run-level step-wall gain
+  under 1.7 % at level 5 or 0.6 % at level 4 is not claimed, and a per-state
+  gain under 9 % (level 4) or 14 % (level 5) is not claimed state by state.
+- **The accuracy spread is zero.** `[acc]` repeated to all nine printed digits
+  at every state, so "no regression beyond T3's spread" at level 5 admits no
+  increase at any state. A task that legitimately changes the tree (O1, O2)
+  cannot meet that literally; the user rules on the bound before such a task
+  closes (log, `## T3`).
+
 ---
 
 ## Phase O — optimize (single node)
@@ -698,9 +769,26 @@ knob off, or the previous Canopy commit) reproduces the previous numbers within
 the run-to-run spread recorded in T3. A gain that does not vanish when the
 change is off is not attributed to the change.
 
-The order below is the expected ranking from
-[What is already known](#what-is-already-known-and-what-it-predicts). **T3
-reorders it.**
+**The order below is T3's, from measured shares** ([log](canopy_profiling-progress-log.md)
+`## T3`). Each cell is the target's share of step wall, the median over every
+`[cost]` row of the full T3 trajectory (L4 2000 steps, L5 800, L6 250), HIP,
+`ncrit 8`:
+
+| target | task | L4 np1 | L4 np4 | L5 np1 | L5 np4 | L6 np1 | L6 np4 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| operator-table build, `ilist_s4_op_table_build` (retention ≈ 0 at every row) | O1, then O2/O4 | 53.8 | 39.9 | 41.6 | 35.9 | 24.6 | 30.1 |
+| maintenance, `ff_maintain` | O5 | 9.8 | 11.8 | 19.6 | 19.9 | 34.2 | 29.5 |
+| operator-table assembly, `ilist_s4_op_table_copy` | O8 (new) | 18.0 | 13.4 | 14.5 | 13.0 | 9.0 | 11.5 |
+| pair classification, `ilist_s3_classify_pairs` | O9 (new) | 9.8 | 4.3 | 12.1 | 8.1 | 16.5 | 9.4 |
+| downward outside the ilist, M2L and L2P (exchange, per-depth loop) | O10 (new) | 0.8 | 11.1 | 0.8 | 10.2 | 0.7 | 6.3 |
+| adapter phases + `ff_diagnostics` | O6 | 1.0 | 3.4 | 1.5 | 2.8 | 2.6 | 2.8 |
+| `m2l_kernel`, which contains the range-guard fallback | O3 | 2.0 | 1.5 | 3.4 | 1.9 | 3.9 | 2.4 |
+
+On SERIAL at level 4 the adapter's forward and reverse distribute are 52 % of
+the step at np1 and 87 % at np4 (O7).
+
+Sequence: **O1 → O2 → O4 → O5 → O8 → O9 → O10 → O6 → O7 → V1.** O2, O4 and O6
+are conditional; O3 is NOT TAKEN.
 
 ### O1 — Turn on `quantize_root_half_width` from Beatnik — **NOT STARTED**
 
@@ -735,8 +823,10 @@ its failure-direction check for a column used at the wrong width (B2's R4).
 **Exit criterion:** the common O criteria, plus retention above 90 % on every
 non-crossing evaluation in the SMS. `FmmVsDirect` passes at ranks 1–6 on SERIAL
 and HIP via `scripts/tuolumne/t4_fmm_vs_direct.flux`; fold that run into the SMS
-job. Failure direction: the knob-off control shows
-`keys_built_delta == unique_ops` at every row, as T3 did.
+job. Failure direction: the knob-off control reproduces T3's rebuild-every-
+evaluation pattern: `keys_built_delta / evals` within 0.96–1.00 of
+`unique_ops` as a per-run median, and exactly 2/3 of it at step 1. Per-row
+values range over 0.65–1.23 only because `unique_ops` is the window's last value.
 
 ### O2 — Keep the operator cache across an octave crossing — **NOT STARTED (conditional)**
 
@@ -757,33 +847,6 @@ equals the column at depth $d+1$ and width $2W$, so shift each cached key's
 **Exit criterion:** the common O criteria, with Canopy stems `DownwardSweep`
 and `CartesianTaylorSolve`, plus B2's failure-direction check re-run with a
 deliberately wrong shift, which must fail.
-
-### O3 — Remove the range-guard fallback's cost — **NOT STARTED**
-
-**Depends on:** T3. It is independent of O1.
-
-**Fill in:** `../canopy/src/Canopy_DownwardSweep.hpp`. Either the fallback
-path, `run_m2l_fallback_at_depth` (`:2638`), or the key encoding, the range
-guard at `:1705-1709` with `M2L_KEY_DD_MAX` / `M2L_KEY_OFFSET_MAX` at `:570-571`.
-
-**Additional information needed:** which of two routes, decided from T3's
-measured fallback time share:
-- **(a)** Batch fallback pairs on the device, either grouped by canonical key
-  into a transient table evaluated by the fused kernel, or one team per target
-  ([`../canopy/README.md`](../../canopy/README.md), "Batch the per-pair M2L
-  fallback on the device"). It keeps the key space and speeds up every refusal.
-- **(b)** Widen `M2L_KEY_OFFSET_MAX`. For `CartesianTaylorBasis` the
-  `m2l_key_dd_max` "merely bounds the key space"
-  (`Canopy_CartesianTaylorBasis.hpp:466-470`), and with `dd` already
-  canonicalized away (B1) only the offset bound fires. This removes refusals
-  but grows the table, so its cost is weighed against O1's retention.
-
-The session decides with the user once T3's numbers exist.
-
-**Exit criterion:** the common O criteria, with Canopy stems `DownwardSweep`,
-`MultiSolve` (whose `M2L_BinEdge_Fallback` asserts a non-zero fallback
-population, `tests/tstMultiSolve.hpp:1197-1229`) and `CartesianTaylorSolve`.
-The SMS's `fb_range_guard` and fallback time are recorded before and after.
 
 ### O4 — Parallelize the host operator-table build — **NOT STARTED (conditional)**
 
@@ -810,9 +873,21 @@ selects (`:442-726`), `../canopy/src/Canopy_CommunicationPlan.hpp`
 `:556-~800`, called from `build` at `:960-1013`), and
 `../canopy/src/Canopy_TreePartitioner.hpp` (`AdaptiveRepart` at `:592-599`).
 
-**Additional information needed:** T3's split of `ff_maintain` into tree build,
-partition and repartition, comm-plan build and DTT, and migrate. The fix depends
-on which dominates. Candidates:
+**What T3 measured** (log `## T3`, (a) and (b)). `ff_maintain` is 10–12 % of
+step wall at level 4, 20 % at level 5 and 30–34 % at level 6 (medians).
+- `comm_plan_build` is the largest timed child, 53–73 % of `ff_maintain` at
+  levels 5 and 6. `commplan_dtt_traversal` is about two-thirds of that.
+- `builder_build`, `repartition` and `sort_by_leaf` together are under 3 %
+  of step wall at every level.
+- **Untimed** maintenance (`ff_maintain` minus the four timed children) is
+  21–28 % of `ff_maintain` at levels 5 and 6 and 42–62 % at level 4: about
+  5 % of level-4 step wall. Timers for the comparison build and
+  `redistribute` are needed first only if O5 targets level 4.
+- `auto_maintain` chooses Rebalance on 77 % of evaluations at level 4
+  (4636 of 6000) and 98 % at levels 5 and 6. Migrate takes the rest; Rebuild
+  never fires.
+
+So the first target is the comm-plan DTT. Candidates:
 - skip repartition when imbalance is under tolerance;
 - reuse the interaction list when the cell key set is unchanged (the
   `_finish_topology_stable` path, `:706-726`, already reuses the comm plan);
@@ -825,12 +900,89 @@ milestone tier exercises.
 **Exit criterion:** the common O criteria, with Canopy stems `TreeBuilder`,
 `TreePartitioner`, `CommunicationPlan` and `MultiSolve`.
 
-### O6 — Adapter overheads in `FarFieldSolver::evaluate` — **NOT STARTED (conditional)**
+### O8 — Assemble the operator table without a full host copy and upload — **NOT STARTED**
+
+**Depends on:** O1 **DONE** and O4 resolved. Both change stage 4's cache.
+
+**Measured (T3):** `ilist_s4_op_table_copy` is 9.0–18.0 % of HIP step wall
+(medians per run), 13–18 % at levels 4 and 5. O1's retention does not shrink
+it: stage 4b runs for every unique operator, retained or not.
+
+**Fill in:** `../canopy/src/Canopy_DownwardSweep.hpp`, stage 4b
+(`:2142-2172`). On every interaction-list build it:
+- copies each of `n_unique_ops` columns from the host cache into a host
+  mirror, element by element;
+- then `deep_copy`s the whole table to the device.
+
+Candidates:
+- keep the cache device-resident and gather columns there by index;
+- or upload only the newly built columns and gather on the device.
+
+**Exit criterion:** the common O criteria, with Canopy stems `DownwardSweep`
+and `CartesianTaylorSolve`, plus a unit case asserting the assembled table is
+bitwise equal to the host path's. That is the invariant the comment at
+`:2160-2164` states.
+
+### O9 — Cheaper pair classification in the interaction-list build — **NOT STARTED**
+
+**Depends on:** T3. Independent of O1, but sequenced after O8 by share.
+
+**Measured (T3):** `ilist_s3_classify_pairs` is 4.3–16.5 % of HIP step wall
+(medians per run). It is above 10 % at L5 np1 (12.1 %) and L6 np1 (16.5 %),
+and up to 18.4 % at single states. A further 1–4 % of step wall is untimed
+inside `dn_build_ilist`, outside its stage timers.
+
+**Fill in:** `../canopy/src/Canopy_DownwardSweep.hpp`, stage 3 (from `:1553`,
+`TIMER_ILIST_S3_CLASSIFY_PAIRS`). It is a serial host loop over all pairs that
+classifies each and merges its key into a
+`std::unordered_map<M2LKey, int>` (`:1545`).
+
+Candidates:
+- a parallel host or device classification;
+- a sort-unique key merge in place of the hash map.
+
+**Exit criterion:** the common O criteria, with Canopy stems `DownwardSweep`,
+`MultiSolve` and `CartesianTaylorSolve`, plus a unit case asserting the
+interaction list (pairs, keys, operator indices, fallback slices) is identical
+to the serial path's.
+
+### O10 — Downward-sweep communication and per-depth loop at np > 1 — **NOT STARTED**
 
 **Depends on:** T3.
 
+**Measured (T3):** `downward_total` minus `dn_build_ilist`, `m2l_kernel` and
+`l2p` is 6.3–11.1 % of HIP step wall at np4 (medians per run), up to 18.2 % at
+one level-4 state. It is under 1 % at np1, so it is the multi-rank part of
+`execute` (`../canopy/src/Canopy_DownwardSweep.hpp:3029-3104`):
+- `exchange_multipoles_for_m2l`;
+- the loop over all `max_depth + 1` = 11 depths of snapshot, allreduce, L2L
+  and exchange, of which only 5–8 are occupied.
+
+Phase S raises its weight.
+
+**Additional information needed:** the split, which T3 could not take without
+a new probe key. Canopy already times the parts: `m2l_comm`, `m2l_allreduce`,
+`l2l_kernel`, `l2l_comm`, and at level 2 `dn_zero_locals`, `dn_pre_m2l`,
+`dn_m2l_call` and `dn_post_m2l`. The probe prints none of them. Step 1 adds
+them to `kCanopyKeys` (`tests/regression_tests/Beatnik_Probe_FmmCost.cpp:168-193`)
+in the same install as the change.
+
+Candidates:
+- skip depths with no shared cells;
+- coalesce the per-depth collectives.
+
+**Exit criterion:** the common O criteria, with Canopy stems `DownwardSweep`
+and `MultiSolve` at np 1–6.
+
+### O6 — Adapter overheads in `FarFieldSolver::evaluate` — **NOT STARTED (conditional)**
+
+**Depends on:** O1, O5, O8, O9 and O10 resolved (DONE or NOT TAKEN).
+
 **Trigger:** `ff_pack + ff_fwd_* + ff_rev_* + ff_scatter + ff_diagnostics` is
-more than 5 % of SMS step wall.
+more than 5 % of the HIP SMS step wall. T3 measured 1.0–3.4 % (medians per
+run, HIP), with one level-4 np4 state at 6.7 %: **not met.** It is re-evaluated
+on the SMS once the earlier tasks have shrunk the rest of the step, which
+raises this share. SERIAL's adapter share is O7's.
 
 **Fill in:** `src/Beatnik_FarFieldInterface.hpp`, the phases `T3` ranks. The
 likeliest target is `p2pPairCountLocal` (`:1298-1323`), a host hash computed on
@@ -846,11 +998,38 @@ single `spack install` builds them all).
 
 **Depends on:** T3, and every other O task resolved (DONE or NOT TAKEN).
 
-**Additional information needed:** T3's SERIAL np1-versus-np4 phase split.
-SERIAL np4 is slower than np1 (2.21x at level 3, 1.37x at level 4), and which
-phase scales backwards decides the task.
+**What T3 measured** (log `## T3`). At level 4, SERIAL np4 is 3.78 s/step
+against np1's 1.72 s (2.2x, 500 steps).
+- **The adapter's distributors are the step.** `ff_fwd_distribute` +
+  `ff_rev_distribute` are 52 % of step wall at np1 (16.5 + 35.2, medians) and
+  87 % at np4 (54.2 + 33.0).
+- `solve()` is 41 % of the step at np1 and 11 % at np4. On HIP the same two
+  phases are at most 2.3 %.
+
+**Fill in:** the forward and reverse distributor scopes in
+`src/Beatnik_FarFieldInterface.hpp` (`:1424`, `:1534`), and whatever Cabana
+distributor path they take on the host.
 
 **Exit criterion:** the common O criteria on the SERIAL rows of the SMS.
+
+### O3 — Remove the range-guard fallback's cost — **NOT TAKEN (T3)**
+
+Measured below 5 % of step wall at every level on HIP, so T3 step 3 removes it.
+- **Fallback pairs do appear along the trajectory.** `fb_range_guard` peaks
+  at 6166 at level 4, 16018 at level 5 and 21768 at level 6, against T2's
+  early-state "none at L4/L5".
+- **But the fallback M2L runs inside `m2l_kernel`'s timer**
+  (`run_m2l_at_depth` calls `run_m2l_fallback_at_depth`,
+  `../canopy/src/Canopy_DownwardSweep.hpp:2614-2630`). `m2l_kernel`, fused M2L
+  and fallback together, is at most 4.3 % of step wall in any HIP row
+  (medians 1.5–3.9 %), and `ilist_s5_fallback_table` is at most 0.2 %.
+- **SERIAL is not separated.** At SERIAL np1, `m2l_kernel` is 12.6–15.3 %,
+  but fallback pairs are at most 1.1 % of M2L pairs there, and the probe
+  cannot split the two.
+
+Reopen if an SMS shows `m2l_kernel` above 5 % of HIP step wall. Routes (a)
+batching the fallback on the device and (b) widening `M2L_KEY_OFFSET_MAX`, with
+their references, are in this file at `d45aeed`.
 
 ### V1 — Phase O boundary: accuracy, gate, docs, production env — **NOT STARTED**
 
@@ -961,8 +1140,12 @@ gains are quoted only from V1's walls.
 **R2 — Run-to-run spread swamps a small gain.** ParMETIS partitions and HIP
 reductions are not bit-reproducible (add-canopy R8; Canopy README "HIP not
 bit-reproducible"). **Presents as:** a gain of a few percent that reverses on
-re-run. **Mitigation:** T3 runs one SMS configuration twice and records the
-spread. No O task claims a gain smaller than twice that spread.
+re-run. **Mitigation:** T3 runs one level-4 and one level-5 SMS configuration
+twice each and records the per-state `[acc]` and step-wall spread at both
+levels; the level-5 spread is the reference for the guard above level 4. No O
+task claims a gain smaller than twice that spread. T3 measured it ([SMS
+definition](#sms-definition)): `[acc]` did not move at all, and the step wall
+moved 0.15–0.83 % per run and up to 4.6 % (L4) and 6.9 % (L5) per state.
 
 **R3 — A short run is mistaken for a representative one.** Per-step cost grows
 2.7x along the level-4 trajectory. **Presents as:** an O task measured only at

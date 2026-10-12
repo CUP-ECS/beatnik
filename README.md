@@ -708,9 +708,12 @@ subsections above, which are intended behavior.
   s/step cumulative by step 1700 of 2000 — a factor of 2.6 — as the bubble
   deforms and the tree deepens. Any walltime estimate taken from a 25-step probe
   is therefore low by that factor, which is how a budget-guarded sweep ends up
-  starting a row it cannot finish. The absolute cost (`fmm` at roughly 44x
-  `direct` per step at 2562 vertices) is not characterized here; that is
-  `tasks/canopy/add-canopy.md` task T8.
+  starting a row it cannot finish. The cost model is
+  `tasks/canopy_profiling.md` task T3: at level 4 HIP np1 the `fmm` step grows
+  from 0.33 s (step 50) to 1.2–1.25 s (steps 1000–2000), 38x then 120–140x the
+  estimated `direct` step; at levels 5 and 6 it is 16–84x. There is no
+  crossover between levels 4 and 6. Numbers, and the phases the growth sits in,
+  are in `tasks/canopy_profiling-progress-log.md`, `## T3`.
 - **The FMM's velocity error grows with vertex count at fixed `ncrit`; the
   reference treecode's does not.** *Pre-existing; found by canopy_profiling.*
   Claim A's metric (`max|u_fmm − u_direct| / max|u_direct|`) at order 3,

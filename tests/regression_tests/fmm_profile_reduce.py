@@ -12,7 +12,7 @@
 """canopy_profiling T0's reducer: one tool for every FMM cost log.
 
     fmm_profile_reduce.py LOG [LOG ...] [--format auto|milestone|probe]
-                          [--bin-steps N] [--json OUT]
+                          [--bin-steps N] [--json OUT] [--states]
     fmm_profile_reduce.py --self-test
 
 **A MEASUREMENT TOOL, NOT A TEST.** It is registered in no tier and has no
@@ -80,6 +80,24 @@ running several configurations in one log gives each its own `run`. Every
 other key is read generically, so the probe can add fields without touching
 this tool. Canopy breakdown blocks in a probe log (`canopy_report=1`) are
 parsed and counted but not attributed; read such a log with `--format probe`.
+
+**The per-row evaluation-count check** (canopy_profiling T3). Every `[cost]`
+row must carry `steps`, `evals` and the four `maint_*` counts as non-negative
+integers; a row that does not is malformed and fatal. A well-formed row must
+then satisfy
+
+    maint_setup + maint_migrate + maint_rebalance + maint_rebuild
+        == evals == 3 * steps
+
+(three RK3 evaluations per step, one maintenance action per evaluation). A row
+that fails is **excluded** from every statistic and reported by `run` and
+`step`; it is never averaged in, and it does not change the exit status. The
+`[acc]` row at the same step is a standalone evaluation outside the window and
+is kept.
+
+`--states` prints one line per `[cost]` row of each probe run -- the phase
+split and the `[acc]` metric at every sampled state, the view an O task's
+before/after comparison needs.
 """
 
 import argparse
@@ -356,10 +374,39 @@ def parse_probe_row(path: str, lineno: int, tag: str,
     return row
 
 
+MAINT_KEYS = ("maint_setup", "maint_migrate", "maint_rebalance",
+              "maint_rebuild")
+
+
+def cost_count_check(path: str, lineno: int,
+                     row: Dict[str, object]) -> Optional[str]:
+    """The per-row evaluation-count check. Returns None when the row passes
+    and the reason when it must be excluded; a row without the counts as
+    non-negative integers is malformed and fatal."""
+    counts = {}
+    for k in ("steps", "evals") + MAINT_KEYS:
+        v = row.get(k)
+        if not isinstance(v, float) or v < 0 or v != int(v):
+            fail(path, lineno, f"[cost] run={row['run']} step={row['step']}: "
+                 f"'{k}' is {'missing' if v is None else repr(v)}; the "
+                 "count check needs a non-negative integer")
+        counts[k] = int(v)
+    maint = sum(counts[k] for k in MAINT_KEYS)
+    if maint == counts["evals"] == 3 * counts["steps"]:
+        return None
+    return (f"maint sum {maint}, evals {counts['evals']}, "
+            f"3*steps {3 * counts['steps']}")
+
+
 def reduce_probe(rows: Dict[str, List[Dict[str, object]]]) -> Dict:
     """Per run: each numeric field's statistics over [cost] and [acc] rows,
-    with -1 sentinels counted and excluded, plus the [cost-total] row."""
+    with -1 sentinels counted and excluded, plus the [cost-total] row. [cost]
+    rows that failed the count check (rows["excluded"]) are not in rows["cost"]
+    and are listed per run under "excluded"."""
     out: Dict[str, Dict] = {}
+    for row, why in rows.get("excluded", []):
+        out.setdefault(str(row["run"]), {}).setdefault("excluded", []).append(
+            {"step": row["step"], "reason": why})
     for tag in ("cost", "acc"):
         for row in rows.get(tag, []):
             run = str(row["run"])
@@ -374,6 +421,8 @@ def reduce_probe(rows: Dict[str, List[Dict[str, object]]]) -> Dict:
                     f["values"].append(v)
     for run, tags in out.items():
         for tag, fields in tags.items():
+            if tag == "excluded":
+                continue
             for k, f in fields.items():
                 fields[k] = dict(summarize(f["values"]),
                                  sentinels=f["sentinels"])
@@ -398,8 +447,14 @@ def read_log(path: str, fmt: str, stream=None) -> Tuple[MilestoneReducer, Dict]:
                 if fmt == "milestone":
                     fail(path, lineno, f"[{m.group(1)}] row in --format "
                          "milestone")
-                probe_rows.setdefault(m.group(1), []).append(
-                    parse_probe_row(path, lineno, m.group(1), m.group(2)))
+                tag = m.group(1)
+                row = parse_probe_row(path, lineno, tag, m.group(2))
+                why = (cost_count_check(path, lineno, row)
+                       if tag == "cost" else None)
+                if why is not None:
+                    probe_rows.setdefault("excluded", []).append((row, why))
+                else:
+                    probe_rows.setdefault(tag, []).append(row)
                 continue
             ms.feed(lineno, line)
         ms.finish(lineno + 1)
@@ -501,6 +556,13 @@ def print_launch(rep: Dict) -> None:
 def print_probe(path: str, red: Dict) -> None:
     for run, tags in red.items():
         print(f"\n=== {path}  probe run {run}")
+        n_pass = tags.get("cost", {}).get("evals", {}).get("n", 0)
+        excl = tags.get("excluded", [])
+        print(f"  count check (maint sum == evals == 3*steps): {n_pass} "
+              f"[cost] row(s) passed, {len(excl)} excluded")
+        for e in excl:
+            print(f"  EXCLUDED [cost] run={run} step={e['step']:g}: "
+                  f"{e['reason']}")
         for tag in ("cost", "acc"):
             for k, s in tags.get(tag, {}).items():
                 if not s["n"]:
@@ -512,6 +574,65 @@ def print_probe(path: str, red: Dict) -> None:
         if "total" in tags:
             print("  [cost-total] " + " ".join(
                 f"{k}={v}" for k, v in tags["total"].items()))
+
+
+# The Canopy keys that fire inside ff_maintain under auto_maintain;
+# commplan_dtt_traversal is nested in comm_plan_build. The rest of ff_maintain
+# is untimed (canopy_profiling-progress-log.md, T2 "What only running
+# revealed").
+TIMED_MAINT = ("builder_build", "repartition", "sort_by_leaf",
+               "comm_plan_build")
+# Everything in ff_evaluate_total outside ff_maintain and ff_solve.
+ADAPTER = ("ff_pack", "ff_fwd_distribute", "ff_fwd_migrate", "ff_contract",
+           "ff_rev_distribute", "ff_rev_migrate", "ff_scatter",
+           "ff_diagnostics")
+
+
+def state_line(c: Dict[str, object], a: Optional[Dict[str, object]]) -> str:
+    def g(k: str) -> Optional[float]:
+        v = c.get(k)
+        return v if isinstance(v, float) and v != -1.0 else None
+
+    def ratio(n: Optional[float], d: Optional[float]) -> str:
+        if n is None or not d:
+            return "n/a"
+        return f"{n / d:.3f}"
+
+    ffe, solve, maint = g("ff_evaluate_total"), g("ff_solve"), g("ff_maintain")
+    timed = [g(k) for k in TIMED_MAINT]
+    untimed = (maint - sum(timed)) if maint is not None and \
+        None not in timed else None
+    adapter = [g(k) for k in ADAPTER]
+    adapter_sum = sum(adapter) if None not in adapter else None
+    actions = "/".join(f"{c[k]:g}" for k in MAINT_KEYS)
+    acc = (f"{a['acc_rel']:.3e}" if a and isinstance(a.get("acc_rel"), float)
+           else "n/a")
+    dse = (f"{a['direct_step_est']:.4f}"
+           if a and isinstance(a.get("direct_step_est"), float) else "n/a")
+    return (f"{c['step']:6g} {c.get('time', -1):7.3f} "
+            f"{c.get('step_wall', -1):8.4f} {ratio(3 * ffe if ffe else None, g('step_wall')):>6} "
+            f"{solve if solve is not None else -1:8.4f} "
+            f"{maint if maint is not None else -1:8.4f} "
+            f"{untimed if untimed is not None else -1:8.4f} "
+            f"{ratio(g('ilist_s4_op_table_build'), solve):>6} "
+            f"{ratio(adapter_sum, ffe):>6} {actions:>11} "
+            f"{c.get('p2p_frac', -1):6.3f} {c.get('fb_range_guard', -1):8g} "
+            f"{acc:>10} {dse:>8}")
+
+
+def print_states(path: str, rows: Dict[str, List[Dict[str, object]]]) -> None:
+    acc = {(str(r["run"]), r["step"]): r for r in rows.get("acc", [])}
+    runs: Dict[str, List[Dict[str, object]]] = {}
+    for r in rows.get("cost", []):
+        runs.setdefault(str(r["run"]), []).append(r)
+    for run, cs in runs.items():
+        print(f"\n=== {path}  states of probe run {run}  (per evaluation "
+              "unless noted; untimed = ff_maintain - "
+              "builder_build - repartition - sort_by_leaf - comm_plan_build)")
+        print("  step    time   s/step  ffe/wall  solve    maint  untimed "
+              "opb/sv adp/ffe s/m/r/R act   p2p  fb_rg     acc_rel  dir/step")
+        for c in sorted(cs, key=lambda r: r["step"]):
+            print("  " + state_line(c, acc.get((run, c["step"]))))
 
 
 # --------------------------------------------------------------------------
@@ -538,11 +659,16 @@ _BLK_FOREIGN = _BLK.replace(
     "  Downward", "[H2SCR] np=4 nleaves=782 lb=1.0000 lpt=1.0008\n  Downward")
 
 _PROBE_FIXTURE = """\
-[cost] run=l4_np1 step=1 level=4 np=1 space=HIP step_wall=0.50 ff_solve=0.40 m2l_kernel=-1
+[cost] run=l4_np1 step=1 level=4 np=1 space=HIP steps=1 evals=3 step_wall=0.50 ff_solve=0.40 m2l_kernel=-1 maint_setup=1 maint_migrate=2 maint_rebalance=0 maint_rebuild=0
 [acc] run=l4_np1 step=1 claimA=1.1e-3 direct_wall=0.003
-[cost] run=l4_np1 step=20 level=4 np=1 space=HIP step_wall=0.70 ff_solve=0.60 m2l_kernel=-1
+[cost] run=l4_np1 step=20 level=4 np=1 space=HIP steps=19 evals=57 step_wall=0.70 ff_solve=0.60 m2l_kernel=-1 maint_setup=0 maint_migrate=50 maint_rebalance=7 maint_rebuild=0
 [cost-total] run=l4_np1 canopy_hash=abc123 rebuild=0 migrate=60
 """
+# A window whose maintenance counts miss one evaluation: excluded, not fatal.
+_PROBE_FAILING_ROW = (
+    "[cost] run=l4_np1 step=40 steps=20 evals=60 step_wall=9.99 "
+    "ff_solve=9.99 m2l_kernel=-1 maint_setup=0 maint_migrate=52 "
+    "maint_rebalance=7 maint_rebuild=0\n")
 
 
 def self_test() -> int:
@@ -588,6 +714,28 @@ def self_test() -> int:
     assert c["step_wall"]["n"] == 2 and abs(c["step_wall"]["max"] - 0.7) < 1e-12
     assert c["m2l_kernel"]["n"] == 0 and c["m2l_kernel"]["sentinels"] == 2
     assert red["l4_np1"]["total"]["canopy_hash"] == "abc123"
+    assert "excluded" not in red["l4_np1"]
+
+    # The count check: the failing row is reported by run and step and
+    # excluded from every statistic; the passing rows are unchanged.
+    _, rows = run(_PROBE_FIXTURE + _PROBE_FAILING_ROW)
+    red = reduce_probe(rows)
+    c = red["l4_np1"]["cost"]
+    assert c["step_wall"]["n"] == 2 and abs(c["step_wall"]["max"] - 0.7) < 1e-12
+    assert c["ff_solve"]["max"] == 0.6, c["ff_solve"]
+    assert red["l4_np1"]["excluded"] == [
+        {"step": 40.0, "reason": "maint sum 59, evals 60, 3*steps 60"}], \
+        red["l4_np1"]["excluded"]
+    # A [cost] row without its counts is malformed, and fatal.
+    for line in ("[cost] run=a step=1 steps=1 evals=3 maint_setup=1 "
+                 "maint_migrate=2 maint_rebalance=0",
+                 "[cost] run=a step=1 steps=1 evals=-1 maint_setup=1 "
+                 "maint_migrate=2 maint_rebalance=0 maint_rebuild=0"):
+        try:
+            run(line + "\n")
+            raise AssertionError(f"accepted malformed counts: {line}")
+        except ReduceError as e:
+            assert "count check" in str(e), e
     for line in ("[cost] run=a step=1 x", "[cost] run=a step=1 x=1 x=2",
                  "[cost] step=1 x=1", "[cost] run=a step=1 x="):
         try:
@@ -610,6 +758,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bin-steps", type=int, default=250,
                         help="claim B trend bin width in steps (default 250)")
     parser.add_argument("--json", help="also write the reduction as JSON")
+    parser.add_argument("--states", action="store_true",
+                        help="also print one line per [cost] row of each "
+                        "probe run (count-check failures excluded)")
     parser.add_argument("--self-test", action="store_true",
                         help="run the fixture checks and exit")
     return parser
@@ -636,6 +787,8 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print_launch(rep)
             red = reduce_probe(rows)
             print_probe(path, red)
+            if args.states:
+                print_states(path, rows)
             out[path] = {"breakdown_blocks": ms.total_blocks,
                          "launches": reps, "probe": red}
     except ReduceError as e:
