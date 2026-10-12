@@ -44,6 +44,10 @@
  *     mac_theta=<t>         default 0.3
  *     m2l_op_count_cap=<n>  default 65536 (the level-4 member's
  *                           `kM2LOpCountCap`)
+ *     quantize_root_half_width=<0|1>
+ *                           `FmmParams::quantize_root_half_width`, default
+ *                           the `FmmParams` default; a measurement passes it
+ *                           explicitly (canopy_profiling O1)
  *     canopy_report=<0|1>   Canopy's own timing tables and diagnostic lines,
  *                           default 0 (off, through
  *                           `Canopy::Profiling::set_reporting`)
@@ -62,7 +66,8 @@
  * Beatnik's `Profiling::timer_totals()`, Canopy's
  * `Canopy::Profiling::timer_totals()` and the driving solver's cumulative
  * `FarFieldDiagnostics` counters (`evaluations`, `maintenance_counts`,
- * `local_m2l_op_keys_built`), fences, steps, fences, and differences. The
+ * `local_m2l_op_keys_built`, `root_width_changes`,
+ * `op_cache_overflow_clears`), fences, steps, fences, and differences. The
  * differences accumulate into a window that closes at each sampled step.
  *
  * OUTPUT. T0's row grammar (`canopy_profiling-progress-log.md` `## T0`,
@@ -78,7 +83,11 @@
  *     over ranks: the bare key is the mean, `<key>.max` the max. Then the
  *     window's maintenance counts (`maint_*`, which sum to `evals`),
  *     `keys_built_delta` against `cache_size`, `unique_ops`,
- *     `occupied_depths`, and the global fields of the window's LAST
+ *     `occupied_depths`, the window deltas `width_changes` (evaluations at
+ *     which the root half-width changed, emptying the operator cache) and
+ *     `overflow_clears` (evaluations at which the cache was emptied without
+ *     one: the column-cap overflow), each rank-local, so mean and `.max` over
+ *     ranks (canopy_profiling O1), and the global fields of the window's LAST
  *     evaluation: `fb_range_guard`, `fb_count_cap`, `fb_dropped`,
  *     `m2l_pairs`, `m2l_fallback`, `p2p_frac`, `particles`.
  *   [acc] — at the same state, after the window closed, so it never
@@ -268,6 +277,8 @@ struct Options
     int order = kDefaultOrder;
     double mac_theta = kDefaultMacTheta;
     int m2l_op_count_cap = kDefaultOpCountCap;
+    bool quantize_root_half_width =
+        Beatnik::FmmParams{}.quantize_root_half_width;
     int canopy_report = 0;
     std::string run;
 };
@@ -342,6 +353,15 @@ Options parseOptions( int argc, char* argv[] )
             o.mac_theta = parseDouble( key, val );
         else if ( key == "m2l_op_count_cap" )
             o.m2l_op_count_cap = parseInt( key, val );
+        else if ( key == "quantize_root_half_width" )
+        {
+            const int q = parseInt( key, val );
+            if ( q != 0 && q != 1 )
+                throw std::invalid_argument(
+                    "Beatnik_Probe_FmmCost: quantize_root_half_width must be "
+                    "0 or 1" );
+            o.quantize_root_half_width = q != 0;
+        }
         else if ( key == "canopy_report" )
         {
             o.canopy_report = parseInt( key, val );
@@ -362,7 +382,7 @@ Options parseOptions( int argc, char* argv[] )
             throw std::invalid_argument(
                 "Beatnik_Probe_FmmCost: unknown key '" + key +
                 "'. Accepted: ncrit, order, mac_theta, m2l_op_count_cap, "
-                "canopy_report, run." );
+                "quantize_root_half_width, canopy_report, run." );
     }
     if ( o.ncrit < 1 || o.m2l_op_count_cap < 0 || !( o.mac_theta > 0.0 ) )
         throw std::invalid_argument(
@@ -408,6 +428,7 @@ Beatnik::SolverParams makeParams( const Options& o )
     p.fmm.order = o.order;
     p.fmm.mac_theta = o.mac_theta;
     p.fmm.m2l_op_count_cap = o.m2l_op_count_cap;
+    p.fmm.quantize_root_half_width = o.quantize_root_half_width;
 
     p.time.steps = o.steps;
     p.time.dt = 0.003;
@@ -573,6 +594,8 @@ struct Window
     long long maint[Beatnik::FarFieldDiagnostics::num_maintenance] = {
         0, 0, 0, 0 };
     long long keys_built_delta = 0;
+    long long width_changes = 0;
+    long long overflow_clears = 0;
 
     // The window's last step, for [acc]'s direct estimate.
     double last_step_wall = 0.0;
@@ -634,13 +657,15 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
     {
         std::printf( "[fmmcost] header run=%s level=%d vertices=%lld ranks=%d "
                      "space=%s steps=%d sample_every=%d ncrit=%d order=%d "
-                     "mac_theta=%.17g m2l_op_count_cap=%d canopy_report=%d "
+                     "mac_theta=%.17g m2l_op_count_cap=%d "
+                     "quantize_root_half_width=%d canopy_report=%d "
                      "beatnik_ff_timers=%d canopy_timers=%d "
                      "canopy_profiling_level=%d canopy_hash=%s\n",
                      run.c_str(), opt.level, want_vertices, comm_size,
                      ExecSpace::name(), opt.steps, opt.sample_every,
                      opt.ncrit, opt.order, opt.mac_theta,
-                     opt.m2l_op_count_cap, opt.canopy_report,
+                     opt.m2l_op_count_cap,
+                     opt.quantize_root_half_width ? 1 : 0, opt.canopy_report,
                      kHaveFfTimers ? 1 : 0, kHaveCanopyTimers ? 1 : 0,
                      kCanopyLevel, canopy_hash.c_str() );
         std::fflush( stdout );
@@ -689,6 +714,8 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
         for ( int a = 0; a < NM; ++a )
             m0[a] = ddiag.maintenance_counts[a];
         const long long kb0 = ddiag.local_m2l_op_keys_built;
+        const long long wc0 = ddiag.root_width_changes;
+        const long long oc0 = ddiag.op_cache_overflow_clears;
         const Snapshot b0 = beatnikTotals();
         const Snapshot c0 = canopyTotals();
 
@@ -726,6 +753,8 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
         for ( int a = 0; a < NM; ++a )
             win.maint[a] += ddiag.maintenance_counts[a] - m0[a];
         win.keys_built_delta += ddiag.local_m2l_op_keys_built - kb0;
+        win.width_changes += ddiag.root_width_changes - wc0;
+        win.overflow_clears += ddiag.op_cache_overflow_clears - oc0;
         for ( const auto& k : kFfPhases )
             win.ff[k] += delta( b1, b0, k );
         win.ff[kFfTotal] += delta( b1, b0, kFfTotal );
@@ -764,6 +793,8 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
             static_cast<double>( ddiag.local_m2l_unique_op_count ) );
         local.push_back(
             static_cast<double>( ddiag.local_m2l_occupied_depths ) );
+        local.push_back( static_cast<double>( win.width_changes ) );
+        local.push_back( static_cast<double>( win.overflow_clears ) );
         local.push_back( win.last_step_wall );
         local.push_back( win.last_step_ff_total );
         std::vector<double> mean, max;
@@ -798,6 +829,10 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
         cost.addMeanMax( "unique_ops", true, mean[i], max[i] );
         ++i;
         cost.addMeanMax( "occupied_depths", true, mean[i], max[i] );
+        ++i;
+        cost.addMeanMax( "width_changes", true, mean[i], max[i] );
+        ++i;
+        cost.addMeanMax( "overflow_clears", true, mean[i], max[i] );
         ++i;
         const double last_wall_max = max[i++];
         const double last_ff_total_max = max[i++];

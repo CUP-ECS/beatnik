@@ -245,6 +245,29 @@ struct FarFieldDiagnostics
     /// `static_cast<int>( Maintenance )`. Sums to `evaluations`.
     long long maintenance_counts[num_maintenance] = { 0, 0, 0, 0 };
 
+    /// **Cumulative, rank-local**, in evaluations: completed evaluations at
+    /// which the downward sweep's root half-width
+    /// (`DownwardSweep::root_half_width()`) differs, as an exact double, from
+    /// the previous completed evaluation's. The first evaluation has no
+    /// previous one and is never counted. Every change empties the M2L
+    /// operator cache under a `key_needs_level` basis
+    /// (`DownwardSweep::set_root_half_width`), so under
+    /// `FmmParams::quantize_root_half_width` a change is an octave crossing
+    /// of the root box, and without it the width moves at nearly every tree
+    /// build. Always on, no collective. **Added by canopy_profiling O1.**
+    long long root_width_changes = 0;
+
+    /// **Cumulative, rank-local**, in evaluations: completed evaluations
+    /// **without** a root-width change at which the operator cache was
+    /// emptied anyway -- the column-cap overflow clear (or the cache-over-cap
+    /// clear) of Canopy's interaction-list build. Detected exactly: without
+    /// a clear, `local_m2l_op_cache_size` after an evaluation equals its value
+    /// before plus the keys built in it, and after a clear it does not
+    /// (unless the cache was already empty, when the clear discards nothing).
+    /// The first evaluation is never counted. Always on, no collective.
+    /// **Added by canopy_profiling O1.**
+    long long op_cache_overflow_clears = 0;
+
     /// The basis actually instantiated, not the one requested — they are the
     /// same by construction, since an unsupported pair throws.
     FarFieldBasis basis = FarFieldBasis::CartesianTaylor;
@@ -836,8 +859,10 @@ class FarFieldSolver
 
         /// Fill the arm-dependent (downward-sweep) half of the diagnostics.
         /// The values written are rank-local; the caller reduces the two that
-        /// are meaningful globally.
-        virtual void readDiagnostics( FarFieldDiagnostics& d ) const = 0;
+        /// are meaningful globally. Returns the downward sweep's root
+        /// half-width, which the caller compares across evaluations for
+        /// `FarFieldDiagnostics::root_width_changes` (canopy_profiling O1).
+        virtual double readDiagnostics( FarFieldDiagnostics& d ) const = 0;
     };
 
     //-----------------------------------------------------------------------//
@@ -940,7 +965,7 @@ class FarFieldSolver
             return _solver->comm_plan();
         }
 
-        void readDiagnostics( FarFieldDiagnostics& d ) const override
+        double readDiagnostics( FarFieldDiagnostics& d ) const override
         {
             const auto& down = _solver->downward();
             d.local_m2l_unique_op_count = down.m2l_n_unique_ops();
@@ -998,6 +1023,10 @@ class FarFieldSolver
                     ++d.local_m2l_occupied_depths;
                 }
             }
+            // canopy_profiling O1. The width the sweep's operators were built
+            // at; a change of it is what empties the cache, so the caller
+            // counts changes rather than this returning a flag.
+            return down.root_half_width();
         }
 
       private:
@@ -1150,6 +1179,7 @@ class FarFieldSolver
         cfg.near_softening_factor = _params.near_softening_factor;
         cfg.m2l_op_table_byte_budget = _params.m2l_op_table_byte_budget;
         cfg.m2l_op_count_cap = _params.m2l_op_count_cap;
+        cfg.quantize_root_half_width = _params.quantize_root_half_width;
         return cfg;
     }
 
@@ -1606,7 +1636,13 @@ class FarFieldSolver
         // check, rather than one apiece: they are all sums over the same
         // communicator at the same point in the sequence.
         BEATNIK_SCOPED_TIMER_DETAILED( Profiling::TIMER_FF_DIAGNOSTICS );
-        _impl->readDiagnostics( _diagnostics );
+        // canopy_profiling O1: the cache's state before this evaluation's
+        // reading overwrites it, for the overflow-clear test below.
+        const long long op_cache_size_before =
+            _diagnostics.local_m2l_op_cache_size;
+        const long long op_keys_built_before =
+            _diagnostics.local_m2l_op_keys_built;
+        const double root_half_width = _impl->readDiagnostics( _diagnostics );
         // T6 T8b: the per-reason fallback breakdown rides this reduction
         // rather than a second one, because the identity it exists to check
         // -- the two reasons summing to the fallback total -- is a claim
@@ -1676,9 +1712,24 @@ class FarFieldSolver
 
         // canopy_profiling T2: the cumulative counters, counted only for an
         // evaluation that completed.
-        ++_diagnostics.evaluations;
         ++_diagnostics
               .maintenance_counts[static_cast<int>( _diagnostics.maintenance )];
+        // canopy_profiling O1. A width change empties the cache by itself, so
+        // only an evaluation without one can be an overflow clear; and the
+        // first evaluation has no previous width or cache to compare with.
+        if ( _diagnostics.evaluations > 0 )
+        {
+            if ( root_half_width != _root_half_width )
+                ++_diagnostics.root_width_changes;
+            else if ( static_cast<long long>(
+                          _diagnostics.local_m2l_op_cache_size ) !=
+                      op_cache_size_before +
+                          ( _diagnostics.local_m2l_op_keys_built -
+                            op_keys_built_before ) )
+                ++_diagnostics.op_cache_overflow_clears;
+        }
+        _root_half_width = root_half_width;
+        ++_diagnostics.evaluations;
     }
 #else
     /// The `~canopy` face of the two evaluations. A configuration error, not
@@ -1717,6 +1768,10 @@ class FarFieldSolver
     /// Set until the first successful `setup()`. After that the reuse branch
     /// applies, subject to the forward distributor's own validation.
     bool _first_call = true;
+
+    /// The downward sweep's root half-width at the last completed evaluation,
+    /// for `FarFieldDiagnostics::root_width_changes` (canopy_profiling O1).
+    double _root_half_width = 0.0;
 
     /// The softening **length** handed to Canopy, held so a later evaluation
     /// presenting a different blob is an error rather than a silent mismatch

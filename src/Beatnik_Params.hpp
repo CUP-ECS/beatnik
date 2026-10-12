@@ -431,6 +431,30 @@ struct FmmParams
     /// which 0 means "leave the config default", is deliberately **not**
     /// copied: this member carries 32768 as its own default, and 0 means zero.
     int m2l_op_count_cap = 32768;
+
+    /// Round the root cell's half-width **up to a power of two** at every
+    /// Canopy tree build, keeping its centre. Reaches
+    /// `FmmConfig::quantize_root_half_width`. No CLI option and no Python
+    /// counterpart, like the two table knobs above.
+    ///
+    /// **Why it is on.** Under `FarFieldBasis::CartesianTaylor` the M2L
+    /// operators depend on the root width, and Canopy empties its whole
+    /// operator cache on any change of it, compared as an exact double. The
+    /// root box is recomputed from the moving particles at every tree build,
+    /// so without this the cache is emptied and the table rebuilt at
+    /// essentially every evaluation -- three times per RK3 step. With it, the
+    /// width is bit-identical across every build whose box stays inside one
+    /// octave, and the cache survives until an octave crossing or a
+    /// `m2l_op_count_cap` overflow (canopy_profiling O1, which measured both
+    /// and set this default; `FarFieldDiagnostics::root_width_changes` and
+    /// `op_cache_overflow_clears` count them).
+    ///
+    /// **What it costs.** The root cell becomes up to 2x the bounding box,
+    /// which can add one level at the top of the tree and moves every cell
+    /// boundary, so individual velocities change at the level of the far
+    /// field's truncation error. O1 holds it to no regression of the worst
+    /// claim-A error per level. Canopy's own default is `false`.
+    bool quantize_root_half_width = true;
 };
 
 //---------------------------------------------------------------------------//
