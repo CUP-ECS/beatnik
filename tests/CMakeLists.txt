@@ -633,6 +633,13 @@ set(BEATNIK_DRIVER_SOURCES
   # measured value -- T8 decides what to do about the demand, and a probe that
   # asserted on it would be a test that gets tuned (risk R6).
   Beatnik_Probe_FmmKeyDemand.cpp
+  # canopy_profiling T2 (tasks/canopy_profiling.md): the FMM cost probe.
+  # Drives an FMM-driven frozen-mesh trajectory, snapshots Beatnik's and
+  # Canopy's timer registries around every step, and prints T0's
+  # [cost] / [acc] / [cost-total] rows for fmm_profile_reduce.py. Asserts
+  # nothing about any measured value -- a measurement that carries a pass
+  # criterion gets tuned to pass.
+  Beatnik_Probe_FmmCost.cpp
   )
 
 foreach(_src ${BEATNIK_DRIVER_SOURCES})

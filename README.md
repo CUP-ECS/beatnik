@@ -659,10 +659,13 @@ this list.
   use `target_sources(Beatnik INTERFACE FILE_SET HEADERS BASE_DIRS
   ${CMAKE_CURRENT_SOURCE_DIR} FILES ${HEADERS_PUBLIC})`, or attach a
   `PUBLIC_HEADER` property, so consumers track them as real dependencies.
-- **Higher profiling levels (2, 3).** Both are reserved but unused. Natural
-  additions once the new solver has phases worth timing: per-phase timers at
-  level 2, per-rank particle counts at level 3. Mirror Canopy's existing
-  `[Canopy Diagnostics] solve() phase breakdown` format for consistency.
+- **Higher profiling levels (1, 3).** Level 2 now times the ten phases of
+  `FarFieldSolver::evaluate` (`src/Profiling.hpp`, `ff_*` keys, read by
+  `Beatnik_Probe_FmmCost`). Level 1 still compiles no timer, and level 3 is
+  reserved. Natural additions: an unfenced per-evaluation total at level 1,
+  cheap enough for production, and per-rank particle counts per phase at level
+  3. Mirror Canopy's `[Canopy Diagnostics] solve() phase breakdown` format for
+  consistency.
 
 ## Known Issues
 

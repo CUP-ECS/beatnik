@@ -1,6 +1,6 @@
 # Canopy profiling and optimization, driven through Beatnik
 
-**Status:** IN PROGRESS — T0 done.
+**Status:** IN PROGRESS — T0, T1 and T2 done.
 
 ## Problem
 
@@ -397,7 +397,7 @@ The eight launches' tables are in the progress log under `## T0`.
 
 ---
 
-### T1 — Canopy: a run-time reporting switch — **NOT STARTED**
+### T1 — Canopy: a run-time reporting switch — **DONE**
 
 **Depends on:** none. T1 and T2 share **one** Beatnik `spack install`: implement
 T1, commit it in `../canopy`, implement T2, then install once.
@@ -411,7 +411,8 @@ T1, commit it in `../canopy`, implement T2, then install once.
 - The `[Canopy diag] auto_maintain` `fprintf`s (`src/Canopy_Solver.hpp:457-543`)
   and the M2L operator-table line (`src/Canopy_DownwardSweep.hpp:2003-2020`)
   are gated on the same flag.
-- `README.md`: document the switch in its profiling section.
+- `README.md`: document the switch in a "Profiling" subsection under
+  "Building and Running Tests".
 
 **Reference:** the macros and print functions above. The `print_*` functions
 call `MPI_Reduce` (`:339`, and the one inside `print_timing_table`), so the
@@ -441,9 +442,25 @@ them. Failure direction: with the gate in `print_solve_breakdown` deleted, the
 new case's captured output contains a `solve() phase breakdown` block. Check
 this once by hand and record it in the log. It is not left in the code.
 
+**Met.** Canopy `c182348` on `profiling-canopy` (switch in `aa56e64`, two
+more prints gated in `c182348`). Flux job `f3diM2F6p3YB`, `build-profiling/` at
+level 2:
+- **The exit criterion.** LaplaceSolve and CartesianTaylorSolve SERIAL
+  np 1–6 all pass.
+- **The new case.** `LaplaceSolve.reportingSwitch` captured zero
+  `[Canopy Diagnostics]` and zero `[Canopy diag]` lines on all 21 ranks, and
+  `downward_total` still accumulated.
+- **The existing cases** still printed 8917 `[Canopy Diagnostics]` lines.
+- **The failure direction**, run once in the same job: a hand-built binary
+  with the `print_solve_breakdown` gate deleted fails the case, with the
+  breakdown block in its captured output.
+
+Every `[Canopy diag]` print is gated, not only the ones named above: the
+partition, `refresh_ownership` and `p2p_inter_leaf_pairs` lines too.
+
 ---
 
-### T2 — Beatnik: phase timers, per-evaluation counters, and `Beatnik_Probe_FmmCost` — **NOT STARTED**
+### T2 — Beatnik: phase timers, per-evaluation counters, and `Beatnik_Probe_FmmCost` — **DONE**
 
 **Depends on:** T1 committed in `../canopy`.
 
@@ -489,6 +506,9 @@ this once by hand and record it in the log. It is not left in the code.
 
 **The probe's interface.**
 `Beatnik_Probe_FmmCost_MPI_<DEVICE> <level> <steps> <sample_every> [key=value ...]`.
+Its rows follow the grammar in
+[canopy_profiling-progress-log.md](canopy_profiling-progress-log.md) `## T0`,
+"Decisions".
 - **Accepted keys:** `ncrit` (default 8), `order` (default 3; only the orders
   the binary instantiates), `mac_theta` (0.3), `m2l_op_count_cap` (65536,
   matching the level-4 member), and `canopy_report` (0 or 1, default 0).
@@ -554,7 +574,7 @@ this once by hand and record it in the log. It is not left in the code.
 
 **Exit criterion:** the smoke job's log satisfies all of the following:
 - Every `[cost]` row has non-sentinel values in every field.
-- The eleven `ff_*` phases sum to `ff_evaluate_total` within 5 % at every row.
+- The ten `ff_*` phases sum to `ff_evaluate_total` within 5 % at every row.
 - `ff_solve` is within 5 % of Canopy's `upward_total + downward_total + p2p_total`.
 - Each row's maintenance counts sum to 3 × the steps in the window.
 - `[acc]` metric ≤ 1.5e-3 at every level-4 row.
@@ -566,6 +586,22 @@ sizing rates.
 Failure direction: launching the probe with `bogus=1` exits non-zero with a
 message naming `bogus`, and the `canopy_report=1` launch's log *does* contain
 `[Canopy Diagnostics]` lines.
+
+**Met.** Smoke job `f3diM2PdyufM` (`scripts/tuolumne/canopy_profiling_smoke.flux`,
+`pdebug`, Canopy `c182348` clean):
+- **The `[cost]` rows.** All 20 rows have no sentinel. The ten phases sum to
+  `ff_evaluate_total` within 0.28 %, and `ff_solve` is within 0.24 % of
+  Canopy's three totals.
+- **Maintenance counts** equal 3 × steps in every row.
+- **Level-4 `[acc]`** is 5.0e-4 to 5.1e-4.
+- **Canopy lines.** The five `canopy_report=0` launches print no Canopy
+  diagnostic line.
+- **Failure direction.** `bogus=1` exits 1, naming `bogus`, and the
+  `canopy_report=1` launch printed 1290 `[Canopy Diagnostics]` lines.
+
+The log records the reporting ratio (1.02) and the L5/L6 sizing rates
+(0.83/0.69 s/step at L5, 2.9/1.8 s/step at L6, np1/np4). Took two
+`spack install`s, not one: see the log.
 
 ---
 

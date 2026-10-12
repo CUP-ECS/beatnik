@@ -681,6 +681,13 @@ class Solver
     /// Run configuration, including the proximity radii `setup()` resolved.
     const SolverParams& params() const { return _params; }
 
+    /// The BR solver driving the run, as `createBRSolver` made it from
+    /// `params().zmodel` and `params().fmm`. Valid only after `setup()`. A
+    /// caller that needs the FMM's cumulative diagnostics downcasts to
+    /// `BRSolverFMM`. **Added by canopy_profiling T2** for
+    /// `Beatnik_Probe_FmmCost`.
+    const br_solver_type& brSolver() const { return *_br_solver; }
+
     /// \f$V_0\f$, the target the volume projection drives toward all run.
     Real initialVolume() const { return _initial_volume; }
 

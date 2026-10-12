@@ -13,8 +13,8 @@
  * @brief Beatnik-local profiling helpers, modeled on Canopy's
  *        Canopy_Profiling.hpp. Provides a process-local timer registry, an
  *        RAII ScopedTimer, and a per-rank Min/Max/Mean/Imbalance print table.
- *        Used to attribute the per-call cost of the FMM BR solver's
- *        computeInterfaceVelocity at profiling level >= 2.
+ *        Used to attribute the per-call cost of the far-field round trip,
+ *        `FarFieldSolver::evaluate`, phase by phase at profiling level >= 2.
  */
 
 #ifndef BEATNIK_PROFILING_HPP
@@ -24,11 +24,11 @@
 // Profiling level hierarchy (mirrors Canopy's semantics)
 //
 //   0 — off (no instrumentation)
-//   1 — basic: per-call total + auto_maintain action histogram (already
-//       implemented inline in FmmBRSolver.hpp)
-//   2 — detailed: per-sub-phase timing inside
-//       FmmBRSolver::computeInterfaceVelocity (pack, distributor builds,
-//       migrates, auto_maintain, Canopy solve, cross product, writeZdot)
+//   1 — basic: no timer compiles in yet; the per-evaluation maintenance
+//       counters in FarFieldDiagnostics are always on and need no level
+//   2 — detailed: per-phase timing of FarFieldSolver::evaluate (pack, forward
+//       distribute and migrate, Canopy maintenance, Canopy solve, contraction,
+//       reverse distribute and migrate, scatter, diagnostics) plus its total
 //   3 — verbose (reserved for future even finer-grained timers)
 //
 // BEATNIK_ENABLE_PROFILING / BEATNIK_PROFILING_LEVEL are added as compile
@@ -64,18 +64,19 @@ namespace Profiling
 // the same strings without risk of typos.
 // ---------------------------------------------------------------------------
 
-// FmmBRSolver::computeInterfaceVelocity sub-phases (level 2).
-static constexpr const char* TIMER_CIV_TOTAL     = "civ_total";
-static constexpr const char* TIMER_PACK          = "pack_grid_particles";
-static constexpr const char* TIMER_SETUP         = "canopy_setup";
-static constexpr const char* TIMER_FWD_DIST      = "build_fwd_distributor";
-static constexpr const char* TIMER_FWD_MIGRATE   = "fwd_migrate";
-static constexpr const char* TIMER_AUTO_MAINTAIN = "auto_maintain";
-static constexpr const char* TIMER_SOLVE         = "canopy_solve";
-static constexpr const char* TIMER_CROSS         = "cross_product";
-static constexpr const char* TIMER_REV_DIST      = "rev_distributor_build";
-static constexpr const char* TIMER_REV_MIGRATE   = "rev_migrate";
-static constexpr const char* TIMER_WRITE_ZDOT    = "write_zdot";
+// FarFieldSolver::evaluate phases (level 2), one per row of the phase table in
+// tasks/canopy_profiling.md "Current state". The ten phases tile the total.
+static constexpr const char* TIMER_FF_EVALUATE_TOTAL   = "ff_evaluate_total";
+static constexpr const char* TIMER_FF_PACK             = "ff_pack";
+static constexpr const char* TIMER_FF_FWD_DISTRIBUTE   = "ff_fwd_distribute";
+static constexpr const char* TIMER_FF_FWD_MIGRATE      = "ff_fwd_migrate";
+static constexpr const char* TIMER_FF_MAINTAIN         = "ff_maintain";
+static constexpr const char* TIMER_FF_SOLVE            = "ff_solve";
+static constexpr const char* TIMER_FF_CONTRACT         = "ff_contract";
+static constexpr const char* TIMER_FF_REV_DISTRIBUTE   = "ff_rev_distribute";
+static constexpr const char* TIMER_FF_REV_MIGRATE      = "ff_rev_migrate";
+static constexpr const char* TIMER_FF_SCATTER          = "ff_scatter";
+static constexpr const char* TIMER_FF_DIAGNOSTICS      = "ff_diagnostics";
 
 // ---------------------------------------------------------------------------
 // Timer registry — process-local accumulator map, key -> elapsed seconds.
@@ -93,9 +94,23 @@ inline void reset_timers()
     timer_registry().clear();
 }
 
+// Totals that reset_timers() leaves alone, mirroring Canopy's timer_totals():
+// a caller times a window by snapshotting this before and after it.
+inline std::unordered_map<std::string, double>& timer_totals()
+{
+    static std::unordered_map<std::string, double> s_totals;
+    return s_totals;
+}
+
+inline void reset_timer_totals()
+{
+    timer_totals().clear();
+}
+
 inline void accumulate( const char* key, double elapsed )
 {
     timer_registry()[key] += elapsed;
+    timer_totals()[key] += elapsed;
 }
 
 // ---------------------------------------------------------------------------
@@ -103,8 +118,8 @@ inline void accumulate( const char* key, double elapsed )
 // and accumulates the elapsed time at destruction. Non-copyable.
 //
 // Unlike Canopy's ScopedTimer, the destructor issues a Kokkos::fence() before
-// reading the clock: Beatnik's sub-phase kernels (packGridParticles,
-// crossProduct, writeZdot) do not all fence internally, so the fence is what
+// reading the clock: Beatnik's phase kernels (the pack, the contraction, the
+// scatter) do not all fence internally, so the fence is what
 // makes the captured wall time reflect true device work. Because this struct
 // only compiles at profiling level >= 2, the fence costs nothing in
 // production builds.
@@ -143,24 +158,23 @@ struct PhaseEntry
 };
 
 // ---------------------------------------------------------------------------
-// Ordered phase entry list for the FmmBRSolver breakdown. Sub-phases sum to
-// approximately the "computeInterfaceVel total" minus the small zeroZdot
-// kernel, which is intentionally left unattributed (as Canopy leaves slack).
+// Ordered phase entry list for the FarFieldSolver::evaluate breakdown. The ten
+// phases tile the total up to the gaps between scopes.
 // ---------------------------------------------------------------------------
 inline std::vector<PhaseEntry> fmm_phase_entries()
 {
     return {
-        { "computeInterfaceVel total", TIMER_CIV_TOTAL,     0 },
-        { "Pack grid particles",       TIMER_PACK,          1 },
-        { "Canopy setup (first call)", TIMER_SETUP,         1 },
-        { "Build forward distributor", TIMER_FWD_DIST,      1 },
-        { "Forward migrate",           TIMER_FWD_MIGRATE,   1 },
-        { "auto_maintain",             TIMER_AUTO_MAINTAIN, 1 },
-        { "Canopy solve",              TIMER_SOLVE,         1 },
-        { "Cross product (gradients)", TIMER_CROSS,         1 },
-        { "Build reverse distributor", TIMER_REV_DIST,      1 },
-        { "Reverse migrate",           TIMER_REV_MIGRATE,   1 },
-        { "Write zdot",                TIMER_WRITE_ZDOT,    1 },
+        { "FarFieldSolver::evaluate total", TIMER_FF_EVALUATE_TOTAL, 0 },
+        { "Pack sources",                   TIMER_FF_PACK,           1 },
+        { "Forward distribute",             TIMER_FF_FWD_DISTRIBUTE, 1 },
+        { "Forward migrate",                TIMER_FF_FWD_MIGRATE,    1 },
+        { "Canopy maintain / setup",        TIMER_FF_MAINTAIN,       1 },
+        { "Canopy solve",                   TIMER_FF_SOLVE,          1 },
+        { "Contract",                       TIMER_FF_CONTRACT,       1 },
+        { "Reverse distribute",             TIMER_FF_REV_DISTRIBUTE, 1 },
+        { "Reverse migrate",                TIMER_FF_REV_MIGRATE,    1 },
+        { "Scatter",                        TIMER_FF_SCATTER,        1 },
+        { "Diagnostics",                    TIMER_FF_DIAGNOSTICS,    1 },
     };
 }
 
@@ -174,7 +188,7 @@ inline std::vector<PhaseEntry> fmm_phase_entries()
 // Parameters:
 //   comm         - MPI communicator (same one used for the solve)
 //   section_name - printed in the header line (e.g.
-//                  "FmmBRSolver::computeInterfaceVelocity")
+//                  "FarFieldSolver::evaluate")
 //   phases       - ordered list of PhaseEntry rows to print
 // ---------------------------------------------------------------------------
 inline void print_timing_table( MPI_Comm comm, const char* section_name,
@@ -274,7 +288,7 @@ inline void print_timing_table( MPI_Comm comm, const char* section_name,
            BEATNIK_PROF_CONCAT( _beatnik_timer_d_, __LINE__ )( (key) )
 #  define BEATNIK_PRINT_FMM_TIMERS( comm ) \
        ::Beatnik::Profiling::print_timing_table( \
-           (comm), "FmmBRSolver::computeInterfaceVelocity", \
+           (comm), "FarFieldSolver::evaluate", \
            ::Beatnik::Profiling::fmm_phase_entries() )
 #else
 #  define BEATNIK_SCOPED_TIMER_DETAILED( key ) do {} while ( 0 )

@@ -165,6 +165,7 @@
 #include <Beatnik_Config.hpp>
 #include <Beatnik_Params.hpp>
 #include <Beatnik_Types.hpp>
+#include <Profiling.hpp>
 
 #include <Kokkos_Core.hpp>
 
@@ -227,6 +228,22 @@ struct FarFieldDiagnostics
 
     /// The maintenance path taken by the most recent evaluation.
     Maintenance maintenance = Maintenance::Setup;
+
+    /// Number of `Maintenance` values; the extent of `maintenance_counts`.
+    static constexpr int num_maintenance = 4;
+
+    /// **Cumulative, rank-local** (every rank sees the same values): completed
+    /// evaluations since this solver was constructed. Unlike every other field
+    /// here, it and `maintenance_counts` describe the solver's whole history
+    /// rather than the last evaluation, so a caller can difference them across
+    /// a timestep -- three RK3 stages are three evaluations, and `maintenance`
+    /// alone shows only the third. Always on: integers, no profiling
+    /// dependency, no collective. **Added by canopy_profiling T2.**
+    long long evaluations = 0;
+
+    /// **Cumulative**: completed evaluations per maintenance path, indexed by
+    /// `static_cast<int>( Maintenance )`. Sums to `evaluations`.
+    long long maintenance_counts[num_maintenance] = { 0, 0, 0, 0 };
 
     /// The basis actually instantiated, not the one requested — they are the
     /// same by construction, since an unsupported pair throws.
@@ -1365,8 +1382,14 @@ class FarFieldSolver
 
         const int ns = static_cast<int>( sources.extent( 0 ) );
 
+        // canopy_profiling T2: one level-2 timer per phase, no-ops below level
+        // 2. Each fences on exit (src/Profiling.hpp), so a phase's time is its
+        // device work too. Construction is part of `ff_maintain`, below.
+        BEATNIK_SCOPED_TIMER_DETAILED( Profiling::TIMER_FF_EVALUATE_TOTAL );
+
         if ( !_impl->haveSolver() )
         {
+            BEATNIK_SCOPED_TIMER_DETAILED( Profiling::TIMER_FF_MAINTAIN );
             _impl->createSolver( _comm, buildConfig( zparams ) );
             _softening = std::sqrt( zparams.blob() );
             _diagnostics.softening = _softening;
@@ -1385,23 +1408,36 @@ class FarFieldSolver
         }
 
         // Step 2: pack the fresh state in mesh order.
-        packSources( sources, charges, ns );
+        {
+            BEATNIK_SCOPED_TIMER_DETAILED( Profiling::TIMER_FF_PACK );
+            packSources( sources, charges, ns );
+        }
 
         // Step 3: route it into Canopy's ordering, then maintain the tree.
         int reuse = _first_call ? 0 : 1;
         if ( reuse )
         {
             int valid_local = 0;
-            auto forward = buildForwardDistributor( ns, valid_local );
             int valid_global = 0;
-            MPI_Allreduce( &valid_local, &valid_global, 1, MPI_INT, MPI_LAND,
-                           _comm );
+            auto forward = [&] {
+                BEATNIK_SCOPED_TIMER_DETAILED(
+                    Profiling::TIMER_FF_FWD_DISTRIBUTE );
+                auto distributor = buildForwardDistributor( ns, valid_local );
+                MPI_Allreduce( &valid_local, &valid_global, 1, MPI_INT,
+                               MPI_LAND, _comm );
+                return distributor;
+            }();
             if ( valid_global )
             {
-                aosoa_type migrated( "beatnik_far_field_canopy_particles",
-                                     forward.totalNumImport() );
-                Cabana::migrate( forward, _mesh_particles, migrated );
-                _canopy_particles = migrated;
+                {
+                    BEATNIK_SCOPED_TIMER_DETAILED(
+                        Profiling::TIMER_FF_FWD_MIGRATE );
+                    aosoa_type migrated( "beatnik_far_field_canopy_particles",
+                                         forward.totalNumImport() );
+                    Cabana::migrate( forward, _mesh_particles, migrated );
+                    _canopy_particles = migrated;
+                }
+                BEATNIK_SCOPED_TIMER_DETAILED( Profiling::TIMER_FF_MAINTAIN );
                 _diagnostics.maintenance =
                     _impl->autoMaintain( _canopy_particles );
             }
@@ -1416,19 +1452,27 @@ class FarFieldSolver
         }
         if ( !reuse )
         {
-            _canopy_particles.resize( static_cast<std::size_t>( ns ) );
-            Cabana::deep_copy( _canopy_particles, _mesh_particles );
+            {
+                BEATNIK_SCOPED_TIMER_DETAILED( Profiling::TIMER_FF_FWD_MIGRATE );
+                _canopy_particles.resize( static_cast<std::size_t>( ns ) );
+                Cabana::deep_copy( _canopy_particles, _mesh_particles );
+            }
+            BEATNIK_SCOPED_TIMER_DETAILED( Profiling::TIMER_FF_MAINTAIN );
             _impl->setup( _canopy_particles, ns );
             _diagnostics.maintenance = FarFieldDiagnostics::Maintenance::Setup;
             _first_call = false;
         }
 
         // Step 4: one traversal, gradient on.
-        _impl->solve( _canopy_particles );
+        {
+            BEATNIK_SCOPED_TIMER_DETAILED( Profiling::TIMER_FF_SOLVE );
+            _impl->solve( _canopy_particles );
+        }
         const int num_local = _impl->numLocalParticles();
 
         // Step 5: contract the 3x3 tensor in place, on Canopy's ordering.
         {
+            BEATNIK_SCOPED_TIMER_DETAILED( Profiling::TIMER_FF_CONTRACT );
             auto gradient = _impl->gradient();
             auto out =
                 Cabana::slice<FarFieldMember::Output>( _canopy_particles );
@@ -1487,6 +1531,7 @@ class FarFieldSolver
         // Step 6: reverse-distribute on tag.origin_rank and scatter by
         // tag.owned_index.
         Cabana::Distributor<MemorySpace> reverse = [&] {
+            BEATNIK_SCOPED_TIMER_DETAILED( Profiling::TIMER_FF_REV_DISTRIBUTE );
             Kokkos::View<int*, MemorySpace> origin_ranks(
                 Kokkos::ViewAllocateWithoutInitializing(
                     "beatnik_far_field_origin_ranks" ),
@@ -1503,13 +1548,18 @@ class FarFieldSolver
             return Cabana::Distributor<MemorySpace>( _comm, origin_ranks );
         }();
 
-        aosoa_type returned( "beatnik_far_field_returned",
-                             reverse.totalNumImport() );
-        Cabana::migrate( reverse, _canopy_particles, returned );
+        aosoa_type returned = [&] {
+            BEATNIK_SCOPED_TIMER_DETAILED( Profiling::TIMER_FF_REV_MIGRATE );
+            aosoa_type r( "beatnik_far_field_returned",
+                          reverse.totalNumImport() );
+            Cabana::migrate( reverse, _canopy_particles, r );
+            return r;
+        }();
 
         const int num_returned = static_cast<int>( returned.size() );
         int scatter_bad = 0;
         {
+            BEATNIK_SCOPED_TIMER_DETAILED( Profiling::TIMER_FF_SCATTER );
             auto tag = Cabana::slice<FarFieldMember::Tag>( returned );
             auto out = Cabana::slice<FarFieldMember::Output>( returned );
             // `Trace` is the only path with a scalar output; `Curl` and
@@ -1555,6 +1605,7 @@ class FarFieldSolver
         // One reduction for every global diagnostic and for the round-trip
         // check, rather than one apiece: they are all sums over the same
         // communicator at the same point in the sequence.
+        BEATNIK_SCOPED_TIMER_DETAILED( Profiling::TIMER_FF_DIAGNOSTICS );
         _impl->readDiagnostics( _diagnostics );
         // T6 T8b: the per-reason fallback breakdown rides this reduction
         // rather than a second one, because the identity it exists to check
@@ -1622,6 +1673,12 @@ class FarFieldSolver
         const double n = static_cast<double>( global[0] );
         _diagnostics.p2p_pair_fraction =
             ( n > 0.0 ) ? static_cast<double>( global[1] ) / ( n * n ) : 0.0;
+
+        // canopy_profiling T2: the cumulative counters, counted only for an
+        // evaluation that completed.
+        ++_diagnostics.evaluations;
+        ++_diagnostics
+              .maintenance_counts[static_cast<int>( _diagnostics.maintenance )];
     }
 #else
     /// The `~canopy` face of the two evaluations. A configuration error, not
