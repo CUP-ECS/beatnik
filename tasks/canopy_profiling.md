@@ -201,7 +201,7 @@ build on.
 | Spack env for measurement | **dev env** (`BEATNIK_USE_PROD` unset). Every new script under `scripts/tuolumne/` refuses `BEATNIK_USE_PROD=1` loudly, as `t5_divergence.flux:143` does | `canopy +profiling` is dev-only (`systems/tuolumne/claude.md` §1); a production binary has no timers to read. |
 | Profiling levels | dev env: `canopy +profiling profiling_level=2` (T2), `beatnik profiling_level=2` (already). Production unchanged: `canopy ~profiling`, `beatnik profiling_level=1` | Level 2 is where the operator-build and DTT timers live. |
 | Measurement driver | `Beatnik_Probe_FmmCost`, in the **"Measurement drivers — IN NO TIER"** loop (`tests/CMakeLists.txt:584-675`): no `LABELS`, no `add_test`, no manifest. Installed, launched by `beatnik_exe` | A probe measures and asserts nothing. A measurement that carries a pass criterion gets tuned to pass. |
-| Accuracy bound for any optimization | Claim A's metric, `max|u_fmm − u_direct| / max|u_direct|` over owned vertices (`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp:1447-1490`). **Level 4:** ≤ `kTauA` = 1.5e-3 (`:320`) at every SMS state. **Levels 5 and 6:** no regression against T3's baseline at the same state, beyond the run-to-run spread T3 records (R2). Every change against T3's baseline is reported per state | The FMM's contract is $\tau_A$, not bit-identity; a quantized root box, for example, changes the tree. $\tau_A$ was set at level 4 from the reference treecode's own error, and the unoptimized `ncrit 8` baseline already exceeds it at L5 (1.6e-3) and L6 (2.7e-3). That loss comes from leaf size and order, not from any O task, so above level 4 the guard is relative ([log](canopy_profiling-progress-log.md) "L5/L6 accuracy check"). |
+| Accuracy bound for any optimization | Claim A's metric, `max|u_fmm − u_direct| / max|u_direct|` over owned vertices (`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp:1447-1490`). **No regression, at every level:** at each SMS state, the value after the task is ≤ the value before it (the previous task's, or T3's for the first), compared exactly. Level 4 therefore also stays within `kTauA` = 1.5e-3 (`:320`). Every change is reported per state, against the previous task and against T3 | The user's ruling after T3 (log, "Decision: no accuracy regression in any O task"). `[acc]` is bit-reproducible across repetitions, nodes, rank counts and backends (T3), so "no regression" needs no tolerance. $\tau_A$ alone would not do: it was set at level 4 from the reference treecode's own error, and the unoptimized `ncrit 8` baseline already exceeds it at L5 (1.6e-3) and L6 (2.7e-3) ([log](canopy_profiling-progress-log.md) "L5/L6 accuracy check"). |
 | Backend priority | **HIP first.** SERIAL is measured at level 4 and must stay correct, but a SERIAL-only slowness (np4 slower than np1 on SERIAL: 2.21x at level 3, 1.37x at level 4) is O7, the last optimization task | MI300A production runs HIP. |
 | Rank counts | Phase P/O: np 1 and 4, one node. Phase S: 16–64 ranks | One node holds 4 MI300A APUs. |
 | New file headers | Beatnik: the BSD-3 block with `SPDX-License-Identifier: BSD-3-Clause` exactly as `src/Profiling.hpp:1-10`. Canopy: Canopy's banner | `CLAUDE.md` "Match the license/header convention". |
@@ -738,10 +738,10 @@ with the binding of `launch()` in that script. Probe arguments are
   under 1.7 % at level 5 or 0.6 % at level 4 is not claimed, and a per-state
   gain under 9 % (level 4) or 14 % (level 5) is not claimed state by state.
 - **The accuracy spread is zero.** `[acc]` repeated to all nine printed digits
-  at every state, so "no regression beyond T3's spread" at level 5 admits no
-  increase at any state. A task that legitimately changes the tree (O1, O2)
-  cannot meet that literally; the user rules on the bound before such a task
-  closes (log, `## T3`).
+  at every state. The guard is therefore exact: no SMS state may get worse, at
+  any level, and that includes a task that changes the tree (O1, O2). This is
+  the user's ruling after T3 (log, "Decision: no accuracy regression in any O
+  task").
 
 ---
 
@@ -758,10 +758,10 @@ with the binding of `launch()` in that script. Probe arguments are
 **Every O task's exit criterion includes all of the following:**
 - The SMS's targeted phase time and its step wall, before (T3 or the previous O
   task) and after, recorded at every SMS state.
-- The `[acc]` metric within the [Conventions](#conventions) bound at every SMS
-  state (≤ 1.5e-3 at level 4; no regression beyond T3's spread at levels 5 and
-  6), with its change from T3's baseline. A move over 20 % at any state
-  triggers V1 before the next O task.
+- The `[acc]` metric does not regress at any SMS state, at any level: after ≤
+  before, exactly ([Conventions](#conventions)). Its change against the
+  previous task and against T3 is recorded per state. A move over 20 % at any
+  state triggers V1 before the next O task.
 - The task's named Canopy stems passing at SERIAL np 1–6 and HIP np 1–4.
 
 **Failure direction for every O task:** an SMS run with the change disabled (its
@@ -1142,10 +1142,10 @@ reductions are not bit-reproducible (add-canopy R8; Canopy README "HIP not
 bit-reproducible"). **Presents as:** a gain of a few percent that reverses on
 re-run. **Mitigation:** T3 runs one level-4 and one level-5 SMS configuration
 twice each and records the per-state `[acc]` and step-wall spread at both
-levels; the level-5 spread is the reference for the guard above level 4. No O
-task claims a gain smaller than twice that spread. T3 measured it ([SMS
+levels. No O task claims a gain smaller than twice that spread. T3 measured it ([SMS
 definition](#sms-definition)): `[acc]` did not move at all, and the step wall
 moved 0.15–0.83 % per run and up to 4.6 % (L4) and 6.9 % (L5) per state.
+The accuracy guard therefore needs no spread allowance.
 
 **R3 — A short run is mistaken for a representative one.** Per-step cost grows
 2.7x along the level-4 trajectory. **Presents as:** an O task measured only at
@@ -1159,8 +1159,9 @@ up to 2x the bounding box, adding a level at the top
 **Presents as:** an `[acc]` change at O1, or `depth_dropped` fallback when
 `max_depth 10` binds. **Distinguishing measurement:** `occupied_depths` and
 `fb_dropped` in O1's rows. A change in `[acc]` with unchanged depth is the MAC
-seeing different cells, which is legitimate within $\tau_A$. Dropped pairs are a
-defect.
+seeing different cells. It is not a defect, but an increase at any SMS state
+still fails O1, because no O task may regress accuracy
+([Conventions](#conventions)). Dropped pairs are a defect.
 
 **R5 — Reusing a column at the wrong width.** Any cache-retention change (O1,
 O2) can evaluate an operator built for a different width. **Presents as:** a

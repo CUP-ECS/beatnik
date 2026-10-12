@@ -690,7 +690,8 @@ The last job was submitted at 13:25, after the matrix, for the reason under
     **328 `[cost]` rows passing and none excluded**.
 
 **What only running revealed.**
-- **The time step is not fixed.** At level 4, dt is 0.003 to about step
+- **The time step is not fixed:** the input enables adaptive timestepping,
+  deliberately (see the decision below). At level 4, dt is 0.003 to about step
   100, then falls steadily to 0.00035 by step 1150 and stays near 0.0004 to
   step 2000. So t = 1.573 at step 1000 and only 1.962 at step 2000.
   - dt's plateau coincides with the per-step cost plateau (T0, R3).
@@ -967,3 +968,36 @@ ratio is at least 10.
   0.27–0.40 s/step with `[acc]` ≤ 7.9e-4.
 - **S0** — O10's share is zero at np1 and 6–18 % at np4, so it grows with rank
   count. HIP np4's non-BR step also grows to 8 % late.
+
+## Decision: no accuracy regression in any O task
+
+The user ruled after T3, answering the question its **Affects:** line raised.
+- **Every optimization task holds accuracy from pre- to post-optimization.**
+  - At each SMS state and at every level, `acc_rel` after the task is ≤
+    `acc_rel` before it. "Before" is the previous O task's value, or T3's
+    for the first.
+  - Because `[acc]` is bit-reproducible (T3), the comparison is exact; no
+    spread allowance applies to accuracy.
+  - Level 4's ≤ τ_A = 1.5e-3 still holds, implied by T3's baseline (max
+    1.099e-3).
+- **This replaces the relative guard above level 4** ("Decision: optimize at
+  `ncrit 8`"), which allowed "no regression beyond T3's spread" at levels 5
+  and 6 only. It now applies at every level, and to tree-changing tasks too:
+  a state that gets worse fails the task even if the MAC is merely seeing
+  different cells (R4).
+- **Adaptive timestepping is enabled in the input on purpose,** to evolve the
+  simulation quickly enough. T3's falling dt (0.003 to about 0.0004 at level
+  4) is that, not a defect. Physical-time and step-count comparisons are
+  therefore not interchangeable. The SMS compares at matched steps, which are
+  matched states because the trajectory is bit-reproducible.
+
+Design changes made with this entry: the Conventions accuracy row, the common O
+exit criterion, the SMS definition's accuracy bullet, R2 and R4, and README
+Known Issues ("guards every level against regression").
+
+**Affects:**
+- O1–O10 — `[acc]` must not rise at any SMS state, at any level, against the
+  previous task, exactly.
+- O1, O2 — a quantized or retained tree that worsens any state fails the task
+  as written; there is no τ_A or spread allowance.
+- V1 — unchanged; it re-asserts claim A on the milestone tier.
