@@ -6,7 +6,8 @@ the milestone tier's green split run (T9b of
 across eight per-(member, backend) `pbatch` jobs, 8.69 h of node time and
 4.2 h of wall-clock. That followed the first full-tier run, which came back
 **red** on the four level-4 FMM launches, on Canopy's M2L operator-column count
-cap; see `## T6` in the progress log. **T7** and **T8** are NOT STARTED. The far
+cap; see `## T6` in the progress log. **T7** is NOT STARTED; **T8** has
+MOVED to [../canopy_profiling.md](../canopy_profiling.md). The far
 field is measured and published. T5 measured $5.01\times10^{-4}$ on the gradient
 at the production order on one early state. Claim A's compiled bound is
 $\tau_A=1.5\times10^{-3}$, the reference treecode's own worst error over the
@@ -385,7 +386,8 @@ Per evaluation, the sequence is:
    caller's `(Nt,3)` view by `tag.owned_index`.
 
 Steps 3-6 are three collectives per evaluation on top of Canopy's own, nine per
-timestep. That cost is real and is measured by **T8**, not assumed.
+timestep across the three RK3-stage evaluations. That cost is real and is
+measured by [../canopy_profiling.md](../canopy_profiling.md), not assumed.
 
 ### Why the adapter holds the Canopy state and the BR solver does not
 
@@ -2060,71 +2062,18 @@ qualification list; and a `--bernoulli-scalar-mode surface-riesz
 
 ---
 
-### T8 — Cost: the maintenance policy and the actual speedup — **NOT STARTED**
+### T8 — Cost: the maintenance policy and the actual speedup — **MOVED to [`../canopy_profiling.md`](../canopy_profiling.md)**
 
-**Depends on:** T4.
-
-**Fill in:** a batch script under `scripts/tuolumne/`;
-[add-canopy-progress-log.md](add-canopy-progress-log.md);
-[README.md](../../README.md) (and its "Future Optimizations" section only if the
-user approves an entry).
-
-**Reference:** what `migrate()` actually costs, per call
-([canopy0.md](../../../canopy/tasks/canopy0.md) F3(b)); the prediction that a deforming surface picks
-`Rebalance` rather than `Migrate` essentially every stage, and that a plan
-rebuild is a serial host-side dual-tree traversal executed on every rank (F3(c),
-citing `canopy/src/Canopy_CommunicationPlan.hpp:549-665`); develop-canopy's
-measured action histogram — all 14 `auto_maintain` calls of a five-step run
-returned `Migrate`, and a 1400-step roll-up run returned
-`Migrate=1180 Rebalance=3019 Rebuild=0` (`tasks/integrate_canopy.md` row AM and
-`tasks/fmm_premature_nan.md` Validation, on that branch); for walltime
-planning, the measured milestone-tier costs (T6's `**Met.**` in
-[add-canopy-progress-log.md](add-canopy-progress-log.md), from T9b of
-[../add-canopy-t6.md](../add-canopy-t6.md)). In particular, SERIAL np4 is
-slower than np1 on the FMM path (2.2x at level 3, 1.37x at level 4), so never
-assume rank scaling on SERIAL. Also see the profiling
-convention `BEATNIK_SCOPED_TIMER_DETAILED` and the action-histogram destructor
-(`src/FmmBRSolver.hpp:122-140`, `:669-680` on that branch).
-
-**Do:**
-
-1. Report the `MaintenanceAction` histogram per run, and the wall-clock split
-   across pack, forward distribute, forward migrate, `auto_maintain`, `solve`,
-   contract, reverse distribute, reverse migrate, scatter. Nine of these per
-   timestep is the cost model that decides whether this path is worth running.
-2. Report how much of `solve` is operator construction, per maintenance action.
-   The cache does **not** amortize here and the measurement is of how much that
-   costs, not of whether it happens: `CartesianTaylorBasis` sets
-   `key_needs_level = true`, every maintenance path recomputes the root box from
-   the particles, and `set_root_half_width` then clears the entire operator
-   cache — so every `Migrate`, `Rebalance` and `Rebuild` rebuilds the whole
-   table. Canopy measured zero keys retained across 336 builds on a moving
-   distribution
-   ([cartesian-taylor-basis.md](../../../canopy/tasks/cartesian-taylor-basis.md)
-   T5 and R6). Report `m2l_op_keys_built_count()` per build against
-   `m2l_op_cache_size()`, so the log states the retention on **Beatnik's** tree
-   rather than inheriting Canopy's; a non-zero retention here would mean
-   Beatnik's root box is not drifting, which is itself worth knowing. This
-   share, times nine evaluations per timestep, is what decides whether the far
-   field is affordable at all, and if it dominates then the fix is Canopy's
-   (out of scope) and belongs in the log as a sized request rather than as a
-   Beatnik workaround.
-3. Measure `fmm` against `direct` wall-clock per step at several vertex counts,
-   and report the **P2P pair fraction** alongside — with
-   `near_softening_factor = 0` the near field is set by `ncrit` and the MAC
-   rather than by a softening floor, so the fraction is a property of
-   `mac_theta` and the tree and is the thing that trades against `order`. State
-   the crossover vertex count, or state that there is none in the measured range.
-4. Do not change the maintenance policy inside this task. If the measurement
-   says `auto_maintain` is the wrong choice, that is a finding and a follow-up
-   task, not a drive-by edit.
-
-**Exit criterion:** the log carries the action histogram, the per-phase
-wall-clock split, the operator-construction share from step 2 and the
-`fmm`-versus-`direct` per-step comparison with the P2P pair fraction at each
-size, all at stated vertex counts, rank counts, backends, basis and order;
-README states the measured speedup and the vertex count above which `fmm` is
-faster, or states that none was found.
+**The measurements this task asked for, and its README obligation, are owned by
+[`../canopy_profiling.md`](../canopy_profiling.md)**: T3 there produces the
+`MaintenanceAction` histogram, the per-phase wall-clock split of one
+evaluation, the operator-construction share and retention on Beatnik's tree,
+and `fmm` against `direct` per step with the P2P pair fraction and the
+crossover; V1 there writes the measured speedup and crossover into README. That
+document also optimizes against the measurements, which this task forbade
+itself, and it counts evaluations correctly: **three per timestep**, one per
+RK3 stage (`src/Beatnik_TimeIntegrator.hpp:155,162,168`), not nine. The ID is
+kept because **R12** and other text here cite it.
 
 ---
 
@@ -2377,9 +2326,9 @@ extension fails visibly rather than producing a mis-differenced reference.
 **R12 — the operator rebuild dominates and the far field is never faster.**
 Every maintenance call empties the M2L operator table, unconditionally and by
 construction, because the basis is level-keyed and the root box is recomputed
-from the particles at every build. Beatnik calls maintenance nine times per
-timestep on a surface that deforms continuously, so the table is rebuilt nine
-times per timestep, at 25438 keys and 20 DOF per cell at the production
+from the particles at every build. Beatnik evaluates, and so maintains, three
+times per timestep (once per RK3 stage) on a surface that deforms continuously,
+so the table is rebuilt three times per timestep, at 25438 keys and 20 DOF per cell at the production
 configuration. **Presents as:** correct results throughout and `fmm` slower than
 `direct` at every vertex count **T8** measures — the crossover simply never
 arriving. **Distinguished from** an ordinary constant-factor loss by **T8** step
