@@ -973,19 +973,27 @@ ratio is at least 10.
 ## Decision: no accuracy regression in any O task
 
 The user ruled after T3, answering the question its **Affects:** line raised.
-- **Every optimization task holds accuracy from pre- to post-optimization.**
-  - At each SMS state and at every level, `acc_rel` after the task is ≤
-    `acc_rel` before it. "Before" is the previous O task's value, or T3's
-    for the first.
+- **Every optimization task holds accuracy from pre- to post-optimization,
+  in aggregate.**
+  - At every level, the maximum `acc_rel` over that level's SMS states after
+    the task is ≤ the maximum before it. "Before" is the previous O task's
+    value, or T3's for the first.
+  - Individual states may move either way.
   - Because `[acc]` is bit-reproducible (T3), the comparison is exact; no
     spread allowance applies to accuracy.
+  - This entry was first written as a per-state rule. The user clarified that
+    "no regression" means in aggregate, and chose the worst state per level
+    as the aggregate.
+  - T3's maxima over the SMS states: **L4 1.099e-3** (step 1000) and **L5
+    1.634e-3** (step 1). For a task that adds level 6: **L6 2.771e-3**
+    (step 50, 250 steps).
   - Level 4's ≤ τ_A = 1.5e-3 still holds, implied by T3's baseline (max
     1.099e-3).
 - **This replaces the relative guard above level 4** ("Decision: optimize at
   `ncrit 8`"), which allowed "no regression beyond T3's spread" at levels 5
-  and 6 only. It now applies at every level, and to tree-changing tasks too:
-  a state that gets worse fails the task even if the MAC is merely seeing
-  different cells (R4).
+  and 6 only. It now applies at every level, including tree-changing tasks.
+  Their individual states may move as the MAC sees different cells (R4), but
+  the level's worst state may not rise.
 - **Adaptive timestepping is enabled in the input on purpose,** to evolve the
   simulation quickly enough. T3's falling dt (0.003 to about 0.0004 at level
   4) is that, not a defect. Physical-time and step-count comparisons are
@@ -997,8 +1005,8 @@ exit criterion, the SMS definition's accuracy bullet, R2 and R4, and README
 Known Issues ("guards every level against regression").
 
 **Affects:**
-- O1–O10 — `[acc]` must not rise at any SMS state, at any level, against the
-  previous task, exactly.
-- O1, O2 — a quantized or retained tree that worsens any state fails the task
-  as written; there is no τ_A or spread allowance.
+- O1–O10 — per level, the maximum `[acc]` over the SMS states must not rise
+  against the previous task, exactly.
+- O1, O2 — a quantized or retained tree may move individual states, but fails
+  if it raises any level's worst state; there is no τ_A or spread allowance.
 - V1 — unchanged; it re-asserts claim A on the milestone tier.

@@ -730,8 +730,8 @@ subsections above, which are intended behavior.
   `scripts/tuolumne/cprof_knob_arms.flux`; numbers in
   `tasks/canopy_profiling-progress-log.md`, "L5/L6 accuracy check". Accepted
   for now: canopy_profiling optimizes at `ncrit 8` and guards every level
-  against regression: no optimization may raise the error at any measured
-  state.
+  against regression: no optimization may raise the worst error over a
+  level's measured states.
 - **The ship gate covers everything up to a fixed-mesh timestep — there is no
   adaptivity in it.** *Not a defect in the gate's construction; a statement of
   how far the solver has been rebuilt.* The tier was **empty** from `89ec015`
