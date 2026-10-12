@@ -1,6 +1,6 @@
 # Canopy profiling and optimization, driven through Beatnik
 
-**Status:** NOT STARTED
+**Status:** IN PROGRESS — T0 done.
 
 ## Problem
 
@@ -341,7 +341,7 @@ ID. Append a `## <task ID>` section at the end of every task.
 
 ## Phase P — measure (single node)
 
-### T0 — Baseline from the existing T9b logs (no build, no run) — **NOT STARTED**
+### T0 — Baseline from the existing T9b logs (no build, no run) — **DONE**
 
 **Depends on:** none.
 
@@ -349,12 +349,15 @@ ID. Append a `## <task ID>` section at the end of every task.
 Python comment style as `fmm_divergence_ladder.py`); the progress log.
 
 **Reference:**
-- The eight T9b logs in this directory: `beatnik_milestone_Milestone0{Fmm,FmmL4,Frozen,FrozenL4}_{SERIAL,HIP}.*.log`.
+- The four T9b FMM logs in this directory, `beatnik_milestone_Milestone0{Fmm,FmmL4}_{SERIAL,HIP}.*.log`,
+  each holding an np1 and an np4 launch: the **eight launches**. The four
+  `Frozen*` logs ran the direct sum only and carry no breakdown blocks.
 - The block format, from `print_solve_breakdown`
   (`../canopy/src/Canopy_Profiling.hpp:333-373`): a header line naming the rank
   count, then Total, Upward, Downward and P2P rows of mean seconds and percent.
-- The claim A and claim B phase boundaries are in `Beatnik_Test_Milestone0Fmm.cpp`'s
-  `[note]` and `[t6]` lines.
+- The claim A and claim B boundaries are `Beatnik_Test_Milestone0Fmm.cpp`'s
+  `[note] ... claim {A,B} step N` lines. `[t6]` contributes only the
+  `CLAIM A SERIES` table and the `COST` line.
 
 **Do:**
 1. Write a reducer that splits each FMM log into (rank count, claim A
@@ -362,7 +365,7 @@ Python comment style as `fmm_divergence_ladder.py`); the progress log.
    Total/Upward/Downward/P2P distribution (median, p90, max) and its trend
    over claim B's steps.
    - Attribute blocks by their position relative to the `[note] ... claim A step N`
-     lines and the claim-B step lines.
+     and `[note] ... claim B step N` lines.
    - **Fail loudly** on a block the reducer cannot attribute, rather than
      dropping it.
 2. Write the same reducer so T2's probe output (`[cost]` rows, defined in T2)
@@ -380,6 +383,17 @@ the number of `solve() phase breakdown` blocks in that log (`grep -c`), and the
 log records the eight launches' tables. Failure direction: the same command run
 on a log with one breakdown block truncated mid-table exits non-zero, naming the
 line.
+
+**Met.** `tests/regression_tests/fmm_profile_reduce.py` reduces all four FMM
+logs with exit 0, attributing every block: 6082 per launch, 81 claim A + 6000
+claim B + 1 final probe, and 12164 per log, equal to `grep -c 'solve() phase
+breakdown'` on each. On the exit-criterion log it prints the np1 and np4 tables.
+The np4 block carrying another rank's `[H2SCR]` line at line 344082 reduces
+cleanly. A scratch copy with block 3000's Downward and P2P rows deleted exits 1,
+naming the block's header line, 126009. A copy cut off mid-trajectory also exits
+1, naming the claim-B count shortfall. `--self-test` exercises the `[cost]` /
+`[acc]` / `[cost-total]` grammar and the block rules on hand-written fixtures.
+The eight launches' tables are in the progress log under `## T0`.
 
 ---
 
