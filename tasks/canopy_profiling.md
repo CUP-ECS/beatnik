@@ -201,7 +201,7 @@ build on.
 | Spack env for measurement | **dev env** (`BEATNIK_USE_PROD` unset). Every new script under `scripts/tuolumne/` refuses `BEATNIK_USE_PROD=1` loudly, as `t5_divergence.flux:143` does | `canopy +profiling` is dev-only (`systems/tuolumne/claude.md` §1); a production binary has no timers to read. |
 | Profiling levels | dev env: `canopy +profiling profiling_level=2` (T2), `beatnik profiling_level=2` (already). Production unchanged: `canopy ~profiling`, `beatnik profiling_level=1` | Level 2 is where the operator-build and DTT timers live. |
 | Measurement driver | `Beatnik_Probe_FmmCost`, in the **"Measurement drivers — IN NO TIER"** loop (`tests/CMakeLists.txt:584-675`): no `LABELS`, no `add_test`, no manifest. Installed, launched by `beatnik_exe` | A probe measures and asserts nothing. A measurement that carries a pass criterion gets tuned to pass. |
-| Accuracy bound for any optimization | Claim A's metric, `max|u_fmm − u_direct| / max|u_direct|` over owned vertices (`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp:1447-1490`), must stay **≤ `kTauA` = 1.5e-3** (`:320`) at every SMS sampled state. Any change against T3's baseline is reported per state. Results may move within that bound | The FMM's accuracy contract is $\tau_A$, not bit-identity. A quantized root box, for example, changes the tree. |
+| Accuracy bound for any optimization | Claim A's metric, `max|u_fmm − u_direct| / max|u_direct|` over owned vertices (`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp:1447-1490`). **Level 4:** ≤ `kTauA` = 1.5e-3 (`:320`) at every SMS state. **Levels 5 and 6:** no regression against T3's baseline at the same state, beyond the run-to-run spread T3 records (R2). Every change against T3's baseline is reported per state | The FMM's contract is $\tau_A$, not bit-identity; a quantized root box, for example, changes the tree. $\tau_A$ was set at level 4 from the reference treecode's own error, and the unoptimized `ncrit 8` baseline already exceeds it at L5 (1.6e-3) and L6 (2.7e-3). That loss comes from leaf size and order, not from any O task, so above level 4 the guard is relative ([log](canopy_profiling-progress-log.md) "L5/L6 accuracy check"). |
 | Backend priority | **HIP first.** SERIAL is measured at level 4 and must stay correct, but a SERIAL-only slowness (np4 slower than np1 on SERIAL: 2.21x at level 3, 1.37x at level 4) is O7, the last optimization task | MI300A production runs HIP. |
 | Rank counts | Phase P/O: np 1 and 4, one node. Phase S: 16–64 ranks | One node holds 4 MI300A APUs. |
 | New file headers | Beatnik: the BSD-3 block with `SPDX-License-Identifier: BSD-3-Clause` exactly as `src/Profiling.hpp:1-10`. Canopy: Canopy's banner | `CLAUDE.md` "Match the license/header convention". |
@@ -256,6 +256,14 @@ and jobs are the dominant cost of this programme.
   (`:68-78`) name phases of an `FmmBRSolver` that does not exist on this
   branch. T2 replaces the keys with the phases of `FarFieldSolver::evaluate`
   and keeps the registry, the fencing `ScopedTimer` (`:112-133`) and the macros.
+- **Every measurement runs at `ncrit 8`, not production's 64.** `ncrit 8` is
+  the milestone members' leaf size and puts the most work through the far field
+  (74.6 % of pairs through M2L at level 4, against 15 % at `ncrit 64`). At 64
+  much of the far field becomes P2P and would hide the unoptimized code this
+  document exists to fix. It costs accuracy above level 4: the Python reference
+  holds about 9.3e-4 at L5 and L6, while Beatnik at `ncrit 8` reaches 1.6e-3
+  and 2.7e-3 (README Known Issues). V1 re-measures the final speedup at
+  `ncrit 64` as well, because README's claim is about production.
 - **The milestone tier is not re-run per optimization.** Each O task's accuracy
   evidence is the probe's per-state claim-A metric on the SMS, which covers the
   same states. The tier's 2000-step claim B is re-asserted at V1, once for the
@@ -270,7 +278,8 @@ and jobs are the dominant cost of this programme.
   `sqrt(blob())`, `near_softening_factor 0`, and `ncrit 8` in the milestone
   members (the `FmmParams` default is 64, `src/Beatnik_Params.hpp:256`). The
   level-4 worst claim-A error is 1.2473e-3. The milestone tier is 16/16 green
-  as of T9b.
+  as of T9b. Above level 4 the error grows with N at fixed `ncrit`, which the
+  reference's does not; see [Deliberate deviations](#deliberate-deviations).
 - **Three FMM evaluations per timestep**, one per RK3 stage (see
   [Why the trajectory is FMM-driven](#why-the-trajectory-is-fmm-driven)). Each
   goes through `FarFieldSolver::evaluate`
@@ -678,8 +687,10 @@ never silently averaged in.
 **Every O task's exit criterion includes all of the following:**
 - The SMS's targeted phase time and its step wall, before (T3 or the previous O
   task) and after, recorded at every SMS state.
-- The `[acc]` metric ≤ 1.5e-3 at every SMS state, with its change from T3's
-  baseline. A move over 20 % at any state triggers V1 before the next O task.
+- The `[acc]` metric within the [Conventions](#conventions) bound at every SMS
+  state (≤ 1.5e-3 at level 4; no regression beyond T3's spread at levels 5 and
+  6), with its change from T3's baseline. A move over 20 % at any state
+  triggers V1 before the next O task.
 - The task's named Canopy stems passing at SERIAL np 1–6 and HIP np 1–4.
 
 **Failure direction for every O task:** an SMS run with the change disabled (its
@@ -854,21 +865,24 @@ an O task's 20 % rule.
 2. Submit the regression gate, `scripts/tuolumne/run_regression_minset.flux`,
    in the same sitting. The adapter is included by every TU, so a Beatnik `src/`
    change must not break the direct path.
-3. Update README:
+3. Re-measure the final speedup at production `ncrit 64` as well as at 8: run
+   T3's level-4 and level-5 HIP rows with `ncrit=64` on the T3 binary and on the
+   final one, in one job each. README states both.
+4. Update README:
    - "FMM accuracy (measured)" with the new claim-A figures;
    - the speedup and crossover statement (add-canopy T8's README obligation);
    - "Known Issues" → "FMM per-step cost grows" with the post-optimization
      growth factor.
-4. Update add-canopy.md's Current state numbers that Phase O changed (costs,
+5. Update add-canopy.md's Current state numbers that Phase O changed (costs,
    walls).
-5. Bring the production env up to date: pull nothing (Canopy is a sibling
+6. Bring the production env up to date: pull nothing (Canopy is a sibling
    clone, already at the committed hash), then `spack install` in
    `~/spack_envs/tuolumne_beatnik_production` **only when no production job is
    live**.
 
 **Exit criterion:** the milestone tier 16/16 green, the gate 60/60 green, and
 README carries the measured speedup and crossover at stated levels, ranks and
-backend. Failure direction: the tier's claim-A assertion still fails on its
+backend, at `ncrit 8` and at production `ncrit 64`. Failure direction: the tier's claim-A assertion still fails on its
 built-in negative case (a state perturbed past $\tau_A$), as it did at T9b.
 
 ---
@@ -928,7 +942,7 @@ Each S task follows the O-task pattern against SMS-S.
 
 **Depends on:** every S task DONE or NOT TAKEN.
 
-**Do:** V1's steps 1–5 again, with README's scaling statement added.
+**Do:** V1's steps 1–6 again, with README's scaling statement added.
 
 **Exit criterion:** as V1's.
 

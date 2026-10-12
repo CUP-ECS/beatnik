@@ -711,6 +711,23 @@ subsections above, which are intended behavior.
   starting a row it cannot finish. The absolute cost (`fmm` at roughly 44x
   `direct` per step at 2562 vertices) is not characterized here; that is
   `tasks/canopy/add-canopy.md` task T8.
+- **The FMM's velocity error grows with vertex count at fixed `ncrit`; the
+  reference treecode's does not.** *Pre-existing; found by canopy_profiling.*
+  Claim A's metric (`max|u_fmm − u_direct| / max|u_direct|`) at order 3,
+  θ 0.3, on early states of the frozen-mesh bubble: at `ncrit 8` it is 5.1e-4
+  at level 4, **1.6e-3 at level 5 and 2.7e-3 at level 6**, past the milestone
+  bound τ_A = 1.5e-3, which was set at level 4. At production `ncrit 64` it is
+  1.7e-4, 5.4e-4 and 1.5e-3. The Python reference treecode (order 2, θ 0.3,
+  `ncrit 64`) holds 5e-4, 9.2e-4 and 9.3e-4 on the same states. Most of the gap
+  is leaf size; the remaining growth with N is consistent with the FMM's
+  two-sided truncation accumulating over a deeper tree, and order 4 removes it
+  (3.8e-4 at level 6, `ncrit 8`) for about 2x the cost, but order 4 waits on
+  Canopy's `tasks/02_oracle_extension.md`. **Reproduce:**
+  `scripts/tuolumne/cprof_ref_levels.flux` and
+  `scripts/tuolumne/cprof_knob_arms.flux`; numbers in
+  `tasks/canopy_profiling-progress-log.md`, "L5/L6 accuracy check". Accepted
+  for now: canopy_profiling optimizes at `ncrit 8` and guards levels 5 and 6
+  against regression rather than against τ_A.
 - **The ship gate covers everything up to a fixed-mesh timestep — there is no
   adaptivity in it.** *Not a defect in the gate's construction; a statement of
   how far the solver has been rebuilt.* The tier was **empty** from `89ec015`

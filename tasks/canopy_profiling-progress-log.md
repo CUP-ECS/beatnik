@@ -559,3 +559,28 @@ The direct-cost estimates per step were 0.006 (L4 np1), 0.034 (L5 np4) and
 - O1–O5 — any optimization should be judged at production `ncrit` 64 as well.
   The residual N-growth of the error at fixed `ncrit` is a candidate follow-up,
   with order 4 as the measured fix.
+
+## Decision: optimize at `ncrit 8`, accept the L5/L6 accuracy loss
+
+The user decided, after the L5/L6 accuracy check:
+- **All canopy_profiling measurement stays at `ncrit 8`.** At `ncrit 64` much
+  of the far field becomes P2P and would hide the unoptimized code the
+  programme targets.
+- **The accuracy loss above level 4 is accepted.** It comes from leaf size and
+  order, not from any planned optimization. Only O1 (a quantized root box
+  changes the tree) can move it, and the guard catches that.
+
+Design changes made with this entry:
+- Conventions' accuracy row and the common O criterion: ≤ 1.5e-3 at level 4,
+  and no regression beyond T3's run-to-run spread against T3's baseline at
+  levels 5 and 6.
+- A deliberate deviation records the `ncrit 8` choice.
+- V1 gains a step re-measuring the final speedup at production `ncrit 64`.
+- README Known Issues records the N-growth of the error against the
+  reference.
+
+**Affects:**
+- T3 — the `[acc]` baseline at L5/L6 is the regression reference. Record the
+  spread (R2) at L5 as well as L4.
+- O1–O7 — use the new accuracy criterion.
+- V1 — the extra `ncrit 64` measurement.
