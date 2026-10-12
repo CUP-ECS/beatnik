@@ -457,3 +457,105 @@ op-build share and the actions are run totals.)
   3.3e3 pairs at L6.
 - O6 — the adapter phases are at most 4.7 % of `ff_evaluate_total` (L5 np4),
   just under its 5 % trigger at these states, and rising with rank count.
+
+## L5/L6 accuracy check (after T2)
+
+T2 measured Beatnik's claim-A metric above `kTauA` = 1.5e-3 at L5 (1.62e-3)
+and L6 (2.71e-3). This topic asks two things: does the Python reference lose
+the same accuracy at those sizes, and which knob closes the gap. No code under
+`src/` changed. The new files are
+`tests/regression_tests/reference_treecode_levels.py`, a reference-error tool
+that reads Beatnik `.h5` checkpoints, and two `pdebug` runners,
+`scripts/tuolumne/cprof_ref_levels.flux` and
+`scripts/tuolumne/cprof_knob_arms.flux`.
+
+**Provenance.**
+- Beatnik `86c32ac` and Canopy `c182348`, clean. Dev env as installed at T2.
+- Reference `zmodel3d-amr` `ec7d7bf`, clean `zmodel3d/`; `/usr/tce/bin/python3`.
+- Job `f3dipDdn7yZZ` (reference, 574 s wall) and job `f3dipDmkg7V9` (knob
+  arms, 885 s wall). Both rc 0, both submitted together, queue wait under
+  1 min.
+- HIP, binding as T2.
+
+**The reference on Beatnik's own states.** These are direct-driven
+`Beatnik_Test_Milestone0Run` checkpoints at steps 25 and 50, HIP np1. The
+reference runs θ 0.3, order 2. The value is claim A's metric.
+
+| vertices | step | reference `ncrit` 64 (its default) | reference `ncrit` 8 |
+| --- | --- | --- | --- |
+| 2562 (L4) | 25 / 50 | 5.45e-4 / 5.03e-4 | 1.73e-3 / 1.59e-3 |
+| 10242 (L5) | 25 / 50 | 9.18e-4 / 9.25e-4 | 1.17e-3 / 1.19e-3 |
+| 40962 (L6) | 25 / 50 | 9.29e-4 / 9.42e-4 | 1.02e-3 / 9.57e-4 |
+
+The L4 `ncrit` 64 value matches T9r's step-25 figure, 5.83e-4. That run was
+on the gold state rather than this checkpoint.
+
+**The reference does not lose accuracy with N.** At its default it sits at
+about 9.3e-4 at L5 and L6. At `ncrit` 8 it is *worse* at L4 and *better* at L6.
+So Beatnik's growth (5.1e-4 → 1.6e-3 → 2.7e-3 at `ncrit` 8) is not shared by
+the reference. By the user's acceptance rule ("acceptable if the Python
+suffers the same loss"), Beatnik at `ncrit` 8 is **not** acceptable at L5/L6.
+
+**Beatnik knob arms.** These come from `Beatnik_Probe_FmmCost`, FMM-driven,
+50 steps, `[acc]` at steps 1/25/50. L4 runs at np1 and L5/L6 at np4. One knob
+is changed per row from the baseline of `ncrit` 8, order 3, θ 0.3.
+
+| arm | `[acc]` 1 / 25 / 50 | s/step | P2P frac | `fb_range_guard` (last) |
+| --- | --- | --- | --- | --- |
+| L4 base | 5.01e-4 / 5.06e-4 / 5.07e-4 | 0.319 | 0.250 | 0 |
+| L4 `ncrit` 64 | 1.74e-4 / 1.72e-4 / 1.71e-4 | **0.057** | 0.852 | 0 |
+| L4 order 4 | 5.6e-5 / 5.6e-5 / 5.7e-5 | 0.881 | 0.250 | 0 |
+| L4 θ 0.2 | 1.16e-4 / 1.16e-4 / 1.17e-4 | 0.469 | 0.563 | 0 |
+| L5 base | 1.63e-3 / 1.63e-3 / 9.43e-4 | 0.734 | 0.058 | 0 |
+| L5 `ncrit` 64 | 5.44e-4 / 5.40e-4 / 4.97e-4 | **0.330** | 0.424 | 0 |
+| L5 order 4 | 1.90e-4 / 1.92e-4 / 1.72e-4 | 1.619 | 0.058 | 0 |
+| L5 θ 0.2 | 2.06e-4 / 2.00e-4 / 1.82e-4 | 1.473 | 0.127 | 31614 |
+| L6 base | 2.71e-3 / 2.71e-3 / 2.77e-3 | 1.904 | 0.015 | 15652 |
+| L6 `ncrit` 64 | 1.45e-3 / 1.49e-3 / 1.50e-3 | **0.817** | 0.092 | 0 |
+| L6 order 4 | 3.8e-4 / 3.8e-4 / 3.7e-4 | 3.707 | 0.015 | 15652 |
+| L6 θ 0.2 | 5.2e-4 / 5.2e-4 / 5.6e-4 | 3.608 | 0.034 | 252066 |
+
+The direct-cost estimates per step were 0.006 (L4 np1), 0.034 (L5 np4) and
+0.110 s (L6 np4).
+
+**What it shows.**
+- **`ncrit` 64 is both more accurate and 2.2–5.6x faster** at every level.
+  - At L4 and L5 it is better than the reference's own default.
+  - At L6 it is 1.5e-3, still 1.6x the reference's 9.3e-4.
+- **Leaf size explains most of the gap but not all of it.** At fixed
+  `ncrit`, Beatnik's error grows with N (`ncrit` 64: 1.7e-4 → 5.4e-4 →
+  1.5e-3); the reference's does not.
+  - That residual is consistent with the FMM's two-sided truncation
+    accumulating over a deeper tree. This was not isolated here.
+  - Order 4 removes it: 3.8e-4 at L6 even at `ncrit` 8, for about 2x the
+    cost.
+  - **Caveat:** the CartesianTaylor derivative ladder is validated only to
+    |k| = 6 (`../canopy/tasks/02_oracle_extension.md`), so order-4 numbers are
+    from an arm that is not yet oracle-checked.
+- **Production already defaults to `ncrit` 64** (`FmmParams::ncrit`,
+  `src/Beatnik_Params.hpp:256`). Two things run at 8:
+  - The milestone FMM members, deliberately: at 2562 vertices, 64 makes
+    85 % of pairs P2P. That fails the L4 member's liveness bound
+    `kP2PFractionBound = 0.75`. At L3 the M2L count is exactly 0.
+  - This document's probe default and every canopy_profiling measurement so
+    far.
+- **Cost at production `ncrit`.** `fmm` over estimated `direct` per step is
+  9x at L4, 10x at L5 np4 and 7x at L6 np4, against 33x, 22x and 17x at
+  `ncrit` 8. There is still no crossover in range. The operator build is
+  39–49 % of `ff_solve` at `ncrit` 64.
+
+**Affects:**
+- T3 — the cost model should be measured at production `ncrit` 64, perhaps
+  with an `ncrit` 8 arm for the milestone configuration. At 64 the costs and
+  the phase shares differ materially (L4 is 5.6x cheaper). **User decision
+  pending.**
+- Conventions (accuracy bound) — at `ncrit` 64, `[acc]` is ≤ 1.5e-3 at L4
+  and L5, and at L6 it is 1.45–1.50e-3, at the bound. The L5/L6 τ_A problem
+  largely disappears if T3 measures at 64.
+- add-canopy milestone tier — unchanged by this. Its `ncrit` 8 is a
+  deliberate far-field stress configuration (header of
+  `Beatnik_Test_Milestone0Fmm.cpp`), and changing it fails the liveness bound.
+  **User decision pending.**
+- O1–O5 — any optimization should be judged at production `ncrit` 64 as well.
+  The residual N-growth of the error at fixed `ncrit` is a candidate follow-up,
+  with order 4 as the measured fix.
