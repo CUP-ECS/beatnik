@@ -800,35 +800,101 @@ are conditional; O3 is NOT TAKEN.
 - `src/Beatnik_Params.hpp`: `FmmParams::quantize_root_half_width`, beside
   `m2l_op_count_cap` (`:433`), with a doc comment. The default is decided by
   step 3.
-- `src/Beatnik_FarFieldInterface.hpp`: map it in `buildConfig` (`:1107-1137`).
-  `buildConfig`'s only caller is `evaluate` (`:1368-1373`).
-- `Beatnik_Probe_FmmCost.cpp`: key `quantize_root_half_width`.
+- `src/Beatnik_FarFieldInterface.hpp`:
+  - Map the knob in `buildConfig` (`:1124`). Its only caller is `evaluate`
+    (`:1393`).
+  - Add two cumulative, always-on counters to `FarFieldDiagnostics` (`:215`).
+    Like `maintenance_counts`, they are incremented at the end of a completed
+    `evaluate` (`:1681`), rank-local.
+    - `root_width_changes`: the evaluations at which the downward sweep's root
+      half-width differs from the previous evaluation's. `readDiagnostics`
+      (`:943`) reads it through `down.root_half_width()`
+      (`../canopy/src/Canopy_DownwardSweep.hpp:463`). Every width change
+      empties the cache (`set_root_half_width`, `:451-460`). With the knob on,
+      a change is an octave crossing.
+    - `op_cache_overflow_clears`: the evaluations without a width change at
+      which the cache was emptied anyway. That is the column-cap overflow at
+      `:2085-2091` (or the cap check at `:2066`), detected exactly. Without a
+      clear, `cache_size` after an evaluation equals `cache_size` before it
+      plus the keys built in it; after a clear it does not.
+- `tests/regression_tests/Beatnik_Probe_FmmCost.cpp`:
+  - the key `quantize_root_half_width`;
+  - two `[cost]` fields, the window deltas of the two counters
+    (`width_changes`, `overflow_clears`, mean and max over ranks like the
+    other rank-local fields).
 - README "FMM tunables" (`README.md:306`).
 
 **Reference:** `../canopy/src/Canopy_Solver.hpp:118-126`; B2 in
-`../canopy/tasks/tree-opt.md` (`:1498`) and its progress log `§B2`, including
+`../canopy/tasks/tree-opt.md` (`:1497`) and its progress log `§B2`, including
 its failure-direction check for a column used at the wrong width (B2's R4).
+
+**Retention, as measured here.** Per `[cost]` window:
+
+$$
+r = 1 - \frac{\text{keys\_built\_delta}}{\text{evals} \times \text{unique\_ops}}
+$$
+
+T3's knob-off baseline is $r \approx 0$ at every window.
+
+**The column cap stays at the SMS's 65536.**
+- The effective cap is the smaller of the byte budget's column count and
+  `m2l_op_count_cap` (`Canopy_DownwardSweep.hpp:368-374`). Beatnik's 2 GiB
+  budget is about 670 000 columns, so the count cap binds.
+- A cache that persists across trees accumulates keys. One tree holds up to
+  42 000 unique operators at L5 np1 and 47 000 at L6 np1 (T3), so overflow
+  clears are expected at level 5.
+- They are counted, not avoided: raising the cap would move the SMS off T3's
+  configuration.
 
 **Do:**
 1. No Canopy change.
-2. Run the SMS with the knob on, and with it off as the control, in one job.
-3. If the gain is real and `[acc]` holds, set the default to `true`. The
-   quantized root can add one level at the top of the tree (`:123-125`).
-   `max_depth 10` is a cap, so check `occupied_depths` against it and confirm
-   no `depth_dropped` fallback appears.
-4. Record per evaluation:
-   - retention, as `keys_built` delta against `cache_size`;
-   - the evaluations at which the cache emptied anyway because of an octave
-     crossing;
+2. In each SMS job, run the SMS with the knob on and, as the control, off.
+   - The HIP pair fits one job per np (about 2.1 ks at np4, 2.85 ks at np1,
+     of 3.3 ks).
+   - SERIAL np4 needs a second job.
+3. Submit `scripts/tuolumne/t4_fmm_vs_direct.flux` as its own job in the same
+   sitting. It needs two nodes for ranks 5 and 6, and the SMS jobs are one
+   node each.
+4. If the gain is real and `[acc]` holds, set the default to `true`.
+   - The quantized root can add one level at the top of the tree
+     (`Canopy_Solver.hpp:123-125`).
+   - `max_depth 10` is a cap, so check `occupied_depths` against it and
+     confirm no `depth_dropped` fallback appears.
+5. Record per window:
+   - $r$;
+   - `width_changes` and `overflow_clears`;
    - the change in `ilist_s4_op_table_build`.
 
-**Exit criterion:** the common O criteria, plus retention above 90 % on every
-non-crossing evaluation in the SMS. `FmmVsDirect` passes at ranks 1–6 on SERIAL
-and HIP via `scripts/tuolumne/t4_fmm_vs_direct.flux`; fold that run into the SMS
-job. Failure direction: the knob-off control reproduces T3's rebuild-every-
-evaluation pattern: `keys_built_delta / evals` within 0.96–1.00 of
-`unique_ops` as a per-run median, and exactly 2/3 of it at step 1. Per-row
-values range over 0.65–1.23 only because `unique_ops` is the window's last value.
+   Split the rebuilt keys into three parts:
+   - octave crossings: one full rebuild (`unique_ops`) per width change;
+   - overflow clears: one full rebuild per clear;
+   - the remainder: new keys in a surviving cache.
+
+   Give the retention and step wall the overflow clears cost.
+
+**Exit criterion:** the common O criteria, plus `FmmVsDirect` passing at
+ranks 1–6 on SERIAL and HIP (`t4_fmm_vs_direct.flux`).
+
+**Retention.** With the knob on, in every SMS window without an overflow clear,
+retention exceeds 90 % after the crossings are discounted:
+
+$$
+1 - \frac{\text{keys\_built\_delta} - \text{width\_changes} \times \text{unique\_ops}}{\text{evals} \times \text{unique\_ops}} > 0.9
+$$
+
+Windows with overflow clears are exempt from the 90 %. Their count and cost are
+recorded, and the log's `**Affects:**` line names the follow-up (a larger cap,
+or eviction instead of a full clear) when they occur.
+
+**Failure direction.**
+- The knob-off control reproduces T3's rebuild-every-evaluation pattern:
+  `keys_built_delta / evals` within 0.96–1.00 of `unique_ops` as a per-run
+  median, and exactly 2/3 of it at step 1.
+- Per-row values range over 0.65–1.23 only because `unique_ops` is the
+  window's last value.
+- In every knob-off window after step 1, `width_changes` is at least
+  0.9 × `evals` and `overflow_clears` is 0. The width moves at nearly every
+  build, and a cache emptied that often never reaches the cap.
 
 ### O2 — Keep the operator cache across an octave crossing — **NOT STARTED (conditional)**
 
