@@ -947,6 +947,7 @@ ratio is at least 10.
   is **zero**, so "no regression beyond T3's spread" at levels 5 and 6 forbids
   any increase at any state. A task that changes the tree cannot pass that
   literally. **The user must rule on the L5/L6 bound before O1 closes.**
+  (Ruled: see "Decision: no accuracy regression in any O task".)
 - **O2, O4** — unchanged triggers, sequenced directly after O1.
 - **O3** — NOT TAKEN: `m2l_kernel`, which contains the fallback, is at most
   4.3 % of any HIP row.
