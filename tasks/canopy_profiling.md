@@ -1,6 +1,6 @@
 # Canopy profiling and optimization, driven through Beatnik
 
-**Status:** IN PROGRESS — T0, T1, T2, T3 and O1 done; V1 is triggered by O1's `[acc]` moves but **deferred by ruling** to the end of Phase O (log, "Decision: defer V1; a milestone failure from O1 is accepted"); O2 and O4 NOT TAKEN (triggers unmet after O1); **O8 next**, then O5 (sequence in [Phase O](#phase-o--optimize-single-node)).
+**Status:** IN PROGRESS — T0, T1, T2, T3, O1 and O8 done; V1 is triggered by O1's `[acc]` moves but **deferred by ruling** to the end of Phase O (log, "Decision: defer V1; a milestone failure from O1 is accepted"); O2 and O4 NOT TAKEN (triggers unmet after O1); **O5 next**, then O9 (sequence in [Phase O](#phase-o--optimize-single-node)).
 
 ## Problem
 
@@ -1049,16 +1049,21 @@ milestone tier exercises.
 **Exit criterion:** the common O criteria, with Canopy stems `TreeBuilder`,
 `TreePartitioner`, `CommunicationPlan` and `MultiSolve`.
 
-### O8 — Assemble the operator table without a full host copy and upload — **NOT STARTED**
+### O8 — Assemble the operator table without a full host copy and upload — **DONE**
 
 **Depends on:** O1 **DONE** and O4 resolved. Both change stage 4's cache.
 
-**Measured (T3):** `ilist_s4_op_table_copy` is 9.0–18.0 % of HIP step wall
-(medians per run), 13–18 % at levels 4 and 5. O1's retention does not shrink
-it: stage 4b runs for every unique operator, retained or not.
+**Measured (T3, history):** `ilist_s4_op_table_copy` was 9.0–18.0 % of HIP
+step wall (medians per run), 13–18 % at levels 4 and 5. O1's retention does
+not shrink it: stage 4b runs for every unique operator, retained or not.
+
+**Baseline (after O1):** 43.2 / 28.4 % of HIP step wall at L4 np1 / np4,
+19.8 / 20.8 % at L5, 17.8 % at L6 np4 (medians of `3 × phase / step_wall`
+over O1's knob-on rows; log, "Decision: O2 and O4 not taken; O8 before O5").
+O1 shortened the step, so the same copy is a larger share of it.
 
 **Fill in:** `../canopy/src/Canopy_DownwardSweep.hpp`, stage 4b
-(`:2142-2172`). On every interaction-list build it:
+(`:2146-2172` at Canopy `c182348`). On every interaction-list build it:
 - copies each of `n_unique_ops` columns from the host cache into a host
   mirror, element by element;
 - then `deep_copy`s the whole table to the device.
@@ -1070,7 +1075,63 @@ Candidates:
 **Exit criterion:** the common O criteria, with Canopy stems `DownwardSweep`
 and `CartesianTaylorSolve`, plus a unit case asserting the assembled table is
 bitwise equal to the host path's. That is the invariant the comment at
-`:2160-2164` states.
+`:2158-2161` (Canopy `c182348`) states.
+
+**Met.** Verified 2026-10-13, Canopy `046fdc6` (jobs ran HEAD `56f3932`,
+which adds only the test script, 0 porcelain lines), Beatnik `40fc8c7`
+installed. Numbers and job IDs are in the [log](canopy_profiling-progress-log.md)
+`## O8`.
+- **The change.** The operator cache keeps a device copy, grown and dropped
+  with the host cache. Each build uploads only the columns built since the
+  last one, and the table is gathered on the device by
+  `_m2l_op_cache_index`. A host backend gathers from the host cache and keeps
+  no copy.
+- **The knob.** `FmmConfig::device_op_table_assembly` and
+  `FmmParams::device_op_table_assembly`, both default `true`; probe key
+  `device_op_table_assembly`. Off is the old path, unchanged.
+- **Canopy stems: PASS.** `DownwardSweep` and `CartesianTaylorSolve` at
+  SERIAL np 1–6 and HIP np 1–4 (job `f3dvCN5tgncw`).
+- **Bitwise unit case: PASS** on every rank of every entry.
+  `DownwardSweepCaching.deviceOpTableAssemblyBitwise` builds one tree with
+  the knob off and on and `memcmp`s every column, matched by key, after:
+  - a first fill;
+  - a growth through `_grow_m2l_op_cache`;
+  - a no-new-key rebuild;
+  - a forced `clear_m2l_op_cache()`;
+  - the cap-overflow clear.
+- **Stale-column check, by hand, not committed.** Both broken HIP binaries
+  fail the case at np 1 and 2.
+  - A device copy whose growth drops its prefix fails the **bitwise
+    comparison**.
+  - A clear that skips the device copy refills identically on this fixture,
+    so it compares equal after the clear itself. It fails one step later as
+    a hard HIP copy error, when the next refill is smaller.
+
+  Out-of-step extents also throw by design.
+- **Gain (same-job pairs).** The summed SMS step wall falls 49.0 % (L4 HIP
+  np1), 38.0 % (L4 np4), 22.2 % (L5 np1) and 30.5 % (L5 np4). Every HIP state
+  after step 1 is past the per-state threshold.
+  `ilist_s4_op_table_copy` falls 91–98 % per run, to 0.7–2.2 % of the step.
+  `ilist_s5_device_upload` did not grow.
+- **Accuracy: bit-identical.** `[acc]` equals O1's knob-on value at every
+  state of every run, in both arms. The maxima are unchanged: L4 1.4025e-3,
+  SERIAL 500-step 1.1338e-3, L5 1.2115e-3.
+- **Failure direction.** The knob-off arm has `[acc]` identical to O1 and
+  `s4 copy` within ±3 % of O1 per run.
+  - Its step wall is within T3's per-state spread at every HIP state after
+    step 1 (L4 −5.6 to +4.0 %, L5 −4.1 to +3.5 %).
+  - Run level: L5 −0.5 / +1.3 % (np1 / np4), within 1.7 %. L4 +1.3 / −1.8 %,
+    outside 0.6 % in both directions, on different nodes from O1's, as O1's
+    own control was.
+  - Step 1 at np4 is the usual outlier (−29 % L4, −15 % L5).
+- **SERIAL** stays correct, and its step wall is unchanged within noise
+  (np1 −4.9 % in one job; np4 +7.6 % across two jobs and nodes, not
+  claimed).
+  - **Open: the host gather is 3–5 % slower than the old host loop** in
+    `ilist_s4_op_table_copy` at SERIAL np1 (+11 % summed with outliers,
+    about 0.45 % of the step), and flat at np4.
+  - A column-per-iteration functor on host backends would recover it; that
+    is left out of O8, which allows one install.
 
 ### O9 — Cheaper pair classification in the interaction-list build — **NOT STARTED**
 

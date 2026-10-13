@@ -1480,3 +1480,406 @@ The user ruled after O1, on its measured triggers and post-O1 shares:
 **Affects:**
 - O8 — next. Its dependency "O4 resolved" is met.
 - O5 — after O8; its T3 shares are superseded by the table above.
+
+## O8
+
+**Provenance, pinned.**
+- **Code.** Canopy `046fdc6` "DownwardSweep: assemble the M2L operator table
+  on the device (O8)" plus `56f3932` (the test-job script only). Every job ran
+  HEAD `56f3932` with **0 porcelain lines**. Beatnik `40fc8c7`
+  "canopy_profiling O8: device_op_table_assembly from Beatnik", logged by
+  every SMS job (dirty 6 files, none compiled: `.claude/settings.json`, this
+  task's design doc, and four untracked notes/scripts).
+- **Toolchain.** `canopy@develop +profiling profiling_level=2`, cce@20.0.0,
+  dev env `~/spack_envs/tuolumne_beatnik`, `profile.local.sh` (spack mode).
+  Canopy standalone: `build-profiling/` under `tuolumne_trilinos`; the four
+  stem targets built in 7 min 5 s on the login node.
+- **Install.** One `spack install`, 12:33:05–12:44:12, **11 min 7 s** wall,
+  108 CPU-min (Beatnik 10 min 35 s; Canopy and tessera re-staged in about
+  30 s). Every `.cpp` under `src tests examples` was touched first
+  (`systems/tuolumne/claude.md` §3). The installed `Canopy_Solver.hpp`,
+  `Canopy_DownwardSweep.hpp` and `Beatnik_Params.hpp` carry the knob.
+- **Configuration.** As O1: CartesianTaylor order 3, θ 0.3, `ncrit 8`,
+  `m2l_op_count_cap 65536`, `canopy_report 0`. Both arms pass
+  `quantize_root_half_width=1` and `device_op_table_assembly=0|1`
+  explicitly. Binding is `canopy_profiling_baseline.flux`'s `launch()`,
+  unmodified.
+
+All jobs `pdebug`, rc 0, no `SKIPPED` or `FAIL`, every `[cpb] total wall`
+present. The reducer's count check (`fmm_profile_reduce.py --format probe
+--states`) passed every `[cost]` row with 0 excluded.
+
+| job | name | node | rows (label level steps every) | launch walls | queue wait | job wall |
+| --- | --- | --- | --- | --- | --- | --- |
+| `f3dvCN5tgncw` | `canopy-cprof-o8` | — | Canopy stems + stale check | — | 1 s | 10.0 min |
+| `f3dvNa7ovPnF` | `beatnik_o8_hip_np1` | 1016 | `smsl5a1`, `smsl5a0` 5 300 25; `smsl4a1`, `smsl4a0` 4 1200 50 | 247 + 301 + 256 + 499 s | 1 s | 22.2 min |
+| `f3dvNaGqG2Fy` | `beatnik_o8_hip_np4` | 1042 | same rows at np4 | 139 + 195 + 236 + 376 s | 49 s | 16.1 min |
+| `f3dvNaQDiShd` | `beatnik_o8_serial_np1` | 1011 | `smsl4a1`, `smsl4a0` 4 500 25 | 801 + 838 s | 80 s | 27.7 min |
+| `f3dvNaYRcUAK` | `beatnik_o8_serial_np4_a1` | 1015 | `smsl4a1` 4 500 25 | 1808 s | 177 s | 30.5 min |
+| `f3dvNafzSoaP` | `beatnik_o8_serial_np4_a0` | 1014 | `smsl4a0` 4 500 25 | 1681 s | 177 s | 28.4 min |
+
+`a1` is the knob on (the new path), `a0` off (the host-copy path). O1 bases,
+all knob-on (`q1`): `f3dk9xY4X4aT` (HIP np1, node 1026), `f3dk9xfGba3h` (HIP
+np4, 1019), `f3dk9xwujWWB` (SERIAL np1, 1015), `f3dk9yE6BftT` (SERIAL np4,
+1012). The SMS jobs were submitted together at 12:44:33; the Canopy job went
+out at 12:22, before the install. It uses the trilinos env and
+`build-profiling/`, not the dev env, so it could not collide with the install,
+and a failure there would have saved one.
+
+**Decisions, made before this task and recorded here.**
+- **O8 gets a runtime knob,** so the failure-direction arm runs in the same
+  job and on the same node as the change. O1 showed cross-node walls moving
+  19 % on SERIAL np1, where T3 measured no spread. The knob:
+  - Canopy `FmmConfig::device_op_table_assembly`, default **on**, beside
+    `quantize_root_half_width`, reaching `DownwardSweep` through
+    `set_device_op_table_assembly()` in the `Solver` constructor, as
+    `m2l_op_count_cap` does (`quantize_root_half_width` itself goes to
+    `TreeBuilder`, not the sweep);
+  - Beatnik `FmmParams::device_op_table_assembly`, default on, mapped in
+    `buildConfig`;
+  - probe key `device_op_table_assembly=<0|1>`, echoed in `[fmmcost]
+    header`;
+  - a README "FMM tunables" row, and the Canopy README `FmmConfig` table row.
+
+  Off is the previous host-copy path, unchanged.
+- **The "before" is O1's knob-on SMS**, with `quantize_root_half_width=1`
+  passed explicitly in both arms.
+- **Accuracy baseline is O1's per-level maxima, compared exactly:** L4
+  1.402e-3 (1.134e-3 over SERIAL's 500 steps), L5 1.212e-3. The table must
+  be bitwise equal, so `[acc]` must be bit-identical to O1 at every state.
+- **No level-6 rows.** O8 does not change the tree.
+- **The milestone tier is not run** (V1 deferred), and `kTauA` is untouched.
+
+**Decisions made in this task.**
+- **Device copy of the cache, not "upload only new columns into the table".**
+  `_m2l_op_cache_device` (`memory_space`, same extents as the host cache)
+  holds the first `_m2l_op_cache_device_size` columns bit for bit. Each build
+  uploads only `[device_size, cache_size)` (one contiguous LayoutLeft
+  `deep_copy`), uploads the `n_unique_ops` source-column indices looked up in
+  `_m2l_op_cache_index` (never by position: `ops[]` order is the stage-3 merge
+  order), and gathers with a flat-index functor (`M2LOpTableGather`, t
+  fastest), then fences inside the `ilist_s4_op_table_copy` timer so the
+  phase stays comparable with the host path, whose `deep_copy` fenced.
+- **Lifecycle.** `clear_m2l_op_cache()` drops the device copy with the host
+  cache. That covers all three clear sites: `set_m2l_kernel_params`,
+  `set_root_half_width`, and stage 4's cap checks (`_m2l_op_cache_size >
+  effective_op_cap` and the overflow refill). `_grow_m2l_op_cache()` grows the
+  device copy alongside, preserving its uploaded prefix device to device.
+- **A disagreement throws instead of re-uploading.** `_sync_m2l_op_cache_device`
+  allocates only when there is no copy. Extents that differ from the host
+  cache, or a device size above the host size, throw `std::logic_error`
+  ("out of step with the host cache"). A full re-upload on mismatch would
+  have hidden a missed invalidation.
+- **Host backends keep no copy.** Where
+  `SpaceAccessibility<execution_space, HostSpace>::accessible` (SERIAL), "on"
+  gathers straight from the host cache with the same functor. SERIAL
+  therefore never exercises the device copy; HIP covers it, in the unit case
+  and in the SMS.
+- **Toggling the knob neither dirties the interaction list nor empties the
+  cache.** The table is identical either way.
+- **The baseline script's knob column accepts a comma-separated list**
+  (`${_knob//,/ }`), so one row passes both keys. Single-knob rows (T3, O1)
+  are unchanged.
+
+**Signatures.**
+- Canopy: `FmmConfig::device_op_table_assembly` (`bool`, default `true`);
+  `DownwardSweep::set_device_op_table_assembly(bool)` and
+  `device_op_table_assembly()`; private `_m2l_op_cache_device`,
+  `_m2l_op_cache_device_size`, `_sync_m2l_op_cache_device()`,
+  `M2LOpTableGather<CacheView>`.
+- Beatnik: `FmmParams::device_op_table_assembly` (`bool`, default `true`)
+  after `quantize_root_half_width` in `src/Beatnik_Params.hpp`, mapped in
+  `buildConfig`.
+- Probe: key `device_op_table_assembly=<0|1>` (default `FmmParams{}`'s),
+  echoed in the header after `quantize_root_half_width`. No `[cost]` field
+  changed.
+
+**Canopy unit case.** `DownwardSweepCaching.deviceOpTableAssemblyBitwise`
+(`tests/tstDownwardSweep.hpp`) builds one tree (the caching fixture,
+LaplaceKernel P = 6, 1000 particles) through two sweeps, knob off and on, in
+lock-step. After each build it matches columns **by key** and `memcmp`s every
+column. The steps:
+1. a first fill at cap 1;
+2. the default cap, so the cache **grows** (`_grow_m2l_op_cache` with a
+   non-empty prefix; asserted `cache_size > 1`);
+3. a rebuild that realizes no new key (asserted `keys_built` unchanged);
+4. an explicit `clear_m2l_op_cache()` and refill;
+5. a cap of half the cache, which empties it at stage 4's cap check.
+
+At np1 that is 612 keys, then 306.
+
+**Canopy tests, job `f3dvCN5tgncw`: all PASS.** `DownwardSweep` and
+`CartesianTaylorSolve` at SERIAL np 1–6 and HIP np 1–4, every entry
+`completed` within budget. The new case is `[ OK ]` on every rank of every
+DownwardSweep entry.
+
+**Stale-column check, by hand, not committed.** Two HIP DownwardSweep
+binaries, built from deliberately broken sources and run in the same job on
+the bitwise case only, at np 1 and 2. **Both fail.**
+- **`.stale_grow`** (the device copy's growth skips its prefix copy) **fails
+  the bitwise comparison** itself: `countOpTableMismatches` = 1 at np1 (at
+  two stages), and 4 failures over the two ranks at np2.
+- **`.stale_clear`** (`clear_m2l_op_cache()` leaves the device copy in place)
+  fails, but **not** at the bitwise comparison. After the explicit clear, the
+  refill of the same tree puts the same keys in the same positions (612,
+  merge order), so the stale columns happen to hold the right bits and step 4
+  compares equal. It fails at step 5: the refill there is 306 columns, and
+  `_grow_m2l_op_cache` copies the stale 612-column prefix into the new
+  306-column view, which HIP rejects (`hipMemcpyAsync ... hipErrorInvalidValue`,
+  an exception in the test body).
+
+  So a skipped clear is caught as a hard error, not as a wrong table. A
+  skipped clear whose refill differed in key order but not in extent would
+  reach the bitwise comparison. This fixture cannot produce one, because one
+  tree's merge order is stable.
+
+**Bugs only running revealed.**
+- **The device gather is slightly slower than the host loop on SERIAL np1.**
+  It is a copy-phase regression, not a step-wall one. `ilist_s4_op_table_copy`
+  is consistently 3–5 % slower per evaluation knob-on (e.g. 14.08 → 14.80 ms
+  at step 25), plus outlier windows (steps 125, 325, 350: +6 to +9 ms). Summed
+  over the run it is 32.4 → 35.9 s (+11 %), about +0.45 % of the 775 s step
+  wall. The same-job step wall is nonetheless 4.9 % *lower* knob-on, and
+  SERIAL's per-state spread here is ±25 %, so it is not visible at step
+  level. SERIAL np4's copy is unchanged (16.7 → 16.8 s). The likely cause is
+  the flat-index functor's per-element 64-bit div/mod, where the old host
+  loop indexed directly. The fix is a column-per-iteration functor on host
+  backends. Not done in O8: it would need a second install.
+- **Step 1 at L5 is 25–30 % slower knob-on, and it is launch order, not the
+  knob.** The L5 `a1` run was the first launch in each HIP job. Its step-1
+  excess sits in `m2l_kernel` (+0.28 s/step at np4) and `upward_total`
+  (+0.17 s), which O8 does not touch, while its s4 copy is 5.2 against
+  42.7 ms. At L4, where `a1` ran third, step 1 is 14–24 % *faster* knob-on.
+
+**Results.**
+- **Gain (on against off, same job).** Summed SMS step wall:
+  - L4 HIP np1 **−49.0 %** (490.8 → 250.5 s), np4 **−38.0 %** (366.0 →
+    226.9 s);
+  - L5 HIP np1 **−22.2 %** (292.0 → 227.3 s), np4 **−30.5 %** (181.4 →
+    126.1 s).
+
+  Per state after step 1: L4 np1 −35.6 to −54.2 %, np4 −28.8 to −44.3 %; L5
+  np1 −18.3 to −25.8 %, np4 −28.9 to −35.5 %. Every HIP state after step 1
+  clears the per-state thresholds (9 % L4, 14 % L5) and every run the
+  run-level ones. SERIAL np1 −4.9 % (same job) and np4 +7.6 % (two jobs, two
+  nodes) are not claimed: T3 measured no SERIAL spread, and O1 saw 19 %
+  across nodes.
+- **The targeted phase.** Summed `ilist_s4_op_table_copy`, off → on: L4 np1
+  202.1 → 5.15 s (−97.5 %), L4 np4 115.9 → 1.96 s (−98.3 %), L5 np1 59.9 →
+  5.31 s (−91.1 %), L5 np4 39.4 → 0.95 s (−97.6 %). Per evaluation it is
+  0.27–0.89 ms at np4 against 17–49 ms, and grows slowly along the trajectory
+  with `n_unique_ops`. Step 1 holds the cold fill's full upload (1.5–5.2 ms).
+- **`ilist_s5_device_upload` did not grow.** Summed, off → on: L4 np1 1.40 →
+  1.21 s, L4 np4 0.82 → 0.76, L5 np1 1.53 → 1.21, L5 np4 0.45 → 0.36, SERIAL
+  np1 1.36 → 1.35, np4 0.72 → 0.76. It is 0.0–0.5 % of the step in every arm.
+  Stage 5's uploads were not absorbing deferred work from stage 4.
+- **Accuracy: bit-identical.** `[acc]` is identical, as printed, to O1's
+  knob-on value at **every** state of **every** run, in **both** arms: 25
+  states × 2 HIP runs at L4, 13 × 2 at L5, 21 × 2 SERIAL. Per-level maxima
+  are unchanged: L4 **1.4025e-3** (step 800), SERIAL's 500 steps 1.1338e-3
+  (step 1), L5 **1.2115e-3** (step 75). No state moved, so V1 is not
+  triggered by O8.
+- **Failure direction (off against O1's on).**
+  - **`[acc]`:** bit-identical at every state.
+  - **Step wall, run level:** L4 np1 +1.3 %, np4 −1.8 %; L5 np1 −0.5 %,
+    np4 +1.3 %. L5 is within T3's 1.7 %. L4 is outside T3's 0.6 % in both
+    directions, as O1's own control was (−3.5 % at L4 np4), on different
+    nodes from O1's (1016 against 1026, 1042 against 1019).
+  - **Step wall, per state after step 1:** L4 −5.6 to +4.0 % (np1) and −3.3
+    to +0.6 % (np4); L5 −4.1 to +1.6 % and −1.4 to +3.5 %. All within T3's
+    9 % and 14 %.
+  - **Step 1 off against O1:** +0.1 % (L4 np1), −1.2 % (L5 np1), −29.4 % (L4
+    np4), −15.1 % (L5 np4). The np4 values are outside the per-state spread,
+    like O1's own step-1 outliers.
+  - **`s4 copy`, off against O1:** within ±3 % per run on HIP (np1 202.1
+    against 207.7 s). The gain therefore vanishes with the knob off, and it
+    is quoted only from the same-job pairs.
+  - **SERIAL, cross-node:** np1 +1.1 % run level (1011 against 1015; per
+    state −20 to +37 %), np4 −5.2 % (1014 against 1012).
+- **Post-O8 shares** (medians of `3 × phase / step_wall` over each knob-on
+  run's `[cost]` rows, HIP; off arm in brackets):
+
+  | target | L4 np1 | L4 np4 | L5 np1 | L5 np4 |
+  | --- | --- | --- | --- | --- |
+  | `ilist_s4_op_table_copy` (O8) | 2.0 (41.6) | 0.9 (31.0) | 2.2 (20.0) | 0.7 (21.6) |
+  | `ff_maintain` (O5) | 38.0 (20.7) | 39.0 (25.1) | 44.4 (35.1) | 46.7 (35.7) |
+  | `comm_plan_build` (in O5) | 20.8 (11.6) | 16.4 (10.4) | 34.3 (26.5) | 30.0 (21.3) |
+  | `ilist_s3_classify_pairs` (O9) | 28.0 (18.6) | 9.1 (6.7) | 27.4 (21.5) | 18.5 (13.8) |
+
+  The off-arm shares reproduce O1's knob-on shares, computed the same way
+  from O1's logs, within 2.1 points (copy 43.4 / 30.7 / 20.8 / 22.2,
+  `ff_maintain` 18.6 / 25.0 / 34.8 / 34.9). The table in "Decision: O2 and O4
+  not taken; O8 before O5" differs from both by up to 2.6 points, so its
+  reduction differs in detail; compare like with like.
+
+**Per-state numbers.** `on vs off` is within one job (two jobs for SERIAL
+np4); `off vs O1` is the failure direction. `[acc]` is the knob-on value.
+`=` means off, on and O1 agree to every printed digit.
+
+**L4_HIP_np1** — summed step wall O1 484.3 s, off 490.8 s, on 250.5 s (on vs off -49.0 %; off vs O1 +1.3 %); summed s4 copy O1 207.7, off 202.1, on 5.15 s; summed s5 upload O1 1.25, off 1.40, on 1.21 s.
+
+| step | O1 s/step | off s/step | on s/step | on vs off | off vs O1 | s4 copy/eval O1 → off → on (ms) | s5 upload/eval off → on (ms) | `[acc]` (on) | vs O1 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 0.438 | 0.438 | 0.331 | -24.3 % | +0.1 % | 29.48 → 28.30 → 2.251 | 0.61 → 0.40 | 1.1338e-03 | = |
+| 50 | 0.243 | 0.251 | 0.154 | -38.8 % | +3.4 % | 29.17 → 28.78 → 0.614 | 0.37 → 0.32 | 1.1144e-03 | = |
+| 100 | 0.263 | 0.270 | 0.167 | -38.0 % | +2.4 % | 29.49 → 29.15 → 0.663 | 0.41 → 0.33 | 1.0380e-03 | = |
+| 150 | 0.269 | 0.272 | 0.176 | -35.6 % | +1.3 % | 29.56 → 29.15 → 0.645 | 0.38 → 0.33 | 1.0114e-03 | = |
+| 200 | 0.268 | 0.269 | 0.171 | -36.6 % | +0.4 % | 29.62 → 28.92 → 0.655 | 0.37 → 0.34 | 8.7885e-04 | = |
+| 250 | 0.246 | 0.252 | 0.156 | -38.2 % | +2.4 % | 29.03 → 28.32 → 0.591 | 0.34 → 0.32 | 8.1017e-04 | = |
+| 300 | 0.242 | 0.252 | 0.151 | -39.9 % | +4.0 % | 28.92 → 28.37 → 0.532 | 0.34 → 0.30 | 8.5650e-04 | = |
+| 350 | 0.252 | 0.260 | 0.160 | -38.3 % | +3.2 % | 28.29 → 28.09 → 0.591 | 0.36 → 0.31 | 9.4444e-04 | = |
+| 400 | 0.267 | 0.276 | 0.163 | -41.0 % | +3.4 % | 32.97 → 32.74 → 0.694 | 0.32 → 0.28 | 1.0679e-03 | = |
+| 450 | 0.289 | 0.297 | 0.163 | -45.0 % | +2.8 % | 37.71 → 38.01 → 0.710 | 0.33 → 0.29 | 4.5554e-04 | = |
+| 500 | 0.320 | 0.327 | 0.174 | -46.8 % | +2.0 % | 44.87 → 44.26 → 0.766 | 0.34 → 0.28 | 1.1160e-03 | = |
+| 550 | 0.385 | 0.393 | 0.194 | -50.7 % | +2.1 % | 57.10 → 56.14 → 1.072 | 0.35 → 0.30 | 1.1877e-03 | = |
+| 600 | 0.436 | 0.431 | 0.218 | -49.3 % | -1.3 % | 63.01 → 59.74 → 1.338 | 0.38 → 0.33 | 8.1949e-04 | = |
+| 650 | 0.487 | 0.472 | 0.238 | -49.7 % | -2.9 % | 70.42 → 65.46 → 1.677 | 0.39 → 0.35 | 6.6914e-04 | = |
+| 700 | 0.502 | 0.474 | 0.232 | -51.1 % | -5.6 % | 74.47 → 67.98 → 1.876 | 0.42 → 0.37 | 6.2743e-04 | = |
+| 750 | 0.520 | 0.492 | 0.237 | -51.7 % | -5.5 % | 79.06 → 71.38 → 1.928 | 0.40 → 0.36 | 7.5714e-04 | = |
+| 800 | 0.481 | 0.479 | 0.227 | -52.7 % | -0.4 % | 73.85 → 71.07 → 1.727 | 0.38 → 0.36 | 1.4025e-03 | = |
+| 850 | 0.517 | 0.533 | 0.245 | -54.1 % | +3.3 % | 80.58 → 79.51 → 2.097 | 0.42 → 0.35 | 7.7219e-04 | = |
+| 900 | 0.501 | 0.516 | 0.237 | -54.1 % | +2.9 % | 78.84 → 77.42 → 2.104 | 0.43 → 0.36 | 8.9084e-04 | = |
+| 950 | 0.517 | 0.537 | 0.255 | -52.5 % | +3.9 % | 78.48 → 77.31 → 2.105 | 0.43 → 0.37 | 9.3676e-04 | = |
+| 1000 | 0.504 | 0.520 | 0.245 | -52.8 % | +3.3 % | 76.89 → 76.22 → 2.022 | 0.44 → 0.35 | 8.6207e-04 | = |
+| 1050 | 0.515 | 0.533 | 0.255 | -52.1 % | +3.5 % | 78.19 → 77.68 → 2.092 | 0.43 → 0.35 | 7.4657e-04 | = |
+| 1100 | 0.571 | 0.589 | 0.277 | -52.9 % | +3.1 % | 87.16 → 86.20 → 2.599 | 0.47 → 0.38 | 1.1242e-03 | = |
+| 1150 | 0.550 | 0.566 | 0.259 | -54.2 % | +2.8 % | 84.55 → 83.85 → 2.649 | 0.40 → 0.37 | 1.0894e-03 | = |
+| 1200 | 0.537 | 0.553 | 0.254 | -54.0 % | +2.9 % | 82.59 → 81.83 → 2.553 | 0.40 → 0.37 | 9.6332e-04 | = |
+
+**L4_HIP_np4** — summed step wall O1 372.5 s, off 366.0 s, on 226.9 s (on vs off -38.0 %; off vs O1 -1.8 %); summed s4 copy O1 116.2, off 115.9, on 1.96 s; summed s5 upload O1 0.87, off 0.82, on 0.76 s.
+
+| step | O1 s/step | off s/step | on s/step | on vs off | off vs O1 | s4 copy/eval O1 → off → on (ms) | s5 upload/eval off → on (ms) | `[acc]` (on) | vs O1 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 0.636 | 0.449 | 0.387 | -13.8 % | -29.4 % | 20.07 → 20.06 → 1.488 | 0.29 → 0.24 | 1.1338e-03 | = |
+| 50 | 0.208 | 0.209 | 0.142 | -31.8 % | +0.6 % | 18.75 → 19.28 → 0.274 | 0.23 → 0.22 | 1.1144e-03 | = |
+| 100 | 0.216 | 0.216 | 0.147 | -32.1 % | -0.1 % | 18.84 → 19.21 → 0.272 | 0.23 → 0.21 | 1.0380e-03 | = |
+| 150 | 0.213 | 0.213 | 0.147 | -31.0 % | +0.1 % | 18.68 → 18.98 → 0.257 | 0.23 → 0.22 | 1.0114e-03 | = |
+| 200 | 0.221 | 0.218 | 0.154 | -29.1 % | -1.4 % | 18.15 → 18.42 → 0.288 | 0.23 → 0.22 | 8.7885e-04 | = |
+| 250 | 0.217 | 0.212 | 0.147 | -30.3 % | -2.3 % | 17.30 → 17.47 → 0.278 | 0.23 → 0.22 | 8.1017e-04 | = |
+| 300 | 0.214 | 0.212 | 0.149 | -29.9 % | -0.9 % | 17.52 → 17.56 → 0.278 | 0.22 → 0.21 | 8.5650e-04 | = |
+| 350 | 0.234 | 0.232 | 0.165 | -28.8 % | -0.9 % | 18.40 → 18.49 → 0.289 | 0.22 → 0.21 | 9.4444e-04 | = |
+| 400 | 0.260 | 0.255 | 0.178 | -30.5 % | -1.7 % | 20.55 → 20.68 → 0.337 | 0.21 → 0.20 | 1.0679e-03 | = |
+| 450 | 0.257 | 0.249 | 0.168 | -32.6 % | -3.0 % | 22.43 → 22.39 → 0.392 | 0.21 → 0.20 | 4.5554e-04 | = |
+| 500 | 0.272 | 0.266 | 0.174 | -34.7 % | -2.4 % | 25.45 → 25.31 → 0.411 | 0.21 → 0.20 | 1.1160e-03 | = |
+| 550 | 0.306 | 0.299 | 0.185 | -38.0 % | -2.3 % | 29.72 → 29.42 → 0.457 | 0.21 → 0.20 | 1.1877e-03 | = |
+| 600 | 0.318 | 0.312 | 0.197 | -36.6 % | -2.0 % | 32.56 → 32.20 → 0.540 | 0.22 → 0.21 | 8.1949e-04 | = |
+| 650 | 0.344 | 0.337 | 0.207 | -38.6 % | -2.3 % | 37.56 → 37.29 → 0.631 | 0.23 → 0.21 | 6.6914e-04 | = |
+| 700 | 0.349 | 0.340 | 0.204 | -40.0 % | -2.8 % | 38.42 → 38.16 → 0.644 | 0.23 → 0.21 | 6.2743e-04 | = |
+| 750 | 0.354 | 0.342 | 0.203 | -40.6 % | -3.3 % | 40.19 → 39.72 → 0.688 | 0.23 → 0.21 | 7.5714e-04 | = |
+| 800 | 0.351 | 0.343 | 0.203 | -40.8 % | -2.4 % | 39.90 → 39.55 → 0.691 | 0.23 → 0.21 | 1.4025e-03 | = |
+| 850 | 0.389 | 0.378 | 0.211 | -44.2 % | -2.9 % | 46.01 → 45.52 → 0.762 | 0.23 → 0.21 | 7.7219e-04 | = |
+| 900 | 0.379 | 0.371 | 0.206 | -44.3 % | -2.3 % | 46.24 → 45.97 → 0.757 | 0.23 → 0.21 | 8.9084e-04 | = |
+| 950 | 0.395 | 0.389 | 0.222 | -42.9 % | -1.7 % | 45.94 → 45.72 → 0.767 | 0.23 → 0.21 | 9.3676e-04 | = |
+| 1000 | 0.369 | 0.364 | 0.214 | -41.1 % | -1.4 % | 41.35 → 41.12 → 0.709 | 0.23 → 0.21 | 8.6207e-04 | = |
+| 1050 | 0.375 | 0.371 | 0.222 | -40.2 % | -1.1 % | 42.65 → 42.53 → 0.785 | 0.23 → 0.21 | 7.4657e-04 | = |
+| 1100 | 0.408 | 0.406 | 0.233 | -42.5 % | -0.6 % | 48.14 → 48.04 → 0.868 | 0.24 → 0.22 | 1.1242e-03 | = |
+| 1150 | 0.398 | 0.393 | 0.227 | -42.3 % | -1.2 % | 45.03 → 44.92 → 0.847 | 0.23 → 0.21 | 1.0894e-03 | = |
+| 1200 | 0.394 | 0.390 | 0.228 | -41.6 % | -1.0 % | 44.99 → 44.80 → 0.823 | 0.24 → 0.21 | 9.6332e-04 | = |
+
+**L5_HIP_np1** — summed step wall O1 293.5 s, off 292.0 s, on 227.3 s (on vs off -22.2 %; off vs O1 -0.5 %); summed s4 copy O1 61.9, off 59.9, on 5.31 s; summed s5 upload O1 1.61, off 1.53, on 1.21 s.
+
+| step | O1 s/step | off s/step | on s/step | on vs off | off vs O1 | s4 copy/eval O1 → off → on (ms) | s5 upload/eval off → on (ms) | `[acc]` (on) | vs O1 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1.226 | 1.211 | 1.509 | +24.7 % | -1.2 % | 62.38 → 60.53 → 11.166 | 1.54 → 1.94 | 9.9253e-04 | = |
+| 25 | 0.770 | 0.773 | 0.580 | -24.9 % | +0.4 % | 61.74 → 60.19 → 3.659 | 1.48 → 1.22 | 1.1482e-03 | = |
+| 50 | 0.922 | 0.937 | 0.720 | -23.1 % | +1.6 % | 63.93 → 62.40 → 4.765 | 1.66 → 1.30 | 1.0225e-03 | = |
+| 75 | 0.980 | 0.974 | 0.770 | -21.0 % | -0.6 % | 65.00 → 62.83 → 5.260 | 1.79 → 1.54 | 1.2115e-03 | = |
+| 100 | 0.998 | 1.002 | 0.798 | -20.3 % | +0.3 % | 65.41 → 63.18 → 5.673 | 1.89 → 1.53 | 1.2073e-03 | = |
+| 125 | 0.998 | 1.008 | 0.785 | -22.1 % | +1.0 % | 65.66 → 63.16 → 5.676 | 1.94 → 1.39 | 1.0647e-03 | = |
+| 150 | 1.043 | 1.001 | 0.818 | -18.3 % | -4.1 % | 65.89 → 61.42 → 5.741 | 1.85 → 1.49 | 1.1266e-03 | = |
+| 175 | 1.028 | 1.007 | 0.812 | -19.3 % | -2.0 % | 67.25 → 63.16 → 5.737 | 1.92 → 1.45 | 1.1143e-03 | = |
+| 200 | 1.029 | 1.027 | 0.794 | -22.7 % | -0.2 % | 71.31 → 69.53 → 6.327 | 1.78 → 1.39 | 1.0901e-03 | = |
+| 225 | 1.046 | 1.015 | 0.793 | -21.8 % | -3.0 % | 73.92 → 70.12 → 6.337 | 1.60 → 1.39 | 9.8452e-04 | = |
+| 250 | 1.002 | 1.002 | 0.759 | -24.3 % | +0.1 % | 74.81 → 73.69 → 7.599 | 1.61 → 1.30 | 9.9999e-04 | = |
+| 275 | 0.965 | 0.976 | 0.726 | -25.6 % | +1.2 % | 75.14 → 74.35 → 7.214 | 1.57 → 1.05 | 9.9609e-04 | = |
+| 300 | 0.942 | 0.941 | 0.698 | -25.8 % | -0.1 % | 75.18 → 74.35 → 6.564 | 1.35 → 1.02 | 9.0339e-04 | = |
+
+**L5_HIP_np4** — summed step wall O1 179.1 s, off 181.4 s, on 126.1 s (on vs off -30.5 %; off vs O1 +1.3 %); summed s4 copy O1 40.4, off 39.4, on 0.95 s; summed s5 upload O1 0.47, off 0.45, on 0.36 s.
+
+| step | O1 s/step | off s/step | on s/step | on vs off | off vs O1 | s4 copy/eval O1 → off → on (ms) | s5 upload/eval off → on (ms) | `[acc]` (on) | vs O1 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1.156 | 0.981 | 1.272 | +29.7 % | -15.1 % | 45.52 → 42.69 → 5.179 | 0.63 → 0.54 | 9.9253e-04 | = |
+| 25 | 0.448 | 0.452 | 0.292 | -35.5 % | +0.8 % | 41.84 → 40.68 → 0.873 | 0.47 → 0.40 | 1.1482e-03 | = |
+| 50 | 0.527 | 0.529 | 0.367 | -30.6 % | +0.4 % | 41.84 → 40.72 → 0.883 | 0.50 → 0.42 | 1.0225e-03 | = |
+| 75 | 0.560 | 0.553 | 0.392 | -29.0 % | -1.4 % | 42.37 → 41.12 → 0.854 | 0.51 → 0.41 | 1.2115e-03 | = |
+| 100 | 0.580 | 0.586 | 0.413 | -29.5 % | +1.0 % | 42.34 → 41.32 → 0.876 | 0.53 → 0.43 | 1.2073e-03 | = |
+| 125 | 0.587 | 0.603 | 0.428 | -29.0 % | +2.8 % | 42.15 → 41.04 → 0.890 | 0.51 → 0.41 | 1.0647e-03 | = |
+| 150 | 0.610 | 0.621 | 0.442 | -28.9 % | +1.9 % | 42.31 → 41.60 → 0.903 | 0.51 → 0.43 | 1.1266e-03 | = |
+| 175 | 0.617 | 0.632 | 0.446 | -29.5 % | +2.5 % | 42.83 → 41.97 → 1.007 | 0.51 → 0.41 | 1.1143e-03 | = |
+| 200 | 0.631 | 0.648 | 0.446 | -31.1 % | +2.6 % | 46.31 → 45.04 → 1.004 | 0.50 → 0.39 | 1.0901e-03 | = |
+| 225 | 0.657 | 0.654 | 0.449 | -31.4 % | -0.4 % | 48.65 → 47.01 → 1.113 | 0.53 → 0.41 | 9.8452e-04 | = |
+| 250 | 0.652 | 0.666 | 0.451 | -32.2 % | +2.1 % | 50.31 → 48.75 → 1.381 | 0.49 → 0.38 | 9.9999e-04 | = |
+| 275 | 0.636 | 0.659 | 0.443 | -32.7 % | +3.5 % | 49.51 → 48.62 → 1.390 | 0.46 → 0.35 | 9.9609e-04 | = |
+| 300 | 0.633 | 0.635 | 0.436 | -31.3 % | +0.2 % | 48.49 → 47.13 → 1.319 | 0.45 → 0.35 | 9.0339e-04 | = |
+
+**L4_SERIAL_np1** — summed step wall O1 806.4 s, off 815.0 s, on 775.3 s (on vs off -4.9 %; off vs O1 +1.1 %); summed s4 copy O1 28.3, off 32.4, on 35.91 s; summed s5 upload O1 1.41, off 1.36, on 1.35 s.
+
+| step | O1 s/step | off s/step | on s/step | on vs off | off vs O1 | s4 copy/eval O1 → off → on (ms) | s5 upload/eval off → on (ms) | `[acc]` (on) | vs O1 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1.726 | 2.018 | 1.517 | -24.8 % | +16.9 % | 19.59 → 20.31 → 21.682 | 1.13 → 1.07 | 1.1338e-03 | = |
+| 25 | 1.650 | 1.884 | 1.826 | -3.1 % | +14.2 % | 14.24 → 14.08 → 14.801 | 0.87 → 0.90 | 1.1244e-03 | = |
+| 50 | 1.492 | 1.689 | 1.876 | +11.1 % | +13.2 % | 14.07 → 13.86 → 14.636 | 0.88 → 0.90 | 1.1144e-03 | = |
+| 75 | 1.554 | 1.501 | 1.542 | +2.7 % | -3.4 % | 14.39 → 14.18 → 14.849 | 0.92 → 0.94 | 1.0797e-03 | = |
+| 100 | 1.553 | 1.607 | 1.689 | +5.1 % | +3.5 % | 19.08 → 14.46 → 15.463 | 1.00 → 0.97 | 1.0380e-03 | = |
+| 125 | 1.640 | 1.736 | 1.719 | -1.0 % | +5.8 % | 21.74 → 14.57 → 22.763 | 1.01 → 0.96 | 1.0660e-03 | = |
+| 150 | 1.439 | 1.718 | 1.437 | -16.4 % | +19.4 % | 18.60 → 14.33 → 15.566 | 0.94 → 0.95 | 1.0114e-03 | = |
+| 175 | 1.444 | 1.971 | 1.467 | -25.6 % | +36.6 % | 18.60 → 14.60 → 19.659 | 0.98 → 0.94 | 9.5737e-04 | = |
+| 200 | 1.602 | 1.822 | 1.525 | -16.3 % | +13.7 % | 16.32 → 14.48 → 15.293 | 0.95 → 0.91 | 8.7885e-04 | = |
+| 225 | 1.468 | 1.605 | 1.352 | -15.8 % | +9.4 % | 14.72 → 14.72 → 15.257 | 0.93 → 0.90 | 8.6536e-04 | = |
+| 250 | 1.456 | 1.472 | 1.539 | +4.5 % | +1.1 % | 14.56 → 14.37 → 14.921 | 0.83 → 0.88 | 8.1017e-04 | = |
+| 275 | 1.617 | 1.465 | 1.416 | -3.3 % | -9.4 % | 14.71 → 14.43 → 14.967 | 0.84 → 0.87 | 8.3881e-04 | = |
+| 300 | 1.579 | 1.476 | 1.588 | +7.6 % | -6.5 % | 15.30 → 14.88 → 15.381 | 0.89 → 0.90 | 8.5650e-04 | = |
+| 325 | 1.838 | 1.637 | 1.385 | -15.4 % | -10.9 % | 17.16 → 16.86 → 25.867 | 0.92 → 0.89 | 9.3266e-04 | = |
+| 350 | 1.843 | 1.477 | 1.395 | -5.5 % | -19.9 % | 19.18 → 18.99 → 28.301 | 0.91 → 0.91 | 9.4444e-04 | = |
+| 375 | 1.843 | 1.468 | 1.426 | -2.8 % | -20.3 % | 21.92 → 30.33 → 31.925 | 0.87 → 0.88 | 1.0166e-03 | = |
+| 400 | 1.799 | 1.584 | 1.436 | -9.4 % | -11.9 % | 21.11 → 34.02 → 35.625 | 0.87 → 0.89 | 1.0679e-03 | = |
+| 425 | 1.836 | 1.656 | 1.509 | -8.9 % | -9.8 % | 22.79 → 36.87 → 38.166 | 0.87 → 0.88 | 1.0547e-03 | = |
+| 450 | 1.586 | 1.743 | 1.429 | -18.0 % | +9.9 % | 25.18 → 36.50 → 37.629 | 0.88 → 0.85 | 4.5554e-04 | = |
+| 475 | 1.553 | 1.565 | 1.740 | +11.2 % | +0.7 % | 25.53 → 41.14 → 42.210 | 0.88 → 0.87 | 3.6193e-04 | = |
+| 500 | 1.462 | 1.519 | 1.728 | +13.8 % | +3.9 % | 27.29 → 44.39 → 45.213 | 0.88 → 0.86 | 1.1160e-03 | = |
+
+**L4_SERIAL_np4** — summed step wall O1 1736.5 s, off 1646.8 s, on 1772.4 s (on vs off +7.6 %; off vs O1 -5.2 %); summed s4 copy O1 15.7, off 16.7, on 16.80 s; summed s5 upload O1 0.74, off 0.72, on 0.76 s.
+
+| step | O1 s/step | off s/step | on s/step | on vs off | off vs O1 | s4 copy/eval O1 → off → on (ms) | s5 upload/eval off → on (ms) | `[acc]` (on) | vs O1 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 2.754 | 2.392 | 2.703 | +13.0 % | -13.1 % | 14.24 → 15.88 → 14.870 | 0.50 → 0.60 | 1.1338e-03 | = |
+| 25 | 3.526 | 3.075 | 3.625 | +17.9 % | -12.8 % | 8.85 → 9.54 → 9.835 | 0.48 → 0.48 | 1.1244e-03 | = |
+| 50 | 3.536 | 3.384 | 3.543 | +4.7 % | -4.3 % | 8.88 → 9.34 → 9.894 | 0.48 → 0.49 | 1.1144e-03 | = |
+| 75 | 3.560 | 3.386 | 3.481 | +2.8 % | -4.9 % | 9.11 → 9.55 → 10.091 | 0.48 → 0.49 | 1.0797e-03 | = |
+| 100 | 3.587 | 3.498 | 3.410 | -2.5 % | -2.5 % | 9.14 → 9.69 → 10.259 | 0.49 → 0.50 | 1.0380e-03 | = |
+| 125 | 3.598 | 3.377 | 3.453 | +2.3 % | -6.1 % | 9.24 → 9.83 → 10.246 | 0.49 → 0.52 | 1.0660e-03 | = |
+| 150 | 3.379 | 3.094 | 3.584 | +15.9 % | -8.4 % | 9.16 → 9.85 → 10.264 | 0.48 → 0.50 | 1.0114e-03 | = |
+| 175 | 3.304 | 3.309 | 3.616 | +9.3 % | +0.2 % | 9.20 → 9.75 → 10.138 | 0.49 → 0.51 | 9.5737e-04 | = |
+| 200 | 3.618 | 3.230 | 3.549 | +9.9 % | -10.7 % | 9.07 → 9.77 → 10.040 | 0.49 → 0.50 | 8.7885e-04 | = |
+| 225 | 3.350 | 3.245 | 3.404 | +4.9 % | -3.1 % | 9.02 → 9.83 → 9.988 | 0.47 → 0.50 | 8.6536e-04 | = |
+| 250 | 3.157 | 3.038 | 3.526 | +16.0 % | -3.8 % | 8.87 → 9.69 → 9.817 | 0.47 → 0.50 | 8.1017e-04 | = |
+| 275 | 3.189 | 3.092 | 3.519 | +13.8 % | -3.0 % | 9.04 → 9.78 → 9.917 | 0.47 → 0.50 | 8.3881e-04 | = |
+| 300 | 3.390 | 3.147 | 3.480 | +10.6 % | -7.1 % | 9.40 → 10.13 → 10.292 | 0.47 → 0.50 | 8.5650e-04 | = |
+| 325 | 3.476 | 3.402 | 3.576 | +5.1 % | -2.1 % | 9.85 → 10.70 → 10.732 | 0.47 → 0.52 | 9.3266e-04 | = |
+| 350 | 3.498 | 3.271 | 3.625 | +10.8 % | -6.5 % | 10.00 → 10.90 → 10.709 | 0.48 → 0.52 | 9.4444e-04 | = |
+| 375 | 3.468 | 3.514 | 3.487 | -0.8 % | +1.3 % | 11.11 → 11.96 → 11.793 | 0.47 → 0.53 | 1.0166e-03 | = |
+| 400 | 3.533 | 3.620 | 3.543 | -2.1 % | +2.5 % | 12.61 → 13.08 → 12.658 | 0.48 → 0.51 | 1.0679e-03 | = |
+| 425 | 3.524 | 3.357 | 3.583 | +6.7 % | -4.8 % | 13.56 → 13.84 → 13.564 | 0.47 → 0.54 | 1.0547e-03 | = |
+| 450 | 3.540 | 3.330 | 3.538 | +6.2 % | -5.9 % | 13.03 → 13.61 → 13.221 | 0.47 → 0.52 | 4.5554e-04 | = |
+| 475 | 3.618 | 3.271 | 3.697 | +13.0 % | -9.6 % | 14.85 → 15.52 → 14.963 | 0.47 → 0.51 | 3.6193e-04 | = |
+| 500 | 3.641 | 3.260 | 3.694 | +13.3 % | -10.5 % | 15.45 → 16.21 → 15.405 | 0.47 → 0.51 | 1.1160e-03 | = |
+
+**Affects:**
+- **O5** — next, and now the largest target by far. `ff_maintain` is 38–47 %
+  of the HIP step after O8 (21–36 % before), and `comm_plan_build` alone is
+  16–34 %. Its stated shares (T3, and the post-O1 table) are superseded by
+  the post-O8 table above.
+- **O9** — `ilist_s3_classify_pairs` rose to 28 % at L4 and L5 np1, and to
+  9–19 % at np4, from 7–22 %. At np1 it is now level with `comm_plan_build`.
+- **O6** — its trigger is a share of the step, and every adapter share rose
+  by the step's 22–49 % fall. Recompute its trigger from O8's knob-on rows
+  (these logs), not T3's.
+- **O10** — the downward sweep outside the interaction list is unchanged in
+  seconds and larger as a share. Recompute from these logs too.
+- **O7** — SERIAL is unchanged at step level. The O8 gather is 3–5 % slower
+  than the host loop in `ilist_s4_op_table_copy` at SERIAL np1 (about 0.45 %
+  of step), and a column-wise host functor would recover it. Under 1 % of
+  any SERIAL step, so O7's target (the distributors, 67–92 %) is unchanged.
+- **V1** — not triggered by O8: `[acc]` is bit-identical to O1 at every SMS
+  state. V1 stays deferred to the end of Phase O. `device_op_table_assembly`
+  is on by default in `FmmParams`, so the milestone tier will exercise it.
