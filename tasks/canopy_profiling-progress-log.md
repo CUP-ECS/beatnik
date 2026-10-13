@@ -1423,3 +1423,31 @@ accuracy change side by side:
   default; level 4 has only a 7 % margin on the SMS states.
 - README — "FMM tunables" carries the knob's row; Known Issues records the
   exception and the un-re-run milestone claim.
+
+## Decision: defer V1; a milestone failure from O1 is accepted
+
+The user ruled after O1 closed:
+- **The milestone FMM members may fail claim A because of O1, and that is
+  acceptable.** They inherit `quantize_root_half_width = true` and have not
+  been re-run. Level 4's worst SMS state is 1.402e-3, 7 % under `kTauA`
+  1.5e-3, and the milestone checks 81 states to step 2000, past the SMS's
+  1200.
+- **If they fail, increase the allowable error.** Raise `kTauA`
+  (`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp`) to cover the
+  measured worst. Record the run, the step and the new value here. Do not
+  turn quantization off to make the old bound pass. This overrides that
+  file's "do not loosen this literal" for this cause, and its comment now
+  says so.
+- **V1 is deferred.** O1's 20 % rule triggered V1 before the next O task. The
+  user chose not to run the multi-hour milestone tier now and to continue
+  with optimizations. V1 runs at the end of Phase O as originally sequenced.
+
+Recorded where a session cannot miss it: `CLAUDE.md` (milestone tier),
+the `kTauA` comment, V1's entry and the status line in
+`canopy_profiling.md`, and README Known Issues.
+
+**Affects:**
+- V1 — runs at the end of Phase O. Its step 1 may need a raised `kTauA`;
+  "16/16 green" is then met at the raised bound.
+- Every O task until V1 — no milestone run is required by the 20 % rule. The
+  per-level SMS accuracy guard (O1's maxima as baseline) still binds.

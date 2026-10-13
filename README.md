@@ -738,7 +738,9 @@ subsections above, which are intended behavior.
   5 and 6, and was adopted for its 1.3-2.2x HIP speedup. **Not yet
   re-verified:** the `milestone` FMM members run at the default, so they now
   run quantized, and their claim A (≤ 1.5e-3 at 81 states to step 2000) has
-  not been re-run; canopy_profiling V1 owns that.
+  not been re-run; canopy_profiling V1 owns that and is deferred to the end of
+  Phase O. **They may fail, and that is accepted by ruling:** the fix is to
+  raise `kTauA` to the measured worst, not to turn quantization off.
 - **The ship gate covers everything up to a fixed-mesh timestep — there is no
   adaptivity in it.** *Not a defect in the gate's construction; a statement of
   how far the solver has been rebuilt.* The tier was **empty** from `89ec015`

@@ -314,6 +314,16 @@ constexpr double kScalarRtol = 1.0e-12;
  * **If a state exceeds this bound, that is the finding** — record it with the
  * step and the realized P2P fraction; do not loosen this literal.
  *
+ * **EXCEPTION, BY THE USER'S RULING (canopy_profiling O1, 2026-10-13).** The
+ * figures above predate `FmmParams::quantize_root_half_width`, which O1 made
+ * the default and which these members inherit. It raised the worst level-4
+ * error over O1's states from `1.099e-3` to `1.402e-3`, within 7% of this
+ * bound, and the 81 states here have not been re-run with it. **If claim A
+ * now fails, that is accepted, not a defect:** raise this literal to cover the
+ * measured worst, record the run, the step and the new value in
+ * `tasks/canopy_profiling-progress-log.md`, and do **not** turn quantization
+ * off to make the old bound pass.
+ *
  * **Floor.** Twelve decades above the `1.15e-15` / `1.88e-15` run-to-run noise
  * T3 measured on the same binary, so this is not a bitwise claim in disguise.
  */

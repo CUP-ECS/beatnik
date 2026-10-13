@@ -1,6 +1,6 @@
 # Canopy profiling and optimization, driven through Beatnik
 
-**Status:** IN PROGRESS — T0, T1, T2, T3 and O1 done; V1 is triggered by O1's `[acc]` moves and runs before the next O task; O1's numbers meet neither O2's nor O4's trigger (zero crossings; op build < 0.1 % of the step) (sequence in [Phase O](#phase-o--optimize-single-node)).
+**Status:** IN PROGRESS — T0, T1, T2, T3 and O1 done; V1 is triggered by O1's `[acc]` moves but **deferred by ruling** to the end of Phase O (log, "Decision: defer V1; a milestone failure from O1 is accepted"); O1's numbers meet neither O2's nor O4's trigger (zero crossings; op build < 0.1 % of the step) (sequence in [Phase O](#phase-o--optimize-single-node)).
 
 ## Problem
 
@@ -1169,6 +1169,14 @@ their references, are in this file at `d45aeed`.
 
 **Depends on:** every O task DONE or NOT TAKEN. It may also be pulled forward by
 an O task's 20 % rule.
+
+**O1 triggered that rule, and the user deferred V1 anyway** (log, "Decision:
+defer V1; a milestone failure from O1 is accepted"). **The milestone FMM
+members may fail claim A in step 1, because they now inherit O1's quantized
+root (level-4 SMS worst 1.402e-3 against `kTauA` 1.5e-3). That is accepted.
+If they fail, raise `kTauA` to cover the measured worst, record the run, step
+and value in the log, and re-run; do not turn quantization off.** The exit
+criterion's "16/16 green" is then met at the raised bound.
 
 **Do:**
 1. Run the milestone tier, split:

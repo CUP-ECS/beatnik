@@ -114,6 +114,15 @@ members and 60 launches.** The `milestone` tier has **four** members and
   2000-step FMM-driven trajectory. They reuse the frozen members' gold
   directories; no new gold set exists. Eight launches.
 
+> **The FMM members may now FAIL, and that is accepted (user's ruling,
+> 2026-10-13).** canopy_profiling O1 made `FmmParams::quantize_root_half_width`
+> default `true`; these members inherit it and have **not** been re-run since.
+> It raised the worst level-4 error over O1's states from 1.099e-3 to 1.402e-3,
+> 7 % under claim A's `kTauA` = 1.5e-3. **If claim A fails, raise `kTauA`**
+> (`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp`) to cover the
+> measured worst and log it; do **not** turn quantization off and do not treat
+> it as a regression. Re-running the tier is deferred to canopy_profiling V1.
+
 **The FMM members are hours, not minutes.** T9b's split run
 (`tasks/add-canopy-t6.md`, 2026-10-09, **16/16 launches green**) measured the
 eight job walls at 236 s and 144 s (level-3 frozen, SERIAL and HIP),
