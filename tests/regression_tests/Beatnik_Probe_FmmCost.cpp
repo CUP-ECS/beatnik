@@ -48,6 +48,10 @@
  *                           `FmmParams::quantize_root_half_width`, default
  *                           the `FmmParams` default; a measurement passes it
  *                           explicitly (canopy_profiling O1)
+ *     device_op_table_assembly=<0|1>
+ *                           `FmmParams::device_op_table_assembly`, default
+ *                           the `FmmParams` default; a measurement passes it
+ *                           explicitly (canopy_profiling O8)
  *     canopy_report=<0|1>   Canopy's own timing tables and diagnostic lines,
  *                           default 0 (off, through
  *                           `Canopy::Profiling::set_reporting`)
@@ -279,6 +283,8 @@ struct Options
     int m2l_op_count_cap = kDefaultOpCountCap;
     bool quantize_root_half_width =
         Beatnik::FmmParams{}.quantize_root_half_width;
+    bool device_op_table_assembly =
+        Beatnik::FmmParams{}.device_op_table_assembly;
     int canopy_report = 0;
     std::string run;
 };
@@ -362,6 +368,15 @@ Options parseOptions( int argc, char* argv[] )
                     "0 or 1" );
             o.quantize_root_half_width = q != 0;
         }
+        else if ( key == "device_op_table_assembly" )
+        {
+            const int q = parseInt( key, val );
+            if ( q != 0 && q != 1 )
+                throw std::invalid_argument(
+                    "Beatnik_Probe_FmmCost: device_op_table_assembly must be "
+                    "0 or 1" );
+            o.device_op_table_assembly = q != 0;
+        }
         else if ( key == "canopy_report" )
         {
             o.canopy_report = parseInt( key, val );
@@ -382,7 +397,8 @@ Options parseOptions( int argc, char* argv[] )
             throw std::invalid_argument(
                 "Beatnik_Probe_FmmCost: unknown key '" + key +
                 "'. Accepted: ncrit, order, mac_theta, m2l_op_count_cap, "
-                "quantize_root_half_width, canopy_report, run." );
+                "quantize_root_half_width, device_op_table_assembly, "
+                "canopy_report, run." );
     }
     if ( o.ncrit < 1 || o.m2l_op_count_cap < 0 || !( o.mac_theta > 0.0 ) )
         throw std::invalid_argument(
@@ -429,6 +445,7 @@ Beatnik::SolverParams makeParams( const Options& o )
     p.fmm.mac_theta = o.mac_theta;
     p.fmm.m2l_op_count_cap = o.m2l_op_count_cap;
     p.fmm.quantize_root_half_width = o.quantize_root_half_width;
+    p.fmm.device_op_table_assembly = o.device_op_table_assembly;
 
     p.time.steps = o.steps;
     p.time.dt = 0.003;
@@ -658,14 +675,16 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
         std::printf( "[fmmcost] header run=%s level=%d vertices=%lld ranks=%d "
                      "space=%s steps=%d sample_every=%d ncrit=%d order=%d "
                      "mac_theta=%.17g m2l_op_count_cap=%d "
-                     "quantize_root_half_width=%d canopy_report=%d "
+                     "quantize_root_half_width=%d "
+                     "device_op_table_assembly=%d canopy_report=%d "
                      "beatnik_ff_timers=%d canopy_timers=%d "
                      "canopy_profiling_level=%d canopy_hash=%s\n",
                      run.c_str(), opt.level, want_vertices, comm_size,
                      ExecSpace::name(), opt.steps, opt.sample_every,
                      opt.ncrit, opt.order, opt.mac_theta,
                      opt.m2l_op_count_cap,
-                     opt.quantize_root_half_width ? 1 : 0, opt.canopy_report,
+                     opt.quantize_root_half_width ? 1 : 0,
+                     opt.device_op_table_assembly ? 1 : 0, opt.canopy_report,
                      kHaveFfTimers ? 1 : 0, kHaveCanopyTimers ? 1 : 0,
                      kCanopyLevel, canopy_hash.c_str() );
         std::fflush( stdout );

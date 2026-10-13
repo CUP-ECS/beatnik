@@ -112,7 +112,8 @@ _t_job0="$(date +%s)"
 
 BEATNIK_CPS_BUDGET="${BEATNIK_CPS_BUDGET:-3300}"
 # label level ranks steps sample_every space knob estimate_seconds
-# (cheapest first; knob '-' means the probe's defaults). Estimates are from
+# (cheapest first; knob '-' means the probe's defaults, and a knob may be a
+# comma-separated list of key=value pairs). Estimates are from
 # T0's level-4 trend bins and T2's early rates, with margin.
 case "${BEATNIK_CPB_SET}" in
     # ---- T3 baseline matrix -------------------------------------------------
@@ -191,7 +192,8 @@ while IFS= read -r _row <&3; do
     fi
     _exe="$(beatnik_exe "Beatnik_Probe_FmmCost_MPI_${_space}")" || { _rc=1; continue; }
     _args=( "${_level}" "${_steps}" "${_every}" )
-    [ "${_knob}" != "-" ] && _args+=( "${_knob}" )
+    # A knob column may list several key=value pairs, comma-separated.
+    [ "${_knob}" != "-" ] && _args+=( ${_knob//,/ } )
     echo "[cpb] === ${_run}: steps ${_steps} sample_every ${_every} knob ${_knob} ==="
     _t0="$(date +%s)"
     launch "${_exe}" "${_np}" "${_args[@]}" "run=${_run}" \

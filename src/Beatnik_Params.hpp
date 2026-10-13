@@ -458,6 +458,20 @@ struct FmmParams
     /// faster HIP step; the default was adopted on that trade-off by ruling,
     /// not under the no-regression guard. Canopy's own default is `false`.
     bool quantize_root_half_width = true;
+
+    /// Assemble Canopy's per-tree M2L operator table on the device. Reaches
+    /// `FmmConfig::device_op_table_assembly`. No CLI option and no Python
+    /// counterpart, like the knobs above.
+    ///
+    /// On, Canopy keeps a device copy of its operator cache, uploads only the
+    /// columns built since the last interaction-list build, and gathers the
+    /// table there by column index. Off, it copies every column into a host
+    /// mirror and uploads the whole table at every build, which O1's
+    /// surviving cache made almost entirely redundant (canopy_profiling O8).
+    /// The table is bit-identical either way, so this moves cost, never a
+    /// velocity. It exists as a switch for O8's same-job failure-direction
+    /// arm; Canopy's own default is also `true`.
+    bool device_op_table_assembly = true;
 };
 
 //---------------------------------------------------------------------------//
