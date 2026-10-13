@@ -1014,40 +1014,77 @@ one key set both ways.
 
 ### O5 — Cheaper maintenance between RK stages — **NOT STARTED**
 
-**Depends on:** T3, and O1 **DONE** (O1 changes what maintenance rebuilds).
+**Depends on:** T3, O1 **DONE** (O1 changes what maintenance rebuilds) and
+O8 **DONE** (O8's knob-on SMS is the baseline).
 
-**Fill in:** `../canopy/src/Canopy_Solver.hpp` `auto_maintain` and the paths it
-selects (`:442-726`), `../canopy/src/Canopy_CommunicationPlan.hpp`
-(`build_all_interaction_lists`, a serial host dual-tree traversal on every rank,
-`:556-~800`, called from `build` at `:960-1013`), and
-`../canopy/src/Canopy_TreePartitioner.hpp` (`AdaptiveRepart` at `:592-599`).
+**Fill in:**
+- `../canopy/src/Canopy_Solver.hpp`: `auto_maintain` (`:453-557`) and the
+  paths it selects, `_finish_topology_change` (`:676-711`) and
+  `_finish_topology_stable` (`:718-738`).
+- `../canopy/src/Canopy_CommunicationPlan.hpp`: `build_all_interaction_lists`
+  (`:557`), a serial host dual-tree traversal of the replicated global cell
+  list on every rank, called from `build` under `TIMER_COMMPLAN_DTT_TRAVERSAL`
+  (`:994-996`).
+- `../canopy/src/Canopy_Profiling.hpp`: the new maintenance timer keys.
+- The knob: a Canopy `FmmConfig` field, a Beatnik `FmmParams` field mapped in
+  `buildConfig`, and a probe key, as O8's `device_op_table_assembly`; README
+  "FMM tunables" and Canopy README's `FmmConfig` table.
+- `tests/regression_tests/Beatnik_Probe_FmmCost.cpp`: `kCanopyKeys`
+  (`:181-205`).
 
-**What T3 measured** (log `## T3`, (a) and (b)). `ff_maintain` is 10–12 % of
-step wall at level 4, 20 % at level 5 and 30–34 % at level 6 (medians).
-- `comm_plan_build` is the largest timed child, 53–73 % of `ff_maintain` at
-  levels 5 and 6. `commplan_dtt_traversal` is about two-thirds of that.
-- `builder_build`, `repartition` and `sort_by_leaf` together are under 3 %
-  of step wall at every level.
-- **Untimed** maintenance (`ff_maintain` minus the four timed children) is
-  21–28 % of `ff_maintain` at levels 5 and 6 and 42–62 % at level 4: about
-  5 % of level-4 step wall. Timers for the comparison build and
-  `redistribute` are needed first only if O5 targets level 4.
-- `auto_maintain` chooses Rebalance on 77 % of evaluations at level 4
-  (4636 of 6000) and 98 % at levels 5 and 6. Migrate takes the rest; Rebuild
-  never fires.
+**Baseline (after O8).** Medians of `3 × phase / step_wall` over O8's knob-on
+rows, HIP (jobs `f3dvNa7ovPnF` np1, `f3dvNaGqG2Fy` np4; log `## O8`):
 
-So the first target is the comm-plan DTT. Candidates:
-- skip repartition when imbalance is under tolerance;
-- reuse the interaction list when the cell key set is unchanged (the
-  `_finish_topology_stable` path, `:706-726`, already reuses the comm plan);
-- reduce the DTT's per-rank work.
+| target | L4 np1 | L4 np4 | L5 np1 | L5 np4 |
+| --- | --- | --- | --- | --- |
+| `ff_maintain` | 38.0 | 39.0 | 44.4 | 46.7 |
+| `comm_plan_build` | 20.8 | 16.4 | 34.3 | 30.0 |
+| `commplan_dtt_traversal` | 12.8 | 13.6 | 23.3 | 24.1 |
+| untimed maintenance | 10.8 | 11.2 | 7.3 | 8.4 |
+| `builder_build` | 5.7 | 6.7 | 1.4 | 3.7 |
+| `repartition` | 0.8 | 3.4 | 1.3 | 4.6 |
 
-**Any change to which `MaintenanceAction` is chosen is a policy change.** It
-needs the user's agreement before implementation, because it changes what the
-milestone tier exercises.
+- *Untimed maintenance* is `ff_maintain − builder_build − repartition −
+  sort_by_leaf − comm_plan_build`. It is `auto_maintain`'s old-key snapshot,
+  comparison `_builder.build` and symmetric difference (`:487-511`), and the
+  Migrate path's `_partitioner.redistribute` (`:539-541`).
+- `comm_plan_build` outside the DTT is 6–11 % of the step. The probe cannot
+  split it: `kCanopyKeys` prints only `commplan_dtt_traversal` of the six
+  comm-plan sub-timers. `commplan_cell_map_fill`, `commplan_vertical_plans`,
+  `commplan_subtree_relevance`, `commplan_finalize_m2l` and
+  `commplan_finalize_p2p` (`Canopy_Profiling.hpp:128-133`, timed at
+  `Canopy_CommunicationPlan.hpp:967-1008`) are missing.
+- `auto_maintain` chooses Rebalance on 77 % of evaluations at level 4 and
+  98 % at levels 5 and 6; Migrate takes the rest, and Rebuild never fires
+  (T3). Rebalance fires whenever `k_changed > 0`, even for one cell
+  (`:513-535`), and then runs repartition, a full comm-plan build and the DTT.
+- Accuracy baseline, O8's maxima: L4 1.4025e-3, SERIAL's 500 steps
+  1.1338e-3, L5 1.2115e-3. SERIAL's "before" is O8's `f3dvNaQDiShd` (np1)
+  and `f3dvNaYRcUAK` (np4).
+
+**Do:**
+1. Time the untimed maintenance: add Canopy timers around the snapshot,
+   comparison build and symmetric difference, and around `redistribute`. Add
+   those keys and the five missing `commplan_*` keys to `kCanopyKeys`. This
+   goes in the same single install as step 2.
+2. Make the Rebalance path cheaper, chiefly `comm_plan_build` and its DTT,
+   and consider alongside it a change to which `MaintenanceAction`
+   `auto_maintain` chooses (for example a cheaper path when `k_changed` is
+   small). A policy change is in scope. It changes what the milestone tier
+   exercises, which V1 re-runs.
+3. Put the change behind the knob, default on, so the off arm runs in the
+   same job and on the same node.
+
+- **A gain from a single-rank short-circuit alone is not claimed.** The DTT
+  is 13–23 % of the step at np1, where there is nothing to communicate, but
+  production is multi-rank.
+- **Repartition is out of scope.** It is 1–5 % of the step.
 
 **Exit criterion:** the common O criteria, with Canopy stems `TreeBuilder`,
-`TreePartitioner`, `CommunicationPlan` and `MultiSolve`.
+`TreePartitioner`, `CommunicationPlan` and `MultiSolve`. In addition:
+- every new timer key prints a non-sentinel value in every `[cost]` row;
+- untimed maintenance, recomputed with the new timers counted as timed, is
+  under 2 % of step wall, or the log names what the remainder is.
 
 ### O8 — Assemble the operator table without a full host copy and upload — **DONE**
 
@@ -1149,7 +1186,12 @@ classifies each and merges its key into a
 
 Candidates:
 - a parallel host or device classification;
-- a sort-unique key merge in place of the hash map.
+- a sort-unique key merge in place of the hash map;
+- reuse the interaction list on a Migrate evaluation, where the cell key set
+  is unchanged. Today `_finish_topology_stable` calls `_downward.setup`,
+  which sets `_interaction_list_dirty` (`Canopy_DownwardSweep.hpp:1422-1551`;
+  flag at `:923`), so every Migrate rebuilds the list. That is 2–23 % of
+  evaluations (T3).
 
 **Exit criterion:** the common O criteria, with Canopy stems `DownwardSweep`,
 `MultiSolve` and `CartesianTaylorSolve`, plus a unit case asserting the
