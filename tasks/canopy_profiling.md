@@ -1,6 +1,6 @@
 # Canopy profiling and optimization, driven through Beatnik
 
-**Status:** IN PROGRESS — T0, T1, T2, T3 and O1 done; V1 is triggered by O1's `[acc]` moves but **deferred by ruling** to the end of Phase O (log, "Decision: defer V1; a milestone failure from O1 is accepted"); O1's numbers meet neither O2's nor O4's trigger (zero crossings; op build < 0.1 % of the step) (sequence in [Phase O](#phase-o--optimize-single-node)).
+**Status:** IN PROGRESS — T0, T1, T2, T3 and O1 done; V1 is triggered by O1's `[acc]` moves but **deferred by ruling** to the end of Phase O (log, "Decision: defer V1; a milestone failure from O1 is accepted"); O2 and O4 NOT TAKEN (triggers unmet after O1); **O8 next**, then O5 (sequence in [Phase O](#phase-o--optimize-single-node)).
 
 ## Problem
 
@@ -803,6 +803,11 @@ the step at np1 and 87 % at np4 (O7).
 Sequence: **O1 → O2 → O4 → O5 → O8 → O9 → O10 → O6 → O7 → V1.** O2, O4 and O6
 are conditional; O3 is NOT TAKEN.
 
+**After O1 the sequence is O8 → O5 → O9 → O10 → O6 → O7 → V1.** O2 and O4
+are NOT TAKEN. O8 moved ahead of O5 by the user's choice, on O1's post-retention
+shares (log, "Decision: O2 and O4 not taken; O8 before O5"). The table above is
+T3's and predates O1.
+
 ### O1 — Turn on `quantize_root_half_width` from Beatnik — **DONE**
 
 **Depends on:** T3.
@@ -962,7 +967,13 @@ or eviction instead of a full clear) when they occur.
   no SERIAL FmmVsDirect to run. SERIAL's evidence is the SERIAL probe's
   `[acc]` rows, identical to HIP's.
 
-### O2 — Keep the operator cache across an octave crossing — **NOT STARTED (conditional)**
+### O2 — Keep the operator cache across an octave crossing — **NOT TAKEN (O1)**
+
+**Not taken.** O1 measured **zero** octave crossings (`width_changes` 0 in
+every knob-on `[cost]` row): 1200 steps at level 4, 300 at level 5 and 250
+at level 6, on HIP np1 and np4 and SERIAL np1 and np4. Crossing rebuilds cost
+0 % of SMS step wall against the 5 % trigger (log `## O1`). The design below
+is kept for a future run that does cross.
 
 **Depends on:** O1 **DONE**.
 
@@ -982,7 +993,11 @@ equals the column at depth $d+1$ and width $2W$, so shift each cached key's
 and `CartesianTaylorSolve`, plus B2's failure-direction check re-run with a
 deliberately wrong shift, which must fail.
 
-### O4 — Parallelize the host operator-table build — **NOT STARTED (conditional)**
+### O4 — Parallelize the host operator-table build — **NOT TAKEN (O1)**
+
+**Not taken.** After O1, `ilist_s4_op_table_build` sums to 0.2–0.3 s per SMS
+run. That is 0.02–0.11 % of summed step wall (largest at L5 HIP np4,
+0.2 s of 179 s), against the 5 % trigger (log `## O1`).
 
 **Depends on:** O1 **DONE**.
 

@@ -1451,3 +1451,32 @@ the `kTauA` comment, V1's entry and the status line in
   "16/16 green" is then met at the raised bound.
 - Every O task until V1 — no milestone run is required by the 20 % rule. The
   per-level SMS accuracy guard (O1's maxima as baseline) still binds.
+
+## Decision: O2 and O4 not taken; O8 before O5
+
+The user ruled after O1, on its measured triggers and post-O1 shares:
+- **O2 NOT TAKEN.** Zero octave crossings in every O1 knob-on run, so the
+  crossing-rebuild cost is 0 % against its 5 % trigger.
+- **O4 NOT TAKEN.** `ilist_s4_op_table_build` is 0.02–0.11 % of summed SMS
+  step wall after O1, against its 5 % trigger.
+- **O8 runs before O5.** These are post-O1 shares of HIP step wall, as
+  medians of `3 × phase / step_wall` over each knob-on run's `[cost]` rows:
+
+  | target | L4 np1 | L4 np4 | L5 np1 | L5 np4 | L6 np4 |
+  | --- | --- | --- | --- | --- | --- |
+  | `ilist_s4_op_table_copy` (O8) | 43.2 | 28.4 | 19.8 | 20.8 | 17.8 |
+  | `ff_maintain` (O5) | 17.7 | 23.2 | 34.9 | 35.3 | 42.6 |
+  | `comm_plan_build` (in O5) | 10.5 | 9.3 | 26.2 | 22.2 | 28.2 |
+  | `ilist_s3_classify_pairs` (O9) | 17.9 | 6.1 | 21.0 | 14.8 | 14.6 |
+
+  On SERIAL the forward and reverse distributors (O7) are 67 % of the step
+  at np1 and 92 % at np4.
+
+  O8 leads at level 4, and O1 makes it more tractable: the cache now persists
+  across evaluations, so most of the per-evaluation host copy and full
+  upload is redundant. Its exit criterion is a bitwise-equal table, so it
+  cannot move `[acc]`. O5 leads at levels 5 and 6 and comes next.
+
+**Affects:**
+- O8 — next. Its dependency "O4 resolved" is met.
+- O5 — after O8; its T3 shares are superseded by the table above.
