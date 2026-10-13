@@ -452,8 +452,11 @@ struct FmmParams
     /// **What it costs.** The root cell becomes up to 2x the bounding box,
     /// which can add one level at the top of the tree and moves every cell
     /// boundary, so individual velocities change at the level of the far
-    /// field's truncation error. O1 holds it to no regression of the worst
-    /// claim-A error per level. Canopy's own default is `false`.
+    /// field's truncation error. O1 measured the worst claim-A error over its
+    /// states rising at icosphere level 4 (1.099e-3 to 1.402e-3, still under
+    /// the 1.5e-3 bound) and falling at levels 5 and 6, against a 1.3-2.2x
+    /// faster HIP step; the default was adopted on that trade-off by ruling,
+    /// not under the no-regression guard. Canopy's own default is `false`.
     bool quantize_root_half_width = true;
 };
 

@@ -1,6 +1,6 @@
 # Canopy profiling and optimization, driven through Beatnik
 
-**Status:** IN PROGRESS — T0, T1, T2 and T3 done; Phase O next, starting at O1 (sequence in [Phase O](#phase-o--optimize-single-node)).
+**Status:** IN PROGRESS — T0, T1, T2, T3 and O1 done; V1 is triggered by O1's `[acc]` moves and runs before the next O task; O1's numbers meet neither O2's nor O4's trigger (zero crossings; op build < 0.1 % of the step) (sequence in [Phase O](#phase-o--optimize-single-node)).
 
 ## Problem
 
@@ -135,9 +135,11 @@ the measurement.
 Matching physical time across levels is not affordable. The adaptive dt scales
 off the minimum edge, so level 5 needs about 2x the steps of level 4 to reach
 the same time, and level 6 about 4x, each step costing more. **Levels 5 and 6
-are therefore measured at early states only, for scaling with N; level 4 alone
-carries the trajectory-growth measurement.** T3 records the physical time each
-measured state corresponds to, so the comparison is explicit.
+are therefore measured over a shorter part of the trajectory than level 4:**
+T3 measured level 5 to step 800 (t = 1.54, about level 4's step 990) and level
+6 to step 250 (t = 0.69), against level 4's 2000 steps (t = 1.96). Level 4
+alone carries the late-trajectory measurement. T3 records the physical time
+each measured state corresponds to, so the comparison is explicit.
 
 ### What is already known, and what it predicts
 
@@ -168,8 +170,8 @@ build on.
   of the admitted columns, against 100 % with it off
   (`../canopy/tasks/tree-opt.md` B2; `../canopy/README.md`, "The M2L operator
   cache empties on every build"). `FarFieldSolver::buildConfig`
-  (`src/Beatnik_FarFieldInterface.hpp:1107-1137`) never sets it, and
-  `FmmParams` (`src/Beatnik_Params.hpp:167-434`) has no field for it.
+  (`src/Beatnik_FarFieldInterface.hpp:1124`) never set it before O1, and
+  `FmmParams` (`src/Beatnik_Params.hpp:167-434`) had no field for it.
 - **At level 4 the downward sweep dominates an evaluation.** The T9b level-4
   HIP log's per-solve breakdown reads Downward 97.6 %, Upward 1.3 %, P2P 1.1 %
   of `solve()` at steady state. The interaction-list build, and with it the
@@ -283,26 +285,30 @@ and jobs are the dominant cost of this programme.
 - **Three FMM evaluations per timestep**, one per RK3 stage (see
   [Why the trajectory is FMM-driven](#why-the-trajectory-is-fmm-driven)). Each
   goes through `FarFieldSolver::evaluate`
-  (`src/Beatnik_FarFieldInterface.hpp:1348-1625`) in these phases:
+  (`src/Beatnik_FarFieldInterface.hpp:1395-1733`, as of O1) in these phases,
+  each under its T2 `ff_*` timer:
 
-  | # | Phase | Code |
-  | --- | --- | --- |
-  | 1 | pack | `packSources`, `:1388` (body `:1146-1170`) |
-  | 2 | forward distribute | `buildForwardDistributor`, `:1395` (body `:1204-1276`, its claims migrate at `:1237`), then an `MPI_LAND` reduce, `:1397` |
-  | 3 | forward migrate | `Cabana::migrate`, `:1403` |
-  | 4 | `auto_maintain` | `:1406`, or `setup` on first use or tag mismatch, `:1417-1424` |
-  | 5 | solve | `:1427` |
-  | 6 | contract | `:1431-1485` |
-  | 7 | reverse distribute | `:1489-1504` |
-  | 8 | reverse migrate | `:1508` |
-  | 9 | scatter | `:1511-1553` |
-  | — | diagnostics | `readDiagnostics` `:1558` (body `:926-984`), `p2pPairCountLocal` (`:1298-1323`), the `MPI_Allreduce` at `:1589` |
+  | # | Phase | Code | Timer |
+  | --- | --- | --- | --- |
+  | 1 | pack | `packSources`, `:1443` (body `:1193-1218`) | `ff_pack` |
+  | 2 | forward distribute | `buildForwardDistributor`, `:1455` (body `:1252-1324`, its claims migrate at `:1284`), then an `MPI_LAND` reduce, `:1456` | `ff_fwd_distribute` |
+  | 3 | forward migrate | `Cabana::migrate`, `:1467` | `ff_fwd_migrate` |
+  | 4 | `auto_maintain` | `:1472`, or `setup` on first use or tag mismatch, `:1483-1494` | `ff_maintain` |
+  | 5 | solve | `:1499` | `ff_solve` |
+  | 6 | contract | `:1503-1559` | `ff_contract` |
+  | 7 | reverse distribute | `:1561-1579` | `ff_rev_distribute` |
+  | 8 | reverse migrate | `:1585` | `ff_rev_migrate` |
+  | 9 | scatter | `:1590-1633` | `ff_scatter` |
+  | — | diagnostics | `readDiagnostics` `:1645` (body `:968-1030`), `p2pPairCountLocal` (`:1345-1370`), the `MPI_Allreduce` at `:1676`, the cumulative counters at the end | `ff_diagnostics` |
 
-  **None of these is timed today.**
-- **Beatnik has no FMM timing instrumentation.** `src/Profiling.hpp` is
-  included nowhere, so `beatnik profiling_level=2` compiles no timer into the
-  FMM path. The only timings are coarse wall clocks in tests: `[m0d1] TIMING`
-  in `Beatnik_Test_Milestone0Run.cpp:478`, `[t6] COST` in
+  `ff_evaluate_total` covers the whole of `evaluate`.
+- **Beatnik's FMM path is timed at `beatnik profiling_level=2` (T2).**
+  `src/Profiling.hpp` carries the ten `ff_*` phase keys and
+  `ff_evaluate_total`, fenced on exit, with a never-reset `timer_totals()`.
+  The dev env builds at level 2; production (level 1) compiles them out.
+  `Beatnik_Probe_FmmCost` differences the totals around every step. The coarse
+  test wall clocks remain: `[m0d1] TIMING` in
+  `Beatnik_Test_Milestone0Run.cpp:478`, `[t6] COST` in
   `Beatnik_Test_Milestone0Fmm.cpp:2215`, and `eval_wall` in
   `Beatnik_Probe_FmmKeyDemand.cpp:579-583`.
 - **`FarFieldDiagnostics` describes the last evaluation only**
@@ -743,6 +749,11 @@ with the binding of `launch()` in that script. Probe arguments are
   (O1, O2) may move individual states either way. This is the user's ruling
   after T3 (log, "Decision: no accuracy regression in any O task"). T3's
   per-level maxima: L4 1.099e-3 (step 1000), L5 1.634e-3 (step 1).
+- **After O1 the baseline is O1's, not T3's.** O1 raised level 4's maximum
+  and was adopted by ruling (log, "Decision: adopt O1 despite the level-4
+  `[acc]` rise"); the guard itself is unchanged for every later task. O1's
+  maxima: L4 1.402e-3 (step 800; 1.134e-3 over SERIAL's 500 steps), L5
+  1.212e-3 (step 75), L6 2.248e-3 (step 250).
 
 ---
 
@@ -792,7 +803,7 @@ the step at np1 and 87 % at np4 (O7).
 Sequence: **O1 → O2 → O4 → O5 → O8 → O9 → O10 → O6 → O7 → V1.** O2, O4 and O6
 are conditional; O3 is NOT TAKEN.
 
-### O1 — Turn on `quantize_root_half_width` from Beatnik — **NOT STARTED**
+### O1 — Turn on `quantize_root_half_width` from Beatnik — **DONE**
 
 **Depends on:** T3.
 
@@ -895,6 +906,61 @@ or eviction instead of a full clear) when they occur.
 - In every knob-off window after step 1, `width_changes` is at least
   0.9 × `evals` and `overflow_clears` is 0. The width moves at nearly every
   build, and a cache emptied that often never reaches the cap.
+
+**Met.** Verified 2026-10-12/13, Beatnik `58937d2` installed, Canopy
+`c182348`; numbers and job IDs in the [log](canopy_profiling-progress-log.md)
+`## O1`.
+- **Retention, knob on.** Discounted $r \ge 0.993$ in every SMS window after
+  step 1, at every level, backend and rank count. There were **no** octave
+  crossings and **no** overflow clears anywhere (L5 np1's cache peaked at
+  24 528 keys of 65 536), so no window was exempt. The operator build fell
+  from 78–549 s to 0.2–0.3 s per run.
+- **Step 1 by interpretation.** The step-1 window reads $r = 0.66$, because
+  the first evaluation's cold fill sits inside it and the counter, as
+  specified, never counts the first evaluation (Canopy's
+  `set_root_half_width` does treat 0 → w as a change). Counting that fill as
+  one full build gives $r = 1.000$. The user ruled to keep the first
+  evaluation uncounted, so the 90 % criterion is read as excluding the cold
+  fill.
+- **Failure direction.** The knob-off arm has `[acc]` bit-identical to T3 at
+  every state, per-run `kb/ev/uo` medians of 0.955–1.000, exactly 0.667 at
+  step 1, and `width_changes` ≥ 0.96 × evals with zero overflow clears after
+  step 1. **The step wall reproduces T3 only approximately.** On HIP the
+  per-state change is within T3's per-state spread (9 % L4, 14 % L5) at
+  every state but L4's step 1 (+12.5 % np1, −13.4 % np4). Run-level, the
+  summed sampled step wall is −3.5 % (L4 np4), +1.5 % (L4 np1), −1.6 / +1.4 %
+  (L5 np4 / np1) and −0.4 % (L6). L4 np4 is therefore outside T3's 0.6 %
+  run-level spread, in the faster direction. SERIAL np4 is −0.9 % run-level
+  (per state −10.8 to +6.2 %). **SERIAL np1 is +19.2 %** (13–35 % per state),
+  on a different node (`tuolumne1015` against `1016`); T3 measured no SERIAL
+  spread. None of this is near the size of the gain, which is therefore
+  quoted only from each on/off pair run inside one job.
+- **Gain.** The summed SMS step wall falls 53.5 % at L4 HIP np1, 47.5 % at L4
+  HIP np4, 22.1 % at L5 np1, 36.1 % at L5 np4, 20.6 % at L6 np4 and 21.4 % at
+  L4 SERIAL np1, all far above twice the spread. L4 SERIAL np4's 7.4 % is a
+  two-job comparison. Per state the gain grows along the trajectory, to −50 %
+  and more late. Step 1 is up to 18 % slower: the cold fill plus one extra
+  level.
+- **Depth (R4).** Knob on adds one occupied level at the top: L4 starts at 6
+  rather than 5, L5 at 7 rather than 6, and L6 is 8 throughout. `max_depth`
+  10 never binds, and `fb_dropped` is 0 in every row.
+- **Accuracy: the guard FAILS at level 4, and O1 is adopted by ruling.** Per
+  level, max knob-on `[acc]` against the knob-off arm (= T3): L4 **1.402e-3
+  against 1.099e-3** (SERIAL's 500 steps: 1.134e-3 against 8.13e-4); L5
+  1.212e-3 against 1.634e-3; L6 2.248e-3 against 2.771e-3. Knob-on `[acc]`
+  is bit-identical across backends and rank counts. It is geometry (R4), not
+  R5: the rise is already present at step 1, before any column is reused.
+  The user ruled that the speed is worth the level-4 rise, which stays under
+  τ_A, and adopted the default `true` (log, "Decision: adopt O1 despite the
+  level-4 `[acc]` rise"). Moves over 20 % occur at every level (L4 −42 to
+  +130 %, L5 −39 to +18 %, L6 −20.5 to +41.3 %), so **V1 is triggered** before
+  the next O task.
+- **FmmVsDirect: PASS at ranks 1–6 on HIP** (job `f3dk9yN1mqFM`, installed
+  default `true`). **Gap:** the binary instantiates only
+  `Kokkos::DefaultExecutionSpace`
+  (`tests/unit_tests/Beatnik_Test_FmmVsDirect.cpp:1193-1195`), so there is
+  no SERIAL FmmVsDirect to run. SERIAL's evidence is the SERIAL probe's
+  `[acc]` rows, identical to HIP's.
 
 ### O2 — Keep the operator cache across an octave crossing — **NOT STARTED (conditional)**
 

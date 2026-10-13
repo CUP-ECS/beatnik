@@ -1010,3 +1010,416 @@ Known Issues ("guards every level against regression").
 - O1, O2 — a quantized or retained tree may move individual states, but fails
   if it raises any level's worst state; there is no τ_A or spread allowance.
 - V1 — unchanged; it re-asserts claim A on the milestone tier.
+
+## O1
+
+**Provenance, pinned.**
+- **Code.** Beatnik `58937d2` "canopy_profiling O1: quantize_root_half_width
+  from Beatnik, with counters", the exact code every job ran (each logs
+  `beatnik commit = 58937d2`, dirty 4 files: `.claude/settings.json`, this
+  doc, two untracked non-compiled files). Canopy `c182348`, 0 porcelain lines
+  in every job. **No Canopy file changed.**
+- **Toolchain.** `canopy@develop +profiling profiling_level=2`, cce@20.0.0,
+  dev env `~/spack_envs/tuolumne_beatnik`, `profile.local.sh` (spack mode).
+- **Install.** One `spack install`, 15:03:44, 11 min 37 s wall (Beatnik
+  10 min 53 s; Canopy re-staged in 41 s, unchanged source). It was a real
+  rebuild, about 110 CPU-min: every `.cpp` under `src tests examples` was
+  touched first, per the header-only caveat in `systems/tuolumne/claude.md`
+  §3. The installed `Beatnik_Params.hpp` has `= true`. The later edit to that
+  header's doc comment (this section's ruling) changed no code and was not
+  reinstalled.
+- **Configuration.** As T3: CartesianTaylor order 3, θ 0.3, `ncrit 8`,
+  `m2l_op_count_cap 65536`, `canopy_report 0`. Binding is
+  `canopy_profiling_baseline.flux`'s `launch()`, unmodified.
+
+All jobs `pdebug`, submitted 15:04:42, queue waits 0–86 s, all rc 0, no
+`SKIPPED` or `FAIL`. The reducer's count check (`fmm_profile_reduce.py
+--format probe --states`) passed every `[cost]` row with 0 excluded.
+
+| job | name | rows (label level steps every) | launch walls | job wall |
+| --- | --- | --- | --- | --- |
+| `f3dk9yN1mqFM` | `beatnik_t4_fmm_vs_direct` | `t4_fmm_vs_direct.flux`, 2 nodes | — | 1.18 min |
+| `f3dk9xouhPJF` | `beatnik_o1_hip_np4_l6` | `l6q0`, `l6q1` L6 np4 250 25 | 557 + 442 s | 17.1 min |
+| `f3dk9xfGba3h` | `beatnik_o1_hip_np4` | `smsl5q0` 5 300 25, `smsl4q0` 4 1200 50, then `q1` | 297 + 722 + 190 + 383 s | 27.0 min |
+| `f3dk9xY4X4aT` | `beatnik_o1_hip_np1` | same rows at np1 | 391 + 1052 + 302 + 493 s | 37.7 min |
+| `f3dk9xwujWWB` | `beatnik_o1_serial_np1` | `smsl4q0`, `smsl4q1` 4 500 25 | 1056 + 829 s | 31.8 min |
+| `f3dk9y61haqV` | `beatnik_o1_serial_np4_q0` | `smsl4q0` 4 500 25 | 1913 s | 32.4 min |
+| `f3dk9yE6BftT` | `beatnik_o1_serial_np4_q1` | `smsl4q1` 4 500 25 | 1773 s | 30.0 min |
+
+T3 bases: `f3dj4RSg5NSs` rep0 (HIP np4), `f3djNiFw5apw` (HIP np1),
+`f3dj4Qt8o8hu` (L6 np4), `f3dj4RASfEVu` and `f3dj4RJLmQaT` (SERIAL np1, np4).
+
+**Decisions, made before this task and recorded here.**
+- The SMS keeps cap 65536, T3's configuration.
+- Overflow clears are counted, not avoided, and their windows are exempt from
+  the 90 % retention criterion.
+- The counters are Beatnik-only; O1 changes no Canopy file.
+- FmmVsDirect runs as its own two-node job in the same sitting.
+- The accuracy guard is the per-level aggregate ("Decision: no accuracy
+  regression in any O task").
+- The knob is passed explicitly in both arms (`quantize_root_half_width=0`
+  or `=1`), so the measurement does not depend on the installed default.
+
+**Decisions made in this task.**
+- **Installed with default `true`,** so FmmVsDirect exercises the quantized
+  path.
+- **A separate L6 job.** The SMS definition adds T3's level-6 rows for a
+  tree-changing task; two L6 np4 arms plus the np4 SMS pair (about 3.2 ks)
+  did not fit one 3.3 ks budget.
+- **`Impl::readDiagnostics` returns the root half-width,** so `evaluate` can
+  compare it without a second accessor.
+- **The default stays `true` despite the level-4 `[acc]` rise,** by the
+  user's ruling (next section).
+- **The first evaluation stays uncounted** by the width counter, by the
+  user's ruling (below, "Bugs only running revealed").
+
+**Signatures.**
+- `FmmParams::quantize_root_half_width` (`bool`, default `true`), after
+  `m2l_op_count_cap` in `src/Beatnik_Params.hpp`; mapped in `buildConfig` to
+  `FmmConfig::quantize_root_half_width`.
+- `FarFieldDiagnostics::root_width_changes` and `op_cache_overflow_clears`,
+  `long long`, cumulative, rank-local, no collective. They are counted at the
+  end of `evaluate` for `evaluations > 0`. A width change is a width that
+  differs from the member `_root_half_width`. Otherwise an overflow clear is
+  `cache_after != cache_before + keys_built_delta`.
+- `Impl::readDiagnostics` now returns `double` (`down.root_half_width()`).
+- Probe: key `quantize_root_half_width=<0|1>` (default `FmmParams{}`'s),
+  echoed in the header line; `[cost]` keys `width_changes`,
+  `overflow_clears` and their `.max`, after `occupied_depths`.
+
+**Bugs only running revealed.**
+- **The step-1 window cannot reach 90 % retention by construction.** With
+  the knob on it reads $r = 0.66$ even after discounting crossings. The first
+  evaluation's cold table fill lies inside that window, and the counter never
+  counts the first evaluation, so the 0 → w width is not a "change". Canopy's
+  own `set_root_half_width` does treat it as one (it clears an empty cache).
+  Discounting the cold fill as one full build gives $r = 1.000$. **Ruled:**
+  the first evaluation stays uncounted (no rebuild), and the criterion is
+  read as excluding the cold fill.
+
+**Results.**
+- **Retention, knob on.** Discounted $r \ge 0.993$ in every window after
+  step 1 at every level, backend and rank count. `width_changes` is **0** and
+  `overflow_clears` **0** in every row, so the rebuilt keys are all
+  "remainder" (new keys in a surviving cache): crossings 0, clears 0. The
+  caches grew without a clear to 30 975 (L4 np4), 33 534 (L4 np1), 19 797 (L5
+  np4), 24 528 (L5 np1), 32 511 (L6 np4), 27 582 (SERIAL np1) and 22 266
+  (SERIAL np4) keys, against the cap of 65 536. L4 np1's 33 534 is already past
+  `FmmParams`' own default cap of 32 768.
+- **Failure direction, knob off.** `[acc]` is bit-identical to T3 at every
+  state of every run. Per-run `kb/ev/uo` medians are 0.955–1.000, exactly
+  0.667 at step 1. `width_changes` is ≥ 0.96 × evals and `overflow_clears`
+  is 0 in every window after step 1. The step wall is within T3's per-state
+  spread on HIP except L4 step 1 (+12.5 % np1, −13.4 % np4). Run-level it is
+  −3.5 % at L4 np4, outside T3's 0.6 %, in the faster direction. SERIAL np1 is
+  +19.2 % on another node (`tuolumne1015` against T3's `1016`), and T3 has no
+  SERIAL spread. Gains are therefore quoted only from on/off pairs inside one
+  job.
+- **Depth (R4).** Knob on: occupied depth starts one level deeper (L4 6, L5
+  7, L6 8 throughout). `max_depth 10` never binds, and `fb_dropped` is 0 in
+  every row.
+- **Accuracy.** Per-level max, knob on against knob off (= T3):
+  - L4 **1.402e-3** (step 800) against 1.099e-3; over SERIAL's 500 steps,
+    1.134e-3 (step 1) against 8.13e-4.
+  - L5 1.212e-3 (step 75) against 1.634e-3.
+  - L6 2.248e-3 (step 250) against 2.771e-3.
+
+  **The guard fails at level 4.** Mean over the SMS states: L4
+  6.63e-4 → 9.31e-4, L5 1.203e-3 → 1.066e-3, L6 2.301e-3 → 2.146e-3.
+  Knob-on `[acc]` is bit-identical across HIP/SERIAL and np1/np4. It is
+  geometry (R4), not a wrong-width column (R5): the rise is already full at
+  step 1, before any column is reused. Knob on, the error sits flat at about
+  0.9–1.1e-3 (L4), 1.0–1.2e-3 (L5) and 2.0–2.25e-3 (L6) along the trajectory.
+- **FmmVsDirect: PASS at ranks 1–6** (39/39 checks at np1, 41/41 per rank
+  otherwise), HIP, installed default `true`. **Gap:** the binary
+  instantiates only `Kokkos::DefaultExecutionSpace`
+  (`tests/unit_tests/Beatnik_Test_FmmVsDirect.cpp:1193-1195`), so there is
+  no SERIAL FmmVsDirect. SERIAL's evidence is the SERIAL probe `[acc]` rows.
+
+**Per-state numbers.** `op build/eval` is `ilist_s4_op_table_build` per
+evaluation. `r (disc.)` is the crossing-discounted retention. Both arms ran
+in the same job except SERIAL np4.
+
+**L4_HIP_np4** — summed step wall off 709.1 s → on 372.5 s (-47.5 %); summed op build 268.3 → 0.3 s.
+
+| step | T3 s/step | off s/step | on s/step | on vs T3 | op build/eval off → on (s) | on: r (disc.) | on: depth |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 0.726 | 0.628 | 0.636 | -12.4 % | 0.0304 → 0.01893 | 0.662 | 6 |
+| 50 | 0.316 | 0.318 | 0.208 | -34.2 % | 0.0399 → 0.00001 | 1.000 | 6 |
+| 100 | 0.329 | 0.324 | 0.216 | -34.3 % | 0.0393 → 0.00003 | 1.000 | 6 |
+| 150 | 0.348 | 0.347 | 0.213 | -38.8 % | 0.0406 → 0.00001 | 1.000 | 6 |
+| 200 | 0.358 | 0.357 | 0.221 | -38.3 % | 0.0395 → 0.00006 | 0.999 | 6 |
+| 250 | 0.427 | 0.423 | 0.217 | -49.2 % | 0.0467 → 0.00001 | 1.000 | 6 |
+| 300 | 0.494 | 0.491 | 0.214 | -56.7 % | 0.0600 → 0.00002 | 1.000 | 6 |
+| 350 | 0.545 | 0.544 | 0.234 | -57.1 % | 0.0673 → 0.00012 | 0.998 | 6.25 |
+| 400 | 0.537 | 0.530 | 0.260 | -51.6 % | 0.0643 → 0.00029 | 0.996 | 7 |
+| 450 | 0.533 | 0.521 | 0.257 | -51.8 % | 0.0638 → 0.00020 | 0.997 | 7 |
+| 500 | 0.557 | 0.543 | 0.272 | -51.2 % | 0.0693 → 0.00018 | 0.998 | 7 |
+| 550 | 0.619 | 0.579 | 0.306 | -50.6 % | 0.0748 → 0.00009 | 0.999 | 7 |
+| 600 | 0.672 | 0.624 | 0.318 | -52.7 % | 0.0768 → 0.00011 | 0.999 | 7 |
+| 650 | 0.689 | 0.642 | 0.344 | -50.1 % | 0.0827 → 0.00007 | 0.999 | 7 |
+| 700 | 0.679 | 0.638 | 0.349 | -48.6 % | 0.0826 → 0.00004 | 1.000 | 7 |
+| 750 | 0.649 | 0.606 | 0.354 | -45.5 % | 0.0799 → 0.00003 | 1.000 | 7 |
+| 800 | 0.648 | 0.634 | 0.351 | -45.8 % | 0.0833 → 0.00004 | 1.000 | 7 |
+| 850 | 0.663 | 0.639 | 0.389 | -41.3 % | 0.0817 → 0.00003 | 1.000 | 7 |
+| 900 | 0.745 | 0.732 | 0.379 | -49.1 % | 0.0921 → 0.00001 | 1.000 | 7 |
+| 950 | 0.783 | 0.770 | 0.395 | -49.6 % | 0.1017 → 0.00002 | 1.000 | 7 |
+| 1000 | 0.741 | 0.728 | 0.369 | -50.2 % | 0.0957 → 0.00003 | 1.000 | 7 |
+| 1050 | 0.809 | 0.788 | 0.375 | -53.6 % | 0.1018 → 0.00002 | 1.000 | 7 |
+| 1100 | 0.829 | 0.801 | 0.408 | -50.8 % | 0.1010 → 0.00004 | 1.000 | 7 |
+| 1150 | 0.796 | 0.772 | 0.398 | -50.0 % | 0.0985 → 0.00001 | 1.000 | 7 |
+| 1200 | 0.842 | 0.824 | 0.394 | -53.2 % | 0.1058 → 0.00001 | 1.000 | 7 |
+
+**L5_HIP_np4** — summed step wall off 280.4 s → on 179.1 s (-36.1 %); summed op build 91.1 → 0.2 s.
+
+| step | T3 s/step | off s/step | on s/step | on vs T3 | op build/eval off → on (s) | on: r (disc.) | on: depth |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1.149 | 1.069 | 1.156 | +0.6 % | 0.0550 → 0.04097 | 0.666 | 7 |
+| 25 | 0.720 | 0.712 | 0.448 | -37.8 % | 0.0751 → 0.00001 | 1.000 | 7 |
+| 50 | 0.781 | 0.787 | 0.527 | -32.5 % | 0.0761 → 0.00002 | 1.000 | 7 |
+| 75 | 0.787 | 0.785 | 0.560 | -28.8 % | 0.0806 → 0.00004 | 1.000 | 7 |
+| 100 | 0.803 | 0.791 | 0.580 | -27.8 % | 0.0799 → 0.00003 | 1.000 | 7 |
+| 125 | 0.799 | 0.789 | 0.587 | -26.5 % | 0.0774 → 0.00003 | 1.000 | 7 |
+| 150 | 0.881 | 0.869 | 0.610 | -30.8 % | 0.0823 → 0.00003 | 1.000 | 7 |
+| 175 | 0.878 | 0.866 | 0.617 | -29.7 % | 0.0860 → 0.00008 | 0.999 | 7 |
+| 200 | 0.970 | 0.953 | 0.631 | -34.9 % | 0.1039 → 0.00011 | 0.999 | 7 |
+| 225 | 1.061 | 1.051 | 0.657 | -38.1 % | 0.1154 → 0.00007 | 1.000 | 7 |
+| 250 | 1.077 | 1.073 | 0.652 | -39.5 % | 0.1279 → 0.00008 | 1.000 | 7 |
+| 275 | 1.192 | 1.181 | 0.636 | -46.6 % | 0.1462 → 0.00006 | 1.000 | 7 |
+| 300 | 1.372 | 1.345 | 0.633 | -53.9 % | 0.1652 → 0.00012 | 0.999 | 7 |
+
+**L4_HIP_np1** — summed step wall off 1040.6 s → on 484.3 s (-53.5 %); summed op build 549.4 → 0.3 s.
+
+| step | T3 s/step | off s/step | on s/step | on vs T3 | op build/eval off → on (s) | on: r (disc.) | on: depth |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 0.381 | 0.428 | 0.438 | +15.0 % | 0.0419 → 0.02908 | 0.667 | 6 |
+| 50 | 0.343 | 0.346 | 0.243 | -29.2 % | 0.0561 → 0.00001 | 1.000 | 6 |
+| 100 | 0.352 | 0.359 | 0.263 | -25.3 % | 0.0561 → 0.00001 | 1.000 | 6 |
+| 150 | 0.384 | 0.390 | 0.269 | -29.9 % | 0.0605 → 0.00000 | 1.000 | 6 |
+| 200 | 0.394 | 0.399 | 0.268 | -32.0 % | 0.0609 → 0.00000 | 1.000 | 6 |
+| 250 | 0.490 | 0.514 | 0.246 | -49.8 % | 0.0858 → 0.00000 | 1.000 | 6 |
+| 300 | 0.676 | 0.680 | 0.242 | -64.2 % | 0.1211 → 0.00002 | 1.000 | 6 |
+| 350 | 0.810 | 0.811 | 0.252 | -68.9 % | 0.1409 → 0.00019 | 0.998 | 7 |
+| 400 | 0.755 | 0.762 | 0.267 | -64.6 % | 0.1308 → 0.00028 | 0.998 | 7 |
+| 450 | 0.716 | 0.733 | 0.289 | -59.6 % | 0.1282 → 0.00034 | 0.998 | 7 |
+| 500 | 0.781 | 0.801 | 0.320 | -59.0 % | 0.1418 → 0.00016 | 0.999 | 7 |
+| 550 | 0.870 | 0.887 | 0.385 | -55.7 % | 0.1540 → 0.00008 | 1.000 | 7 |
+| 600 | 0.912 | 0.925 | 0.436 | -52.2 % | 0.1627 → 0.00005 | 1.000 | 7 |
+| 650 | 0.918 | 0.932 | 0.487 | -46.9 % | 0.1645 → 0.00006 | 1.000 | 7 |
+| 700 | 0.936 | 0.956 | 0.502 | -46.4 % | 0.1683 → 0.00004 | 1.000 | 7 |
+| 750 | 0.962 | 0.968 | 0.520 | -45.9 % | 0.1729 → 0.00002 | 1.000 | 7 |
+| 800 | 1.016 | 1.023 | 0.481 | -52.7 % | 0.1846 → 0.00004 | 1.000 | 7 |
+| 850 | 1.029 | 1.036 | 0.517 | -49.8 % | 0.1850 → 0.00002 | 1.000 | 7 |
+| 900 | 1.129 | 1.147 | 0.501 | -55.6 % | 0.2066 → 0.00001 | 1.000 | 7 |
+| 950 | 1.181 | 1.201 | 0.517 | -56.2 % | 0.2144 → 0.00001 | 1.000 | 7 |
+| 1000 | 1.097 | 1.100 | 0.504 | -54.1 % | 0.1999 → 0.00001 | 1.000 | 7 |
+| 1050 | 1.230 | 1.243 | 0.515 | -58.1 % | 0.2244 → 0.00000 | 1.000 | 7 |
+| 1100 | 1.199 | 1.221 | 0.571 | -52.4 % | 0.2173 → 0.00002 | 1.000 | 7 |
+| 1150 | 1.139 | 1.148 | 0.550 | -51.7 % | 0.2044 → 0.00000 | 1.000 | 7 |
+| 1200 | 1.225 | 1.229 | 0.537 | -56.2 % | 0.2216 → 0.00001 | 1.000 | 7 |
+
+**L5_HIP_np1** — summed step wall off 376.9 s → on 293.5 s (-22.1 %); summed op build 147.6 → 0.2 s.
+
+| step | T3 s/step | off s/step | on s/step | on vs T3 | op build/eval off → on (s) | on: r (disc.) | on: depth |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1.040 | 1.027 | 1.226 | +17.9 % | 0.0765 → 0.05778 | 0.667 | 7 |
+| 25 | 0.922 | 0.918 | 0.770 | -16.5 % | 0.1156 → 0.00002 | 1.000 | 7 |
+| 50 | 1.001 | 0.992 | 0.922 | -7.9 % | 0.1161 → 0.00004 | 1.000 | 7 |
+| 75 | 1.032 | 1.030 | 0.980 | -5.0 % | 0.1249 → 0.00003 | 1.000 | 7 |
+| 100 | 1.031 | 1.035 | 0.998 | -3.2 % | 0.1240 → 0.00002 | 1.000 | 7 |
+| 125 | 1.002 | 1.004 | 0.998 | -0.4 % | 0.1164 → 0.00001 | 1.000 | 7 |
+| 150 | 1.065 | 1.080 | 1.043 | -2.1 % | 0.1286 → 0.00002 | 1.000 | 7 |
+| 175 | 1.103 | 1.136 | 1.028 | -6.8 % | 0.1422 → 0.00011 | 0.999 | 7 |
+| 200 | 1.257 | 1.296 | 1.029 | -18.1 % | 0.1700 → 0.00013 | 0.999 | 7 |
+| 225 | 1.351 | 1.398 | 1.046 | -22.6 % | 0.1940 → 0.00005 | 1.000 | 7 |
+| 250 | 1.472 | 1.524 | 1.002 | -31.9 % | 0.2153 → 0.00004 | 1.000 | 7 |
+| 275 | 1.733 | 1.755 | 0.965 | -44.3 % | 0.2503 → 0.00003 | 1.000 | 7 |
+| 300 | 1.870 | 1.902 | 0.942 | -49.6 % | 0.2725 → 0.00005 | 1.000 | 7 |
+
+**L6_HIP_np4** — summed step wall off 538.4 s → on 427.3 s (-20.6 %); summed op build 164.2 → 0.3 s.
+
+| step | T3 s/step | off s/step | on s/step | on vs T3 | op build/eval off → on (s) | on: r (disc.) | on: depth |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 2.178 | 2.161 | 2.239 | +2.8 % | 0.1268 → 0.08543 | 0.666 | 8 |
+| 25 | 1.927 | 1.929 | 1.637 | -15.0 % | 0.1931 → 0.00002 | 1.000 | 8 |
+| 50 | 1.985 | 1.965 | 1.645 | -17.1 % | 0.1938 → 0.00003 | 1.000 | 8 |
+| 75 | 2.032 | 2.021 | 1.758 | -13.5 % | 0.2005 → 0.00003 | 1.000 | 8 |
+| 100 | 2.090 | 2.070 | 1.823 | -12.8 % | 0.2055 → 0.00001 | 1.000 | 8 |
+| 125 | 2.058 | 2.038 | 1.793 | -12.9 % | 0.2007 → 0.00005 | 1.000 | 8 |
+| 150 | 2.176 | 2.158 | 1.696 | -22.1 % | 0.2207 → 0.00005 | 1.000 | 8 |
+| 175 | 2.217 | 2.197 | 1.679 | -24.3 % | 0.2229 → 0.00003 | 1.000 | 8 |
+| 200 | 2.324 | 2.323 | 1.682 | -27.6 % | 0.2413 → 0.00007 | 1.000 | 8 |
+| 225 | 2.323 | 2.321 | 1.692 | -27.2 % | 0.2456 → 0.00006 | 1.000 | 8 |
+| 250 | 2.482 | 2.504 | 1.662 | -33.0 % | 0.2683 → 0.00004 | 1.000 | 8 |
+
+**L4_SERIAL_np1** — summed step wall off 1026.5 s → on 806.4 s (-21.4 %); summed op build 138.0 → 0.2 s.
+
+| step | T3 s/step | off s/step | on s/step | on vs T3 | op build/eval off → on (s) | on: r (disc.) | on: depth |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1.377 | 1.557 | 1.726 | +25.3 % | 0.0398 → 0.02754 | 0.667 | 6 |
+| 25 | 1.515 | 1.842 | 1.650 | +8.9 % | 0.0524 → 0.00001 | 1.000 | 6 |
+| 50 | 1.527 | 1.853 | 1.492 | -2.3 % | 0.0528 → 0.00001 | 1.000 | 6 |
+| 75 | 1.434 | 1.912 | 1.554 | +8.4 % | 0.0523 → 0.00002 | 1.000 | 6 |
+| 100 | 1.481 | 1.862 | 1.553 | +4.9 % | 0.0523 → 0.00001 | 1.000 | 6 |
+| 125 | 1.436 | 1.854 | 1.640 | +14.2 % | 0.0524 → 0.00001 | 1.000 | 6 |
+| 150 | 1.534 | 1.919 | 1.439 | -6.2 % | 0.0596 → 0.00000 | 1.000 | 6 |
+| 175 | 1.463 | 1.867 | 1.444 | -1.3 % | 0.0534 → 0.00000 | 1.000 | 6 |
+| 200 | 1.430 | 1.933 | 1.602 | +12.0 % | 0.0595 → 0.00000 | 1.000 | 6 |
+| 225 | 1.538 | 1.887 | 1.468 | -4.6 % | 0.0638 → 0.00000 | 1.000 | 6 |
+| 250 | 1.592 | 1.909 | 1.456 | -8.5 % | 0.0986 → 0.00000 | 1.000 | 6 |
+| 275 | 1.632 | 2.096 | 1.617 | -0.9 % | 0.0956 → 0.00003 | 1.000 | 6 |
+| 300 | 1.952 | 2.106 | 1.579 | -19.1 % | 0.1258 → 0.00002 | 1.000 | 6 |
+| 325 | 1.936 | 2.097 | 1.838 | -5.1 % | 0.1372 → 0.00031 | 0.997 | 7 |
+| 350 | 2.058 | 2.376 | 1.843 | -10.4 % | 0.1364 → 0.00005 | 0.999 | 7 |
+| 375 | 2.393 | 2.400 | 1.843 | -23.0 % | 0.1311 → 0.00035 | 0.997 | 7 |
+| 400 | 1.874 | 2.227 | 1.799 | -4.0 % | 0.1087 → 0.00020 | 0.998 | 7 |
+| 425 | 1.875 | 2.093 | 1.836 | -2.1 % | 0.1184 → 0.00026 | 0.998 | 7 |
+| 450 | 1.784 | 2.126 | 1.586 | -11.1 % | 0.1153 → 0.00037 | 0.997 | 7 |
+| 475 | 1.891 | 2.293 | 1.553 | -17.9 % | 0.1279 → 0.00015 | 0.999 | 7 |
+| 500 | 2.027 | 2.419 | 1.462 | -27.9 % | 0.1468 → 0.00016 | 0.999 | 7 |
+
+**L4_SERIAL_np4** — summed step wall off 1875.5 s → on 1736.5 s (-7.4 %); summed op build 78.2 → 0.2 s.
+
+| step | T3 s/step | off s/step | on s/step | on vs T3 | op build/eval off → on (s) | on: r (disc.) | on: depth |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 2.820 | 2.686 | 2.754 | -2.3 % | 0.0280 → 0.01854 | 0.662 | 6 |
+| 25 | 3.483 | 3.554 | 3.526 | +1.2 % | 0.0415 → 0.00001 | 1.000 | 6 |
+| 50 | 3.706 | 3.553 | 3.536 | -4.6 % | 0.0385 → 0.00001 | 1.000 | 6 |
+| 75 | 3.695 | 3.297 | 3.560 | -3.7 % | 0.0387 → 0.00002 | 1.000 | 6 |
+| 100 | 3.581 | 3.467 | 3.587 | +0.2 % | 0.0379 → 0.00004 | 0.999 | 6 |
+| 125 | 3.666 | 3.631 | 3.598 | -1.9 % | 0.0381 → 0.00001 | 1.000 | 6 |
+| 150 | 3.732 | 3.601 | 3.379 | -9.5 % | 0.0413 → 0.00001 | 1.000 | 6 |
+| 175 | 3.821 | 3.807 | 3.304 | -13.5 % | 0.0386 → 0.00001 | 1.000 | 6 |
+| 200 | 3.658 | 3.785 | 3.618 | -1.1 % | 0.0386 → 0.00011 | 0.998 | 6 |
+| 225 | 3.636 | 3.863 | 3.350 | -7.9 % | 0.0403 → 0.00001 | 1.000 | 6 |
+| 250 | 3.928 | 3.822 | 3.157 | -19.6 % | 0.0501 → 0.00000 | 1.000 | 6 |
+| 275 | 3.553 | 3.716 | 3.189 | -10.2 % | 0.0541 → 0.00002 | 1.000 | 6 |
+| 300 | 3.737 | 3.744 | 3.390 | -9.3 % | 0.0620 → 0.00002 | 1.000 | 6 |
+| 325 | 3.886 | 3.851 | 3.476 | -10.6 % | 0.0665 → 0.00021 | 0.996 | 6.25 |
+| 350 | 3.787 | 3.729 | 3.498 | -7.6 % | 0.0654 → 0.00004 | 0.999 | 6.25 |
+| 375 | 3.986 | 3.804 | 3.468 | -13.0 % | 0.0658 → 0.00045 | 0.993 | 7 |
+| 400 | 3.778 | 3.895 | 3.533 | -6.5 % | 0.0596 → 0.00014 | 0.998 | 7 |
+| 425 | 3.791 | 3.849 | 3.524 | -7.0 % | 0.0634 → 0.00017 | 0.997 | 7 |
+| 450 | 3.947 | 3.925 | 3.540 | -10.3 % | 0.0633 → 0.00022 | 0.997 | 7 |
+| 475 | 4.045 | 4.051 | 3.618 | -10.6 % | 0.0660 → 0.00018 | 0.998 | 7 |
+| 500 | 4.228 | 4.109 | 3.641 | -13.9 % | 0.0736 → 0.00017 | 0.998 | 7 |
+
+**L4 `[acc]`** (knob off = T3 at every state, bit-identical)
+
+| step | T3 | O1 (on) | change |
+| --- | --- | --- | --- |
+| 1 | 5.0076e-04 | 1.1338e-03 | +126.4 % |
+| 25 | 5.0618e-04 | 1.1244e-03 | +122.1 % |
+| 50 | 5.0700e-04 | 1.1144e-03 | +119.8 % |
+| 75 | 5.1582e-04 | 1.0797e-03 | +109.3 % |
+| 100 | 5.1726e-04 | 1.0380e-03 | +100.7 % |
+| 125 | 5.2790e-04 | 1.0660e-03 | +101.9 % |
+| 150 | 6.0878e-04 | 1.0114e-03 | +66.1 % |
+| 175 | 5.0836e-04 | 9.5737e-04 | +88.3 % |
+| 200 | 5.4742e-04 | 8.7885e-04 | +60.5 % |
+| 225 | 5.8915e-04 | 8.6536e-04 | +46.9 % |
+| 250 | 6.0439e-04 | 8.1017e-04 | +34.0 % |
+| 275 | 5.3496e-04 | 8.3881e-04 | +56.8 % |
+| 300 | 5.1550e-04 | 8.5650e-04 | +66.1 % |
+| 325 | 6.0725e-04 | 9.3266e-04 | +53.6 % |
+| 350 | 7.6153e-04 | 9.4444e-04 | +24.0 % |
+| 375 | 8.1324e-04 | 1.0166e-03 | +25.0 % |
+| 400 | 5.2754e-04 | 1.0679e-03 | +102.4 % |
+| 425 | 4.5806e-04 | 1.0547e-03 | +130.3 % |
+| 450 | 5.8536e-04 | 4.5554e-04 | -22.2 % |
+| 475 | 6.2214e-04 | 3.6193e-04 | -41.8 % |
+| 500 | 6.3220e-04 | 1.1160e-03 | +76.5 % |
+| 550 | 6.1619e-04 | 1.1877e-03 | +92.8 % |
+| 600 | 8.1491e-04 | 8.1949e-04 | +0.6 % |
+| 650 | 6.6159e-04 | 6.6914e-04 | +1.1 % |
+| 700 | 7.5563e-04 | 6.2743e-04 | -17.0 % |
+| 750 | 8.0964e-04 | 7.5714e-04 | -6.5 % |
+| 800 | 7.7639e-04 | 1.4025e-03 | +80.6 % |
+| 850 | 7.4588e-04 | 7.7219e-04 | +3.5 % |
+| 900 | 6.5644e-04 | 8.9084e-04 | +35.7 % |
+| 950 | 8.2779e-04 | 9.3676e-04 | +13.2 % |
+| 1000 | 1.0994e-03 | 8.6207e-04 | -21.6 % |
+| 1050 | 5.8722e-04 | 7.4657e-04 | +27.1 % |
+| 1100 | 5.7386e-04 | 1.1242e-03 | +95.9 % |
+| 1150 | 7.4691e-04 | 1.0894e-03 | +45.9 % |
+| 1200 | 6.0176e-04 | 9.6332e-04 | +60.1 % |
+
+**L5 `[acc]`** (knob off = T3 at every state, bit-identical)
+
+| step | T3 | O1 (on) | change |
+| --- | --- | --- | --- |
+| 1 | 1.6337e-03 | 9.9253e-04 | -39.2 % |
+| 25 | 1.6290e-03 | 1.1482e-03 | -29.5 % |
+| 50 | 9.4280e-04 | 1.0225e-03 | +8.5 % |
+| 75 | 1.3560e-03 | 1.2115e-03 | -10.7 % |
+| 100 | 1.5696e-03 | 1.2073e-03 | -23.1 % |
+| 125 | 1.1468e-03 | 1.0647e-03 | -7.2 % |
+| 150 | 1.3600e-03 | 1.1266e-03 | -17.2 % |
+| 175 | 1.1184e-03 | 1.1143e-03 | -0.4 % |
+| 200 | 9.4368e-04 | 1.0901e-03 | +15.5 % |
+| 225 | 8.3459e-04 | 9.8452e-04 | +18.0 % |
+| 250 | 8.8988e-04 | 9.9999e-04 | +12.4 % |
+| 275 | 1.3101e-03 | 9.9609e-04 | -24.0 % |
+| 300 | 9.0874e-04 | 9.0339e-04 | -0.6 % |
+
+**L6 `[acc]`** (knob off = T3 at every state, bit-identical)
+
+| step | T3 | O1 (on) | change |
+| --- | --- | --- | --- |
+| 1 | 2.7071e-03 | 2.2306e-03 | -17.6 % |
+| 25 | 2.7075e-03 | 2.1532e-03 | -20.5 % |
+| 50 | 2.7711e-03 | 2.2300e-03 | -19.5 % |
+| 75 | 2.6176e-03 | 2.1874e-03 | -16.4 % |
+| 100 | 2.5796e-03 | 2.0923e-03 | -18.9 % |
+| 125 | 2.3586e-03 | 2.0673e-03 | -12.4 % |
+| 150 | 2.1782e-03 | 2.0423e-03 | -6.2 % |
+| 175 | 2.0270e-03 | 2.0557e-03 | +1.4 % |
+| 200 | 1.9477e-03 | 2.1975e-03 | +12.8 % |
+| 225 | 1.8242e-03 | 2.1028e-03 | +15.3 % |
+| 250 | 1.5914e-03 | 2.2484e-03 | +41.3 % |
+
+**Affects:**
+- **O2** — its trigger (crossing rebuilds over 5 % of SMS wall) is **not
+  met**: zero octave crossings in 1200 (L4), 300 (L5) and 250 (L6) steps at
+  every rank count.
+- **O4** — its trigger is **not met**. After O1, `ilist_s4_op_table_build`
+  is 0.2–0.3 s summed per run, under 0.1 % of SMS step wall.
+- **O8** — the operator-table copy is unchanged by retention. It now carries
+  a larger share of a shorter step.
+- **V1** — **triggered, before the next O task**: `[acc]` moved more than
+  20 % at states at every level (L4 −42 to +130 %, L5 −39 to +18 %, L6
+  −20.5 to +41.3 %). The milestone FMM members leave this knob at its
+  default, so they now run quantized. Their claim A (≤ τ_A at 81 states to
+  step 2000, level 4) has not been re-run, and the SMS already reaches
+  1.402e-3 of the 1.5e-3 at level 4.
+- **Overflow-clear follow-up** — none occurred at cap 65 536, so no
+  follow-up is opened. But a surviving cache accumulates keys: at `FmmParams`'
+  default cap 32 768, L4 np1 would have overflowed by step 1200. A larger
+  default cap, or eviction instead of a full clear, is the follow-up if a
+  run at the default shows clears.
+- **Every later O task** — the accuracy baseline is now O1's maxima: L4
+  1.402e-3, L5 1.212e-3, L6 2.248e-3.
+
+## Decision: adopt O1 despite the level-4 `[acc]` rise
+
+The user ruled after O1's measurements, on being shown the speedup and the
+accuracy change side by side:
+- **The accuracy trade-off is worth the speedup.** `quantize_root_half_width`
+  is adopted with default `true`, and O1 is DONE.
+- **This is an exception for O1, not a change to the guard.** "Decision: no
+  accuracy regression in any O task" still binds every later task. Its
+  "before" is now O1's values: L4 1.402e-3 (1.134e-3 on SERIAL's 500-step
+  SMS), L5 1.212e-3, L6 2.248e-3.
+- **What was traded.** L4's worst SMS state rose 28 % (1.099e-3 to
+  1.402e-3), still under τ_A, and its mean rose 40 %. L5's and L6's worst
+  states fell 26 % and 19 %. In return the summed HIP step wall fell 47–53 %
+  at L4, 22–36 % at L5 and 21 % at L6.
+- **The step-1 retention reading.** The width counter keeps not counting the
+  first evaluation; the 90 % retention criterion excludes the cold fill.
+
+**Affects:**
+- O2–O10 — the accuracy baseline is O1's maxima above, compared exactly.
+- V1 — must re-assert claim A on the milestone tier with the quantized
+  default; level 4 has only a 7 % margin on the SMS states.
+- README — "FMM tunables" carries the knob's row; Known Issues records the
+  exception and the un-re-run milestone claim.
