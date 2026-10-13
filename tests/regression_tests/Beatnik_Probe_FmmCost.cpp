@@ -52,6 +52,10 @@
  *                           `FmmParams::device_op_table_assembly`, default
  *                           the `FmmParams` default; a measurement passes it
  *                           explicitly (canopy_profiling O8)
+ *     indexed_comm_plan=<0|1>
+ *                           `FmmParams::indexed_comm_plan`, default the
+ *                           `FmmParams` default; a measurement passes it
+ *                           explicitly (canopy_profiling O5)
  *     canopy_report=<0|1>   Canopy's own timing tables and diagnostic lines,
  *                           default 0 (off, through
  *                           `Canopy::Profiling::set_reporting`)
@@ -203,7 +207,17 @@ const std::vector<CanopyKey> kCanopyKeys = {
     { "builder_build", false },
     { "sort_by_leaf", false },
     { "comm_plan_build", false },
-    { "commplan_dtt_traversal", true } };
+    { "commplan_cell_map_fill", true },
+    { "commplan_vertical_plans", true },
+    { "commplan_subtree_relevance", true },
+    { "commplan_dtt_traversal", true },
+    { "commplan_finalize_m2l", true },
+    { "commplan_finalize_p2p", true },
+    { "maint_rebuild_check", false },
+    { "maint_key_snapshot", false },
+    { "maint_compare_build", false },
+    { "maint_key_diff", false },
+    { "maint_sweep_setup", false } };
 
 /// Whether each family of timers is compiled into this binary.
 #if defined( BEATNIK_ENABLE_PROFILING ) && BEATNIK_PROFILING_LEVEL >= 2
@@ -285,6 +299,7 @@ struct Options
         Beatnik::FmmParams{}.quantize_root_half_width;
     bool device_op_table_assembly =
         Beatnik::FmmParams{}.device_op_table_assembly;
+    bool indexed_comm_plan = Beatnik::FmmParams{}.indexed_comm_plan;
     int canopy_report = 0;
     std::string run;
 };
@@ -377,6 +392,14 @@ Options parseOptions( int argc, char* argv[] )
                     "0 or 1" );
             o.device_op_table_assembly = q != 0;
         }
+        else if ( key == "indexed_comm_plan" )
+        {
+            const int q = parseInt( key, val );
+            if ( q != 0 && q != 1 )
+                throw std::invalid_argument(
+                    "Beatnik_Probe_FmmCost: indexed_comm_plan must be 0 or 1" );
+            o.indexed_comm_plan = q != 0;
+        }
         else if ( key == "canopy_report" )
         {
             o.canopy_report = parseInt( key, val );
@@ -398,7 +421,7 @@ Options parseOptions( int argc, char* argv[] )
                 "Beatnik_Probe_FmmCost: unknown key '" + key +
                 "'. Accepted: ncrit, order, mac_theta, m2l_op_count_cap, "
                 "quantize_root_half_width, device_op_table_assembly, "
-                "canopy_report, run." );
+                "indexed_comm_plan, canopy_report, run." );
     }
     if ( o.ncrit < 1 || o.m2l_op_count_cap < 0 || !( o.mac_theta > 0.0 ) )
         throw std::invalid_argument(
@@ -446,6 +469,7 @@ Beatnik::SolverParams makeParams( const Options& o )
     p.fmm.m2l_op_count_cap = o.m2l_op_count_cap;
     p.fmm.quantize_root_half_width = o.quantize_root_half_width;
     p.fmm.device_op_table_assembly = o.device_op_table_assembly;
+    p.fmm.indexed_comm_plan = o.indexed_comm_plan;
 
     p.time.steps = o.steps;
     p.time.dt = 0.003;
@@ -676,7 +700,8 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
                      "space=%s steps=%d sample_every=%d ncrit=%d order=%d "
                      "mac_theta=%.17g m2l_op_count_cap=%d "
                      "quantize_root_half_width=%d "
-                     "device_op_table_assembly=%d canopy_report=%d "
+                     "device_op_table_assembly=%d indexed_comm_plan=%d "
+                     "canopy_report=%d "
                      "beatnik_ff_timers=%d canopy_timers=%d "
                      "canopy_profiling_level=%d canopy_hash=%s\n",
                      run.c_str(), opt.level, want_vertices, comm_size,
@@ -684,7 +709,8 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
                      opt.ncrit, opt.order, opt.mac_theta,
                      opt.m2l_op_count_cap,
                      opt.quantize_root_half_width ? 1 : 0,
-                     opt.device_op_table_assembly ? 1 : 0, opt.canopy_report,
+                     opt.device_op_table_assembly ? 1 : 0,
+                     opt.indexed_comm_plan ? 1 : 0, opt.canopy_report,
                      kHaveFfTimers ? 1 : 0, kHaveCanopyTimers ? 1 : 0,
                      kCanopyLevel, canopy_hash.c_str() );
         std::fflush( stdout );

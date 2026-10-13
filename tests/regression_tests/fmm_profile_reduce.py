@@ -582,6 +582,12 @@ def print_probe(path: str, red: Dict) -> None:
 # revealed").
 TIMED_MAINT = ("builder_build", "repartition", "sort_by_leaf",
                "comm_plan_build")
+# auto_maintain's own timers and its Migrate-path redistribute, added by
+# canopy_profiling O5. A log that predates them lacks the keys, and they count
+# as 0 there, so its untimed column is unchanged.
+TIMED_MAINT_O5 = ("maint_rebuild_check", "maint_key_snapshot",
+                  "maint_compare_build", "maint_key_diff", "maint_sweep_setup",
+                  "redistribute")
 # Everything in ff_evaluate_total outside ff_maintain and ff_solve.
 ADAPTER = ("ff_pack", "ff_fwd_distribute", "ff_fwd_migrate", "ff_contract",
            "ff_rev_distribute", "ff_rev_migrate", "ff_scatter",
@@ -599,7 +605,8 @@ def state_line(c: Dict[str, object], a: Optional[Dict[str, object]]) -> str:
         return f"{n / d:.3f}"
 
     ffe, solve, maint = g("ff_evaluate_total"), g("ff_solve"), g("ff_maintain")
-    timed = [g(k) for k in TIMED_MAINT]
+    timed = [g(k) for k in TIMED_MAINT] + \
+        [g(k) or 0.0 for k in TIMED_MAINT_O5]
     untimed = (maint - sum(timed)) if maint is not None and \
         None not in timed else None
     adapter = [g(k) for k in ADAPTER]
@@ -628,7 +635,8 @@ def print_states(path: str, rows: Dict[str, List[Dict[str, object]]]) -> None:
     for run, cs in runs.items():
         print(f"\n=== {path}  states of probe run {run}  (per evaluation "
               "unless noted; untimed = ff_maintain - "
-              "builder_build - repartition - sort_by_leaf - comm_plan_build)")
+              "builder_build - repartition - sort_by_leaf - comm_plan_build "
+              "- the maint_* keys - redistribute, where present)")
         print("  step    time   s/step  ffe/wall  solve    maint  untimed "
               "opb/sv adp/ffe s/m/r/R act   p2p  fb_rg     acc_rel  dir/step")
         for c in sorted(cs, key=lambda r: r["step"]):

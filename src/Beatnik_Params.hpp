@@ -472,6 +472,20 @@ struct FmmParams
     /// velocity. It exists as a switch for O8's same-job failure-direction
     /// arm; Canopy's own default is also `true`.
     bool device_op_table_assembly = true;
+
+    /// Build Canopy's communication plan through per-cell index arrays.
+    /// Reaches `FmmConfig::indexed_comm_plan`. No CLI option and no Python
+    /// counterpart, like the knobs above.
+    ///
+    /// The plan is rebuilt at every Rebalance, which `auto_maintain` picks on
+    /// most evaluations. On, its dual-tree traversal reads children, owners
+    /// and subtree relevance from arrays and groups its output once at the
+    /// end; off, it pays a hash lookup at every traversal step and a
+    /// `std::set` insert per send or receive (canopy_profiling O5). The plan
+    /// is identical either way, so this moves cost, never a velocity. It
+    /// exists as a switch for O5's same-job failure-direction arm; Canopy's
+    /// own default is also `true`.
+    bool indexed_comm_plan = true;
 };
 
 //---------------------------------------------------------------------------//

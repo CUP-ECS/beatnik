@@ -1181,6 +1181,7 @@ class FarFieldSolver
         cfg.m2l_op_count_cap = _params.m2l_op_count_cap;
         cfg.quantize_root_half_width = _params.quantize_root_half_width;
         cfg.device_op_table_assembly = _params.device_op_table_assembly;
+        cfg.indexed_comm_plan = _params.indexed_comm_plan;
         return cfg;
     }
 
