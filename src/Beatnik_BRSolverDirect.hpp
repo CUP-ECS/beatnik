@@ -31,6 +31,7 @@
 
 #include <mpi.h>
 
+#include <algorithm>
 #include <cmath>
 #include <type_traits>
 #include <utility>
@@ -290,12 +291,11 @@ class BRSolverDirect : public BRSolverBase<ExecutionSpace, MemorySpace>
         int max_count = 0;
         MPI_Allreduce( &local_count, &max_count, 1, MPI_INT, MPI_MAX, _comm );
 
-        point_view send_points( "beatnik_br_ring_send_points", max_count );
-        strength_view send_strengths( "beatnik_br_ring_send_strengths",
-                                      max_count );
-        point_view recv_points( "beatnik_br_ring_recv_points", max_count );
-        strength_view recv_strengths( "beatnik_br_ring_recv_strengths",
-                                      max_count );
+        reserveRingBuffers( max_count );
+        point_view& send_points = _ring_send_points;
+        strength_view& send_strengths = _ring_send_strengths;
+        point_view& recv_points = _ring_recv_points;
+        strength_view& recv_strengths = _ring_recv_strengths;
         if ( local_count > 0 )
         {
             const auto rows = std::make_pair( 0, local_count );
@@ -309,7 +309,11 @@ class BRSolverDirect : public BRSolverBase<ExecutionSpace, MemorySpace>
 
         const int dst = ( rank + 1 ) % size;
         const int src = ( rank + size - 1 ) % size;
-        const int words = 3 * max_count;
+        // The WHOLE buffer, not 3 * max_count words: `Real* [3]` is LayoutLeft
+        // on a device, so with capacity above max_count the live rows are not
+        // a contiguous prefix. Capacity is a function of the global max_count
+        // sequence alone, so it is identical on every rank.
+        const int words = static_cast<int>( send_points.size() );
         int count = local_count;
 
         for ( int step = 1; step < size; ++step )
@@ -332,7 +336,46 @@ class BRSolverDirect : public BRSolverBase<ExecutionSpace, MemorySpace>
         }
     }
 
+    /**
+     * @brief Grow the four ring buffers to hold at least `max_count` rows.
+     *
+     * The buffers are members, not per-call locals, because GPU-aware MPI
+     * registers every device buffer it is handed with the NIC. Allocating four
+     * fresh views per `ringAccumulate` -- three calls per RK3 step -- gave the
+     * NIC tens of thousands of short-lived registrations, and a 16-rank run
+     * died near step 5270 in a flood of `cxil_map: write error` followed by
+     * `OFI tagged recv failed` in the tag-1401 `MPI_Sendrecv`. Persistent
+     * buffers keep the registration set at four regions per rank.
+     *
+     * Grow-only with 1.5x headroom, so an adaptive run whose source count
+     * creeps up reallocates rarely rather than every step. `max_count` is a
+     * global maximum, so every rank computes the same capacity -- which the
+     * full-buffer `MPI_Sendrecv` count relies on.
+     */
+    void reserveRingBuffers( const int max_count )
+    {
+        const auto capacity =
+            static_cast<int>( _ring_send_points.extent( 0 ) );
+        if ( max_count <= capacity )
+            return;
+        const int grown = std::max( max_count, capacity + capacity / 2 );
+        _ring_send_points =
+            point_view( "beatnik_br_ring_send_points", grown );
+        _ring_send_strengths =
+            strength_view( "beatnik_br_ring_send_strengths", grown );
+        _ring_recv_points =
+            point_view( "beatnik_br_ring_recv_points", grown );
+        _ring_recv_strengths =
+            strength_view( "beatnik_br_ring_recv_strengths", grown );
+    }
+
     MPI_Comm _comm;
+
+    // Persistent MPI buffers for the ring exchange; see reserveRingBuffers.
+    point_view _ring_send_points;
+    strength_view _ring_send_strengths;
+    point_view _ring_recv_points;
+    strength_view _ring_recv_strengths;
 };
 
 } // namespace Beatnik
