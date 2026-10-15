@@ -847,6 +847,17 @@ before the redesign. Their full investigation records are at
 `89ec015^:tasks/fmm_fullrollup_crash.md` and
 `89ec015^:tasks/fmm_premature_nan.md`.
 
+A third NIC registration exhaustion, in the **direct** Birkhoff-Rott solver, was
+RESOLVED 2026-10-14 in `b416c15`. `BRSolverDirect::ringAccumulate` allocated four
+fresh device views per call and handed them to GPU-aware MPI, so every rank
+registered ~63k short-lived regions over a long run. It reproduced as the level-3
+rising bubble (`adaptive_mesh_bubble`, `--br-approximation direct`, 16 ranks)
+dying at step ~5270 (t = 3.49) with thousands of `cxil_map: write error` lines
+and then `OFI tagged recv failed` in a tag-1401 `MPI_Sendrecv`. The ring buffers
+are now persistent, grow-only members. The same run reaches t = 5.30 and stops at a
+physical, nonfinite mesh state, with no `cxil_map` lines, and the
+per-step cost dropped about 6x.
+
 ## Acknowledgment, Contributors, and Copyright Information
 
 Beatnik is primarily available as open source under a 3-Clause BSD License. It is being developed at the University of New Mexico, Tennessee Tech University, and the University of Alabama under funding the U.S. Department of Energy's Predictive Science Academic Alliance Partnership III (PSAAP-III) program. Contributors to Beatnik development include:
