@@ -1172,31 +1172,96 @@ installed. Numbers and job IDs are in the [log](canopy_profiling-progress-log.md
 
 ### O9 — Cheaper pair classification in the interaction-list build — **NOT STARTED**
 
-**Depends on:** T3. Independent of O1, but sequenced after O8 by share.
+**Depends on:** O5 **DONE** (O5's knob-on SMS is the baseline).
 
-**Measured (T3):** `ilist_s3_classify_pairs` is 4.3–16.5 % of HIP step wall
-(medians per run). It is above 10 % at L5 np1 (12.1 %) and L6 np1 (16.5 %),
-and up to 18.4 % at single states. A further 1–4 % of step wall is untimed
-inside `dn_build_ilist`, outside its stage timers.
+**Baseline (after O5).** Medians of `3 × phase / step_wall` over O5's
+knob-on rows, HIP (jobs `f3eJ14annaAT` np1, `f3eJ14ijrioh` np4; log `## O5`):
 
-**Fill in:** `../canopy/src/Canopy_DownwardSweep.hpp`, stage 3 (from `:1553`,
-`TIMER_ILIST_S3_CLASSIFY_PAIRS`). It is a serial host loop over all pairs that
-classifies each and merges its key into a
-`std::unordered_map<M2LKey, int>` (`:1545`).
+| target | L4 np1 | L4 np4 | L5 np1 | L5 np4 |
+| --- | --- | --- | --- | --- |
+| `ilist_s3_classify_pairs` | 31.4 | 10.2 | 30.4 | 23.6 |
+| `dn_build_ilist` outside its stage timers | 8.2 | 4.8 | 4.9 | 3.6 |
 
-Candidates:
-- a parallel host or device classification;
-- a sort-unique key merge in place of the hash map;
-- reuse the interaction list on a Migrate evaluation, where the cell key set
-  is unchanged. Today `_finish_topology_stable` calls `_downward.setup`,
-  which sets `_interaction_list_dirty` (`Canopy_DownwardSweep.hpp:1422-1551`;
-  flag at `:923`), so every Migrate rebuilds the list. That is 2–23 % of
-  evaluations (T3).
+Per evaluation, stage 3 is a median 22.8 ms (L4 np1), 6.1 (L4 np4), 70.9 (L5
+np1) and 26.4 (L5 np4). SERIAL's "before" is O5's `f3eJ14rqpo91` (np1) and
+`f3eJ14zvJtBy` (np4). Accuracy baseline, O5's maxima (unchanged since O1): L4
+1.4025e-3, SERIAL's 500 steps 1.1338e-3, L5 1.2115e-3.
+
+**Fill in:** `../canopy/src/Canopy_DownwardSweep.hpp`, stage 3 of
+`build_interaction_list_device`, under `TIMER_ILIST_S3_CLASSIFY_PAIRS`
+(`:1672-2100`). It is already threaded on the host execution space, which is
+OpenMP at `OMP_NUM_THREADS=24` in every SMS launch
+(`scripts/tuolumne/runtime_env.sh:46`). It runs in three parts:
+1. **Sharded classify** (`ilist_s3_classify_shard`, `:1755-1946`): the pairs
+   are split into one contiguous slice of entries per host thread. Per pair,
+   it decodes both Morton keys, forms the canonical `M2LKey`
+   (`KernelType::canonicalize_key`), range-checks it against `_max_depth`,
+   `M2L_KEY_DD_MAX` and `M2L_KEY_OFFSET_MAX` (`:598-599`), and looks it up in
+   the thread's own `std::unordered_map`, appending first sightings to the
+   thread's key list.
+2. **Serial merge** (`:1948-2032`): the per-thread key lists are merged into
+   `key_to_op` and `ops`, with the column-cap test (`effective_op_cap`), giving
+   a local-to-global index map per thread. A global operator index is
+   therefore the order in which the merge first meets the key, which depends
+   on the thread count.
+3. **Parallel remap** (`ilist_s3_remap`, `:2056-2079`): each pair's local
+   index becomes its global one, or `-1` for a fallback pair.
+
+In a profiling build, two pieces of instrumentation run inside the same
+timer: the demanded-key set (`:1971`, filled in the merge) and the per-reason
+fallback counters (`:2050`, filled in the remap). The production build
+compiles both out.
+
+The knob: a Canopy `FmmConfig` field, a `DownwardSweep` setter, a Beatnik
+`FmmParams` field mapped in `buildConfig`, and a probe key, as O8's
+`device_op_table_assembly` and O5's `indexed_comm_plan`
+(`../canopy/src/Canopy_Solver.hpp:134,141`; `src/Beatnik_Params.hpp:488`;
+`src/Beatnik_FarFieldInterface.hpp:1184`). README "FMM tunables" and the
+Canopy README's `FmmConfig` table each gain a row.
+
+**Do:**
+1. **Split stage 3 first.** Add level-2 timers around the three parts and the
+   probe keys for them, in the same install as the change. Choose the
+   candidate from where the time is, and record the split in the log.
+2. Candidates:
+   - **A direct-index key table in place of the per-pair hash lookup.** Every
+     in-range canonical key is a small bounded tuple (`max_d ≤ _max_depth`,
+     `|dd| ≤ M2L_KEY_DD_MAX`, `|ii|, |jj|, |kk| ≤ M2L_KEY_OFFSET_MAX` = 32),
+     so a dense index of
+     `(_max_depth + 1) × (2·M2L_KEY_DD_MAX + 1) × 65³` slots can replace the
+     hash. At `max_depth` 10 that is about 3.0 M × (2·`M2L_KEY_DD_MAX` + 1)
+     slots, so size it and say whether it is per thread or shared.
+   - **Classification on the device.** The pair arrays are uploaded in stage 5
+     anyway.
+   - **A sort-unique merge** in place of the hash maps.
+3. Put the change behind the knob, default on, so the off arm (the current
+   path, unchanged) runs in the same job and on the same node.
+4. Measure the profiling-only instrumentation's cost inside the stage-3 timer
+   (the demanded set and the fallback counters) and report it. Do not move or
+   change it.
+
+- **Out of scope.** Reusing the interaction list on a Migrate evaluation:
+  Migrate is 6.6 % of evaluations after O1 (237 of 3600 at L4, 59 of 900 at
+  L5; log `## O5`), so it bounds the gain at about 7 % of stage 3. The
+  comm-plan finalizers (`commplan_finalize_m2l`, 2–15 % of the step after O5)
+  are not stage 3 either.
+- **Operator order may change.** Any candidate that reorders the merge
+  reorders the global operator indices. That is safe: stage 4 gathers each
+  table column by key through `_m2l_op_cache_index` (`:774`, read at
+  `:2295,2332`), never by position (log `## O8`).
 
 **Exit criterion:** the common O criteria, with Canopy stems `DownwardSweep`,
-`MultiSolve` and `CartesianTaylorSolve`, plus a unit case asserting the
-interaction list (pairs, keys, operator indices, fallback slices) is identical
-to the serial path's.
+`MultiSolve` and `CartesianTaylorSolve`. In addition:
+- a unit case builds one tree's interaction list with the knob off and on,
+  and asserts the same pairs (target, source), the same canonical key per
+  pair, the same fallback pairs and fallback slices, and an operator table
+  equal column for column once columns are matched by key. The raw `op_idx`
+  integers need not match;
+- the three stage-3 sub-timer keys print a non-sentinel value in every
+  `[cost]` row.
+
+Failure direction: a broken build whose classify assigns one wrong key fails
+the unit case (checked once by hand, not committed).
 
 ### O10 — Downward-sweep communication and per-depth loop at np > 1 — **NOT STARTED**
 
