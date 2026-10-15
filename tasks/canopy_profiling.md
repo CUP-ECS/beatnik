@@ -1,6 +1,6 @@
 # Canopy profiling and optimization, driven through Beatnik
 
-**Status:** IN PROGRESS — T0, T1, T2, T3, O1 and O8 done; V1 is triggered by O1's `[acc]` moves but **deferred by ruling** to the end of Phase O (log, "Decision: defer V1; a milestone failure from O1 is accepted"); O2 and O4 NOT TAKEN (triggers unmet after O1); **O5 next**, then O9 (sequence in [Phase O](#phase-o--optimize-single-node)).
+**Status:** IN PROGRESS — T0, T1, T2, T3, O1, O8 and O5 done; V1 is triggered by O1's `[acc]` moves but **deferred by ruling** to the end of Phase O (log, "Decision: defer V1; a milestone failure from O1 is accepted"); O2 and O4 NOT TAKEN (triggers unmet after O1); **O9 next**, then O10 (sequence in [Phase O](#phase-o--optimize-single-node)).
 
 ## Problem
 
@@ -1012,7 +1012,7 @@ serial host loop over missing keys whose columns are independent.
 be bit-identical to the serial build's: assert it in a unit case that builds
 one key set both ways.
 
-### O5 — Cheaper maintenance between RK stages — **NOT STARTED**
+### O5 — Cheaper maintenance between RK stages — **DONE**
 
 **Depends on:** T3, O1 **DONE** (O1 changes what maintenance rebuilds) and
 O8 **DONE** (O8's knob-on SMS is the baseline).
@@ -1085,6 +1085,60 @@ rows, HIP (jobs `f3dvNa7ovPnF` np1, `f3dvNaGqG2Fy` np4; log `## O8`):
 - every new timer key prints a non-sentinel value in every `[cost]` row;
 - untimed maintenance, recomputed with the new timers counted as timed, is
   under 2 % of step wall, or the log names what the remainder is.
+
+**Met.** Verified 2026-10-15, Canopy `c9ff5dc` (0 porcelain lines in every
+job), Beatnik `c22d346` installed. Numbers and job IDs are in the
+[log](canopy_profiling-progress-log.md) `## O5`.
+- **The change: a cheaper Rebalance path, not a policy change.**
+  `CommunicationPlan::build` gains an indexed build that produces the
+  identical plan. The DTT, the vertical plans and the subtree relevance read
+  children, parent and owner from per-cell index arrays. The DTT appends to
+  flat buffers grouped by target with a counting sort, and first-emission
+  marks admit each send, receive and ghost once. Off is the hash-driven
+  build, unchanged.
+  - **No `MaintenanceAction` change.** Any key change invalidates the
+    cell-keyed comm plan, so no policy can skip the rebuild without keeping
+    a stale tree. A lazy tree would move `[acc]`, and repartition alone is
+    out of scope. The milestone tier therefore exercises the same actions.
+- **The knob.** `FmmConfig::indexed_comm_plan` and
+  `FmmParams::indexed_comm_plan`, both default `true`; probe key
+  `indexed_comm_plan`.
+- **Two installs, a departure.** v1 buffered every repeat emission: 452 276
+  receives for 1 660 unique on one rank of the np 2 fixture. Its sort would
+  have erased the multi-rank gain. v2 added the marks, which needed a second
+  install; no SMS job had run on v1.
+- **Canopy stems: PASS.** `TreeBuilder`, `TreePartitioner`,
+  `CommunicationPlan` and `MultiSolve` at SERIAL np 1–6 and HIP np 1–4 (job
+  `f3eHuZoQbRcs`). `CommunicationPlan.testIndexedMatchesLegacy{Deep,Basic}`
+  compare every public plan field between the two builds and are `[ OK ]` on
+  every rank. Two broken builds fail as predicted: index tables missing
+  octant-7 children, and an unsorted receive buffer (passes at np 1, fails
+  at np 2).
+- **New timers: non-sentinel in every `[cost]` row** (12 keys × 236 rows).
+  - Untimed maintenance falls to a median 0.0–0.4 % of the step (7–11 % at
+    O8), and ≤ 0.4 % at every state after step 1.
+  - Step 1's 0.8–4.4 % is the one-time Setup's `partition`, which the
+    reducer does not subtract.
+  - The old remainder was mostly `maint_compare_build` (2.4–9.1 %) and
+    `maint_sweep_setup` (4.4–6.5 %).
+- **Gain (same-job pairs).** The DTT falls 63–84 % and `comm_plan_build`
+  61–66 % at np4 (23–25 % at np1, where the indexed finalizers absorb part of
+  the saving).
+  - Summed SMS step wall: **−19.2 %** at L5 HIP np4 (the headline), −9.3 %
+    at L5 np1, −4.3 % at L4 np1 and −1.3 % at L4 np4.
+  - At L4 np4, phases the knob does not touch moved 13–25 % between the
+    arms. That noise hides most of the 15.8 s `ff_maintain` saving.
+  - SERIAL is not claimed: the saving is under 1 % of its step.
+- **Accuracy: bit-identical.** `[acc]` equals O8's knob-on value at every
+  state of every run, in both arms. The maxima are unchanged: L4 1.4025e-3,
+  SERIAL 500-step 1.1338e-3, L5 1.2115e-3.
+- **Failure direction.** The off arm has `[acc]` identical to O8, and its
+  `comm_plan_build`, DTT and `ff_maintain` are within 3 % of O8 per run.
+  - Its step wall is within T3's per-state spread at every HIP state after
+    step 1 (L4 −7.0 to +6.2 %, L5 −2.8 to +1.3 %).
+  - Run level: L5 +0.2 / −1.0 % (np1 / np4), within 1.7 %. L4 +3.9 / −4.0 %,
+    outside 0.6 % in both directions, on different nodes from O8's, as O1's
+    and O8's own controls were.
 
 ### O8 — Assemble the operator table without a full host copy and upload — **DONE**
 

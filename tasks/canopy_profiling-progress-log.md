@@ -1883,3 +1883,480 @@ np4); `off vs O1` is the failure direction. `[acc]` is the knob-on value.
 - **V1** — not triggered by O8: `[acc]` is bit-identical to O1 at every SMS
   state. V1 stays deferred to the end of Phase O. `device_op_table_assembly`
   is on by default in `FmmParams`, so the milestone tier will exercise it.
+
+## O5
+
+**Provenance, pinned.**
+- **Code.** Canopy `7b4c2e4` "CommunicationPlan: indexed build, and
+  auto_maintain timers (O5)" plus `c9ff5dc` "CommunicationPlan: de-duplicate
+  indexed-build sends/receives at emission (O5)" (v2, below). Every job ran
+  HEAD `c9ff5dc` with **0 porcelain lines**. Beatnik `c22d346`
+  "canopy_profiling O5: indexed_comm_plan from Beatnik, maintenance probe
+  keys"; the SMS jobs logged HEAD `70ed7ad`, whose two commits after
+  `c22d346` touch `BRSolverDirect` and rising-bubble scripts, not the FMM
+  path or the probe (dirty 11 files, none compiled: `.claude/settings.json`
+  and ten untracked notes, install logs and scripts).
+- **Toolchain.** As O8: `canopy@develop +profiling profiling_level=2`,
+  cce@20.0.0, dev env `~/spack_envs/tuolumne_beatnik`, `profile.local.sh`
+  (spack mode). Canopy standalone: `build-profiling/` under
+  `tuolumne_trilinos`; seven stems relinked from the v2 source in about 8 min
+  on the login node. `TreePartitioner` was not rebuilt: it does not include
+  `Canopy_CommunicationPlan.hpp`, the only file v2 changed, so its v1 binary
+  is current.
+- **Installs: two, a departure from the one-install rule** (below). The
+  first, 15:20:26–15:31:38 (11 min 12 s, rc 0), built v1 and was
+  superseded before any SMS job ran on it. The second,
+  10:25:16–10:35:49 (**10 min 33 s**, rc 0; Beatnik 9 min 55 s, Canopy
+  re-staged in 17 s), built v2. Every `.cpp` under `src tests examples` was
+  touched first and `HIPCC_*_FLAGS_APPEND` unset (`systems/tuolumne/claude.md`
+  §3). The installed `Canopy_CommunicationPlan.hpp` carries `_m2l_recv_mark`
+  and the installed `Beatnik_Params.hpp` carries `indexed_comm_plan`. The two
+  `pbatch` jobs running during the install (`rb_l6_no_amr`, `rb_l3_amr_D5`)
+  were on the production env, so the dev reinstall could not touch them.
+- **Configuration.** As O8: CartesianTaylor order 3, θ 0.3, `ncrit 8`,
+  `m2l_op_count_cap 65536`, `canopy_report 0`. Both arms pass
+  `quantize_root_half_width=1,device_op_table_assembly=1` and
+  `indexed_comm_plan=0|1` explicitly. Binding is
+  `canopy_profiling_baseline.flux`'s `launch()`, unmodified, with a
+  `BEATNIK_CPS_SWEEP` override per job.
+
+All jobs `pdebug`, rc 0, no `SKIPPED` or `FAIL`, every `[cpb] total wall`
+present. The reducer's count check (`fmm_profile_reduce.py --format probe
+--states`) passed every `[cost]` row with 0 excluded.
+
+| job | name | node | rows (label level steps every) | launch walls | queue wait | job wall |
+| --- | --- | --- | --- | --- | --- | --- |
+| `f3eHuZoQbRcs` | `canopy-cprof-o5` | 1031 | Canopy stems + two mutants | — | 1 s | 6.8 min |
+| `f3eJ14annaAT` | `beatnik_o5_hip_np1` | 1031 | `smsl5c0`, `smsl5c1` 5 300 25; `smsl4c1`, `smsl4c0` 4 1200 50 | 239 + 214 + 255 + 267 s | 0 s | 16.6 min |
+| `f3eJ14ijrioh` | `beatnik_o5_hip_np4` | 1016 | same rows at np4 | 138 + 110 + 224 + 228 s | 0 s | 12.2 min |
+| `f3eJ14rqpo91` | `beatnik_o5_serial_np1` | 1043 | `smsl4c1`, `smsl4c0` 4 500 25 | 797 + 863 s | 1 s | 28.2 min |
+| `f3eJ14zvJtBy` | `beatnik_o5_serial_np4_c1` | 1025 | `smsl4c1` 4 500 25 | 1885 s | 0 s | 32.0 min |
+| `f3eJ158h17ro` | `beatnik_o5_serial_np4_c0` | 1013 | `smsl4c0` 4 500 25 | 1846 s | 1 s | 31.3 min |
+
+`c1` is the knob on (the indexed build), `c0` off (the hash-driven build).
+In each HIP job each arm goes first once, at L5 `c0` and at L4 `c1`, against
+O8's launch-order step-1 effect. O8 bases, all knob-on (`a1`): `f3dvNa7ovPnF`
+(HIP np1, node 1016), `f3dvNaGqG2Fy` (HIP np4, 1042), `f3dvNaQDiShd` (SERIAL
+np1, 1011), `f3dvNaYRcUAK` (SERIAL np4, 1015). The SMS jobs were submitted
+together at 10:36:12, after the install; the Canopy job went out at 10:24,
+during it. It uses the trilinos env and `build-profiling/`, so it could not
+collide with the install. pdebug had room: no job waited more than 1 s.
+
+**Decisions, made before this session and recorded here.**
+- **The change is a cheaper Rebalance path, not a policy change.** Canopy's
+  `CommunicationPlan::build` gains an **indexed build** that produces the
+  identical plan:
+  - the DTT, the vertical plans and the subtree relevance read children,
+    parent and owner from per-cell index arrays instead of a hash lookup at
+    every step;
+  - the DTT appends emissions to flat buffers, grouped by target with a
+    counting sort, instead of an `interaction_lists[t]` map lookup per
+    emission;
+  - sends, receives and ghosts enter their buffers once, through
+    first-emission marks, and are then sorted (v2); the hash-driven build
+    inserts every repeat into a `std::set`.
+
+  Off is the hash-driven build, unchanged. The per-target list sort is
+  factored into `sort_interaction_lists()`, shared by both builds.
+- **No `MaintenanceAction` policy change**, though step 2 allowed one:
+  - any key change invalidates the comm plan, which is keyed by cells, so no
+    policy can skip the plan rebuild without keeping a stale tree;
+  - keeping the old cell set while particles move (a lazy tree) changes the
+    tree, and so `[acc]`. That risks the exact per-level accuracy guard and
+    needs L6 rows;
+  - the one thing a policy alone could skip is repartition, 1–5 % of the
+    step, which is out of scope.
+
+  The indexed build leaves the plan, and therefore `[acc]`, bit-identical. It
+  does not change which action is chosen, so the milestone tier exercises the
+  same maintenance paths as before.
+- **The knob,** as O8's: Canopy `FmmConfig::indexed_comm_plan`, default
+  **on**, reaching the plan through `set_indexed_build()` in the `Solver`
+  constructor; Beatnik `FmmParams::indexed_comm_plan`, default on, mapped in
+  `buildConfig`; probe key `indexed_comm_plan=<0|1>`, echoed in `[fmmcost]
+  header`; README "FMM tunables" row and the Canopy README `FmmConfig` row.
+- **Timers** (`Canopy_Profiling.hpp`, all level-1 `CANOPY_SCOPED_TIMER`): in
+  `auto_maintain`, `maint_rebuild_check` (fence + `needs_rebuild`),
+  `maint_key_snapshot`, `maint_compare_build`, `maint_key_diff`, and the
+  existing `redistribute` key around the Migrate path's `redistribute` call;
+  `maint_sweep_setup` around the upward, downward and P2P setups in both
+  `_finish_topology_{change,stable}`. The probe's `kCanopyKeys` gained these
+  and the five missing `commplan_*` sub-stage keys. `fmm_profile_reduce.py
+  --states` subtracts them (and `redistribute`) from `ff_maintain` as timed;
+  missing keys count as 0, so older logs reduce unchanged, and `--self-test`
+  passes.
+- **Expected `[acc]`: bit-identical to O8 at every state.** The M2L consumer
+  re-sorts targets by (depth, target index); the P2P consumer iterates
+  `neighbor_lists` in map order, but each target writes only its own leaf.
+- **No level-6 rows.** The tree is unchanged.
+- **The milestone tier is not run** (V1 deferred), and `kTauA` is untouched.
+
+**The v1 → v2 finding, and the two-install departure.** Canopy job
+`f3dwbTPkMc9u` (node 1012) ran the stems on v1 (`7b4c2e4`): all
+PASS at SERIAL np 1–6 and HIP np 1–4, the new cases OK on every rank, and
+both mutants as expected. But the v1 receive mutant, which left the M2L
+receive buffer neither sorted nor de-duplicated, exposed how much v1
+buffered: **452 276 receive emissions for 1 660 unique** on one rank (np 2,
+the 4000-particle `ncrit 8` fixture). v1 appended every repeat and
+sort-uniqued afterwards, so its finalizer sort was as large as the legacy
+DTT's set inserts, which would have erased the multi-rank gain the task
+targets. v2 (`c9ff5dc`) de-duplicates at emission with four marks:
+`_m2l_recv_mark` and `_p2p_ghost_mark` per cell (a remote cell's rank is its
+owner), and `_m2l_send_mark` and `_p2p_send_mark` per (cell, rank), held as
+`cells × nprocs` bytes. The finalizers still sort, so the plan is unchanged.
+Taking v2 needed a second install. The v1 install had run no SMS job, so
+only its 11 minutes were spent; the alternative, measuring a build known to
+carry a sort of 270× the unique receives, would have measured the wrong
+thing. The mutant was renamed `no_recv_dedup` → `no_recv_sort` (now: buffer
+left in first-emission order).
+
+**Signatures.**
+- Canopy: `FmmConfig::indexed_comm_plan` (`bool`, default `true`,
+  `src/Canopy_Solver.hpp`); `CommunicationPlan::set_indexed_build(bool)` and
+  `indexed_build()`; private `sort_interaction_lists()`, the
+  `*_indexed` builders, the flat buffers `_m2l_emits`, `_m2l_recv_buf`,
+  `_m2l_send_buf`, `_p2p_emits`, `_p2p_ghost_buf`, `_p2p_send_buf`, and the
+  marks `_m2l_recv_mark`, `_m2l_send_mark`, `_p2p_ghost_mark`,
+  `_p2p_send_mark`.
+- Canopy timer keys: `maint_rebuild_check`, `maint_key_snapshot`,
+  `maint_compare_build`, `maint_key_diff`, `maint_sweep_setup`
+  (`TIMER_MAINT_*`), and `redistribute` (`TIMER_REDISTRIBUTE`, existing) now
+  also on `auto_maintain`'s Migrate path.
+- Beatnik: `FmmParams::indexed_comm_plan` (`bool`, default `true`) in
+  `src/Beatnik_Params.hpp`, mapped in `buildConfig`.
+- Probe: key `indexed_comm_plan=<0|1>` (default `FmmParams{}`'s), echoed in
+  the header after `device_op_table_assembly`. `kCanopyKeys` gained the six
+  maintenance keys above and `commplan_cell_map_fill`,
+  `commplan_vertical_plans`, `commplan_subtree_relevance`,
+  `commplan_finalize_m2l`, `commplan_finalize_p2p`. No existing `[cost]`
+  field changed.
+
+**Canopy unit cases.** `CommunicationPlan.testIndexedMatchesLegacy{Deep,Basic}`
+(`tests/tstCommunicationPlan.hpp`) build one plan each way on the same tree
+and compare every public plan field, then build a second indexed plan and
+compare again.
+
+**Canopy tests, job `f3eHuZoQbRcs`: all PASS.** `TreeBuilder`,
+`TreePartitioner`, `CommunicationPlan` and `MultiSolve` at SERIAL np 1–6 and
+HIP np 1–4, all 40 entries passed within budget, `### overall rc=0 ###`. The
+two new cases are `[ OK ]` on every rank of every CommunicationPlan entry.
+
+**Broken-build check, by hand, not committed.** Two SERIAL CommunicationPlan
+binaries, built from deliberately broken v2 sources, run on the comparison
+cases at np 1 and 2. **Both behave as predicted.**
+- **`.drop_child7`** (the index tables never link an octant-7 child) fails
+  at np 1 (`testIndexedMatchesLegacyDeep`, 5 failed lines) and at np 2 (10).
+- **`.no_recv_sort`** (the M2L receive buffer left in first-emission order)
+  passes at np 1, where no receive exists, and fails at np 2 (10 failed
+  lines, receive keys out of order at `tstCommunicationPlan.hpp:641`). The
+  finalizer sort is therefore still load-bearing after v2.
+
+**Bugs only running revealed.**
+- **The indexed finalizers cost more than the hash-driven ones,** so part of
+  the DTT's saving moves rather than vanishes. Summed `commplan_finalize_m2l`
+  rises +36 to +96 % (L5 HIP np1 15.2 → 29.8 s) and `commplan_finalize_p2p`
+  +20 to +27 %. In the hash-driven build the per-target grouping happens
+  during the DTT, as map inserts; in the indexed build it happens in the
+  finalizer, as the counting sort over the flat emission buffers. At np4 the
+  DTT's fall dwarfs it (net `comm_plan_build` −61 to −66 %); at np1 it eats
+  more than half of it (net −23 to −25 %). After O5, `commplan_finalize_m2l`
+  is the largest comm-plan sub-stage at np1 (7.2 / 15.0 % of the step at L4 /
+  L5) and the DTT is second (4.9 / 7.5 %).
+- **Step-1 untimed maintenance is the Setup path's `partition`.** Untimed
+  maintenance is under 0.4 % of the step at every state after step 1, but
+  0.8–4.4 % at step 1 on HIP. That window holds the one `Setup` action, and
+  its `partition` timer (6.1 of 6.7 ms per evaluation at L4 np4) is not in
+  the reducer's timed set.
+- **Phases the knob does not touch moved 13–25 % between the L4 HIP np4
+  arms.** In the `c1` run `builder_build`, `maint_compare_build`, `ff_solve`
+  and `p2p_total` are 13–25 % above `c0`; `c0` and O8 agree on them (e.g.
+  `builder_build` 15.72 against 15.78 s; `c1` 19.13 s). The other three HIP
+  pairs show the same phases moving by −3 to +33 % with no consistent sign.
+  This noise hides most of L4 np4's maintenance saving (`ff_maintain`
+  −15.8 s) at step level (−2.8 s).
+
+**Results.**
+- **Gain (on against off, same job).** Summed SMS step wall:
+  - L5 HIP np4 **−19.2 %** (124.8 → 100.9 s), L5 np1 **−9.3 %** (227.7 →
+    206.5 s);
+  - L4 HIP np4 **−1.3 %** (217.7 → 214.9 s), L4 np1 **−4.3 %** (260.3 →
+    249.1 s).
+
+  Per state after step 1: L5 np4 −10.7 to −21.4 %, L5 np1 −4.5 to −11.2 %,
+  L4 np1 −2.4 to −6.1 %, L4 np4 −5.9 to +2.2 %. All four HIP runs clear
+  T3's run-level spread (0.6 % L4, 1.7 % L5). Of the per-state thresholds
+  (9 % L4, 14 % L5), 11 of 12 L5 np4 states clear 14 %; no L5 np1 and no L4
+  state clears its threshold. SERIAL np1 −8.2 % (same job, per state −21.9 to +16.0 %) and
+  np4 +2.2 % (two jobs, two nodes) are not claimed: the SERIAL comm-plan
+  saving is 6–9 s of a 771–1849 s run, under 1 %.
+- **The targeted phases.** Summed, `c0` → `c1`:
+
+  | run | `ff_maintain` (s) | `comm_plan_build` (s) | `commplan_dtt_traversal` (s) |
+  | --- | --- | --- | --- |
+  | L4 HIP np1 | 99.4 → 85.8 (−13.8 %) | 53.5 → 41.1 (−23.1 %) | 33.0 → 12.3 (−62.8 %) |
+  | L4 HIP np4 | 88.2 → 72.4 (−17.9 %) | 37.6 → 13.0 (−65.5 %) | 31.0 → 4.9 (−84.2 %) |
+  | L5 HIP np1 | 98.0 → 82.6 (−15.8 %) | 74.5 → 55.6 (−25.3 %) | 50.5 → 14.9 (−70.5 %) |
+  | L5 HIP np4 | 58.1 → 35.9 (−38.3 %) | 36.7 → 14.4 (−60.7 %) | 29.4 → 4.7 (−84.2 %) |
+  | L4 SERIAL np1 | 42.0 → 34.2 (−18.6 %) | 22.0 → 15.9 (−27.6 %) | 14.2 → 5.0 (−64.7 %) |
+  | L4 SERIAL np4 | 34.6 → 25.9 (−25.2 %) | 14.7 → 5.6 (−61.6 %) | 11.7 → 2.0 (−82.8 %) |
+
+  `commplan_vertical_plans` falls 54–60 % and, at np4,
+  `commplan_subtree_relevance` 72–78 % (it is about 0 at np1); both are under
+  1 s per run. `commplan_cell_map_fill` rises 0.1–0.2 s: under the knob it
+  builds the index tables in place of the hash map.
+- **The new timers: every key prints a non-sentinel value in every
+  `[cost]` row** (12 keys × 236 rows, 0 missing). Untimed maintenance,
+  recomputed with them counted as timed, is a median **0.0–0.4 %** of the
+  step (7.3–11.2 % at O8) and ≤ 0.4 % at every state after step 1. Step 1
+  is 0.8–4.4 % on HIP, and that is the Setup path's `partition` (above). The
+  remainder is therefore named. What it was:
+  - `maint_compare_build` 2.4–9.1 % of the step (the comparison build that
+    decides between Migrate and Rebalance, a second full tree build);
+  - `maint_sweep_setup` 4.4–6.5 %;
+  - `maint_key_snapshot` ≤ 0.2 %, `maint_rebuild_check` ≤ 0.1 %,
+    `maint_key_diff` 0.0 %, `redistribute` 0.0 % (Migrate's redistribute
+    moves nothing on these trajectories).
+- **Accuracy: bit-identical.** `[acc]` is identical, as printed, to O8's
+  knob-on value at **every** state of **every** run, in **both** arms: 25
+  states × 2 HIP runs at L4, 13 × 2 at L5, 21 × 2 SERIAL. Per-level maxima are
+  unchanged: L4 **1.4025e-3**, SERIAL's 500 steps 1.1338e-3, L5
+  **1.2115e-3**. No state moved, so V1 is not triggered by O5.
+- **Failure direction (off against O8's on).**
+  - **`[acc]`:** bit-identical at every state.
+  - **Targeted phases:** `c0` reproduces O8 within 3 % in every run
+    (`comm_plan_build` 53.5 against 52.1 s at L4 np1, 37.6 against 37.6 at L4
+    np4, 74.5 against 75.5 at L5 np1, 36.7 against 36.9 at L5 np4; DTT and
+    `ff_maintain` likewise). The gain vanishes with the knob off.
+  - **Step wall, run level:** L5 np1 +0.2 %, np4 −1.0 %, within T3's 1.7 %.
+    L4 np1 +3.9 %, np4 −4.0 %, outside T3's 0.6 % in both directions, on
+    different nodes from O8's (1031 against 1016, 1016 against 1042), as O1's
+    and O8's own controls were.
+  - **Step wall, per state after step 1:** L4 −0.0 to +6.2 % (np1) and −7.0
+    to +0.4 % (np4); L5 −0.6 to +1.3 % and −2.8 to −0.0 %. All within T3's
+    9 % and 14 %.
+  - **Step 1:** `c0` against O8 +14.0 % (L4 np1), +19.2 % (L4 np4), −0.2 %
+    (L5 np1), +5.5 % (L5 np4). At L5, where `c0` ran first, step 1 is 32 %
+    (np1) and 39 % (np4) slower than `c1`, which is O8's launch-order effect
+    with the arms swapped.
+  - **SERIAL, cross-node:** np1 +8.3 % run level (1043 against 1011; per
+    state −9.3 to +35.4 %), np4 +2.1 % (1013 against 1015).
+- **Post-O5 shares** (medians of `3 × phase / step_wall` over each knob-on
+  run's `[cost]` rows, HIP; off arm in brackets; the `commplan_*` and
+  `maint_*` keys did not exist at O8):
+
+  | target | L4 np1 | L4 np4 | L5 np1 | L5 np4 |
+  | --- | --- | --- | --- | --- |
+  | `ff_maintain` (O5) | 33.2 (36.6) | 33.1 (40.2) | 40.6 (43.9) | 36.0 (47.4) |
+  | `comm_plan_build` | 16.5 (20.6) | 5.9 (17.4) | 28.1 (33.7) | 14.9 (30.4) |
+  | `commplan_dtt_traversal` | 4.9 (12.7) | 2.3 (14.3) | 7.5 (22.9) | 4.8 (24.4) |
+  | `commplan_finalize_m2l` | 7.2 (4.4) | 2.2 (1.6) | 15.0 (6.8) | 6.7 (3.3) |
+  | `commplan_finalize_p2p` | 4.0 (3.1) | 1.2 (1.0) | 4.9 (3.6) | 2.6 (1.6) |
+  | `maint_compare_build` | 5.4 (5.4) | 9.1 (7.4) | 2.4 (1.7) | 5.1 (4.1) |
+  | `builder_build` | 5.6 (5.5) | 8.7 (7.1) | 2.1 (1.4) | 4.7 (3.6) |
+  | `maint_sweep_setup` | 4.9 (4.8) | 4.4 (3.9) | 6.5 (5.3) | 5.0 (4.2) |
+  | `repartition` | 0.8 (0.7) | 3.8 (3.5) | 1.5 (1.3) | 5.6 (4.6) |
+  | untimed maintenance | 0.0 (0.0) | 0.1 (0.0) | 0.4 (0.3) | 0.1 (0.1) |
+  | `ilist_s3_classify_pairs` (O9) | 31.4 (29.4) | 10.2 (9.7) | 30.4 (27.1) | 23.6 (18.2) |
+
+  The off-arm `ff_maintain` and `comm_plan_build` shares reproduce O8's
+  knob-on shares within 1.4 points (O8: 38.0 / 39.0 / 44.4 / 46.7 and
+  20.8 / 16.4 / 34.3 / 30.0).
+
+**Per-state numbers.** `c1 vs c0` is within one job (two jobs for SERIAL
+np4); `c0 vs O8` is the failure direction. `[acc]` is the knob-on value.
+`=` means `c0`, `c1` and O8 agree to every printed digit. Untimed is
+`ff_maintain` less every timed maintenance key, as the reducer computes it.
+
+**L4_HIP_np1** — summed step wall O8 250.5 s, c0 260.3 s, c1 249.1 s (c1 vs c0 -4.3 %; c0 vs O8 +3.9 %). Summed per run: c1 ff_maintain 85.76 s, comm_plan_build 41.11 s, dtt 12.25 s; c0 ff_maintain 99.43 s, comm_plan_build 53.46 s, dtt 32.95 s.
+
+| step | O8 s/step | c0 s/step | c1 s/step | c1 vs c0 | c0 vs O8 | comm_plan_build/eval c0 → c1 (ms) | DTT/eval c0 → c1 (ms) | untimed/eval c1 (ms) | `[acc]` (c1) | vs O8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 0.331 | 0.378 | 0.366 | -3.2 % | +14.0 % | 8.72 → 6.76 | 5.31 → 2.08 | 0.913 | 1.1338e-03 | = |
+| 50 | 0.154 | 0.154 | 0.145 | -5.6 % | -0.0 % | 12.24 → 9.52 | 7.33 → 2.81 | 0.029 | 1.1144e-03 | = |
+| 100 | 0.167 | 0.169 | 0.163 | -3.6 % | +0.8 % | 14.13 → 11.03 | 8.61 → 3.28 | 0.029 | 1.0380e-03 | = |
+| 150 | 0.176 | 0.177 | 0.168 | -4.6 % | +0.6 % | 14.53 → 11.10 | 8.98 → 3.37 | 0.030 | 1.0114e-03 | = |
+| 200 | 0.171 | 0.177 | 0.166 | -6.1 % | +3.9 % | 14.95 → 11.42 | 9.22 → 3.47 | 0.030 | 8.7885e-04 | = |
+| 250 | 0.156 | 0.159 | 0.153 | -3.5 % | +2.1 % | 12.46 → 9.72 | 7.58 → 2.98 | 0.028 | 8.1017e-04 | = |
+| 300 | 0.151 | 0.155 | 0.149 | -4.3 % | +2.6 % | 12.57 → 9.84 | 7.59 → 2.96 | 0.026 | 8.5650e-04 | = |
+| 350 | 0.160 | 0.167 | 0.159 | -4.8 % | +4.2 % | 11.99 → 9.37 | 7.26 → 2.86 | 0.028 | 9.4444e-04 | = |
+| 400 | 0.163 | 0.164 | 0.159 | -3.1 % | +0.9 % | 12.39 → 9.71 | 7.46 → 2.95 | 0.027 | 1.0679e-03 | = |
+| 450 | 0.163 | 0.170 | 0.160 | -6.0 % | +4.3 % | 12.35 → 9.44 | 7.45 → 2.84 | 0.028 | 4.5554e-04 | = |
+| 500 | 0.174 | 0.179 | 0.169 | -5.1 % | +2.8 % | 12.27 → 9.35 | 7.46 → 2.80 | 0.027 | 1.1160e-03 | = |
+| 550 | 0.194 | 0.204 | 0.195 | -4.5 % | +5.4 % | 14.18 → 10.86 | 8.61 → 3.22 | 0.030 | 1.1877e-03 | = |
+| 600 | 0.218 | 0.228 | 0.217 | -4.9 % | +4.8 % | 16.02 → 12.27 | 9.86 → 3.59 | 0.034 | 8.1949e-04 | = |
+| 650 | 0.238 | 0.252 | 0.238 | -5.5 % | +5.9 % | 17.27 → 13.21 | 10.72 → 3.87 | 0.036 | 6.6914e-04 | = |
+| 700 | 0.232 | 0.243 | 0.232 | -4.7 % | +4.8 % | 15.61 → 11.90 | 9.77 → 3.52 | 0.039 | 6.2743e-04 | = |
+| 750 | 0.237 | 0.249 | 0.236 | -5.1 % | +4.9 % | 15.43 → 11.77 | 9.62 → 3.49 | 0.036 | 7.5714e-04 | = |
+| 800 | 0.227 | 0.241 | 0.229 | -4.6 % | +6.2 % | 14.39 → 11.05 | 9.01 → 3.33 | 0.033 | 1.4025e-03 | = |
+| 850 | 0.245 | 0.255 | 0.246 | -3.8 % | +4.2 % | 14.67 → 11.14 | 9.19 → 3.31 | 0.035 | 7.7219e-04 | = |
+| 900 | 0.237 | 0.248 | 0.238 | -4.1 % | +4.8 % | 12.44 → 9.38 | 7.79 → 2.78 | 0.034 | 8.9084e-04 | = |
+| 950 | 0.255 | 0.265 | 0.251 | -5.2 % | +3.8 % | 18.01 → 13.57 | 11.16 → 4.02 | 0.036 | 9.3676e-04 | = |
+| 1000 | 0.245 | 0.255 | 0.246 | -3.5 % | +3.9 % | 16.79 → 12.92 | 10.41 → 3.81 | 0.036 | 8.6207e-04 | = |
+| 1050 | 0.255 | 0.267 | 0.256 | -4.2 % | +4.5 % | 18.16 → 13.91 | 11.28 → 4.11 | 0.037 | 7.4657e-04 | = |
+| 1100 | 0.277 | 0.286 | 0.278 | -2.9 % | +3.3 % | 18.55 → 14.28 | 11.55 → 4.21 | 0.040 | 1.1242e-03 | = |
+| 1150 | 0.259 | 0.271 | 0.263 | -3.1 % | +4.7 % | 17.54 → 13.59 | 10.92 → 4.03 | 0.037 | 1.0894e-03 | = |
+| 1200 | 0.254 | 0.266 | 0.260 | -2.4 % | +4.6 % | 17.52 → 13.77 | 10.88 → 4.08 | 0.038 | 9.6332e-04 | = |
+
+**L4_HIP_np4** — summed step wall O8 226.9 s, c0 217.7 s, c1 214.9 s (c1 vs c0 -1.3 %; c0 vs O8 -4.0 %). Summed per run: c1 ff_maintain 72.42 s, comm_plan_build 12.95 s, dtt 4.89 s; c0 ff_maintain 88.23 s, comm_plan_build 37.59 s, dtt 30.99 s.
+
+| step | O8 s/step | c0 s/step | c1 s/step | c1 vs c0 | c0 vs O8 | comm_plan_build/eval c0 → c1 (ms) | DTT/eval c0 → c1 (ms) | untimed/eval c1 (ms) | `[acc]` (c1) | vs O8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 0.387 | 0.461 | 0.453 | -1.8 % | +19.2 % | 6.22 → 2.26 | 4.82 → 0.79 | 6.680 | 1.1338e-03 | = |
+| 50 | 0.142 | 0.137 | 0.132 | -3.4 % | -3.8 % | 8.58 → 3.12 | 6.95 → 1.13 | 0.026 | 1.1144e-03 | = |
+| 100 | 0.147 | 0.145 | 0.137 | -5.3 % | -1.4 % | 9.83 → 3.47 | 8.03 → 1.25 | 0.028 | 1.0380e-03 | = |
+| 150 | 0.147 | 0.146 | 0.139 | -4.3 % | -1.2 % | 9.92 → 3.48 | 8.12 → 1.26 | 0.028 | 1.0114e-03 | = |
+| 200 | 0.154 | 0.151 | 0.143 | -5.3 % | -2.2 % | 10.35 → 3.59 | 8.50 → 1.32 | 0.029 | 8.7885e-04 | = |
+| 250 | 0.147 | 0.148 | 0.139 | -5.9 % | +0.4 % | 8.60 → 3.07 | 7.00 → 1.12 | 0.029 | 8.1017e-04 | = |
+| 300 | 0.149 | 0.146 | 0.141 | -3.5 % | -1.9 % | 8.70 → 3.17 | 7.05 → 1.16 | 0.028 | 8.5650e-04 | = |
+| 350 | 0.165 | 0.162 | 0.161 | -0.3 % | -2.3 % | 8.27 → 3.03 | 6.70 → 1.11 | 0.031 | 9.4444e-04 | = |
+| 400 | 0.178 | 0.175 | 0.172 | -1.6 % | -1.4 % | 8.83 → 3.21 | 7.17 → 1.18 | 0.030 | 1.0679e-03 | = |
+| 450 | 0.168 | 0.165 | 0.162 | -1.8 % | -2.0 % | 8.92 → 3.19 | 7.26 → 1.20 | 0.029 | 4.5554e-04 | = |
+| 500 | 0.174 | 0.168 | 0.167 | -0.5 % | -3.4 % | 8.87 → 3.11 | 7.26 → 1.15 | 0.029 | 1.1160e-03 | = |
+| 550 | 0.185 | 0.183 | 0.175 | -4.1 % | -1.3 % | 10.15 → 3.51 | 8.33 → 1.32 | 0.031 | 1.1877e-03 | = |
+| 600 | 0.197 | 0.189 | 0.184 | -3.0 % | -4.1 % | 11.04 → 3.83 | 9.08 → 1.45 | 0.032 | 8.1949e-04 | = |
+| 650 | 0.207 | 0.197 | 0.192 | -2.5 % | -4.9 % | 12.07 → 4.11 | 10.00 → 1.58 | 0.034 | 6.6914e-04 | = |
+| 700 | 0.204 | 0.195 | 0.192 | -1.4 % | -4.6 % | 11.18 → 3.76 | 9.30 → 1.47 | 0.033 | 6.2743e-04 | = |
+| 750 | 0.203 | 0.194 | 0.191 | -1.4 % | -4.4 % | 10.94 → 3.67 | 9.11 → 1.41 | 0.033 | 7.5714e-04 | = |
+| 800 | 0.203 | 0.192 | 0.193 | +0.5 % | -5.5 % | 10.40 → 3.47 | 8.67 → 1.36 | 0.033 | 1.4025e-03 | = |
+| 850 | 0.211 | 0.200 | 0.202 | +1.1 % | -5.3 % | 10.53 → 3.47 | 8.79 → 1.35 | 0.035 | 7.7219e-04 | = |
+| 900 | 0.206 | 0.196 | 0.200 | +2.2 % | -5.0 % | 8.94 → 2.95 | 7.45 → 1.14 | 0.035 | 8.9084e-04 | = |
+| 950 | 0.222 | 0.212 | 0.210 | -0.8 % | -4.7 % | 12.99 → 4.26 | 10.84 → 1.64 | 0.035 | 9.3676e-04 | = |
+| 1000 | 0.214 | 0.201 | 0.203 | +1.0 % | -6.1 % | 11.59 → 3.96 | 9.58 → 1.50 | 0.035 | 8.6207e-04 | = |
+| 1050 | 0.222 | 0.206 | 0.207 | +0.3 % | -7.0 % | 12.46 → 4.25 | 10.30 → 1.62 | 0.036 | 7.4657e-04 | = |
+| 1100 | 0.233 | 0.219 | 0.220 | +0.3 % | -6.1 % | 12.76 → 4.29 | 10.58 → 1.64 | 0.037 | 1.1242e-03 | = |
+| 1150 | 0.227 | 0.211 | 0.212 | +0.4 % | -6.8 % | 12.27 → 4.16 | 10.19 → 1.61 | 0.035 | 1.0894e-03 | = |
+| 1200 | 0.228 | 0.213 | 0.218 | +2.1 % | -6.4 % | 12.46 → 4.24 | 10.37 → 1.66 | 0.036 | 9.6332e-04 | = |
+
+**L5_HIP_np1** — summed step wall O8 227.3 s, c0 227.7 s, c1 206.5 s (c1 vs c0 -9.3 %; c0 vs O8 +0.2 %). Summed per run: c1 ff_maintain 82.58 s, comm_plan_build 55.62 s, dtt 14.89 s; c0 ff_maintain 98.04 s, comm_plan_build 74.45 s, dtt 50.45 s.
+
+| step | O8 s/step | c0 s/step | c1 s/step | c1 vs c0 | c0 vs O8 | comm_plan_build/eval c0 → c1 (ms) | DTT/eval c0 → c1 (ms) | untimed/eval c1 (ms) | `[acc]` (c1) | vs O8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1.509 | 1.507 | 1.029 | -31.7 % | -0.2 % | 56.35 → 44.53 | 37.08 → 14.51 | 4.958 | 9.9253e-04 | = |
+| 25 | 0.580 | 0.579 | 0.553 | -4.5 % | -0.2 % | 35.45 → 26.25 | 23.78 → 7.05 | 0.463 | 1.1482e-03 | = |
+| 50 | 0.720 | 0.716 | 0.672 | -6.1 % | -0.5 % | 75.65 → 57.21 | 50.74 → 15.41 | 0.817 | 1.0225e-03 | = |
+| 75 | 0.770 | 0.769 | 0.700 | -8.9 % | -0.2 % | 85.00 → 63.72 | 57.47 → 17.03 | 0.901 | 1.2115e-03 | = |
+| 100 | 0.798 | 0.795 | 0.711 | -10.6 % | -0.4 % | 89.31 → 65.38 | 60.36 → 17.53 | 0.858 | 1.2073e-03 | = |
+| 125 | 0.785 | 0.795 | 0.710 | -10.8 % | +1.3 % | 90.83 → 67.40 | 61.64 → 18.08 | 0.844 | 1.0647e-03 | = |
+| 150 | 0.818 | 0.816 | 0.725 | -11.2 % | -0.2 % | 94.46 → 69.46 | 64.30 → 18.60 | 0.811 | 1.1266e-03 | = |
+| 175 | 0.812 | 0.808 | 0.721 | -10.7 % | -0.6 % | 92.20 → 68.70 | 62.41 → 18.35 | 0.798 | 1.1143e-03 | = |
+| 200 | 0.794 | 0.799 | 0.710 | -11.1 % | +0.7 % | 90.10 → 66.43 | 61.01 → 18.01 | 0.913 | 1.0901e-03 | = |
+| 225 | 0.793 | 0.801 | 0.718 | -10.3 % | +1.0 % | 89.24 → 66.39 | 60.72 → 17.85 | 0.932 | 9.8452e-04 | = |
+| 250 | 0.759 | 0.769 | 0.691 | -10.1 % | +1.3 % | 86.44 → 64.80 | 58.74 → 17.21 | 0.888 | 9.9999e-04 | = |
+| 275 | 0.726 | 0.728 | 0.675 | -7.2 % | +0.2 % | 83.56 → 63.89 | 56.85 → 16.99 | 0.796 | 9.9609e-04 | = |
+| 300 | 0.698 | 0.694 | 0.653 | -6.0 % | -0.5 % | 79.56 → 61.21 | 54.11 → 16.13 | 0.688 | 9.0339e-04 | = |
+
+**L5_HIP_np4** — summed step wall O8 126.1 s, c0 124.8 s, c1 100.9 s (c1 vs c0 -19.2 %; c0 vs O8 -1.0 %). Summed per run: c1 ff_maintain 35.87 s, comm_plan_build 14.44 s, dtt 4.65 s; c0 ff_maintain 58.09 s, comm_plan_build 36.71 s, dtt 29.40 s.
+
+| step | O8 s/step | c0 s/step | c1 s/step | c1 vs c0 | c0 vs O8 | comm_plan_build/eval c0 → c1 (ms) | DTT/eval c0 → c1 (ms) | untimed/eval c1 (ms) | `[acc]` (c1) | vs O8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1.272 | 1.343 | 0.817 | -39.1 % | +5.5 % | 28.29 → 11.31 | 22.27 → 3.76 | 8.996 | 9.9253e-04 | = |
+| 25 | 0.292 | 0.291 | 0.260 | -10.7 % | -0.0 % | 16.58 → 6.57 | 13.19 → 2.14 | 0.114 | 1.1482e-03 | = |
+| 50 | 0.367 | 0.366 | 0.304 | -17.0 % | -0.2 % | 35.73 → 14.36 | 28.45 → 4.60 | 0.150 | 1.0225e-03 | = |
+| 75 | 0.392 | 0.389 | 0.321 | -17.7 % | -0.8 % | 39.75 → 16.08 | 31.62 → 5.09 | 0.154 | 1.2115e-03 | = |
+| 100 | 0.413 | 0.413 | 0.335 | -18.9 % | -0.1 % | 42.01 → 16.75 | 33.49 → 5.30 | 0.158 | 1.2073e-03 | = |
+| 125 | 0.428 | 0.427 | 0.343 | -19.6 % | -0.4 % | 43.90 → 17.22 | 35.15 → 5.51 | 0.156 | 1.0647e-03 | = |
+| 150 | 0.442 | 0.437 | 0.353 | -19.4 % | -1.0 % | 45.36 → 17.79 | 36.36 → 5.65 | 0.165 | 1.1266e-03 | = |
+| 175 | 0.446 | 0.440 | 0.353 | -19.7 % | -1.3 % | 45.15 → 17.84 | 36.07 → 5.65 | 0.165 | 1.1143e-03 | = |
+| 200 | 0.446 | 0.438 | 0.355 | -19.0 % | -1.9 % | 44.65 → 17.57 | 35.74 → 5.63 | 0.168 | 1.0901e-03 | = |
+| 225 | 0.449 | 0.442 | 0.354 | -19.9 % | -1.5 % | 44.51 → 17.56 | 35.65 → 5.63 | 0.179 | 9.8452e-04 | = |
+| 250 | 0.451 | 0.438 | 0.351 | -20.0 % | -2.8 % | 44.44 → 17.39 | 35.72 → 5.65 | 0.166 | 9.9999e-04 | = |
+| 275 | 0.443 | 0.437 | 0.346 | -20.8 % | -1.4 % | 44.27 → 17.06 | 35.81 → 5.64 | 0.152 | 9.9609e-04 | = |
+| 300 | 0.436 | 0.431 | 0.339 | -21.4 % | -1.1 % | 42.65 → 16.17 | 34.44 → 5.37 | 0.150 | 9.0339e-04 | = |
+| target | L4_HIP_np1 | L4_HIP_np4 | L4_SERIAL_np1 | L4_SERIAL_np4 | L5_HIP_np1 | L5_HIP_np4 |
+| --- | --- | --- | --- | --- | --- | --- |
+| `ff_maintain` | 33.2 (36.6) [38.0] | 33.1 (40.2) [39.0] | 4.6 (5.1) [5.4] | 1.4 (1.9) [2.0] | 40.6 (43.9) [44.4] | 36.0 (47.4) [46.7] |
+| `comm_plan_build` | 16.5 (20.6) [20.8] | 5.9 (17.4) [16.4] | 2.1 (2.5) [2.8] | 0.3 (0.8) [0.8] | 28.1 (33.7) [34.3] | 14.9 (30.4) [30.0] |
+| `commplan_dtt_traversal` | 4.9 (12.7) [12.8] | 2.3 (14.3) [13.6] | 0.7 (1.6) [1.8] | 0.1 (0.6) [0.6] | 7.5 (22.9) [23.3] | 4.8 (24.4) [24.1] |
+| `commplan_cell_map_fill` | 0.2 (0.1) [—] | 0.2 (0.1) [—] | 0.0 (0.0) [—] | 0.0 (0.0) [—] | 0.2 (0.2) [—] | 0.5 (0.3) [—] |
+| `commplan_vertical_plans` | 0.0 (0.0) [—] | 0.0 (0.1) [—] | 0.0 (0.0) [—] | 0.0 (0.0) [—] | 0.0 (0.1) [—] | 0.1 (0.1) [—] |
+| `commplan_subtree_relevance` | 0.0 (0.0) [—] | 0.0 (0.2) [—] | 0.0 (0.0) [—] | 0.0 (0.0) [—] | 0.0 (0.0) [—] | 0.2 (0.6) [—] |
+| `commplan_finalize_m2l` | 7.2 (4.4) [—] | 2.2 (1.6) [—] | 0.9 (0.6) [—] | 0.1 (0.1) [—] | 15.0 (6.8) [—] | 6.7 (3.3) [—] |
+| `commplan_finalize_p2p` | 4.0 (3.1) [—] | 1.2 (1.0) [—] | 0.4 (0.3) [—] | 0.1 (0.0) [—] | 4.9 (3.6) [—] | 2.6 (1.6) [—] |
+| `builder_build` | 5.6 (5.5) [5.7] | 8.7 (7.1) [6.7] | 0.8 (0.7) [0.8] | 0.4 (0.4) [0.4] | 2.1 (1.4) [1.4] | 4.7 (3.6) [3.7] |
+| `repartition` | 0.8 (0.7) [0.8] | 3.8 (3.5) [3.4] | 0.2 (0.2) [0.2] | 0.2 (0.2) [0.2] | 1.5 (1.3) [1.3] | 5.6 (4.6) [4.6] |
+| `sort_by_leaf` | 0.5 (0.5) [0.5] | 0.6 (0.5) [0.5] | 0.0 (0.0) [0.0] | 0.0 (0.0) [0.0] | 0.2 (0.1) [0.1] | 0.3 (0.3) [0.3] |
+| `maint_rebuild_check` | 0.0 (0.0) [—] | 0.1 (0.1) [—] | 0.0 (0.0) [—] | 0.0 (0.0) [—] | 0.0 (0.0) [—] | 0.1 (0.0) [—] |
+| `maint_key_snapshot` | 0.1 (0.1) [—] | 0.1 (0.1) [—] | 0.0 (0.0) [—] | 0.0 (0.0) [—] | 0.2 (0.2) [—] | 0.2 (0.1) [—] |
+| `maint_compare_build` | 5.4 (5.4) [—] | 9.1 (7.4) [—] | 0.8 (0.7) [—] | 0.4 (0.4) [—] | 2.4 (1.7) [—] | 5.1 (4.1) [—] |
+| `maint_key_diff` | 0.0 (0.0) [—] | 0.0 (0.0) [—] | 0.0 (0.0) [—] | 0.0 (0.0) [—] | 0.0 (0.0) [—] | 0.0 (0.0) [—] |
+| `maint_sweep_setup` | 4.9 (4.8) [—] | 4.4 (3.9) [—] | 0.4 (0.5) [—] | 0.1 (0.1) [—] | 6.5 (5.3) [—] | 5.0 (4.2) [—] |
+| `redistribute` | 0.0 (0.0) [0.0] | 0.0 (0.0) [0.0] | 0.0 (0.0) [0.0] | 0.0 (0.0) [0.0] | 0.0 (0.0) [0.0] | 0.0 (0.0) [0.0] |
+| `untimed` | 0.0 (0.0) [10.8] | 0.1 (0.0) [11.2] | 0.0 (0.0) [1.4] | 0.0 (0.0) [0.5] | 0.4 (0.3) [7.3] | 0.1 (0.1) [8.4] |
+| `ilist_s3_classify_pairs` | 31.4 (29.4) [28.0] | 10.2 (9.7) [9.1] | 3.6 (3.2) [3.6] | 0.7 (0.7) [0.7] | 30.4 (27.1) [27.4] | 23.6 (18.2) [18.5] |
+
+**L4_SERIAL_np1** — summed step wall O8 775.3 s, c0 839.7 s, c1 770.9 s (c1 vs c0 -8.2 %; c0 vs O8 +8.3 %). Summed per run: c1 ff_maintain 34.16 s, comm_plan_build 15.90 s, dtt 5.03 s; c0 ff_maintain 41.96 s, comm_plan_build 21.95 s, dtt 14.24 s.
+
+| step | O8 s/step | c0 s/step | c1 s/step | c1 vs c0 | c0 vs O8 | comm_plan_build/eval c0 → c1 (ms) | DTT/eval c0 → c1 (ms) | untimed/eval c1 (ms) | `[acc]` (c1) | vs O8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 1.517 | 1.686 | 1.355 | -19.6 % | +11.1 % | 8.66 → 6.77 | 5.41 → 2.07 | 0.691 | 1.1338e-03 | = |
+| 25 | 1.826 | 1.697 | 1.424 | -16.1 % | -7.0 % | 13.94 → 10.35 | 9.08 → 3.32 | 0.035 | 1.1244e-03 | = |
+| 50 | 1.876 | 1.758 | 1.435 | -18.4 % | -6.3 % | 13.89 → 10.35 | 9.02 → 3.33 | 0.038 | 1.1144e-03 | = |
+| 75 | 1.542 | 1.836 | 1.445 | -21.3 % | +19.1 % | 14.25 → 10.70 | 9.22 → 3.38 | 0.044 | 1.0797e-03 | = |
+| 100 | 1.689 | 1.652 | 1.613 | -2.3 % | -2.2 % | 17.68 → 12.61 | 11.55 → 3.93 | 0.048 | 1.0380e-03 | = |
+| 125 | 1.719 | 1.924 | 1.760 | -8.5 % | +11.9 % | 17.98 → 12.67 | 11.89 → 4.04 | 0.050 | 1.0660e-03 | = |
+| 150 | 1.437 | 1.785 | 1.598 | -10.5 % | +24.2 % | 14.51 → 10.49 | 9.52 → 3.32 | 0.050 | 1.0114e-03 | = |
+| 175 | 1.467 | 1.986 | 1.582 | -20.3 % | +35.4 % | 17.62 → 12.43 | 11.63 → 3.89 | 0.047 | 9.5737e-04 | = |
+| 200 | 1.525 | 1.613 | 1.603 | -0.6 % | +5.7 % | 16.02 → 11.41 | 10.52 → 3.69 | 0.048 | 8.7885e-04 | = |
+| 225 | 1.352 | 1.624 | 1.689 | +4.0 % | +20.1 % | 16.69 → 11.98 | 10.94 → 3.87 | 0.047 | 8.6536e-04 | = |
+| 250 | 1.539 | 1.663 | 1.461 | -12.2 % | +8.1 % | 11.65 → 8.77 | 7.51 → 2.76 | 0.052 | 8.1017e-04 | = |
+| 275 | 1.416 | 1.800 | 1.405 | -21.9 % | +27.1 % | 13.65 → 10.01 | 8.77 → 3.14 | 0.044 | 8.3881e-04 | = |
+| 300 | 1.588 | 1.501 | 1.440 | -4.1 % | -5.5 % | 14.83 → 10.75 | 9.54 → 3.37 | 0.043 | 8.5650e-04 | = |
+| 325 | 1.385 | 1.746 | 1.451 | -16.9 % | +26.1 % | 13.76 → 10.04 | 8.86 → 3.20 | 0.040 | 9.3266e-04 | = |
+| 350 | 1.395 | 1.638 | 1.626 | -0.8 % | +17.4 % | 13.12 → 9.52 | 8.50 → 3.03 | 0.042 | 9.4444e-04 | = |
+| 375 | 1.426 | 1.710 | 1.646 | -3.7 % | +19.9 % | 14.01 → 10.11 | 9.01 → 3.20 | 0.038 | 1.0166e-03 | = |
+| 400 | 1.436 | 1.440 | 1.670 | +16.0 % | +0.3 % | 14.21 → 10.21 | 9.20 → 3.25 | 0.036 | 1.0679e-03 | = |
+| 425 | 1.509 | 1.477 | 1.455 | -1.5 % | -2.1 % | 13.76 → 10.00 | 8.79 → 3.16 | 0.034 | 1.0547e-03 | = |
+| 450 | 1.429 | 1.521 | 1.542 | +1.4 % | +6.5 % | 14.00 → 10.08 | 8.92 → 3.11 | 0.036 | 4.5554e-04 | = |
+| 475 | 1.740 | 1.649 | 1.491 | -9.6 % | -5.2 % | 13.10 → 9.43 | 8.42 → 2.99 | 0.035 | 3.6193e-04 | = |
+| 500 | 1.728 | 1.566 | 1.500 | -4.2 % | -9.3 % | 14.27 → 10.28 | 9.14 → 3.18 | 0.036 | 1.1160e-03 | = |
+
+**L4_SERIAL_np4** — summed step wall O8 1772.4 s, c0 1809.3 s, c1 1849.2 s (c1 vs c0 +2.2 %; c0 vs O8 +2.1 %). Summed per run: c1 ff_maintain 25.88 s, comm_plan_build 5.63 s, dtt 2.02 s; c0 ff_maintain 34.61 s, comm_plan_build 14.66 s, dtt 11.72 s.
+
+| step | O8 s/step | c0 s/step | c1 s/step | c1 vs c0 | c0 vs O8 | comm_plan_build/eval c0 → c1 (ms) | DTT/eval c0 → c1 (ms) | untimed/eval c1 (ms) | `[acc]` (c1) | vs O8 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 2.703 | 2.582 | 2.580 | -0.1 % | -4.5 % | 5.84 → 2.24 | 4.66 → 0.79 | 6.391 | 1.1338e-03 | = |
+| 25 | 3.625 | 3.570 | 3.452 | -3.3 % | -1.5 % | 9.10 → 3.59 | 7.30 → 1.31 | 0.031 | 1.1244e-03 | = |
+| 50 | 3.543 | 3.568 | 3.615 | +1.3 % | +0.7 % | 9.11 → 3.58 | 7.30 → 1.28 | 0.036 | 1.1144e-03 | = |
+| 75 | 3.481 | 3.516 | 3.706 | +5.4 % | +1.0 % | 9.41 → 3.68 | 7.58 → 1.30 | 0.042 | 1.0797e-03 | = |
+| 100 | 3.410 | 3.560 | 3.833 | +7.7 % | +4.4 % | 11.48 → 4.38 | 9.23 → 1.51 | 0.046 | 1.0380e-03 | = |
+| 125 | 3.453 | 3.438 | 3.787 | +10.2 % | -0.5 % | 11.64 → 4.42 | 9.38 → 1.57 | 0.047 | 1.0660e-03 | = |
+| 150 | 3.584 | 3.656 | 3.921 | +7.2 % | +2.0 % | 9.50 → 3.64 | 7.68 → 1.33 | 0.045 | 1.0114e-03 | = |
+| 175 | 3.616 | 3.662 | 3.767 | +2.9 % | +1.3 % | 11.55 → 4.31 | 9.35 → 1.54 | 0.043 | 9.5737e-04 | = |
+| 200 | 3.549 | 3.333 | 3.975 | +19.3 % | -6.1 % | 10.51 → 3.94 | 8.52 → 1.42 | 0.044 | 8.7885e-04 | = |
+| 225 | 3.404 | 3.529 | 3.834 | +8.6 % | +3.7 % | 10.85 → 4.15 | 8.74 → 1.49 | 0.040 | 8.6536e-04 | = |
+| 250 | 3.526 | 3.596 | 3.711 | +3.2 % | +2.0 % | 7.53 → 2.99 | 6.02 → 1.08 | 0.037 | 8.1017e-04 | = |
+| 275 | 3.519 | 3.641 | 3.558 | -2.3 % | +3.5 % | 8.94 → 3.50 | 7.11 → 1.25 | 0.036 | 8.3881e-04 | = |
+| 300 | 3.480 | 3.608 | 3.502 | -3.0 % | +3.7 % | 9.67 → 3.78 | 7.70 → 1.36 | 0.038 | 8.5650e-04 | = |
+| 325 | 3.576 | 3.656 | 3.661 | +0.1 % | +2.3 % | 9.15 → 3.57 | 7.30 → 1.29 | 0.038 | 9.3266e-04 | = |
+| 350 | 3.625 | 3.675 | 3.602 | -2.0 % | +1.4 % | 8.62 → 3.35 | 6.87 → 1.20 | 0.038 | 9.4444e-04 | = |
+| 375 | 3.487 | 3.648 | 3.563 | -2.3 % | +4.6 % | 9.52 → 3.64 | 7.58 → 1.32 | 0.036 | 1.0166e-03 | = |
+| 400 | 3.543 | 3.800 | 3.649 | -4.0 % | +7.3 % | 9.69 → 3.75 | 7.66 → 1.35 | 0.043 | 1.0679e-03 | = |
+| 425 | 3.583 | 3.769 | 3.598 | -4.5 % | +5.2 % | 9.76 → 3.69 | 7.71 → 1.32 | 0.042 | 1.0547e-03 | = |
+| 450 | 3.538 | 3.681 | 3.619 | -1.7 % | +4.1 % | 9.84 → 3.77 | 7.78 → 1.35 | 0.044 | 4.5554e-04 | = |
+| 475 | 3.697 | 3.755 | 3.760 | +0.1 % | +1.6 % | 9.48 → 3.55 | 7.51 → 1.28 | 0.048 | 3.6193e-04 | = |
+| 500 | 3.694 | 3.748 | 3.892 | +3.8 % | +1.5 % | 10.21 → 3.80 | 8.06 → 1.35 | 0.043 | 1.1160e-03 | = |
+
+**Affects:**
+- **O9** — next. `ilist_s3_classify_pairs` is now the largest single target
+  at np1, 30–31 % of the HIP step at L4 and L5 (28 % at O8), and 10–24 % at
+  np4, against `comm_plan_build`'s 6–28 %.
+- **O10** — the downward sweep outside the interaction list is unchanged in
+  seconds and larger as a share again. Recompute from these logs.
+- **O6** — its trigger is a share of the step, and the step fell up to 19 %
+  at L5 np4. Recompute from O5's knob-on rows.
+- **O7** — SERIAL is unchanged at step level (the comm-plan saving is under
+  1 % of a SERIAL step); the distributors remain its target.
+- **Remaining maintenance after O5**, for whichever task takes it up:
+  `commplan_finalize_m2l` (2.2–15.0 % of the step, now the largest comm-plan
+  sub-stage at np1), `maint_compare_build` (2.4–9.1 %, a second full tree
+  build per evaluation that only decides Migrate against Rebalance), and
+  `maint_sweep_setup` (4.4–6.5 %). None is in an O task's scope today.
+- **S0** — the v2 send marks are `cells × nprocs` bytes each, two of them,
+  over the replicated global cell list on every rank. At one node that is
+  negligible; at production rank counts it is not, and it scales with both
+  the tree and the job. S0 should measure the indexed build's footprint and
+  DTT at its rank counts, with `indexed_comm_plan=0` as the fallback.
+- **V1** — not triggered by O5: `[acc]` is bit-identical to O8 at every SMS
+  state. V1 stays deferred to the end of Phase O. `indexed_comm_plan` is on
+  by default in `FmmParams`, so the milestone tier will exercise it; the
+  maintenance actions it exercises are unchanged.
