@@ -1,6 +1,6 @@
 # Canopy profiling and optimization, driven through Beatnik
 
-**Status:** IN PROGRESS — T0, T1, T2, T3, O1, O8 and O5 done; V1 is triggered by O1's `[acc]` moves but **deferred by ruling** to the end of Phase O (log, "Decision: defer V1; a milestone failure from O1 is accepted"); O2 and O4 NOT TAKEN (triggers unmet after O1); **O9 next**, then O10 (sequence in [Phase O](#phase-o--optimize-single-node)).
+**Status:** IN PROGRESS — T0, T1, T2, T3, O1, O8, O5 and O9 done; V1 is triggered by O1's `[acc]` moves but **deferred by ruling** to the end of Phase O (log, "Decision: defer V1; a milestone failure from O1 is accepted"); O2 and O4 NOT TAKEN (triggers unmet after O1); **O10 next**, then O6, whose trigger O9's shares now meet (sequence in [Phase O](#phase-o--optimize-single-node)).
 
 ## Problem
 
@@ -1224,7 +1224,7 @@ installed. Numbers and job IDs are in the [log](canopy_profiling-progress-log.md
   - A column-per-iteration functor on host backends would recover it; that
     is left out of O8, which allows one install.
 
-### O9 — Cheaper pair classification in the interaction-list build — **NOT STARTED**
+### O9 — Cheaper pair classification in the interaction-list build — **DONE**
 
 **Depends on:** O5 **DONE** (O5's knob-on SMS is the baseline).
 
@@ -1316,6 +1316,69 @@ Canopy README's `FmmConfig` table each gain a row.
 
 Failure direction: a broken build whose classify assigns one wrong key fails
 the unit case (checked once by hand, not committed).
+
+**Met.** Verified 2026-10-19, Canopy `cfc13e4` (0 porcelain lines in every
+SMS job; the passing test job ran `1cbbf4c`, which changes only
+`tests/tstDownwardSweep.hpp`), Beatnik `3c7d4a8` installed once. Numbers and
+job IDs are in the [log](canopy_profiling-progress-log.md) `## O9`.
+- **Split first.** Three level-2 timers and probe keys split stage 3:
+  `ilist_s3_classify_shard`, `ilist_s3_merge` and `ilist_s3_remap`.
+  - A Canopy-only job on the nearest fixture (CartesianTaylorSolve θ 0.3, 24
+    threads) put 93–97 % of stage 3 in the sharded classify.
+  - O5's rows showed stage 3 scaling with the distinct-key count, not the
+    pair count.
+  - That chose the direct-index key table. On the SMS's off arm the merge is
+    19–44 % and the classify 43–69 %, and the table covers both.
+- **The change.** One dense table, shared across threads: 3.02 M four-byte
+  slots (12.1 MB) per rank for CartesianTaylorBasis at `max_depth` 10, holding
+  only the key axes the basis keeps.
+  - Each pair claims its key's slot with its first pair index. The merge
+    sorts the distinct keys by first occurrence, which is the hash merge's own
+    admission order, so `op_idx` is identical by construction.
+  - No node is allocated per key in the parallel region.
+- **The knob.** `FmmConfig::dense_key_classify` and
+  `FmmParams::dense_key_classify`, both default `true`; probe key
+  `dense_key_classify`. Off is the hash-map path, unchanged. Toggling neither
+  dirties the interaction list nor empties the cache.
+- **Canopy stems: PASS.** `DownwardSweep`, `MultiSolve` and
+  `CartesianTaylorSolve` at SERIAL np 1–6 and HIP np 1–4 (job
+  `f3f5XBKwMwEw`, 30 of 30). `DownwardSweepCaching.denseKeyClassify{Laplace,
+  CartesianTaylor}` build one tree's list knob off and on. They assert the
+  same CSR pairs, the same canonical key per pair, the same fallback pairs and
+  per-depth slices, and a key-matched bitwise-equal operator table, at the
+  default cap, on a rebuild, under a count cap and across a toggle. Both are
+  `[ OK ]` on every rank.
+  - The one-wrong-key broken build fails both at np 1 and 2, at the per-pair
+    key and the table comparisons.
+  - Two earlier test jobs failed on fixture preconditions of the new
+    CartesianTaylor case (softening, root half-width). Fixing them changed
+    `tests/` only.
+- **The three sub-timer keys are non-sentinel in every `[cost]` row** (3 × 236
+  rows). A fourth key, `ilist_s3_instrumentation`, times the profiling-only
+  demanded-key set on the dense path: 11–33 % of the dense stage 3. The
+  fallback counters stay fused in the remap, which is 4–9 % of it. Both are
+  unchanged.
+- **Gain (same-job pairs).** Stage 3 per evaluation falls 58–72 % (median
+  6.95 / 2.82 / 27.23 / 8.12 ms at L4 np1 / L4 np4 / L5 np1 / L5 np4, from
+  24.20 / 6.18 / 71.26 / 27.80).
+  - Summed SMS step wall: **−31.7 %** at L4 HIP np1, −28.0 % at L5 np1,
+    −23.2 % at L5 np4 and −13.2 % at L4 np4.
+  - Every HIP state after step 1 clears T3's per-state threshold.
+  - Stage 3 is 47–80 % of the saving. Most of the rest is host phases that
+    allocate (`dn_build_ilist` outside its stage timers,
+    `commplan_finalize_m2l`), which also fall.
+  - SERIAL is not claimed: −8.1 % (np1) and −1.3 % (np4) are inside its spread.
+- **Accuracy: bit-identical.** `[acc]` equals O5's knob-on value at every
+  state of every run, in both arms. The maxima are unchanged: L4 1.4025e-3,
+  SERIAL 500-step 1.1338e-3, L5 1.2115e-3.
+- **Failure direction.** The off arm has `[acc]` identical to O5 and its stage
+  3 within 4 % of O5 on HIP (6–13 % on SERIAL, cross-node).
+  - Its step wall is within T3's per-state spread at every HIP state after
+    step 1 but one: L4 np1 step 400, −9.6 % against 9 %.
+  - Run level: −4.7 / −6.1 % at L4 and +4.9 / +3.1 % at L5, outside the
+    spread in both directions, as O1's, O8's and O5's controls were. The L4
+    difference sits in `builder_build` and `maint_compare_build`, which O9
+    does not touch.
 
 ### O10 — Downward-sweep communication and per-depth loop at np > 1 — **NOT STARTED**
 
