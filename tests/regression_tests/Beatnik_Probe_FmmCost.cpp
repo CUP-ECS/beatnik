@@ -56,6 +56,10 @@
  *                           `FmmParams::indexed_comm_plan`, default the
  *                           `FmmParams` default; a measurement passes it
  *                           explicitly (canopy_profiling O5)
+ *     dense_key_classify=<0|1>
+ *                           `FmmParams::dense_key_classify`, default the
+ *                           `FmmParams` default; a measurement passes it
+ *                           explicitly (canopy_profiling O9)
  *     canopy_report=<0|1>   Canopy's own timing tables and diagnostic lines,
  *                           default 0 (off, through
  *                           `Canopy::Profiling::set_reporting`)
@@ -189,6 +193,10 @@ const std::vector<CanopyKey> kCanopyKeys = {
     { "ilist_s1_collect_entries", true },
     { "ilist_s2_sort_by_depth", true },
     { "ilist_s3_classify_pairs", true },
+    { "ilist_s3_classify_shard", true },
+    { "ilist_s3_merge", true },
+    { "ilist_s3_instrumentation", true },
+    { "ilist_s3_remap", true },
     { "ilist_s4_op_table_build", true },
     { "ilist_s4_op_table_copy", true },
     { "ilist_s5_csr_partition_sort", true },
@@ -300,6 +308,7 @@ struct Options
     bool device_op_table_assembly =
         Beatnik::FmmParams{}.device_op_table_assembly;
     bool indexed_comm_plan = Beatnik::FmmParams{}.indexed_comm_plan;
+    bool dense_key_classify = Beatnik::FmmParams{}.dense_key_classify;
     int canopy_report = 0;
     std::string run;
 };
@@ -400,6 +409,15 @@ Options parseOptions( int argc, char* argv[] )
                     "Beatnik_Probe_FmmCost: indexed_comm_plan must be 0 or 1" );
             o.indexed_comm_plan = q != 0;
         }
+        else if ( key == "dense_key_classify" )
+        {
+            const int q = parseInt( key, val );
+            if ( q != 0 && q != 1 )
+                throw std::invalid_argument(
+                    "Beatnik_Probe_FmmCost: dense_key_classify must be 0 or "
+                    "1" );
+            o.dense_key_classify = q != 0;
+        }
         else if ( key == "canopy_report" )
         {
             o.canopy_report = parseInt( key, val );
@@ -421,7 +439,8 @@ Options parseOptions( int argc, char* argv[] )
                 "Beatnik_Probe_FmmCost: unknown key '" + key +
                 "'. Accepted: ncrit, order, mac_theta, m2l_op_count_cap, "
                 "quantize_root_half_width, device_op_table_assembly, "
-                "indexed_comm_plan, canopy_report, run." );
+                "indexed_comm_plan, dense_key_classify, canopy_report, "
+                "run." );
     }
     if ( o.ncrit < 1 || o.m2l_op_count_cap < 0 || !( o.mac_theta > 0.0 ) )
         throw std::invalid_argument(
@@ -470,6 +489,7 @@ Beatnik::SolverParams makeParams( const Options& o )
     p.fmm.quantize_root_half_width = o.quantize_root_half_width;
     p.fmm.device_op_table_assembly = o.device_op_table_assembly;
     p.fmm.indexed_comm_plan = o.indexed_comm_plan;
+    p.fmm.dense_key_classify = o.dense_key_classify;
 
     p.time.steps = o.steps;
     p.time.dt = 0.003;
@@ -701,7 +721,7 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
                      "mac_theta=%.17g m2l_op_count_cap=%d "
                      "quantize_root_half_width=%d "
                      "device_op_table_assembly=%d indexed_comm_plan=%d "
-                     "canopy_report=%d "
+                     "dense_key_classify=%d canopy_report=%d "
                      "beatnik_ff_timers=%d canopy_timers=%d "
                      "canopy_profiling_level=%d canopy_hash=%s\n",
                      run.c_str(), opt.level, want_vertices, comm_size,
@@ -710,7 +730,8 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
                      opt.m2l_op_count_cap,
                      opt.quantize_root_half_width ? 1 : 0,
                      opt.device_op_table_assembly ? 1 : 0,
-                     opt.indexed_comm_plan ? 1 : 0, opt.canopy_report,
+                     opt.indexed_comm_plan ? 1 : 0,
+                     opt.dense_key_classify ? 1 : 0, opt.canopy_report,
                      kHaveFfTimers ? 1 : 0, kHaveCanopyTimers ? 1 : 0,
                      kCanopyLevel, canopy_hash.c_str() );
         std::fflush( stdout );

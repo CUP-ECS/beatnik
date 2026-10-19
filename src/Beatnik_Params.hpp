@@ -486,6 +486,20 @@ struct FmmParams
     /// exists as a switch for O5's same-job failure-direction arm; Canopy's
     /// own default is also `true`.
     bool indexed_comm_plan = true;
+
+    /// De-duplicate the interaction list's M2L operator keys through one dense
+    /// table indexed by the key. Reaches `FmmConfig::dense_key_classify`. No
+    /// CLI option and no Python counterpart, like the knobs above.
+    ///
+    /// Stage 3 of Canopy's interaction-list build gives every M2L pair a
+    /// canonical operator key and collects the distinct keys. On, each pair
+    /// claims its key's slot in a dense table; off, every host thread keeps a
+    /// `std::unordered_map` and the maps are merged afterwards
+    /// (canopy_profiling O9). Both admit the keys in the same order, so the
+    /// interaction list, the operator table and every velocity are identical
+    /// either way, and this moves cost only. It exists as a switch for O9's
+    /// same-job failure-direction arm; Canopy's own default is also `true`.
+    bool dense_key_classify = true;
 };
 
 //---------------------------------------------------------------------------//

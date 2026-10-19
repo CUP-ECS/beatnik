@@ -588,6 +588,13 @@ TIMED_MAINT = ("builder_build", "repartition", "sort_by_leaf",
 TIMED_MAINT_O5 = ("maint_rebuild_check", "maint_key_snapshot",
                   "maint_compare_build", "maint_key_diff", "maint_sweep_setup",
                   "redistribute")
+# Stage 3's sub-timers (canopy_profiling O9: ilist_s3_classify_shard,
+# ilist_s3_merge, ilist_s3_instrumentation, ilist_s3_remap) are nested inside
+# ilist_s3_classify_pairs, which runs under ff_solve, not ff_maintain. They are
+# deliberately in neither tuple above; a log that predates them simply lacks
+# the keys.
+ILIST_S3_SPLIT = ("ilist_s3_classify_shard", "ilist_s3_merge",
+                  "ilist_s3_instrumentation", "ilist_s3_remap")
 # Everything in ff_evaluate_total outside ff_maintain and ff_solve.
 ADAPTER = ("ff_pack", "ff_fwd_distribute", "ff_fwd_migrate", "ff_contract",
            "ff_rev_distribute", "ff_rev_migrate", "ff_scatter",
@@ -751,6 +758,21 @@ def self_test() -> int:
             raise AssertionError(f"accepted: {line}")
         except ReduceError:
             pass
+    # Stage 3's sub-timer keys (O9) leave a state's untimed maintenance
+    # unchanged, and a row without them reduces as before.
+    base = ("[cost] run=s step=1 steps=1 evals=3 step_wall=1.0 "
+            "ff_evaluate_total=0.3 ff_solve=0.2 ff_maintain=0.05 "
+            "builder_build=0.01 repartition=0.01 sort_by_leaf=0.0 "
+            "comm_plan_build=0.02 ilist_s3_classify_pairs=0.04 "
+            "maint_setup=1 maint_migrate=1 maint_rebalance=1 maint_rebuild=0")
+    split = base + "".join(f" {k}=0.01" for k in ILIST_S3_SPLIT)
+    lines = []
+    for text in (base, split):
+        _, rows = run(text + "\n")
+        lines.append(state_line(rows["cost"][0], None))
+        assert reduce_probe(rows)["s"]["cost"]["step_wall"]["n"] == 1
+    assert lines[0] == lines[1], lines
+    assert ILIST_S3_SPLIT[0] not in TIMED_MAINT + TIMED_MAINT_O5
     print("self-test: OK")
     return 0
 

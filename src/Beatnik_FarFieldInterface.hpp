@@ -1182,6 +1182,7 @@ class FarFieldSolver
         cfg.quantize_root_half_width = _params.quantize_root_half_width;
         cfg.device_op_table_assembly = _params.device_op_table_assembly;
         cfg.indexed_comm_plan = _params.indexed_comm_plan;
+        cfg.dense_key_classify = _params.dense_key_classify;
         return cfg;
     }
 
