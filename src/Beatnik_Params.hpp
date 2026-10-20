@@ -91,8 +91,9 @@ struct ZModelParams
     Real br_sign = 1.0;
 
     /// Surface quadrature for the BR source. CLI `--source-quadrature`,
-    /// default `face`.
-    SourceQuadrature source_quadrature = SourceQuadrature::Face;
+    /// default `vertex` -- the Python's default, and the only rule this port
+    /// implements (`face` and `triangle3` throw; see README).
+    SourceQuadrature source_quadrature = SourceQuadrature::Vertex;
 
     /// Marker-motion rule. CLI `--velocity-mode`, default `full`.
     VelocityMode velocity_mode = VelocityMode::Full;
@@ -573,10 +574,10 @@ struct AmrParams
  * test unsatisfiable for every pair of triangles that can exist — the pass
  * still runs and still mutates nothing.
  *
- * **T4b uses this as the acceptance criterion for `--dynamic-remesh`**: the
- * flip third is `DynamicRemesh::flipEdgesForQuality`, which is T4d and blocked
- * on Tessera gap G5c, so a run is accepted only when the reference itself would
- * flip nothing. See `Solver::requireSupportedConfiguration`.
+ * **This is the acceptance criterion for `--dynamic-remesh`**: the flip third
+ * is `DynamicRemesh::flipEdgesForQuality`, which is T4d and not yet
+ * implemented, so a run is accepted only when the reference itself would flip
+ * nothing. See `Solver::requireSupportedConfiguration`.
  */
 constexpr Real kFlipsDisabledMinGain = 1.0e12;
 

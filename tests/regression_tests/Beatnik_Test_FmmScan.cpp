@@ -204,9 +204,10 @@ Beatnik::SolverParams makeScanParams( int subdivisions, int spin_up_steps )
     // --br-approximation direct. THE STATE MUST BE ONE THE FMM DID NOT
     // PRODUCE, or every comparison below is partly circular.
     p.zmodel.br_approximation = Beatnik::BRApproximation::Direct;
-    // --source-quadrature vertex. MANDATORY: ZModelParams defaults to Face,
-    // whose generate() throws, and the far-field adapter rejects anything but
-    // Vertex regardless -- source, target and output row are one index there.
+    // --source-quadrature vertex. MANDATORY, and set explicitly even though it
+    // is now the ZModelParams default: Face's generate() throws, and the
+    // far-field adapter rejects anything but Vertex -- source, target and
+    // output row are one index there.
     p.zmodel.source_quadrature = Beatnik::SourceQuadrature::Vertex;
 
     // The dt controls of the milestone-0 configuration.

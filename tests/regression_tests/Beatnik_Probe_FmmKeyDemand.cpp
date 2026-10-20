@@ -274,9 +274,9 @@ Beatnik::SolverParams makeParams( int subdivisions,
     // TRAJECTORY, which is a direct one; an FMM-driven walk would measure the
     // demand of a different sequence of states.
     p.zmodel.br_approximation = Beatnik::BRApproximation::Direct;
-    // --source-quadrature vertex. MANDATORY, not decorative: ZModelParams
-    // defaults to Face, whose generate() throws, and the far-field adapter
-    // rejects anything but Vertex regardless.
+    // --source-quadrature vertex. MANDATORY, and set explicitly even though it
+    // is now the ZModelParams default: Face's generate() throws, and the
+    // far-field adapter rejects anything but Vertex.
     p.zmodel.source_quadrature = Beatnik::SourceQuadrature::Vertex;
 
     // --steps 2000, --adaptive-dt, and the dt controls both gold sets were

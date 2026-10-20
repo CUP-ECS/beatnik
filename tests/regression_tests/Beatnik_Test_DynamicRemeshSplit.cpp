@@ -22,9 +22,9 @@
  * WHAT "SPLIT ONLY" MEANS HERE, AND WHY IT IS NOT A BEATNIK-ONLY MODE
  * ------------------------------------------------------------------
  * `dynamic_remesh.py` is three thirds — split, collapse, flip — plus a
- * tangential smoothing pass. T4b implemented the sizing field and the **split**
- * third; the rest is T4d, blocked on Tessera gaps G5b/G5c/G5d. No
- * `--dynamic-remesh-split-only` switch was invented. Instead the run is
+ * tangential smoothing pass. Beatnik implements the sizing field and the
+ * **split** third; the rest is T4d and not yet implemented. There is no
+ * `--dynamic-remesh-split-only` switch. Instead the run is
  * configured so the **reference itself** would do nothing in the other three,
  * through its own knobs:
  *

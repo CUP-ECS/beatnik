@@ -441,13 +441,11 @@ class Solver
         // globally identical (it is built from the step counter and two
         // parameters), so every rank enters the collective refiner together.
         //
-        // The filter branch (T5c) is still a stub, as are the collapse/flip/
-        // smooth thirds of the remesh branch below (T4d) and both of its
-        // proximity paths (T4e); `requireSupportedConfiguration` has already
-        // rejected any configuration that would reach one — so there is nothing
-        // to skip here and nothing that could be silently skipped. **T4c landed
-        // the tangential pass and the redistribute branch**, so those two are no
-        // longer in that list.
+        // The filter branch (T5c) is a stub, as are the collapse/flip/smooth
+        // thirds of the remesh branch below (T4d) and both of its proximity
+        // paths (T4e); `requireSupportedConfiguration` rejects any
+        // configuration that would reach one — so there is nothing to skip
+        // here and nothing that could be silently skipped.
         if ( !_params.dynamic_remesh && _params.amr.refine_every > 0 &&
              _step % _params.amr.refine_every == 0 )
         {
@@ -457,17 +455,17 @@ class Solver
                 _refine_events += _last_refinement.marked_faces;
 
                 // The reference's three quality repairs go here
-                // (lines 1440-1464). Two of the three are still rejected at
-                // setup, by name and task ID, so the counter below is a
-                // transcription of the reference's own gate rather than a
+                // (lines 1440-1464). Two of the three are unimplemented and
+                // rejected at setup, by name and task ID, so the counter below
+                // is a transcription of the reference's own gate rather than a
                 // placeholder:
                 //
-                //   improveConnectivityByFlips   T4d (blocked, Tessera G5c)
-                //   isotropicCleanup             T4d (blocked, Tessera G5c)
+                //   improveConnectivityByFlips   T4d
+                //   isotropicCleanup             T4d
                 const int flips = 0;
 
-                // MeshQuality::improveQualityTangential (lines 1446-1450) —
-                // T4c. Called UNCONDITIONALLY once anything was marked, with
+                // MeshQuality::improveQualityTangential (lines 1446-1450).
+                // Called UNCONDITIONALLY once anything was marked, with
                 // `--smooth-iters` (default 1) and `--smooth-relaxation`
                 // (0.12); the pass makes its own no-op decision when either is
                 // zero, exactly as the reference's early return does.
@@ -487,13 +485,9 @@ class Solver
                 // `project_state_to_volume` is gated on a repair having
                 // ACTUALLY RUN (lines 1465-1468), not on the refinement having
                 // happened — `flips > 0 or smooth_iters > 0 or
-                // isotropic_cleanup`. **T4c: this is where the projection first
-                // runs on the REFINE path**, because dropping the
-                // `--smooth-iters` rejection makes the middle clause true at
-                // the default `--smooth-iters 1` — which is exactly why T4a
-                // transcribed the gate in full rather than folding it to
-                // `false`. (T4b was where `projectToVolume` first ran at all,
-                // on the remesh path.)
+                // isotropic_cleanup`. At the default `--smooth-iters 1` the
+                // middle clause is true, so the projection runs after every
+                // refinement that marked a face.
                 const bool repaired = ( flips > 0 ) ||
                                       ( _params.filter.smooth_iters > 0 ) ||
                                       _params.cleanup.enabled;
@@ -525,7 +519,7 @@ class Solver
                                   _last_remesh.flips;
 
                 // `mesh_quality.isotropic_cleanup` runs here (`:1493-1504`).
-                // T4d, blocked on Tessera G5c, and `--isotropic-cleanup` is
+                // It is T4d and unimplemented, and `--isotropic-cleanup` is
                 // rejected at setup rather than skipped.
 
                 // The reference rebuilds the state from the remeshed arrays,
@@ -551,9 +545,7 @@ class Solver
             // it having changed anything (`:1513-1516`) — unlike the refine
             // branch above, which gates on a repair having run. So under
             // `--dynamic-remesh` (and without `--no-preserve-volume`) the
-            // absolute volume projection executes every remesh step. **T4b is
-            // therefore where `VolumeProjection::projectToVolume` first runs**;
-            // T4a's entry and T2d's `Affects:` note both guessed T4c/T4d.
+            // absolute volume projection executes every remesh step.
             if ( remeshed )
             {
                 if ( _params.zmodel.preserve_volume )
@@ -742,15 +734,11 @@ class Solver
         // that omitted one would produce a plausible trajectory that is not the
         // reference's.
         //
-        // **T4b CORRECTION — these are NOT rejected unconditionally, and the
-        // comment here used to say they were.** All of them were already
-        // guarded by `refining`, which is false under `--dynamic-remesh`; that
-        // was harmless only while `--dynamic-remesh` was rejected outright, and
-        // the moment T4b dropped that rejection every one of them became a
-        // live hole — `--isotropic-cleanup` defaults to TRUE and the reference
-        // runs `mesh_quality.isotropic_cleanup` after every dynamic remesh. So
-        // the remesh branch now carries its own rejections below, and the
-        // comment describes what the code does.
+        // Each rejection is guarded by the mode it belongs to: `refining` for
+        // the indicator-AMR branch, `remeshing` for the dynamic-remesh branch.
+        // `--isotropic-cleanup` defaults to TRUE and the reference runs it
+        // after every refinement and every dynamic remesh, so it is guarded by
+        // both.
         const bool refining =
             !_params.dynamic_remesh && _params.amr.refine_every > 0;
         const bool remeshing =
@@ -760,33 +748,30 @@ class Solver
             throw std::logic_error(
                 "Beatnik::Solver::solve: --flip-passes > 0 under "
                 "--refine-every needs MeshQuality::improveConnectivityByFlips, "
-                "which is task T4d and still throws. T4d is additionally "
-                "BLOCKED upstream: Tessera implements no edge flip "
-                "(../tessera/tasks/edge-flip.md, gap G5c). Pass "
+                "which is task T4d and not yet implemented. Pass "
                 "--flip-passes 0." );
 
-        // **T4c: the `--smooth-iters > 0` rejection is GONE.**
-        // `MeshQuality::improveQualityTangential` is implemented, so the refine
-        // branch's unconditional tangential pass
-        // (`run_adaptive_mesh_bubble.py:1446-1450`) runs at the default
-        // `--smooth-iters 1` — and so, through the repair gate, does the volume
-        // projection. `--redistribute-every > 0` is accepted for the same
-        // reason; its rejection at the bottom of this function is gone too.
+        // `--smooth-iters` and `--redistribute-every` need no check:
+        // `MeshQuality::improveQualityTangential` is implemented, and it is the
+        // refine branch's unconditional tangential pass
+        // (`run_adaptive_mesh_bubble.py:1446-1450`) and the whole of the
+        // redistribute branch.
 
         if ( ( refining || remeshing ) && _params.cleanup.enabled )
             throw std::logic_error(
                 "Beatnik::Solver::solve: --isotropic-cleanup (the default) "
                 "under --refine-every or --dynamic-remesh needs "
-                "MeshQuality::isotropicCleanup, which is task T4d and still "
-                "throws; its valence-equalizing flips are blocked on the same "
-                "Tessera gap G5c. Pass --no-isotropic-cleanup." );
+                "MeshQuality::isotropicCleanup (valence-equalizing flips plus "
+                "tangential relaxation), which is task T4d and not yet "
+                "implemented. Pass --no-isotropic-cleanup." );
 
-        //-- the metric remesher's own rejections (T4b) ----------------------//
+        //-- the metric remesher's own rejections ----------------------------//
         //
-        // T4b landed the sizing field and the SPLIT third of
+        // `DynamicRemesh` implements the sizing field and the SPLIT third of
         // `dynamic_remesh.py`. The collapse, flip and smoothing thirds are T4d
-        // (the first two blocked on Tessera gaps G5b and G5c), and the two
-        // proximity paths are T4e. Rather than invent a `--dynamic-remesh-split
+        // and the two proximity paths are T4e, all unimplemented; Tessera
+        // provides the edge collapse and edge flip that T4d builds on
+        // (`Tessera_EdgeCollapse.hpp`, `Tessera_EdgeFlip.hpp`). Rather than invent a `--dynamic-remesh-split
         // -only` switch, a run is accepted exactly when the reference's OWN
         // knobs make those thirds no-ops — so what Beatnik runs is what the
         // reference would run, not a Beatnik-only subset of it. Each rejection
@@ -826,20 +811,18 @@ class Solver
             throw std::logic_error(
                 "Beatnik::Solver::solve: --remesh-collapse-factor > 0 (the "
                 "default is 0.45) under --dynamic-remesh needs "
-                "DynamicRemesh::collapseShortEdges, which is task T4d and "
-                "still throws. T4d is additionally BLOCKED upstream: Tessera "
-                "implements no edge collapse (../tessera/tasks/edge-collapse.md, "
-                "gap G5b). Pass --remesh-collapse-factor 0, which is what the "
-                "reference's own tight profile passes and which makes its "
-                "collapse pass an exact no-op. NOTE: --remesh-max-collapses 0 "
+                "DynamicRemesh::collapseShortEdges, which is task T4d and not "
+                "yet implemented. Pass --remesh-collapse-factor 0, which is "
+                "what the reference's own tight profile passes and which makes "
+                "its collapse pass an exact no-op. NOTE: --remesh-max-collapses 0 "
                 "does NOT disable collapse -- it means UNLIMITED." );
 
         if ( remeshing && _params.remesh.smoothing_iterations > 0 )
             throw std::logic_error(
                 "Beatnik::Solver::solve: --remesh-smooth-iters > 0 (the "
                 "default is 1) under --dynamic-remesh needs "
-                "DynamicRemesh::tangentialSmooth, which is task T4d and still "
-                "throws. Pass --remesh-smooth-iters 0, which makes the "
+                "DynamicRemesh::tangentialSmooth, which is task T4d and not yet "
+                "implemented. Pass --remesh-smooth-iters 0, which makes the "
                 "reference's own pass return immediately "
                 "(dynamic_remesh.py:463-465)." );
 
@@ -848,11 +831,9 @@ class Solver
             throw std::logic_error(
                 "Beatnik::Solver::solve: --remesh-flip-min-gain below 1e12 "
                 "(the default is 1e-3) under --dynamic-remesh needs "
-                "DynamicRemesh::flipEdgesForQuality, which is task T4d and "
-                "still throws. T4d is additionally BLOCKED upstream: Tessera "
-                "implements no edge flip (../tessera/tasks/edge-flip.md, gap "
-                "G5c). Pass --remesh-flip-min-gain 1e12: triangle quality lies "
-                "in [0,1], so the reference's accept test "
+                "DynamicRemesh::flipEdgesForQuality, which is task T4d and not "
+                "yet implemented. Pass --remesh-flip-min-gain 1e12: triangle "
+                "quality lies in [0,1], so the reference's accept test "
                 "min(new) > min(old)*(1+gain) (dynamic_remesh.py:449-450) is "
                 "then unsatisfiable and its flip pass mutates nothing." );
 

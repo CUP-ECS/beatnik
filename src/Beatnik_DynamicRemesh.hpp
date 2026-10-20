@@ -881,7 +881,9 @@ class DynamicRemesh
      *
      * Subject to the link condition and the geometric safety test — see
      * `SurfaceMesh::collapseEdges`. Capped at `max_collapses_per_pass`,
-     * shortest-first. Note `--remesh-tight-collapse-factor` defaults to 0,
+     * shortest-first. This is task T4d and is not yet implemented; Tessera's
+     * `Tessera_EdgeCollapse.hpp` provides the collapse primitive it needs.
+     * Note `--remesh-tight-collapse-factor` defaults to 0,
      * i.e. the tight parameter set **disables collapse entirely**: once the
      * roll-up is tight, coarsening is more likely to destroy a resolved feature
      * than to save work.
@@ -926,12 +928,13 @@ class DynamicRemesh
      * shrinks the bubble — a subtle and destructive bug, because it looks like
      * excessive numerical dissipation rather than a geometry error.
      *
-     * **T4d, not T4c**, and T4b assigned it: it is a port of
-     * `dynamic_remesh.py::tangential_smooth_vertices` and runs inside the same
-     * `if changed or needs_quality_repair` block as the flips, whereas T4c ports
-     * `mesh_solver.py::improve_mesh_quality_tangential` — a different function
-     * with a different trigger. `--remesh-smooth-iters > 0` is rejected in
-     * `Solver::requireSupportedConfiguration` naming this method and T4d.
+     * This is task T4d and is not yet implemented. It is distinct from
+     * `MeshQuality::improveQualityTangential`, the port of
+     * `mesh_solver.py::improve_mesh_quality_tangential`: this one runs inside
+     * the same `if changed or needs_quality_repair` block as the flips, and
+     * that one has a different trigger. `--remesh-smooth-iters > 0` is
+     * rejected in `Solver::requireSupportedConfiguration` naming this method
+     * and T4d.
      */
     int tangentialSmooth( mesh_type& mesh ) const
     {
@@ -1015,8 +1018,8 @@ class DynamicRemesh
             const int splits = splitLongEdges( mesh, state, target, diag );
             diag.splits += splits;
 
-            // 3. Recompute the sizing field, then collapse. T4d (Tessera gap
-            //    G5b). The only configuration accepted here has
+            // 3. Recompute the sizing field, then collapse. T4d, not yet
+            //    implemented. The only configuration accepted here has
             //    `collapse_factor <= 0`, which makes the reference's own
             //    `collapse_short_edges` return before touching anything
             //    (`dynamic_remesh.py:373` -- the candidate predicate
@@ -1024,22 +1027,21 @@ class DynamicRemesh
             //    recompute at `:151` exists ONLY to feed that call, so with the
             //    call gone it is dead arithmetic and is not performed. It is
             //    listed here rather than silently absent because the recompute
-            //    is load-bearing the moment T4d lands: without it the collapse
-            //    pass undoes the split pass.
+            //    is load-bearing for a working collapse pass: without it the
+            //    collapse pass undoes the split pass.
             const int collapses = 0;
 
             // 4. Repair, if anything changed or the worst element is poor.
             //    Both repairs are T4d and both are configured off, so the gate
-            //    is transcribed in full rather than folded away -- landing T4d
-            //    then turns it on by deleting a rejection rather than by
-            //    remembering to add a call. Same convention T4a used for the
-            //    volume-projection gate.
+            //    is transcribed in full rather than folded away, so
+            //    implementing T4d turns it on by deleting a rejection rather
+            //    than by remembering to add a call.
             const bool changed = ( splits > 0 ) || ( collapses > 0 );
             const bool needs_quality_repair =
                 globalMinQuality( mesh ) < _params.min_quality;
             if ( changed || needs_quality_repair )
             {
-                //   flipEdgesForQuality   T4d (blocked, Tessera G5c)
+                //   flipEdgesForQuality   T4d
                 //   tangentialSmooth      T4d
                 diag.flips += 0;
                 diag.smooth_steps += 0;

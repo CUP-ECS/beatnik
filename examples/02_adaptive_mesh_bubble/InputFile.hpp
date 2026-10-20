@@ -1104,7 +1104,7 @@ inline void printSchema( std::ostream& os )
 "\n"
 "--- Birkhoff-Rott ---\n"
 "  --source-quadrature {face,triangle3,vertex}\n"
-"                                       (face) NOTE: only `vertex` is\n"
+"                                       (vertex) NOTE: only `vertex` is\n"
 "                                       implemented in this port; see README.\n"
 "  --velocity-mode {normal,full}        marker motion rule (full)\n"
 "  --br-approximation {direct,fmm,local,clustered,treecode}\n"

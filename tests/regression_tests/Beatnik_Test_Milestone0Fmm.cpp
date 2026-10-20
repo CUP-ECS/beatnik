@@ -1027,9 +1027,9 @@ Beatnik::SolverParams makeParams( const std::string& checkpoint_dir,
     p.zmodel.preserve_volume = true;
     // THE ONE FIELD THAT DIFFERS BETWEEN THE TWO CLAIMS.
     p.zmodel.br_approximation = approximation;
-    // --source-quadrature vertex. MANDATORY, not decorative: ZModelParams
-    // defaults to Face, whose generate() throws, and the far-field adapter
-    // rejects anything but Vertex regardless.
+    // --source-quadrature vertex. MANDATORY, and set explicitly even though it
+    // is now the ZModelParams default: Face's generate() throws, and the
+    // far-field adapter rejects anything but Vertex.
     p.zmodel.source_quadrature = Beatnik::SourceQuadrature::Vertex;
 
     // The far field, for claim B's trajectory. `ncrit` and the per-level

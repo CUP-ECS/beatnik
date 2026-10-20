@@ -101,6 +101,9 @@ class MeshQuality
      * the serial flip set, though it should reach a comparable valence
      * histogram. Recorded as risk R7 in `tasks/framework.md`.
      *
+     * Not yet implemented (task T4d5); it edits connectivity through
+     * `SurfaceMesh::flipEdges`.
+     *
      * @param mesh   Surface, connectivity edited in place.
      * @param passes Sweeps; exits early when a sweep flips nothing.
      * @return Total flips applied.
@@ -131,15 +134,14 @@ class MeshQuality
      * The vertex normals are recomputed **each pass**, since the surface
      * parameterization has moved.
      *
-     * **T4c — implemented, and it is `improveQualityTangential`'s kernel.** Both
-     * entry points delegate to `relaxTangential` below; the reference's two
-     * functions (`mesh_quality.py::_tangential_relaxation` and
+     * Implemented, and it shares `improveQualityTangential`'s kernel: both
+     * entry points delegate to `relaxTangential` below, because the
+     * reference's two functions (`mesh_quality.py::_tangential_relaxation` and
      * `mesh_solver.py::improve_mesh_quality_tangential`) are the same operator
      * written twice, one over raw arrays and one over a state. This entry point
-     * ships with **no caller on any solver path** — its consumer is
-     * `isotropicCleanup`, which is T4d — exactly the standing
-     * `VolumeProjection::projectToVolume` had between T2d and T4b. The only
-     * thing that exercises it is the one-kernel equivalence check in
+     * has **no caller on any solver path** — its consumer is
+     * `isotropicCleanup`, which is not yet implemented. The only thing that
+     * exercises it is the one-kernel equivalence check in
      * `tests/unit_tests/Beatnik_Test_TangentialRelaxation.cpp`.
      *
      * @param mesh   Surface; **owned** vertex positions moved in place.
@@ -173,6 +175,9 @@ class MeshQuality
      * The driver follows it with the volume projection whenever anything
      * changed (`run_adaptive_mesh_bubble.py:1465-1468, 1514-1516`), because the
      * tangential relaxation is only volume-preserving to first order.
+     *
+     * Not yet implemented (task T4d5). `--isotropic-cleanup` is rejected in
+     * `Solver::requireSupportedConfiguration`, naming this method.
      */
     void isotropicCleanup( mesh_type& mesh ) const
     {

@@ -424,10 +424,10 @@ Beatnik::SolverParams makeSpinUpParams()
     p.zmodel.preserve_volume = true;
     // --br-approximation direct. See the note above.
     p.zmodel.br_approximation = Beatnik::BRApproximation::Direct;
-    // --source-quadrature vertex. MANDATORY, not decorative: ZModelParams
-    // defaults to Face, whose generate() throws, and the far-field adapter
-    // rejects anything but Vertex regardless -- source, target and output row
-    // are one index on that path.
+    // --source-quadrature vertex. MANDATORY, and set explicitly even though it
+    // is now the ZModelParams default: Face's generate() throws, and the
+    // far-field adapter rejects anything but Vertex -- source, target and
+    // output row are one index on that path.
     p.zmodel.source_quadrature = Beatnik::SourceQuadrature::Vertex;
 
     // The dt controls of the milestone-0 configuration.

@@ -133,7 +133,7 @@ enum class InitialVorticityMode
     LipBump,
 };
 
-/// `--source-quadrature` (default `face`).
+/// `--source-quadrature` (default `vertex`).
 /// Port of run_adaptive_mesh_bubble.py::parse_args (lines 218-223)
 ///
 /// All three are accepted at the CLI. **Only `Vertex` is required to be

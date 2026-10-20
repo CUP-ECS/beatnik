@@ -13,19 +13,14 @@
  * @brief ADAPTER (1 of 3). The distributed unstructured triangle surface,
  *        backed by **Tessera**.
  *
- * RECONCILED AGAINST TESSERA 2026-08-07 (task M1), REWORKED 2026-08-11 (the
- * M1 adapter rework, ahead of T1b). The pre-M1 version of this header was
- * written without reading `../tessera`; the M1 version was shaped by Tessera as
- * it stood on 2026-08-07, when eleven capabilities Beatnik needs were missing.
- * **Eight of those eleven have since landed upstream** (branch
- * `conforming-refinement`), so most of the "M1 GAP" text in the previous
- * revision described a Tessera that no longer exists and has been replaced by
- * the real call. Semantics that changed at M1 are still flagged **M1 CHANGE**;
- * text that changed in the rework is flagged **M1-REWORK**. The three gaps that
- * remain open — edge collapse, edge flip, compaction — are flagged **M1 GAP**
- * and recorded in `tasks/framework.md` (task M1, gaps G5b/G5c/G5d). *Gaps are
- * not worked around in Beatnik* — in particular Beatnik implements no haloing
- * and no partitioning of its own.
+ * RECONCILED AGAINST TESSERA (task M1 and its adapter rework). Every
+ * capability Beatnik needs from Tessera exists upstream, edge collapse, edge
+ * flip and compaction included (`Tessera_EdgeCollapse.hpp`,
+ * `Tessera_EdgeFlip.hpp`, `Tessera_Compact.hpp`). The adapters for those three
+ * — `collapseEdges`, `flipEdges` and `compact` below — are not yet written;
+ * they are task T4d1 in `tasks/milestone1.md`. *Nothing Tessera owns is
+ * worked around in Beatnik* — in particular Beatnik implements no haloing and
+ * no partitioning of its own.
  *
  * ADAPTER CONTRACT
  * ----------------
@@ -1560,19 +1555,13 @@ class SurfaceMesh
      * incident face inverts its normal or becomes a sliver —
      * `dynamic_remesh.py:519-551`).
      *
-     * **M1 GAP (G5b) — STILL OPEN.** Tessera implements split-based edits only.
-     * Edge collapse does not exist at any level: no public entry point, no
-     * primitive, and the data model has no coarsening path (`Level` only ever
-     * rises). Neither the link condition nor the cross-rank owner-decides
-     * protocol has anywhere to attach. Tessera task
-     * `../tessera/tasks/edge-collapse.md` (NOT STARTED, the largest of the
-     * eleven; its hard dependency on halo depth >= 2 has landed). This is what
-     * still blocks T4b.
+     * Not yet implemented in Beatnik (task T4d1). The primitive it adapts is
+     * `Tessera::collapseEdges` (`Tessera_EdgeCollapse.hpp`).
      *
-     * **EDITING FAMILY — Remesh**, when it lands: it will tag the mesh
-     * `EditFamily::Remesh`, the same family `splitEdges()` already tags this
-     * mesh with — so it composes with it freely, and Tessera's guard stays a
-     * backstop that never fires.
+     * **EDITING FAMILY — Remesh**: Tessera tags the mesh
+     * `EditFamily::Remesh`, the same family `splitEdges()` tags this mesh
+     * with — so the two compose freely, and Tessera's guard stays a backstop
+     * that never fires.
      */
     template <class EdgeListView>
     MeshEditReport collapseEdges( const EdgeListView& edges )
@@ -1590,15 +1579,13 @@ class SurfaceMesh
      * flip is rejected if the opposite diagonal already exists (non-manifold)
      * or if either child face would invert relative to the pre-flip normal.
      *
-     * **M1 GAP (G5c) — STILL OPEN.** Tessera implements no edge flip.
-     * `../tessera/tasks/edge-flip.md` (NOT STARTED). Its one prerequisite is
-     * met: a correct flip needs both incident faces, which the vertex halo does
-     * not guarantee are co-resident, so it needs the edge-coordinator machinery
-     * — and `buildFaceAdjacency` (G4) now exposes exactly that. This blocks
-     * T4d's flips (T4c is the tangential pass and needs no flip).
+     * Not yet implemented in Beatnik (task T4d1). The primitive it adapts is
+     * `Tessera::flipEdges` (`Tessera_EdgeFlip.hpp`). Both the quality flips
+     * (`DynamicRemesh::flipEdgesForQuality`) and the valence flips of
+     * `MeshQuality::isotropicCleanup` go through it.
      *
-     * **EDITING FAMILY — Remesh**, when it lands: the same family
-     * `splitEdges()` already tags this mesh with, so it composes with it.
+     * **EDITING FAMILY — Remesh**: the same family `splitEdges()` tags this
+     * mesh with, so the two compose.
      */
     template <class EdgeListView>
     int flipEdges( const EdgeListView& edges )
@@ -1612,12 +1599,12 @@ class SurfaceMesh
      *
      * Port of dynamic_remesh.py::compact_mesh (lines 492-508)
      *
-     * **M1 GAP (G5d) — STILL OPEN**, and in Tessera's own ordering a
-     * *prerequisite* of collapse rather than a consequence of it.
-     * `../tessera/tasks/mesh-compaction.md` (NOT STARTED). With no collapse
-     * (G5b) nothing orphans a vertex, so there is nothing to compact today.
+     * Not yet implemented in Beatnik (task T4d1). The primitive it adapts is
+     * `Tessera::compact` (`Tessera_Compact.hpp`). Collapse is the only edit
+     * that orphans a vertex, so this is needed exactly when
+     * `collapseEdges` runs.
      *
-     * **EDITING FAMILY — Remesh**, when it lands.
+     * **EDITING FAMILY — Remesh.**
      */
     MeshEditReport compact()
     {

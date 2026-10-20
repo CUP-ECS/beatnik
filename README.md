@@ -245,9 +245,9 @@ Python's `local`/`clustered` approximations that this port does not have.
 
 ##### Source quadrature: only `vertex` is implemented
 
-`--source-quadrature` accepts all three of the Python's values — `face`
-(the Python default), `triangle3`, and `vertex` — so a Python command line
-parses. **Only `vertex` needs to be implemented in the C++ port**; `face` and
+`--source-quadrature` accepts all three of the Python's values — `face`,
+`triangle3`, and `vertex` (the default in both codes) — so a Python command
+line parses. **Only `vertex` needs to be implemented in the C++ port**; `face` and
 `triangle3` are selectable and throw from
 [src/Beatnik_SourceQuadrature.hpp](src/Beatnik_SourceQuadrature.hpp) when
 generation is attempted.
@@ -261,9 +261,10 @@ a single symmetric kernel and simplifies validating the FMM against it.
 Note the three rules are **not** just different sampling of one field: under the
 potential state model `face` and `triangle3` use the exact per-face gradient
 while `vertex` uses the area-averaged per-vertex one, so they differ at \(O(h)\)
-on an irregular mesh. A gold file generated with the Python default (`face`) is
+on an irregular mesh. A gold file generated with `face` or `triangle3` is
 therefore not directly comparable to a `vertex` run — generate gold files with
-`--source-quadrature vertex`.
+`--source-quadrature vertex` (the default; passing it explicitly guards against
+an older Python checkout whose default was `face`).
 
 ##### Birkhoff-Rott approximation
 
@@ -772,7 +773,8 @@ subsections above, which are intended behavior.
   operators, the direct Birkhoff-Rott sum, ten fixed-mesh timesteps and **both
   adaptivity paths' refinement halves** reproduce the reference. What it still
   does not cover is **coarsening**: edge collapse, quality flips and the
-  isotropic cleanup are T4d, blocked on Tessera gaps G5b/G5c/G5d, and every
+  isotropic cleanup are T4d and not yet implemented in Beatnik (Tessera provides
+  the collapse, flip and compaction primitives they build on), and every
   configuration that would reach one is rejected before the first step by name
   and task ID. Resolves progressively as T4 lands its remaining regression
   tests. See
