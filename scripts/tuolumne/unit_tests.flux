@@ -23,9 +23,8 @@
 # scripts/tuolumne/run_regression_minset.flux and is a different script on
 # purpose.
 #
-# This script DISCOVERS its tests rather than naming them, so it grows as tasks
-# land (T2b and T2c both add unit tests). Two paths, chosen by the checkout's
-# build mode:
+# This script DISCOVERS its tests rather than naming them, so a new unit test
+# needs no edit here. Two paths, chosen by the checkout's build mode:
 #
 #   tree mode      `ctest -L unit` in ${BEATNIK_BUILD_DIR}. The labels are
 #                  already registered, so this needs no list.
@@ -171,9 +170,9 @@ _python="${BEATNIK_PYTHON:-python3}"
 # READ THE MANIFEST ON FD 3, NOT ON STDIN. `flux run` inherits and CONSUMES the
 # loop's stdin, so with the manifest on stdin the first launched binary swallows
 # every remaining line -- and the report is a green `PASS (n/n tests)` naming
-# only the tests that ran, which is the worst possible way to lose one. Latent
-# and invisible while the tier had a single `exe` line; found the moment T2b
-# added the second. The gate wrapper had the same bug and is fixed the same way.
+# only the tests that ran, which is the worst possible way to lose one. It is
+# invisible with a single `exe` line. The gate wrapper reads its list on FD 3
+# for the same reason.
 while IFS= read -r _line <&3 || [ -n "${_line}" ]; do
     case "${_line}" in
         ''|'#'*) continue ;;
@@ -206,8 +205,7 @@ while IFS= read -r _line <&3 || [ -n "${_line}" ]; do
         # it is handed -- so prefixing only the script is not enough. Getting
         # this wrong is worse than a plain failure: a missing fixture makes the
         # positive case fail loudly but makes the py-fail case pass for the
-        # wrong reason, so the tally reads 2/3 instead of 1/3. Found by running
-        # it; recorded in tasks/framework.md.
+        # wrong reason, so the tally reads 2/3 instead of 1/3.
         #
         # No `flux run`: these are pure Python over committed fixtures, with no
         # MPI and no GPU, so they run directly on the batch node.

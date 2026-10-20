@@ -341,9 +341,10 @@ class BRSolverDirect : public BRSolverBase<ExecutionSpace, MemorySpace>
      *
      * The buffers are members, not per-call locals, because GPU-aware MPI
      * registers every device buffer it is handed with the NIC. Allocating four
-     * fresh views per `ringAccumulate` -- three calls per RK3 step -- gave the
-     * NIC tens of thousands of short-lived registrations, and a 16-rank run
-     * died near step 5270 in a flood of `cxil_map: write error` followed by
+     * fresh views per `ringAccumulate` -- three calls per RK3 step -- gives
+     * the NIC tens of thousands of short-lived registrations; a 16-rank run
+     * allocating that way died near step 5270 in a flood of
+     * `cxil_map: write error` followed by
      * `OFI tagged recv failed` in the tag-1401 `MPI_Sendrecv`. Persistent
      * buffers keep the registration set at four regions per rank.
      *

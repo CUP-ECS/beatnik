@@ -86,11 +86,12 @@
  * (activation \f$6 h^0_{\min}\f$, material exclusion \f$4 h^0_{\min}\f$), which
  * is why `initial_min_edge` is carried in every checkpoint.
  *
- * WHAT T4b IMPLEMENTED, AND WHAT STILL THROWS
- * -------------------------------------------
+ * WHAT IS IMPLEMENTED, AND WHAT THROWS
+ * ------------------------------------
  * The sizing field, the gradation and the **split** third of the cycle are
  * implemented. The collapse, flip and tangential-smoothing thirds are **T4d**
- * and still throw; the two proximity paths are **T4e** and still throw.
+ * (not yet implemented) and throw; the two proximity paths are **T4e** and
+ * throw.
  *
  * A `--dynamic-remesh` run is therefore accepted only when the three
  * unimplemented thirds are configured off **through the reference's own knobs**,
@@ -157,7 +158,7 @@ struct RemeshDiagnostics
     Real max_sagitta_before = 0.0;
     Real max_sagitta_after = 0.0;
 
-    //-- T4b additions ------------------------------------------------------//
+    //-- Beatnik additions, beyond the Python's fields ---------------------//
     //
     // Every count here is **global**, for the reason `RefinementDiagnostics`
     // gives: a per-rank number is a statement about the partition and these
@@ -168,7 +169,7 @@ struct RemeshDiagnostics
     /// Edges satisfying \f$\ell > f_s\max(h_{\text{target}}, h_{\min})\f$ over
     /// the whole pass sequence — the split pass's **candidate** set before the
     /// per-pass cap. `splits < split_candidates` exactly when the cap bound,
-    /// which is the distinction T4b's exit criterion asserts on.
+    /// which is the distinction the T4b regression test asserts on.
     GlobalIndex split_candidates = 0;
     /// True when `max_splits_per_pass` truncated the candidate list in any
     /// pass. Risk R4's territory: a truncated pass will not match the Python,
@@ -254,11 +255,10 @@ class DynamicRemesh
      * The larger of the dihedral-angle estimate and the cotangent estimate, so
      * a feature that either one resolves triggers refinement. Units 1/length.
      *
-     * **T4b — the mesh argument is non-const**, as it is on every other
+     * **The mesh argument is non-const**, as it is on every other
      * geometric consumer in the tree: `positions()`, `faceVertices()` and
      * `faceEdges()` are all non-const (Cabana slices behind a generation guard,
-     * and CSRs cached against `generation()`). Same widening T2c applied to
-     * twelve signatures.
+     * and CSRs cached against `generation()`).
      *
      * Both estimates are assembled over the **whole local face set** and are
      * complete on every entity this pass consumes, by the rule in
@@ -391,7 +391,7 @@ class DynamicRemesh
             auto inc = mesh.edgeAdjacency();
             // RESIDENT, never the gid-recorded pair: `EdgeField::Faces` is
             // partial by construction after any topological edit, and this runs
-            // between splits. T4a paid a whole gate run for that lesson.
+            // between splits.
             auto count = inc.resident_count;
             auto faces = inc.resident_faces;
             auto fn = geometry.face_normal;
@@ -471,15 +471,16 @@ class DynamicRemesh
      * @note MPI. The gradation sweep (stage 4) is a Jacobi-like iteration over
      *       edges and needs a ghost exchange of `target` between sweeps, or the
      *       gradation constraint is not enforced across rank boundaries and a
-     *       size jump appears exactly there. **T4b — that exchange is
-     *       `SurfaceMesh::haloExchangeVertexView`**, added for this and
-     *       explained there; the same call also publishes stage 3's result, so
-     *       an outermost-ring ghost vertex (whose incident-face set is short)
-     *       carries its owner's value rather than a partial minimum.
+     *       size jump appears exactly there. **That exchange is
+     *       `SurfaceMesh::haloExchangeVertexView`**, explained there; the
+     *       same call also publishes stage 3's result, so an outermost-ring
+     *       ghost vertex (whose incident-face set is short) carries its
+     *       owner's value rather than a partial minimum.
      *
-     * @param state Unused until T4e: its material position is the *proximity*
-     *        exclusion's input, and both proximity switches are rejected at
-     *        setup. Kept in the signature so landing T4e changes no caller.
+     * @param state Unused pending T4e: its material position is the
+     *        *proximity* exclusion's input, and both proximity switches are
+     *        rejected at setup. Kept in the signature so implementing T4e
+     *        changes no caller.
      */
     void vertexTargetEdgeLength( mesh_type& mesh, const state_type& state,
                                  scalar_view& target ) const
@@ -768,15 +769,15 @@ class DynamicRemesh
      * over-long edges, respect the cap) is met by bisecting a ratio threshold
      * until the surviving count fits, as `AdaptiveMesh::selectMarks` does for
      * `--max-faces` and for the same reason (risk R4). **A capped pass therefore
-     * will not match the Python edge for edge**, which is why T4b's gate
+     * will not match the Python edge for edge**, which is why the T4b gate
      * configuration keeps the candidate count under the cap and why
      * `split_capped` is reported rather than inferred.
      *
      * @param[out] diag `splits`, `split_candidates`, `split_capped` and
-     *             `split_ratio_threshold` are accumulated here. **Signature
-     *             change from the stub** (which returned only the count): the
-     *             candidate count is knowable only inside this function and is
-     *             half of what the exit criterion asserts on.
+     *             `split_ratio_threshold` are accumulated here, not just
+     *             returned as a count: the candidate count is knowable only
+     *             inside this function and is half of what the T4b regression
+     *             test asserts on.
      * @return Edges bisected, globally.
      */
     int splitLongEdges( mesh_type& mesh, state_type& state,
@@ -977,8 +978,7 @@ class DynamicRemesh
      * precisely so nothing can be forgotten; here they are Tessera vertex user
      * fields and `splitEdges()` interpolates the whole pack at every midpoint
      * through `RefinePolicy`, so this function touches no solution field at all.
-     * (`SurfaceState::remap`, which an earlier revision of this comment named,
-     * was **deleted** at the M1 rework for exactly that reason.)
+     * There is no `SurfaceState::remap`, for exactly that reason.
      *
      * The remeshed state is built with `reference_face_area=None` and
      * `reference_face_curvature=None`, re-basing the AMR change indicators.
@@ -1024,8 +1024,8 @@ class DynamicRemesh
             //    `collapse_short_edges` return before touching anything
             //    (`dynamic_remesh.py:373` -- the candidate predicate
             //    `length < 0 * target` is false for every edge). The sizing
-            //    recompute at `:151` exists ONLY to feed that call, so with the
-            //    call gone it is dead arithmetic and is not performed. It is
+            //    recompute at `:151` exists ONLY to feed that call, so without
+            //    the call it is dead arithmetic and is not performed. It is
             //    listed here rather than silently absent because the recompute
             //    is load-bearing for a working collapse pass: without it the
             //    collapse pass undoes the split pass.

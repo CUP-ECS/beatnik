@@ -73,7 +73,7 @@
  * 2. **The far field is live.** `p2p_pair_fraction` below `kP2PFractionBound`
  *    and `global_m2l_pair_count` strictly positive.
  * 3. **The adapter's softening and near-field floor**, which is the half of
- *    T1's exit criterion that first becomes runnable here:
+ *    T1's exit criterion that needs a live solve:
  *    `diagnostics().softening == sqrt(blob())` and strictly positive (Canopy's
  *    \f$-1\f$ is an auto-softening *sentinel* and a different kernel, not an
  *    error), and `params().near_softening_factor == 0`. The `FmmConfig` members
@@ -130,7 +130,7 @@
  * THE `~canopy` BUILD
  * -------------------
  * This file carries the explicit instantiation of `FarFieldSolver` that closes
- * the gap T2 found and left here: `Beatnik_CreateBRSolver.hpp` preprocesses out
+ * an instantiation gap: `Beatnik_CreateBRSolver.hpp` preprocesses out
  * the `new BRSolverFMM<...>` line, which is the class's only construction site,
  * so a `~canopy` build instantiates `FarFieldSolver` nowhere and the guarded
  * half of the header is parsed but never definition-checked. In that build the
@@ -166,12 +166,12 @@
 
 #ifndef BEATNIK_ENABLE_CANOPY
 //---------------------------------------------------------------------------//
-// THE `~canopy` INSTANTIATION GAP, CLOSED PERMANENTLY.
+// THE `~canopy` INSTANTIATION GAP, AND WHAT CLOSES IT.
 //
 // `Beatnik_CreateBRSolver.hpp` preprocesses out the `new BRSolverFMM<...>`
 // line, which is the only construction site of the class, so nothing in the
-// tree instantiates `FarFieldSolver` in a `~canopy` build -- T2 checked with
-// `nm` and found zero symbols. The guarded half of the header is therefore
+// tree instantiates `FarFieldSolver` in a `~canopy` build -- `nm` on such a
+// build finds zero symbols. The guarded half of the header is therefore
 // parsed and definition-checked but never *instantiated*, which is weaker than
 // it looks: a body that is ill-formed only on instantiation rots silently the
 // next time someone edits it. This one line is what keeps that from happening,
@@ -273,7 +273,8 @@ constexpr double kP2PFractionBound = 0.75;
  * by `kP2PFractionBound` above.
  *
  * **Where the value comes from.** Not from this measurement, and not from
- * \f$\tau_A\f$ — **T5** measures \f$\tau_A\f$ and no T5 number exists yet.
+ * \f$\tau_A\f$, which is a separate bound (`kTauA` in
+ * `Beatnik_Test_Milestone0Fmm.cpp`).
  * Canopy measured \f$7.0718\times10^{-4}\f$ relative on the **gradient** at
  * \f$p=3\f$, \f$\theta=0.3\f$ on its volumetric cloud, against
  * \f$8.996\times10^{-3}\f$ at \f$p=2\f$; that pair is the provenance of
@@ -425,7 +426,7 @@ Beatnik::SolverParams makeSpinUpParams()
     // --br-approximation direct. See the note above.
     p.zmodel.br_approximation = Beatnik::BRApproximation::Direct;
     // --source-quadrature vertex. MANDATORY, and set explicitly even though it
-    // is now the ZModelParams default: Face's generate() throws, and the
+    // is the ZModelParams default: Face's generate() throws, and the
     // far-field adapter rejects anything but Vertex -- source, target and
     // output row are one index on that path.
     p.zmodel.source_quadrature = Beatnik::SourceQuadrature::Vertex;
@@ -460,8 +461,8 @@ Beatnik::SolverParams makeSpinUpParams()
 
 //---------------------------------------------------------------------------//
 /// `FmmParams` for one dispatch arm. Everything except `basis` and `order` is
-/// the T1 default, with the single exception of `ncrit`, which this test must
-/// lower to make the far field live at all (see `kNcrit`).
+/// the `FmmParams` default, with the single exception of `ncrit`, which this
+/// test must lower to make the far field live at all (see `kNcrit`).
 Beatnik::FmmParams makeFmmParams( Beatnik::FarFieldBasis basis, int order )
 {
     Beatnik::FmmParams f;
@@ -765,7 +766,7 @@ void runChecks( Beatnik::Test::Recorder& rec )
     BEATNIK_CHECK_EQ( rec, production.m2l_fallback, 0 );
 
     // Group 3 -- THE SOFTENING AND THE NEAR-FIELD FLOOR, i.e. the half of T1's
-    // exit criterion that first becomes runnable here. `softening` is a LENGTH
+    // exit criterion that needs a live solve. `softening` is a LENGTH
     // and `blob()` is a squared length, so the comparison is against its square
     // root; a value of -1 would be Canopy's auto-softening sentinel and a
     // different kernel entirely, which is why positivity is asserted separately

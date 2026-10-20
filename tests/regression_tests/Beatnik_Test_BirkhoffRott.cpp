@@ -18,9 +18,9 @@
  * `tasks/framework.md` states T2c's exit criterion as: *a `regression`-tier
  * test comparing the induced velocity on the default icosphere against a
  * hard-coded reference computed from the Python, to `1e-13` relative.* The tier
- * — not this file — supplies the rank sweep, per the convention T1c set, so the
- * criterion's ranks 1 and 4 are a verified subset of the gate's 1-6 on SERIAL
- * and HIP. The test reads its own comm size and adapts.
+ * — not this file — supplies the rank sweep, per the regression-tier
+ * convention, so the criterion's ranks 1 and 4 are a verified subset of the
+ * gate's 1-6 on SERIAL and HIP. The test reads its own comm size and adapts.
  *
  * WHY THE SOURCE STATE IS SYNTHETIC AND NOT THE INITIAL CONDITION
  * --------------------------------------------------------------
@@ -73,9 +73,9 @@
  * The failure mode this task can introduce is a quadrature that emits sources
  * for the whole local vertex set instead of `[0, ownedVertexCount())`. That is
  * smoothly wrong and scales with the ghost fraction, i.e. it changes with the
- * rank count — which is why this test is in the multi-rank gate. Following
- * T1c's template, the discriminating numbers are reported and not just the
- * verdict:
+ * rank count — which is why this test is in the multi-rank gate. As in the
+ * other regression-tier members, the discriminating numbers are reported and
+ * not just the verdict:
  *
  *   1. the owned sets partition the global sets (162 / 480 / 320), summed with
  *      a plain `MPI_Allreduce` rather than read from Tessera;
@@ -217,7 +217,7 @@ void runChecks( Beatnik::Test::Recorder& rec )
     // from Tessera's `globalOwnedX`, deliberately: two independent paths to the
     // same number, and owned-versus-local is exactly what R9 turns on. This is
     // the precondition the owned-only source list needs, and R9 says to check
-    // it rather than assume it. (T1c's template.)
+    // it rather than assume it.
     //-----------------------------------------------------------------------//
     {
         long long owned[3] = { n_owned, mesh.ownedEdgeCount(),
@@ -242,9 +242,9 @@ void runChecks( Beatnik::Test::Recorder& rec )
     //
     // `updateSheetVector` is a one-ring stencil on the potential, so an owned
     // vertex on a partition boundary reads the potential at vertices it does
-    // not own: the potential's ghosts must be current BEFORE the call. T2d's
-    // RHS is what will do this in production; it does not exist yet, so the
-    // ordering is written out explicitly here rather than inherited.
+    // not own: the potential's ghosts must be current BEFORE the call. In
+    // production the RHS evaluation does this; here the ordering is written
+    // out explicitly rather than inherited.
     //-----------------------------------------------------------------------//
     Beatnik::SurfaceState<ExecSpace, MemSpace> state(
         Beatnik::StateModel::Potential );
@@ -459,12 +459,11 @@ void runChecks( Beatnik::Test::Recorder& rec )
     }
 
     //-----------------------------------------------------------------------//
-    // The surface Riesz scalar. Nothing calls this until
-    // `--bernoulli-scalar-mode surface-riesz`, but it is on T2c's fill-in list
-    // and it shares the ring, the kernel and the quadrature with the velocity
-    // -- so leaving it unvalidated would leave the factored ring exercised by
-    // one caller only. Its prefactor is -1/(4 pi^2) and it carries NO
-    // `br_sign`; `min psi < 0` is what pins that sign.
+    // The surface Riesz scalar. Only `--bernoulli-scalar-mode surface-riesz`
+    // calls this, but it shares the ring, the kernel and the quadrature with
+    // the velocity -- so leaving it unvalidated would leave the factored ring
+    // exercised by one caller only. Its prefactor is -1/(4 pi^2) and it
+    // carries NO `br_sign`; `min psi < 0` is what pins that sign.
     //-----------------------------------------------------------------------//
     scalar_view riesz( "riesz", n_owned );
     br.computeSurfaceRieszScalar( mesh, geom, state, *quadrature, params,
@@ -505,7 +504,7 @@ void runChecks( Beatnik::Test::Recorder& rec )
     //-----------------------------------------------------------------------//
     // A NEGATIVE CASE, and it is a real one.
     //
-    // T1b's lesson: a check that has only ever seen agreeing data has not been
+    // A check that has only ever seen agreeing data has not been
     // tested. Here the cheapest genuine negative is `--br-sign -1`, which by
     // the convention in Beatnik_BRSolverBase.hpp must negate the velocity
     // EXACTLY and must leave the Riesz scalar alone. Both halves are asserted;
@@ -525,9 +524,9 @@ void runChecks( Beatnik::Test::Recorder& rec )
     // `SurfaceOperators::surfaceGradient`, whose face-loop assembly uses
     // `Kokkos::atomic_add` -- documented as not bitwise reproducible under
     // DETERMINISM in Beatnik_MeshGeometry.hpp. Two identical calls therefore
-    // produce last-bit-different gradients, and the first version of this check
-    // demanded bitwise equality and failed on HIP at all six rank counts (15 to
-    // 60 of 162 values differing) while passing on SERIAL at all six. That is
+    // produce last-bit-different gradients: a bitwise-equality check fails on
+    // HIP at all six rank counts (measured 15 to 60 of 162 values differing)
+    // while passing on SERIAL at all six. That is
     // the atomic scatter, not a `br_sign` leak, and the discriminator is the
     // SIZE: a leak makes the difference exactly 2|psi| (relative 2.0), while an
     // atomic reordering makes it ~1e-16. So the claim is made at `1e-13`

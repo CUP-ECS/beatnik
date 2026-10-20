@@ -54,7 +54,7 @@
  * center=(0,0,0.25) )` — the Python's own defaults, i.e. the same mesh T1a's
  * gold file describes. They are **order-invariant summary scalars** (a max, a
  * min, a sum of magnitudes) precisely so that this test does not have to match
- * Beatnik's vertex numbering to the Python's, which T1b established differs.
+ * Beatnik's vertex numbering to the Python's, which differs.
  *
  * They are hard-coded and **must not be adjusted to make this test pass**: a
  * mismatch at `1e-12` is a real disagreement with the reference and is the
@@ -143,7 +143,7 @@ constexpr double kPySheetVectorSum = 1.67624672668030655e+02;
 //---------------------------------------------------------------------------//
 
 /// Against a Python reference scalar, relative. The criterion's number. Beatnik
-/// and the Python agree on the mesh positions to the last bits (T1b: the
+/// and the Python agree on the mesh positions to the last bits (the
 /// icosphere tables are the same literals and differ only by a
 /// reciprocal-multiply), so a derived summary scalar should agree to ~1e-15;
 /// 1e-12 leaves three decades of margin for the non-reproducible atomic scatter

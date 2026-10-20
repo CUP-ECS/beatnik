@@ -89,8 +89,8 @@ except ImportError:  # pragma: no cover - reported at run time, not import time
 # Edit this table when either writer changes a name. Nothing else in the script
 # knows a field name.
 #
-# UPDATED BY TASK M2. The mesh and field paths below are *Tessera's* layout, not
-# a Beatnik invention: `Tessera::writeMesh` owns the file and Beatnik only
+# The mesh and field paths below are *Tessera's* layout, not a Beatnik
+# invention: `Tessera::writeMesh` owns the file and Beatnik only
 # appends the `/beatnik` scalar group afterwards. Two consequences that are not
 # obvious from the names:
 #
@@ -125,12 +125,12 @@ FIELD_MAP: Dict[str, str] = {
 }
 
 # Where the writer declares what each `/vertices/u<N>` slot means, as the `.npz`
-# key of that slot in VertexFieldId order. Absent from a `.npz` and from a file
-# written before M2; checked only when present.
+# key of that slot in VertexFieldId order. Absent from a `.npz` and from older
+# checkpoints that predate the declaration; checked only when present.
 VERTEX_FIELD_NAMES_PATH = "/beatnik/vertex_field_names"
 
-# The same declaration for the FACE user pack, added at T4a with
-# Beatnik::FaceFieldId. `/faces/u<N>` is positional exactly as `/vertices/u<N>`
+# The same declaration for the FACE user pack, in Beatnik::FaceFieldId
+# order. `/faces/u<N>` is positional exactly as `/vertices/u<N>`
 # is (risk R14), so the writer declares the meaning of each slot and this script
 # verifies it. Unlike the vertex pack there is nothing to compare the face data
 # ITSELF against -- the Python `.npz` gold files carry no per-face state -- so
@@ -138,8 +138,8 @@ VERTEX_FIELD_NAMES_PATH = "/beatnik/vertex_field_names"
 # only that the file's own declaration still says what this script expects,
 # which is what turns a silent enum reordering into a named failure.
 #
-# Absent from a `.npz` and from any file written before T4a; checked only when
-# present.
+# Absent from a `.npz` and from older checkpoints that predate the face pack;
+# checked only when present.
 FACE_FIELD_NAMES_PATH = "/beatnik/face_field_names"
 FACE_FIELD_NAMES = (
     "reference_face_area",
@@ -229,7 +229,7 @@ def check_vertex_field_names(declared: np.ndarray) -> None:
 def check_face_field_names(declared: np.ndarray) -> None:
     """Verify the file's `/faces/u<N>` slot declaration against this script.
 
-    The face analogue of `check_vertex_field_names`, and the T4a half of risk
+    The face analogue of `check_vertex_field_names`, and the face half of risk
     R14's mitigation. There is no `FIELD_MAP` entry to check against because no
     face dataset is compared, so the expected list is spelled out in
     `FACE_FIELD_NAMES` -- which makes this a check that the two independent

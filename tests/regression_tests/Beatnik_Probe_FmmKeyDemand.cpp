@@ -21,8 +21,8 @@
  * pick it up — see the "Measurement drivers — IN NO TIER" loop in
  * `tests/CMakeLists.txt`, which is the milestone tier's loop stopped short of
  * the point where it applies a label. **No tolerance is compiled into this
- * file and none may be** (risk **R6**): it measures the demand, and T8 decides
- * what to do about it. The only assertions here are structural — the entity
+ * file and none may be** (risk **R6**): it measures the demand and does not
+ * judge it. The only assertions here are structural — the entity
  * round trip, finiteness, and the parameter-set check below — i.e. the
  * conditions under which the printed numbers mean anything at all.
  *
@@ -30,8 +30,8 @@
  * `m2l_effective_op_cap()` distinct operator keys per rank; every pair whose
  * key is refused takes the per-pair fallback instead. `n_unique_ops` is the
  * count ADMITTED and saturates at the cap, so it cannot say how far past the
- * cap the tree actually reaches. T1 added the counter that can —
- * `m2l_n_demanded_ops()` — and T2 carried it into
+ * cap the tree actually reaches. The counter that can is
+ * `m2l_n_demanded_ops()`, which the adapter reports as
  * `FarFieldDiagnostics::local_m2l_demanded_op_count`. This driver is what
  * reads it along a real trajectory.
  *
@@ -275,7 +275,7 @@ Beatnik::SolverParams makeParams( int subdivisions,
     // demand of a different sequence of states.
     p.zmodel.br_approximation = Beatnik::BRApproximation::Direct;
     // --source-quadrature vertex. MANDATORY, and set explicitly even though it
-    // is now the ZModelParams default: Face's generate() throws, and the
+    // is the ZModelParams default: Face's generate() throws, and the
     // far-field adapter rejects anything but Vertex.
     p.zmodel.source_quadrature = Beatnik::SourceQuadrature::Vertex;
 

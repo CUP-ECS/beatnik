@@ -14,9 +14,9 @@
  *        default physics on a frozen mesh, compared against the M0-G1 / M0-G2
  *        Python gold set at every one of the 81 checkpointed steps.
  *
- * THIS IS THE `milestone` TIER'S FIRST MEMBER, AND IT IS **NOT** THE SHIP GATE.
+ * THIS IS A `milestone` TIER MEMBER, AND IT IS **NOT** THE SHIP GATE.
  * ---------------------------------------------------------------------------
- * The gate stays at five `regression` members and 60 launches (CLAUDE.md
+ * The gate is five `regression` members and 60 launches (CLAUDE.md
  * "Minimum test set"); this tier is ranks **1 and 4** on SERIAL and HIP, run on
  * demand through `scripts/<system>/run_milestone.<scheduler>`. A 2000-step run
  * at 642 or 2562 vertices in front of every change is a stall, not a gate.
@@ -58,10 +58,9 @@
  * THE GOLD `.npz` CARRIES NO `sheet_vector`. Nine keys, and that is not one of
  * them, so the compared field set is exactly `vertices`, `potential`,
  * `remesh_material_position`, `faces`, `time`, `initial_volume`,
- * `initial_min_edge`. M0-D1 found this the hard way — a Beatnik-vs-Beatnik
- * comparison is over a strictly LARGER field set than a Beatnik-vs-Python one,
- * and reading the two horizons as comparable is what almost made M0-T2 look
- * mandatory. A test here cannot assert on `sheet_vector` however much it would
+ * `initial_min_edge`. A Beatnik-vs-Beatnik comparison is over a strictly
+ * LARGER field set than a Beatnik-vs-Python one, so the two horizons are not
+ * comparable. A test here cannot assert on `sheet_vector` however much it would
  * like to.
  *
  * WHY A FROZEN MESH MAKES THIS COMPARISON WELL-BEHAVED
@@ -100,7 +99,7 @@
  *
  * THE R9 DISCRIMINATORS, RE-DERIVED PER LEVEL
  * -------------------------------------------
- * The three structural discriminators T1c established and T2d mechanized are
+ * The three structural discriminators regression tests 1 and 2 assert are
  * mechanized here too, because they are statements about the PARTITION rather
  * than about the trajectory and stay decisive after 2000 steps:
  *
@@ -611,7 +610,7 @@ void runChecks( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
     const std::string python = python_env ? python_env : "python3";
 
     // Every input path is checked BEFORE it is used, so a mis-plumbed path is
-    // reported as itself rather than as a comparison failure (the T1b trap) --
+    // reported as itself rather than as a comparison failure --
     // and all 81 gold files are checked up front rather than at the step that
     // needs them, because discovering a missing step-1975 file after 20 minutes
     // of solving wastes the run.
@@ -831,7 +830,7 @@ void runChecks( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
     // step is the answer.
     //
     // `advanceOneStep` is collective and every rank calls it the same number of
-    // times -- the BR ring deadlocks otherwise (T2c), including for a rank that
+    // times -- the BR ring deadlocks otherwise, including for a rank that
     // owns zero sources.
     //-----------------------------------------------------------------------//
     const double t_start = MPI_Wtime();
@@ -912,8 +911,8 @@ void runChecks( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
     BEATNIK_CHECK_EQ( rec, mesh.globalFaceCount(), kFaces );
 
     //-----------------------------------------------------------------------//
-    // A NEGATIVE CASE, and it is a real one. T1b's lesson: a check that has only
-    // ever seen agreeing data has not been tested. The cheapest genuine negative
+    // A NEGATIVE CASE, and it is a real one. A check that has only ever seen
+    // agreeing data has not been tested. The cheapest genuine negative
     // is comparing the final state against the STEP 0 gold file -- same schema,
     // same mesh, same carried scalars, a different time and different positions.
     // It must exit exactly 1 ("compared and disagreed") and NOT 2 ("could not

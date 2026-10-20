@@ -79,14 +79,14 @@
  *                                       `FmmParams::order`. Ignored under
  *                                       `direct`.
  *
- * ADDED BY T5 STEP 7, which needs the FMM-driven 2000-step trajectory and
- * otherwise this exact configuration. The first three arguments and every
- * default are unchanged, so every M0-D1 invocation of this driver still means
- * what it meant. **Both gold sets are direct runs**, which is why `direct` is
- * the default and stays it: under `fmm` the comparison acquires an
- * approximation error M0-D1's measurement cannot separate from the divergence
- * it is about — separating them is exactly what T5 step 7 is for, and it does
- * it by running both and reporting them side by side.
+ * argv[4..6] serve T5 step 7, which needs the FMM-driven 2000-step trajectory
+ * and otherwise this exact configuration. Their defaults reproduce the M0-D1
+ * configuration, so an invocation that omits them is the direct run. **Both
+ * gold sets are direct runs**, which is why `direct` is the default: under
+ * `fmm` the comparison acquires an approximation error M0-D1's measurement
+ * cannot separate from the divergence it is about — separating them is exactly
+ * what T5 step 7 is for, and it does it by running both and reporting them
+ * side by side.
  *
  * `fmm` at the DEFAULT `ncrit` is a direct sum with FMM bookkeeping around it
  * at both milestone-0 vertex counts (the liveness inequality
@@ -212,8 +212,8 @@ Beatnik::SolverParams makeParams( int subdivisions, int steps,
     // runs, so a `direct` invocation measures the Beatnik-versus-Python
     // divergence alone; `fmm` adds the per-evaluation approximation error on
     // top, and T5 step 7 runs both because separating the two is the whole
-    // point of its attribution. Parameterized by T5; M0-D1's own invocations
-    // pass nothing and get Direct.
+    // point of its attribution. An invocation that passes nothing gets
+    // Direct.
     p.zmodel.br_approximation = approximation;
     // The two FMM knobs T5 step 7 needs, argv[5..6], defaulted to FmmParams'
     // own values so an omitted argument is the compiled default and not a
@@ -289,7 +289,7 @@ void runDriver( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
         return;
     }
 
-    // argv[4..6], T5 step 7's. Defaults reproduce M0-D1 exactly: Direct, and
+    // argv[4..6]. Defaults reproduce M0-D1 exactly: Direct, and
     // FmmParams' own ncrit and order, which the sentinels below leave alone.
     Beatnik::BRApproximation approximation = Beatnik::BRApproximation::Direct;
     std::string approx_name = "direct";
@@ -330,7 +330,7 @@ void runDriver( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
         << ExecSpace::name() << "_np" << comm_size;
     // The FMM configuration goes in the directory name, so a direct and an FMM
     // run of the same level and rank count cannot alias inside one scratch and
-    // be read back as one series. `direct` keeps M0-D1's original name exactly.
+    // be read back as one series. `direct` adds no suffix.
     if ( approximation != Beatnik::BRApproximation::Direct )
     {
         dir << "_" << approx_name;

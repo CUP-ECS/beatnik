@@ -49,12 +49,12 @@ run directory of ``.h5`` (Beatnik rank 1 vs rank 4, the attribution of M0-D1
 step 4). ``compare_output.py`` takes either on either side, so nothing here
 branches on it.
 
-**THE TWO COMPARISONS ARE NOT OVER THE SAME FIELDS, and that is a trap M0-D1
-walked into before it was written down here.** The reference's ``.npz`` carries
-nine keys and ``sheet_vector`` is not one of them, so Beatnik-vs-Python cannot
-compare that field at all -- while Beatnik-vs-Beatnik, two ``.h5`` files from
-the same writer, does. ``compare_output.py`` compares whatever is present in
-both, which is right, but it means a Beatnik-vs-Beatnik horizon is measured over
+**THE TWO COMPARISONS ARE NOT OVER THE SAME FIELDS, and that is a trap.**
+The reference's ``.npz`` carries nine keys and ``sheet_vector`` is not one of
+them, so Beatnik-vs-Python cannot compare that field at all -- while
+Beatnik-vs-Beatnik, two ``.h5`` files from the same writer, does.
+``compare_output.py`` compares whatever is present in both, which is right, but
+it means a Beatnik-vs-Beatnik horizon is measured over
 a strictly LARGER field set than a Beatnik-vs-Python one and the two numbers are
 not directly comparable. Every subcommand here therefore reports which fields it
 actually compared, and ``pair`` prints the derived first-failing step PER FIELD

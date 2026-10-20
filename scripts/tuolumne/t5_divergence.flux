@@ -63,8 +63,8 @@
 # would make every row a direct sum with FMM bookkeeping around it and the
 # horizon would read as a success at every order (R1).
 #
-# BUDGET. The FMM-driven per-step cost is UNMEASURED -- T8 owns it -- so it
-# cannot be extrapolated from M0-D1's direct figures (L3 HIP np1 0.005385
+# BUDGET. The FMM-driven per-step cost cannot be extrapolated from M0-D1's
+# direct figures (L3 HIP np1 0.005385
 # s/step, np4 0.014058; L4 HIP np1 0.008792, np4 0.019211). Run
 # BEATNIK_T5_MODE=probe FIRST, at 25 steps, and set the per-row estimates from
 # that measurement. pdebug caps at ONE HOUR and a job killed at the wall leaves
@@ -227,7 +227,7 @@ fi
 
 # ROW OVERRIDE. One row per line, same nine fields as the tables above.
 #
-# ADDED because the measurement showed the five-row sweep does NOT fit pdebug's
+# It exists because the five-row sweep does NOT fit pdebug's
 # one-hour cap: a 25-step probe under-predicts the FMM per-step cost by about
 # 1.9x, because the cost GROWS as the bubble deforms and the tree deepens (the
 # L3 row measured 0.128 s/step over 2000 steps against the probe's 0.068). The

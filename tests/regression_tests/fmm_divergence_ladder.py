@@ -21,8 +21,8 @@ completed -- never whether Beatnik agreed with anything.
 WHY THIS EXISTS RATHER THAN `milestone0_ladder.py pair`
 ------------------------------------------------------
 It should not exist, and for a direct-driven run it must not be used: `pair` is
-the instrument, its ladder definition is the one on record, and T5 step 7 was
-written to reuse it. It cannot be reused **for an FMM-driven run**, and the
+the instrument, its ladder definition is the one on record, and T5 step 7
+specifies reusing it. It cannot be reused **for an FMM-driven run**, and the
 reason is a property of the pairing rather than a bug in either tool.
 
 `compare_output.py` recovers the vertex correspondence the files do not record

@@ -44,11 +44,10 @@
 # THE CONTROL RUNS FIRST at each rank count, so an apparatus problem shows
 # against T5's known numbers before the candidate is read for anything.
 #
-# NO REBUILD IS NEEDED FOR THIS SCRIPT. T7 made the cap the probe's optional
+# NO REBUILD IS NEEDED FOR THIS SCRIPT. The cap is the probe's optional
 # `argv[2]`, so both caps are measurable against the INSTALLED binary. The
-# source change T8 makes -- the per-level 65536 constant in
-# `Beatnik_Test_Milestone0Fmm.cpp`'s level-4 arm -- moves the MEMBER, not the
-# probe, and is verified separately.
+# per-level 65536 constant in `Beatnik_Test_Milestone0Fmm.cpp`'s level-4 arm
+# sets the MEMBER's cap, not the probe's, and is verified separately.
 #
 # WHAT THIS SCRIPT CANNOT SHOW. Fallback. Raising the count cap cannot drive
 # `global_m2l_fallback` to zero: T5 measured non-zero fallback at 71 of 81
@@ -204,7 +203,7 @@ for _entry in "${_matrix[@]}"; do
     fi
 
     # Tuolumne packs 4 ranks per node; round the node count up. The binding is
-    # copied EXACTLY from scripts/tuolumne/t6b_key_demand.flux:238-243 and must
+    # copied EXACTLY from scripts/tuolumne/t6b_key_demand.flux:224-229 and must
     # not be simplified: a wrong binding does not fail, it oversubscribes one
     # device and returns a plausible number that reads like a real measurement.
     _nodes=$(( (_np + 3) / 4 ))

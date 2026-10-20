@@ -24,7 +24,7 @@ of the Python `.npz` checkpoints against the Beatnik `.h5` checkpoints by
 
 What exists now is a Beatnik that **rejects this command at setup**, by name and
 by task ID, from `Solver::requireSupportedConfiguration`
-([src/Beatnik_Solver.hpp:729-872](../src/Beatnik_Solver.hpp#L729-L872)). Four
+([src/Beatnik_Solver.hpp:728-871](../src/Beatnik_Solver.hpp#L729-L872)). Four
 rejections fire and every one of them is **T4d**:
 
 | Option, at its default | Rejection | Needs |
@@ -119,7 +119,7 @@ the 600-step gold set in hand. **This document does not assert that step 500,
 `max_faces` is a parameter of the *indicator-driven* refiner only: it is absent
 from `DynamicRemeshParams` (`run_adaptive_mesh_bubble.py:1310-1357` constructs it
 without one) and in Beatnik it is read only by `AdaptiveMesh`
-([src/Beatnik_AdaptiveMesh.hpp:1027-1030](../src/Beatnik_AdaptiveMesh.hpp#L1027-L1030)).
+([src/Beatnik_AdaptiveMesh.hpp:1029-1032](../src/Beatnik_AdaptiveMesh.hpp#L1027-L1030)).
 So T4b's plateau at 1400 faces was the sizing field reaching equilibrium, **not**
 a cap, and a 600-step milestone run has no face-count ceiling other than
 `--remesh-h-min 0.0015` and `--remesh-max-splits 300` per pass. R4's greedy-cap
@@ -222,11 +222,11 @@ True at HEAD, and specific about what is *defined but wrong* versus what
 
 - **Throws** (`BEATNIK_NOT_IMPLEMENTED`), so a run cannot reach them silently:
   `SurfaceMesh::{collapseEdges, flipEdges, compact}`
-  ([src/Beatnik_MeshInterface.hpp:1578](../src/Beatnik_MeshInterface.hpp#L1578),
+  ([src/Beatnik_MeshInterface.hpp:1550](../src/Beatnik_MeshInterface.hpp#L1578),
   [:1604](../src/Beatnik_MeshInterface.hpp#L1604),
   [:1622](../src/Beatnik_MeshInterface.hpp#L1622));
   `DynamicRemesh::{collapseShortEdges, flipEdgesForQuality, tangentialSmooth}`
-  ([src/Beatnik_DynamicRemesh.hpp:889](../src/Beatnik_DynamicRemesh.hpp#L889),
+  ([src/Beatnik_DynamicRemesh.hpp:890](../src/Beatnik_DynamicRemesh.hpp#L889),
   [:911](../src/Beatnik_DynamicRemesh.hpp#L911),
   [:936](../src/Beatnik_DynamicRemesh.hpp#L936));
   `MeshQuality::{valenceEqualizingFlips, isotropicCleanup, improveConnectivityByFlips}`
@@ -401,13 +401,13 @@ caller obligations from them apply to every sub-task and are not restated in
 each:
 
 1. **Halo depth ≥ 2** or `collapseEdges` throws. `SurfaceMesh::halo_depth` is
-   already 2 ([src/Beatnik_MeshInterface.hpp:441](../src/Beatnik_MeshInterface.hpp#L441));
+   already 2 ([src/Beatnik_MeshInterface.hpp:428](../src/Beatnik_MeshInterface.hpp#L441));
    do not lower it.
 2. **`haloExchange()` *before* collapsing** — the surviving vertex's owner blends
    positions and every vertex user field from local copies of both endpoints, one
    of which is generally a ghost. Note the asymmetry with `splitEdges()`, whose
    wrapper exchanges *after*
-   ([src/Beatnik_DynamicRemesh.hpp:873](../src/Beatnik_DynamicRemesh.hpp#L873)).
+   ([src/Beatnik_DynamicRemesh.hpp:874](../src/Beatnik_DynamicRemesh.hpp#L873)).
 3. **One independent set per call.** More progress means calling again:
    `while ( collapseEdges( … ).accepted > 0 ) {}`.
 4. **All three invalidate every slice, CSR and key View.** Re-slice afterwards.
@@ -417,7 +417,7 @@ rebuild that whole-tuple copies every AoSoA, so **face and vertex user fields
 survive collapse, flip and compaction verbatim** — T4a's `/faces/u0..u2` are not
 invalidated; and `DefaultCollapsePolicy{t=0.5}` is the same linear average
 Beatnik already uses for refinement
-([src/Beatnik_MeshInterface.hpp:105-112](../src/Beatnik_MeshInterface.hpp#L105-L112)),
+([src/Beatnik_MeshInterface.hpp:103-110](../src/Beatnik_MeshInterface.hpp#L105-L112)),
 which is what the reference does (`dynamic_remesh.py:395-398`), so **no custom
 field-blending policy is needed**. The real hazard is *staleness*: the face user
 fields are the AMR reference state and now describe a geometry that no longer
@@ -478,11 +478,11 @@ producing a torn mesh.
 
 **Depends on:** T4d1.
 
-**Fill in:** [src/Beatnik_DynamicRemesh.hpp:889](../src/Beatnik_DynamicRemesh.hpp#L889);
+**Fill in:** [src/Beatnik_DynamicRemesh.hpp:890](../src/Beatnik_DynamicRemesh.hpp#L889);
 the sizing-field recompute and the `const int collapses = 0` placeholder inside
 the pass loop at [:1018-1029](../src/Beatnik_DynamicRemesh.hpp#L1018-L1029);
 and the deletion of the rejection at
-[src/Beatnik_Solver.hpp:818-828](../src/Beatnik_Solver.hpp#L818-L828).
+[src/Beatnik_Solver.hpp:817-827](../src/Beatnik_Solver.hpp#L818-L828).
 
 **Reference:** `dynamic_remesh.py::collapse_short_edges` (361-405), its two
 safety predicates (509-516, 519-549), and the cycle's *second* sizing-field
@@ -552,7 +552,7 @@ for the second entry point's pass structure and its `reset_reference` argument.
    reference state?** The reference passes `reset_reference=(smooth_iters == 0)`
    at the refine call site (`run_adaptive_mesh_bubble.py:1440-1445`) and nothing
    at the remesh one. Record the decision and its reasoning in the log; the
-   comment at [src/Beatnik_MeshQuality.hpp:195-203](../src/Beatnik_MeshQuality.hpp#L195-L203)
+   comment at [src/Beatnik_MeshQuality.hpp:195-204](../src/Beatnik_MeshQuality.hpp#L195-L203)
    is where T4c parked it.
 4. `--flip-passes` is **0** in the milestone configuration, so
    `improveConnectivityByFlips` has no milestone caller. Implement it anyway —
@@ -574,10 +574,10 @@ which is what the T4b regression member already depends on.
 **Depends on:** none. It moves vertices and changes no connectivity; it was
 parked under T4d only because it was unreachable while the flips were.
 
-**Fill in:** [src/Beatnik_DynamicRemesh.hpp:936](../src/Beatnik_DynamicRemesh.hpp#L936),
+**Fill in:** [src/Beatnik_DynamicRemesh.hpp:937](../src/Beatnik_DynamicRemesh.hpp#L936),
 the `diag.smooth_steps += 0` placeholder
 ([:1045](../src/Beatnik_DynamicRemesh.hpp#L1045)), and the deletion of the
-rejection at [src/Beatnik_Solver.hpp:830-837](../src/Beatnik_Solver.hpp#L830-L837).
+rejection at [src/Beatnik_Solver.hpp:829-836](../src/Beatnik_Solver.hpp#L830-L837).
 
 **Reference:** `dynamic_remesh.py::tangential_smooth_vertices` (459-490) — **not**
 `mesh_solver.py::improve_mesh_quality_tangential`, which is T4c's landed

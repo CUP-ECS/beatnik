@@ -13,19 +13,19 @@
 #
 # WORK IN PROGRESS, NOT BUILT BY DEFAULT.
 #
-# rocketrig.cpp and InputFile.hpp target the PRE-REDESIGN solver API: they
-# include Solver.hpp and BoundaryCondition.hpp, which 89ec015 removed along with
-# the rest of the old solver. They are kept here as the starting material for
-# the rising-bubble driver (InputFile.hpp in particular is a complete key=value
-# deck parser worth carrying forward), but they cannot compile until the new
-# solver exposes an equivalent entry point.
+# rocketrig.cpp and InputFile.hpp target a solver API this repository does not
+# provide: they include Solver.hpp and BoundaryCondition.hpp, which do not
+# exist in src/. They are kept here as the starting material for the
+# rising-bubble driver (InputFile.hpp in particular is a complete key=value
+# deck parser worth carrying forward), but they cannot compile until the
+# current solver exposes an equivalent entry point.
 #
 # So the target is registered only under an explicit opt-in, which keeps
 # Beatnik_ENABLE_EXAMPLES=ON from breaking the build:
 #
 #     cmake -DBeatnik_ENABLE_EXAMPLES=ON -DBeatnik_EXAMPLES_ALLOW_BROKEN=ON ...
 #
-# When the driver is ported to the new API: delete the option and the guard,
+# When the driver is ported to the current API: delete the option and the guard,
 # register the target and its test unconditionally, and update the accepted
 # arguments in README.md in the same change.
 ############################################################################

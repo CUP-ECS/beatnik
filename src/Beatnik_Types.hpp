@@ -19,9 +19,9 @@
  * `~/research-bridges/zmodel-steve/zmodel3d-amr`. The `// Port of <file>::<fn>
  * (lines N-M)` comments name the exact Python origin of each routine.
  *
- * The task brief named `zmodel3d/solver.py` as the port source. That file is
- * the *structured-grid* z-model and is **not** what the adaptive-mesh bubble
- * driver calls. The adaptive-mesh code path lives in:
+ * `zmodel3d/solver.py` is the *structured-grid* z-model and is **not** what
+ * the adaptive-mesh bubble driver calls, so it is not the port source. The
+ * adaptive-mesh code path lives in:
  *
  *   - `examples/run_adaptive_mesh_bubble.py`  — CLI, control flow, checkpoints
  *   - `zmodel3d/mesh_solver.py`               — states, BR velocity, RHS, RK3,

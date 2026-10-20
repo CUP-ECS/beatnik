@@ -34,7 +34,7 @@
 #
 # Run the tier as EIGHT jobs, one per (member, backend), each with its own -t:
 #
-#     scripts/tuolumne/submit_milestone_split.sh      (T9b; see its header)
+#     scripts/tuolumne/submit_milestone_split.sh      (see its header)
 #
 # and read each beatnik_milestone_<member-short>_<BACKEND>.<jobid>.log it
 # writes to the repo root. That is how the tier is run. A bare
@@ -67,13 +67,12 @@
 #
 # --nodes=1 covers the 4-rank case at tuolumne's 4-ranks-per-node.
 #
-# THE WALLTIME IS MEASURED, NOT GUESSED. The frozen pair alone fit pdebug's
-# 60m (M0-T3: 37.25 min measured). T6 added the two FMM members, which moved
-# the tier to pbatch, and the first run carrying them (T6, job f3azynKNQFCb,
-# 1440m = pbatch's ceiling) measured 8.685 h. T9b then ran the tier as eight
-# per-(member, backend) jobs through submit_milestone_split.sh, all green
-# (2026-10-09, dev env, beatnik 0411c47 + working tree, canopy bd10c8f). The
-# measured job walls, each holding its np1 + np4 launches:
+# THE WALLTIME IS MEASURED, NOT GUESSED. The frozen pair alone fits pdebug's
+# 60m (37.25 min measured); the two FMM members put the tier on pbatch. The
+# walls below are from the tier run as eight per-(member, backend) jobs
+# through submit_milestone_split.sh, all green (T9b, 2026-10-09, dev env,
+# beatnik 0411c47 + working tree, canopy bd10c8f), each job holding its
+# np1 + np4 launches:
 #
 #   member              SERIAL                     HIP
 #   Milestone0Frozen      236 s  (129 + 86)          144 s  (51 + 72)
@@ -83,7 +82,7 @@
 #
 # They sum to 31269 s (8.69 h), which is this script's cost as ONE job, and
 # -t 652m is about 1.25x that. Split, the tier's wall-clock is the slowest
-# job, level-4 FMM SERIAL at 4.2 h (4 h 15 min submit-to-last-exit in T9b),
+# job, level-4 FMM SERIAL at 4.2 h (4 h 15 min submit-to-last-exit),
 # and submit_milestone_split.sh carries each job's own -t at about 1.5x its
 # wall. The tier is run split; this whole-tier -t exists only so the bare
 # one-job fallback is not killed at the wall.
@@ -138,7 +137,7 @@ source "${BEATNIK_REPO}/scripts/lib/beatnik_env.sh" || exit 1
 ##--------------------------------------------------------------------------##
 ## Provenance -- a walltime or a pass in the progress log is only reusable if a
 ## later session can tell which toolchain and commit produced it. Echoed before
-## any work. Copied from t9a_l4_member.flux.
+## any work. The same block as t9a_l4_member.flux's.
 ##--------------------------------------------------------------------------##
 _canopy_src="${BEATNIK_REPO}/../canopy"
 beatnik_env_summary
@@ -284,7 +283,7 @@ else
         # stdin, so with the line list on stdin the first launched binary
         # swallows every remaining line and the tier silently runs only its
         # first member -- reporting PASS while covering less than it claims.
-        # Copied in shape from the gate runner, which already paid for this.
+        # The gate runner reads its line list the same way.
         while IFS= read -r _line <&3; do
             [ -n "${_line}" ] || continue
             # shellcheck disable=SC2086
@@ -336,8 +335,8 @@ ${_lines}
 EOF
     done
 
-    # A manifest that named nothing runnable is not a pass. The tier has had two
-    # members since M0-T3, so hitting this guard now means something is wrong --
+    # A manifest that named nothing runnable is not a pass. The tier has four
+    # members, so hitting this guard means something is wrong --
     # an install without +testing, or target names without the expected
     # _<BACKEND> suffix. An empty tier reporting PASS is the failure mode the
     # gate runner's identical guard exists to prevent, and it would be worse
@@ -368,14 +367,14 @@ fi
 ##--------------------------------------------------------------------------##
 ## Report
 ##--------------------------------------------------------------------------##
-# The milestone tier has FOUR members as of T6:
+# The milestone tier has FOUR members:
 # Beatnik_Test_Milestone0Frozen (2000 steps of the frozen-mesh configuration at
 # --icosphere-subdivisions 3 against the M0-G1 gold set, all 81 checkpointed
 # steps at --rtol 1e-10 --atol 1e-12) and Beatnik_Test_Milestone0FrozenL4 (the
-# same at subdivisions 4 against M0-G2), and T6's FMM pair
+# same at subdivisions 4 against M0-G2), and the FMM pair
 # Beatnik_Test_Milestone0Fmm / ...FmmL4 at the same two levels. Four members x
-# {SERIAL, HIP} x ranks {1, 4} = SIXTEEN launches. The gate is unaffected and
-# stays at five members and 60 launches.
+# {SERIAL, HIP} x ranks {1, 4} = SIXTEEN launches. The gate is separate: five
+# members and 60 launches.
 #
 # In tree mode ctest reports its own per-test results above, so the launch
 # counts here are those of the installed path only.

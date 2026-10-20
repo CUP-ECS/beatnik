@@ -10,10 +10,10 @@
  ****************************************************************************/
 /**
  * @file Beatnik_Test_CheckpointSeries.cpp
- * @brief `unit`-tier test for grouped-io T2: the master XDMF temporal
- *        collection `CheckpointIO::write` maintains.
+ * @brief `unit`-tier test for the master XDMF temporal collection
+ *        `CheckpointIO::write` maintains.
  *
- * THIS IS T2's EXIT CRITERION, MECHANIZED, and it exists to take Paraview out
+ * THIS IS THE MASTER-FILE CHECK, MECHANIZED, and it exists to take Paraview out
  * of the loop. Risk R1 in `tasks/completed/grouped-io.md` is that the master opens and
  * shows one timestep, which looks like a broken file and is almost always the
  * reader — only the *temporal* XDMF3 reader walks a collection. A visual check

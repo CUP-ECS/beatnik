@@ -38,7 +38,7 @@ far-field path is the one that throws. The only working Birkhoff-Rott evaluator
 is `BRSolverDirect`, an $O(N_tN_s)$ ring-exchanged pairwise sum
 ([src/Beatnik_BRSolverDirect.hpp:105-166](../../src/Beatnik_BRSolverDirect.hpp#L105-L166))
 called three times per accepted timestep
-([src/Beatnik_ZModelSolver.hpp:223](../../src/Beatnik_ZModelSolver.hpp#L223)) and a
+([src/Beatnik_ZModelSolver.hpp:224](../../src/Beatnik_ZModelSolver.hpp#L223)) and a
 fourth time under `--bernoulli-scalar-mode surface-riesz`
 ([:255](../../src/Beatnik_ZModelSolver.hpp#L255)).
 
@@ -575,7 +575,7 @@ measurement is a number tuned to whatever the code did.
   evaluations throw `std::runtime_error` naming `+canopy` instead.
 - **No Beatnik header includes a Canopy header.** The build already finds and
   links Canopy under `+canopy`
-  ([CMakeLists.txt:79-81](../../CMakeLists.txt#L79), [src/CMakeLists.txt:78-79](../../src/CMakeLists.txt#L78-L79)),
+  ([CMakeLists.txt:79-81](../../CMakeLists.txt#L79), [src/CMakeLists.txt:77-78](../../src/CMakeLists.txt#L78-L79)),
   and the tuolumne environment builds with it
   ([systems/tuolumne/claude.md](../../systems/tuolumne/claude.md) §2).
 - `FmmConfig`'s `ncrit` and `max_depth` have **no default initializer** in
@@ -593,7 +593,7 @@ measurement is a number tuned to whatever the code did.
   and nothing else FMM-facing. No new option may be added.
 - `Beatnik_Test_Milestone0Frozen.cpp` sets
   `p.zmodel.br_approximation = BRApproximation::Direct` explicitly
-  ([tests/regression_tests/Beatnik_Test_Milestone0Frozen.cpp:509](../../tests/regression_tests/Beatnik_Test_Milestone0Frozen.cpp#L509)),
+  ([tests/regression_tests/Beatnik_Test_Milestone0Frozen.cpp:508](../../tests/regression_tests/Beatnik_Test_Milestone0Frozen.cpp#L509)),
   with a comment stating that `fmm` would add an approximation error the
   comparison cannot separate from round-off divergence. That statement is correct
   and is why **T6** adds members rather than a flag.
@@ -1214,7 +1214,7 @@ the original list omitted it; the adapter's code is T2's and is not reopened),
 accumulating ([:111-115](../../src/Beatnik_BRSolverDirect.hpp#L111-L115)), calls
 `quadrature.generate` itself ([:117-119](../../src/Beatnik_BRSolverDirect.hpp#L117-L119)),
 and applies `br_sign/4\pi` once ([:125-127](../../src/Beatnik_BRSolverDirect.hpp#L125-L127));
-the caller's contract ([src/Beatnik_ZModelSolver.hpp:219-224](../../src/Beatnik_ZModelSolver.hpp#L219-L224)),
+the caller's contract ([src/Beatnik_ZModelSolver.hpp:220-225](../../src/Beatnik_ZModelSolver.hpp#L219-L224)),
 which reallocates `vertex_dot` to the owned count and expects the prefactors
 already applied.
 
@@ -1323,7 +1323,7 @@ the assertion helper (`tests/unit_tests/Beatnik_TestAssert.hpp`), and
 `Beatnik_Test_TangentialRelaxation.cpp` as the tier's rank-count-aware precedent;
 `Beatnik_Test_Milestone0Frozen.cpp`'s `makeParams` for a params set that has
 already been measured against
-([tests/regression_tests/Beatnik_Test_Milestone0Frozen.cpp:474-575](../../tests/regression_tests/Beatnik_Test_Milestone0Frozen.cpp#L474-L575));
+([tests/regression_tests/Beatnik_Test_Milestone0Frozen.cpp:473-574](../../tests/regression_tests/Beatnik_Test_Milestone0Frozen.cpp#L474-L575));
 develop-canopy's `tests/tstFmmVsExact.hpp` for the shape of the comparison it
 made.
 
@@ -1383,7 +1383,7 @@ made.
    `diagnostics().softening` equals $\sqrt{\texttt{blob()}}$ and is strictly
    positive — a value of $-1$ is Canopy's auto-softening sentinel and a
    different kernel — and that `params().near_softening_factor`
-   ([src/Beatnik_FarFieldInterface.hpp:516](../../src/Beatnik_FarFieldInterface.hpp#L516))
+   ([src/Beatnik_FarFieldInterface.hpp:510](../../src/Beatnik_FarFieldInterface.hpp#L516))
    is 0. The `FmmConfig` members themselves are **not** observable from a test
    by construction: `FmmConfig` is a Canopy type and the conventions table
    confines those to the adapter, and `FarFieldDiagnostics`
@@ -1508,7 +1508,7 @@ below states the consequence.
 
 **Fill in:** a measurement driver under `tests/regression_tests/` registered in
 the "Measurement drivers — IN NO TIER" section
-([tests/CMakeLists.txt:536-572](../../tests/CMakeLists.txt#L536-L572)); a batch
+([tests/CMakeLists.txt:527-563](../../tests/CMakeLists.txt#L536-L572)); a batch
 script under `scripts/tuolumne/`;
 [add-canopy-progress-log.md](add-canopy-progress-log.md);
 [README.md](../../README.md).
@@ -1519,7 +1519,7 @@ and "Memory"); the acceptance predicate that sets $R/w$
 (`canopy/src/Canopy_CommunicationPlan.hpp:338-352`); the reference treecode's own
 accuracy at the same two mesh sizes ([treecode.md](../treecode.md) §1); the
 measurement-driver loop's rule that it appends to **neither** manifest
-([tests/CMakeLists.txt:548-556](../../tests/CMakeLists.txt#L548-L556)); M0-D1's
+([tests/CMakeLists.txt:539-547](../../tests/CMakeLists.txt#L548-L556)); M0-D1's
 ladder, which is the instrument step 7 reuses
 ([milestone0-progress-log.md](../completed/milestone0-progress-log.md)).
 
@@ -1563,7 +1563,7 @@ reuses, and each carries a property that is expensive to rediscover:
    carries a stated fraction of the field.
 
    **The whole scan runs in one launch against one shared state**, in the shape
-   [tests/unit_tests/Beatnik_Test_FmmVsDirect.cpp:607-630](../../tests/unit_tests/Beatnik_Test_FmmVsDirect.cpp#L607-L630)
+   [tests/unit_tests/Beatnik_Test_FmmVsDirect.cpp:608-631](../../tests/unit_tests/Beatnik_Test_FmmVsDirect.cpp#L607-L630)
    already uses: the spin-up is done once and every arm is evaluated against
    that one state through a single helper
    ([:708](../../tests/unit_tests/Beatnik_Test_FmmVsDirect.cpp#L708)). That makes
@@ -1847,7 +1847,7 @@ the tier's member count, launch count and queue), [README.md](../../README.md).
   is the whole second member: 46 lines, of which three carry content.
 - The tier's registration loop, which keys arguments by source stem and
   `FATAL_ERROR`s on a source with no argument list
-  ([tests/CMakeLists.txt:475-535](../../tests/CMakeLists.txt#L475-L535)), and the
+  ([tests/CMakeLists.txt:466-526](../../tests/CMakeLists.txt#L475-L535)), and the
   tier's rank set as a property of the tier
   ([:437-439](../../tests/CMakeLists.txt#L437-L439)).
 - The ladder instrument claim B needs, and the mechanism that rules the
@@ -1908,7 +1908,7 @@ the tier's member count, launch count and queue), [README.md](../../README.md).
    global counts every step and an `MPI_Allreduce` over owned counts at every
    compared step); and the volume drift tracks `kRefVolumeDrift` within a bound
    this task derives. **The existing member's `kVolumeDriftRtol = 1e-3`
-   ([tests/regression_tests/Beatnik_Test_Milestone0Frozen.cpp:266](../../tests/regression_tests/Beatnik_Test_Milestone0Frozen.cpp#L266))
+   ([tests/regression_tests/Beatnik_Test_Milestone0Frozen.cpp:265](../../tests/regression_tests/Beatnik_Test_Milestone0Frozen.cpp#L266))
    does not carry**: T5's FMM-driven final drift is $4.703\times10^{-9}$ against
    the direct run's $4.741\times10^{-9}$, an 0.8% deviation, eight times that
    rtol. Derive the per-step deviation series offline from T5's surviving
@@ -2042,7 +2042,7 @@ asymmetry reproduced deliberately ([:203-208](../../src/Beatnik_BRSolverDirect.h
 `generateGradient` and the two state models' different expressions for $G$
 ([src/Beatnik_SourceQuadrature.hpp:256-290](../../src/Beatnik_SourceQuadrature.hpp#L256-L290));
 the caller, which is collective and reached the same number of times on every
-rank ([src/Beatnik_ZModelSolver.hpp:248-257](../../src/Beatnik_ZModelSolver.hpp#L248-L257));
+rank ([src/Beatnik_ZModelSolver.hpp:249-258](../../src/Beatnik_ZModelSolver.hpp#L248-L257));
 that this is a **second** `solve()` over the same tree with different charges,
 which Canopy supports (`Canopy::Solver::solve`).
 

@@ -163,19 +163,19 @@ class ZModelSolver
      * Step 9 is what keeps \f$\phi\f$ from drifting; see
      * `SurfaceOperators::areaWeightedMean`.
      *
-     * @param mesh     Surface at the current stage geometry. **T2d — no longer
+     * @param mesh     Surface at the current stage geometry. **Not
      *                 `const`**: every accessor this needs (`positions()`,
      *                 `potential()`, `sheetVector()`, `faceVertices()`) is
-     *                 non-const, and the BR solver's own parameter was widened
-     *                 at T2c for the same reason.
+     *                 non-const, and the BR solver's own parameter is
+     *                 non-const for the same reason.
      * @param state    Current \f$\phi\f$ (and the derived sheet vector).
      * @param[out] vertex_dot `(N_owned,3)` \f$\dot x\f$, units velocity.
      *                 Reallocated on an extent mismatch, so one view serves all
      *                 three RK3 stages.
      * @param[out] potential_dot `(N_owned,)` \f$\dot\phi\f$, units velocity^2.
      *
-     * **T2d — the output range is the OWNED vertices, not the local range.**
-     * `BRSolverDirect::computeInterfaceVelocity` writes `(N_owned, 3)` (T2c),
+     * **The output range is the OWNED vertices, not the local range.**
+     * `BRSolverDirect::computeInterfaceVelocity` writes `(N_owned, 3)`,
      * every reduction below is over owned rows (risk R9), and the integrator
      * updates owned rows and then exchanges. Intermediate *assemblies* are still
      * allocated over the whole local range — the two opposite conventions stated
@@ -190,7 +190,8 @@ class ZModelSolver
      *       halo built once in `SurfaceMesh` is what covers the two-ring
      *       stencil, not a second exchange (risk R8). The ordering
      *       `haloExchange()` -> `updateSheetVector` -> BR evaluation is the one
-     *       T2c's regression test performs and checks; getting it wrong is wrong
+     *       the Birkhoff-Rott regression test performs and checks; getting it
+     *       wrong is wrong
      *       only near partition boundaries.
      */
     void computeRightHandSidePotential( mesh_type& mesh,
@@ -217,7 +218,7 @@ class ZModelSolver
         state.updateSheetVector( mesh, geometry );
 
         // 3. The Birkhoff-Rott velocity. Overwritten, with 1/4pi and br_sign
-        //    ALREADY APPLIED (T2c) -- do not re-apply either here.
+        //    ALREADY APPLIED by the BR solver -- do not re-apply either here.
         if ( static_cast<int>( vertex_dot.extent( 0 ) ) != n_owned )
             Kokkos::realloc( vertex_dot, n_owned );
         _br_solver->computeInterfaceVelocity( mesh, geometry, state,
@@ -321,8 +322,9 @@ class ZModelSolver
      * @param[out] vertex_dot `(Nv,3)` \f$\dot x\f$, units velocity.
      * @param[out] sheet_dot  `(Nv,3)` \f$\dot S\f$, units velocity/time.
      *
-     * **Still T5c's, and still throwing.** Its `mesh` parameter was widened to
-     * `mesh_type&` at T2d with the rest of them, so T5c implements a body only.
+     * **Not yet implemented (task T5c); it throws.** Its `mesh` parameter is
+     * already `mesh_type&`, like the other RHS functions, so T5c supplies a
+     * body only.
      */
     void computeRightHandSideSheet( mesh_type& mesh,
                                     const state_type& state,
@@ -456,13 +458,14 @@ class ZModelSolver
      * carries the largest localization weight — the reference is explicit about
      * this (`mesh_solver.py:1134-1138`).
      *
-     * **T2d — this ADDS into `velocity` rather than returning a field.** The
+     * **This ADDS into `velocity` rather than returning a field.** The
      * reference returns `None` when \f$\sigma=0\f$ and the caller adds it
      * (`mesh_solver.py:1245-1247`); accumulating in place is the same
      * arithmetic without an `(Nv,3)` temporary, and the \f$\sigma=0\f$ branch
      * is the caller's guard. **No sign flip**: `meanCurvatureNormal` returns
-     * \f$-2H\hat n_{\text{out}}\f$, verified inward at every vertex at T2b, and
-     * that is already the area-decreasing direction.
+     * \f$-2H\hat n_{\text{out}}\f$, inward at every vertex (checked by
+     * `Beatnik_Test_T2bOperators`), and that is already the area-decreasing
+     * direction.
      */
     void computeSurfaceTension( mesh_type& mesh,
                                 const geometry_type& geometry,
@@ -528,7 +531,7 @@ class ZModelSolver
      * rescaling \f$\mu\f$ changes the effective viscosity by orders of
      * magnitude on a graded mesh.
      *
-     * **T2d — `result` is `mu * Laplacian(phi)`, not the bare Laplacian**, and
+     * **`result` is `mu * Laplacian(phi)`, not the bare Laplacian**, and
      * it is written over the **owned** range (its own extent). The `mu` factor
      * lives here rather than at the call site because the two modes are not
      * interchangeable at the same `mu` and keeping the coefficient adjacent to
@@ -556,8 +559,8 @@ class ZModelSolver
         else
         {
             // A face-loop SCATTER, so its output must span the whole local
-            // range (T2b: Nv comes from the output view). This is exactly the
-            // call the `OutScalarView` template split at T2b exists for --
+            // range (Nv comes from the output view). This is exactly the
+            // call the `OutScalarView` template split exists for --
             // `values` is `mesh.potential()`, a Cabana slice, and the result is
             // a Beatnik-owned view.
             const int n_local = mesh.totalVertexCount();

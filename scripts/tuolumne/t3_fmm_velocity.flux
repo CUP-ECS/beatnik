@@ -113,11 +113,11 @@ echo "[t3] ckpt root = ${_root}"
 # function, both required by what T3 is checking rather than by preference:
 #   --icosphere-subdivisions 3 / --steps 2   (makeParams: kSubdivisions, 2000)
 #   --checkpoint-every-steps 1               (makeParams: 25)
-# `--source-quadrature vertex` is MANDATORY, not decorative: ZModelParams
-# defaults to Face, whose generate() throws, and the FMM adapter rejects
-# anything but Vertex regardless. `--bernoulli-scalar-mode normal-speed` keeps
-# computeSurfaceRieszScalar -- still a throwing stub, and T7's -- out of the
-# call path.
+# `--source-quadrature vertex` matches the ZModelParams default and is spelled
+# out because it is MANDATORY: Face and Triangle3 throw in generate(), and the
+# FMM adapter rejects anything but Vertex. `--bernoulli-scalar-mode
+# normal-speed` keeps BRSolverFMM::computeSurfaceRieszScalar -- a throwing
+# stub, pending T7 -- out of the call path.
 _common_args=(
     --state-model potential --mesh-kind icosphere --icosphere-subdivisions 3
     --radius 0.25 --center-z 0.25 --initial-shape sphere
@@ -194,7 +194,7 @@ else
     echo "[t3] AT LEAST ONE LAUNCH FAILED -- read the rc lines above" >&2
 fi
 # A non-zero rc from an `fmm` launch is the interesting case and needs the log
-# read, not just the status: BEATNIK_NOT_IMPLEMENTED (the stub still in place,
-# i.e. the build did not pick up the change) and the adapter's `~canopy`
+# read, not just the status: BEATNIK_NOT_IMPLEMENTED (a stale binary without
+# the FMM velocity path, or a stub reached) and the adapter's `~canopy`
 # runtime_error both look like "fmm ran and failed" from out here.
 exit "${_rc}"

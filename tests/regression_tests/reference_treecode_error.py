@@ -9,8 +9,8 @@
 #                                                                          #
 # SPDX-License-Identifier: BSD-3-Clause                                    #
 ############################################################################
-"""T9r: the reference treecode's own claim-A error on the level-4 member's 81
-gold states (`tasks/add-canopy-t6.md` T9r).
+"""The reference treecode's own claim-A error on the level-4 member's 81
+gold states (the T9r measurement, `tasks/add-canopy-t6.md`).
 
     reference_treecode_error.py [--gold DIR]
 

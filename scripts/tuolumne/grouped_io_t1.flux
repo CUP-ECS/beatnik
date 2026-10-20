@@ -24,16 +24,17 @@
 #
 # The four remesh flags are not a weakened run and not optional: the example
 # defaults to dynamic remeshing with collapse, flips, smoothing and isotropic
-# cleanup all on, and all four are task T4d and still throw, so without them the
-# solver aborts before the first step and only the startup checkpoint is ever
-# written. This is the SAME split-only configuration gate member T4b uses
-# (tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp:31-34), reached
+# cleanup all on, and all four are task T4d, not yet implemented, and throw, so
+# without them the solver aborts before the first step and only the startup
+# checkpoint is ever written. This is the SAME split-only configuration gate
+# member T4b uses
+# (tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp:30-33), reached
 # through the reference's own knobs rather than a new switch.
-# `--source-quadrature vertex --br-approximation direct` are required for the
-# same reason: the example defaults to `face` quadrature and `fmm`, and both
-# `FaceQuadrature::generate` and `BRSolverFMM::computeInterfaceVelocity` are
-# unimplemented, so the defaults abort on the first step. Together the six flags
-# are exactly T4b's configuration
+# `--source-quadrature vertex --br-approximation direct` pin the other two
+# choices to that member's: `vertex` is the only implemented quadrature (and the
+# example's default), and `direct` replaces the example's default `fmm` with the
+# O(N^2) sum the member uses. Together the six flags are exactly T4b's
+# configuration
 # (Beatnik_Test_DynamicRemeshSplit.cpp:179-186). None of them touches the I/O
 # path under test.
 #

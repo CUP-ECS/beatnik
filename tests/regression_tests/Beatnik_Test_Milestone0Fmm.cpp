@@ -10,7 +10,7 @@
  ****************************************************************************/
 /**
  * @file Beatnik_Test_Milestone0Fmm.cpp
- * @brief **THE FMM MILESTONE MEMBER** (T6) — two claims about Canopy's
+ * @brief **THE FMM MILESTONE MEMBER** — two claims about Canopy's
  *        far-field Birkhoff-Rott path, in one binary and one launch: a
  *        per-evaluation velocity bound on 81 direct-driven states, and the
  *        stability and divergence horizon of a 2000-step FMM-driven
@@ -20,11 +20,11 @@
  * ------------------------------------------------------------------
  * The gate stays at five `regression` members and 60 launches (CLAUDE.md
  * "Minimum test set"). This tier is ranks **1 and 4** on SERIAL and HIP, run on
- * demand through `scripts/<system>/run_milestone.<scheduler>`. T6 takes the
- * tier from two members and eight launches to **four and sixteen**, and moves
- * the runner from `-q pdebug` to `-q pbatch`: one 2000-step FMM-driven level-4
- * trajectory alone is 2377 s at HIP np1, where the whole existing level-4
- * member is 22 s.
+ * demand through `scripts/<system>/run_milestone.<scheduler>`. With this pair
+ * the tier has **four members and sixteen launches**, and the runner uses
+ * `-q pbatch` rather than `-q pdebug`: one 2000-step FMM-driven level-4
+ * trajectory alone is 2377 s at HIP np1, where the whole level-4 frozen member
+ * is 22 s.
  *
  * TWO MEMBERS, ONE BODY, exactly as the frozen pair. This file is the whole
  * test at `--icosphere-subdivisions BEATNIK_M0_FMM_LEVEL`, which defaults to
@@ -264,9 +264,9 @@ constexpr Real kCenterZ = 0.25;
 // CLAIM A's tolerances.
 //---------------------------------------------------------------------------//
 
-/// The gold rung claim A's trajectory is compared at, unchanged from the frozen
-/// member: it is the same trajectory and the same comparison, and loosening it
-/// here would break the one thing that proves claim A is evaluating on the
+/// The gold rung claim A's trajectory is compared at, the same as the frozen
+/// member's: it is the same trajectory and the same comparison, and loosening
+/// it here would break the one thing that proves claim A is evaluating on the
 /// right states.
 constexpr const char* kRtol = "1e-10";
 constexpr const char* kAtol = "1e-12";
@@ -314,15 +314,15 @@ constexpr double kScalarRtol = 1.0e-12;
  * **If a state exceeds this bound, that is the finding** — record it with the
  * step and the realized P2P fraction; do not loosen this literal.
  *
- * **EXCEPTION, BY THE USER'S RULING (canopy_profiling O1, 2026-10-13).** The
- * figures above predate `FmmParams::quantize_root_half_width`, which O1 made
- * the default and which these members inherit. It raised the worst level-4
- * error over O1's states from `1.099e-3` to `1.402e-3`, within 7% of this
- * bound, and the 81 states here have not been re-run with it. **If claim A
- * now fails, that is accepted, not a defect:** raise this literal to cover the
- * measured worst, record the run, the step and the new value in
- * `tasks/canopy_profiling-progress-log.md`, and do **not** turn quantization
- * off to make the old bound pass.
+ * **EXCEPTION, BY THE USER'S RULING (2026-10-13).** The figures above were
+ * measured with `FmmParams::quantize_root_half_width` off; it defaults to on
+ * and these members inherit it. Over canopy_profiling O1's states it moves the
+ * worst level-4 error from `1.099e-3` (off) to `1.402e-3` (on), within 7% of
+ * this bound, and the 81 states here are unmeasured with it on (re-run
+ * pending, canopy_profiling V1). **If claim A fails, that is accepted, not a
+ * defect:** raise this literal to cover the measured worst, record the run,
+ * the step and the new value in `tasks/canopy_profiling-progress-log.md`, and
+ * do **not** turn quantization off to make this bound pass.
  *
  * **Floor.** Twelve decades above the `1.15e-15` / `1.88e-15` run-to-run noise
  * T3 measured on the same binary, so this is not a bitwise claim in disguise.
@@ -365,7 +365,7 @@ constexpr int kProductionOrder = 3;
  * **The frozen member's `kVolumeDriftRtol = 1e-3` DOES NOT CARRY and must not
  * be reused here.** That literal was derived from direct-driven runs, whose
  * worst per-step deviation is `1.80e-5`; an FMM-driven run's is three decades
- * larger. Derived for T6 **offline from T5's surviving 2000-step FMM-driven
+ * larger. Derived **offline from T5's 2000-step FMM-driven
  * checkpoint directories** (`/p/lustre5/stewartj/beatnik/t5_divergence/`, 81
  * numbered `.h5` each) rather than from a fresh run, by recomputing
  * `enclosed_volume / initial_volume - 1` at every one of the 81 steps through
@@ -395,8 +395,8 @@ constexpr double kFmmVolumeDriftRtol = 5.0e-2;
 constexpr double kVolumeDriftRtol = 1.0e-3;
 
 /// The blow-up detector, kept absolute so a drift that tracks the reference
-/// *proportionally* while both explode still fails. Unchanged from the frozen
-/// member and it still carries: T5 measured `4.703e-09` FMM-driven against
+/// *proportionally* while both explode still fails. The frozen member's value,
+/// and it carries here: T5 measured `4.703e-09` FMM-driven against
 /// `4.741e-09` direct-driven at step 2000, and both clear `1e-8`.
 constexpr double kVolumeDriftAbsCap = 1.0e-8;
 
@@ -478,7 +478,7 @@ constexpr double kP2PFractionReference = 0.854631;
 constexpr double kP2PFractionBound = 1.0;
 constexpr bool kFarFieldIsLive = false;
 
-/// **THE M2L OPERATOR COLUMN-COUNT CAP, AND AT THIS LEVEL IT IS UNCHANGED.**
+/// **THE M2L OPERATOR COLUMN-COUNT CAP, AND AT THIS LEVEL IT IS THE DEFAULT.**
 /// `FmmParams::m2l_op_count_cap`'s own default, restated here so the two arms
 /// are read side by side. T5 measured level-3 demand at 828 - 6 624 keys over
 /// five draws against this 32768 cap and `global_m2l_fallback` exactly zero in
@@ -553,18 +553,18 @@ constexpr double kP2PFractionReference = 0.253650;
 /// **THE LIVENESS BOUND, AND AT THIS LEVEL IT IS A REAL ONE.** At 2562
 /// vertices and `ncrit` 8, **74.6% of pairs go through M2L** — the far field
 /// dominates and **this is where the far-field accuracy claim rests**. 0.75 is
-/// T4's compiled bound, chosen from the a-priori arithmetic (320 occupied
-/// leaves against a 105-leaf near field predicts a P2P fraction near 1/3) and
-/// not from the measurement, so it is not a measurement in disguise; the
-/// realized 0.2537 uses two thirds of the margin. **Asserted at every one of
-/// the 81 states, not once**: the tree is rebuilt against a deforming sheet,
-/// and a state at which the far field stopped carrying the majority of the
-/// field would make `tau_A` a claim about something else.
+/// `Beatnik_Test_FmmVsDirect`'s compiled bound, chosen from the a-priori
+/// arithmetic (320 occupied leaves against a 105-leaf near field predicts a P2P
+/// fraction near 1/3) and not from the measurement, so it is not a measurement
+/// in disguise; the realized 0.2537 uses two thirds of the margin. **Asserted
+/// at every one of the 81 states, not once**: the tree is rebuilt against a
+/// deforming sheet, and a state at which the far field stopped carrying the
+/// majority of the field would make `tau_A` a claim about something else.
 constexpr double kP2PFractionBound = 0.75;
 constexpr bool kFarFieldIsLive = true;
 
 /// **THE M2L OPERATOR COLUMN-COUNT CAP, RAISED ABOVE `FmmParams`' 32768
-/// DEFAULT FOR THIS LEVEL ONLY** (T8). At 2562 vertices, `ncrit` 8 and a
+/// DEFAULT FOR THIS LEVEL ONLY**. At 2562 vertices, `ncrit` 8 and a
 /// `key_needs_level` basis, a self-contacting roll-up occupies up to 8 tree
 /// depths and every occupied depth multiplies the realized key count: T5
 /// measured a worst-observed **37 678** demanded operator keys at HIP np1
@@ -587,9 +587,9 @@ constexpr bool kFarFieldIsLive = true;
 /// the 44 of 81 np1 states already under 32768.
 ///
 /// **IT CANNOT MAKE `p.m2l_fallback == 0` BY ITSELF.** At np4 no rank's demand
-/// ever reaches even the old cap, and fallback is still non-zero at 71 of 81
-/// states, so those refusals are not cap-driven. Raising the cap removes the
-/// cap-driven ones; the rest are a different refusal path.
+/// ever reaches even the 32768 default, and fallback is still non-zero at 71
+/// of 81 states, so those refusals are not cap-driven. Raising the cap removes
+/// the cap-driven ones; the rest are a different refusal path.
 constexpr int kM2LOpCountCap = 65536;
 
 /// **THE DIVERGENCE HORIZON ENVELOPE**, T5 step 7. Identical across **four**
@@ -1028,12 +1028,12 @@ Beatnik::SolverParams makeParams( const std::string& checkpoint_dir,
     // THE ONE FIELD THAT DIFFERS BETWEEN THE TWO CLAIMS.
     p.zmodel.br_approximation = approximation;
     // --source-quadrature vertex. MANDATORY, and set explicitly even though it
-    // is now the ZModelParams default: Face's generate() throws, and the
+    // is the ZModelParams default: Face's generate() throws, and the
     // far-field adapter rejects anything but Vertex.
     p.zmodel.source_quadrature = Beatnik::SourceQuadrature::Vertex;
 
     // The far field, for claim B's trajectory. `ncrit` and the per-level
-    // operator-column cap are the ONLY departures from T1's compiled defaults,
+    // operator-column cap are the ONLY departures from FmmParams' defaults,
     // and they are the configuration every number this member asserts was
     // measured at (see kNcrit, kM2LOpCountCap). Both are set exactly as
     // `makeFmmParams` sets them for claim A, so the two claims run one
@@ -1100,7 +1100,7 @@ Beatnik::FmmParams makeFmmParams()
 /// nothing about the code under test. What IS true there is asserted instead —
 /// both routes to the FMM throw a `std::runtime_error` naming the missing
 /// build option — so the member is meaningful in both builds rather than
-/// vacuous in one. Following T4's precedent (`Beatnik_Test_FmmVsDirect.cpp`),
+/// vacuous in one. As in `Beatnik_Test_FmmVsDirect.cpp`,
 /// and **compiled but unexecuted here**: this machine builds `+canopy`.
 template <class ExecSpace, class MemSpace>
 void runChecksNoCanopy( Beatnik::Test::Recorder& rec )

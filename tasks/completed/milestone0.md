@@ -92,7 +92,7 @@ the answer to the question the brief asked.
 The brief asked what must be done to reach milestone 0. The answer is: generate
 gold sets, measure, decide, and write a test — not implement anything. Every
 rejection in `Solver::requireSupportedConfiguration`
-([src/Beatnik_Solver.hpp:729-870](../../src/Beatnik_Solver.hpp#L729)) is guarded on
+([src/Beatnik_Solver.hpp:728-869](../../src/Beatnik_Solver.hpp#L729)) is guarded on
 
 ```
 refining  = !dynamic_remesh && amr.refine_every > 0      (:747-748)
@@ -150,9 +150,9 @@ decomposition-independent today:
   partial-sum order is the partition's: the volume-flux inner products
   ([src/Beatnik_VolumeProjection.hpp:150](../../src/Beatnik_VolumeProjection.hpp#L150)),
   the area-weighted potential re-centring
-  ([src/Beatnik_SurfaceState.hpp:388](../../src/Beatnik_SurfaceState.hpp#L388)) and
+  ([src/Beatnik_SurfaceState.hpp:375](../../src/Beatnik_SurfaceState.hpp#L388)) and
   its `ZModelSolver` twin
-  ([src/Beatnik_ZModelSolver.hpp:634](../../src/Beatnik_ZModelSolver.hpp#L634)).
+  ([src/Beatnik_ZModelSolver.hpp:637](../../src/Beatnik_ZModelSolver.hpp#L634)).
 
 The reference's own handoff document names this exact hazard:
 `doc/PARALLELIZATION.tex` §"What must NOT change" item 3 — *"Summation order
@@ -211,7 +211,7 @@ fire.
 
 The brief's instinct is right, and `--icosphere-subdivisions` is fully plumbed:
 [src/Beatnik_Params.hpp:517](../../src/Beatnik_Params.hpp#L517) →
-[src/Beatnik_InitialCondition.hpp:114](../../src/Beatnik_InitialCondition.hpp#L114) →
+[src/Beatnik_InitialCondition.hpp:115](../../src/Beatnik_InitialCondition.hpp#L114) →
 `Tessera::buildIcosphere`, and `examples/02_adaptive_mesh_bubble/InputFile.hpp:303`
 parses it. Entity counts are `V = 10*4^L + 2`, `E = 30*4^L`, `F = 20*4^L`.
 
@@ -230,7 +230,7 @@ The BR column is measured, from `doc/PARALLELIZATION.tex` §"Measured"
 (`scripts/benchmark_br.py`, one evaluation). At
 `--bernoulli-scalar-mode normal-speed` — the default, and the only mode either
 gold set uses — the Bernoulli input is `u·n̂` and **not** a second all-pairs sum
-([src/Beatnik_ZModelSolver.hpp:250-255](../../src/Beatnik_ZModelSolver.hpp#L250)),
+([src/Beatnik_ZModelSolver.hpp:251-256](../../src/Beatnik_ZModelSolver.hpp#L250)),
 so a step is three BR evaluations plus sparse work. That gives ~0.10 s/step at
 level 3 and ~1.5 s/step at level 4: **2000 steps is ~4 minutes and ~50 minutes**
 of single-core Python respectively. Level 5 would be ~7 hours per gold set, for
@@ -393,7 +393,7 @@ the vacuous-pass guard at `:201-208`.
    under `tests/regression_tests/milestone0-sub3-2000-steps/gold` and
    `.../milestone0-sub4-2000-steps/gold`, and each directory's `README.md` —
    globbed with the same guard as the T2a rule at
-   [tests/CMakeLists.txt:505-517](../../tests/CMakeLists.txt#L505). They are
+   [tests/CMakeLists.txt:496-508](../../tests/CMakeLists.txt#L505). They are
    installed here rather than by M0-T3, which leaves M0-T3 a test-source task
    only. The glob excludes `checkpoint_latest.npz` (see M0-G1's exit
    criterion): it duplicates the final step and shipping it would put a second
@@ -423,7 +423,7 @@ tree and therefore no `ctest`: with an empty tier, after `spack install`,
   selects the ten that are the gate;
 - `flux batch scripts/tuolumne/run_milestone.flux` exits **non-zero** with the
   "named no runnable tests" message (the guard at
-  `run_regression_minset.flux:201-208`, ported);
+  `run_regression_minset.flux:198-205`, ported);
 - `flux batch scripts/tuolumne/run_regression_minset.flux` still reports PASS
   with exactly **sixty** `[gate] ===` launch lines — the check that the third
   tier took nothing out of the gate.
@@ -616,7 +616,7 @@ no runtime option changes that, both because the space is a compile-time choice
 and because the CLI surface is closed (Conventions). Per-backend binaries exist
 only for **test sources**, through the generated translation unit that pins
 `BEATNIK_TEST_EXEC_SPACE`
-([tests/CMakeLists.txt:437-495](../../tests/CMakeLists.txt#L437) for the milestone
+([tests/CMakeLists.txt:428-486](../../tests/CMakeLists.txt#L437) for the milestone
 tier, [:323-386](../../tests/CMakeLists.txt#L323) for the regression tier). Copy
 that loop's shape for the driver and stop short of the point where it applies a
 label and emits a manifest line.
@@ -822,9 +822,9 @@ take this task**.
 and the three `MPI_SUM` reductions named in Read this first #2:
 [src/Beatnik_VolumeProjection.hpp:150](../../src/Beatnik_VolumeProjection.hpp#L150)
 and [:257](../../src/Beatnik_VolumeProjection.hpp#L257),
-[src/Beatnik_SurfaceState.hpp:388](../../src/Beatnik_SurfaceState.hpp#L388) and
+[src/Beatnik_SurfaceState.hpp:375](../../src/Beatnik_SurfaceState.hpp#L388) and
 [:409](../../src/Beatnik_SurfaceState.hpp#L409),
-[src/Beatnik_ZModelSolver.hpp:634](../../src/Beatnik_ZModelSolver.hpp#L634) and
+[src/Beatnik_ZModelSolver.hpp:637](../../src/Beatnik_ZModelSolver.hpp#L634) and
 [:652](../../src/Beatnik_ZModelSolver.hpp#L652).
 
 **Reference:** `doc/PARALLELIZATION.tex` §"What must NOT change" item 3 (the

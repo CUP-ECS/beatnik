@@ -171,7 +171,7 @@ constexpr int kDefaultOpCountCap = 65536;
 
 //---------------------------------------------------------------------------//
 // Timer keys. Beatnik's ten phases tile `ff_evaluate_total`; the Canopy keys
-// are the ones T3 splits `ff_solve` and `ff_maintain` into. `detailed` marks a
+// are the ones `ff_solve` and `ff_maintain` split into. `detailed` marks a
 // key timed only at CANOPY_PROFILING_LEVEL >= 2, which prints -1 below it.
 //---------------------------------------------------------------------------//
 const std::vector<std::string> kFfPhases = {
@@ -755,7 +755,7 @@ void runProbe( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
     const auto& ddiag = driving->farField().diagnostics();
 
     // The [acc] comparators: constructed ONCE, so the standalone FMM's
-    // operator cache behaves as the add-canopy-t6 probe's did.
+    // operator cache persists across the sampled states.
     auto quadrature = Beatnik::createSourceQuadrature<ExecSpace, MemSpace>(
         Beatnik::SourceQuadrature::Vertex );
     direct_type direct( comm );

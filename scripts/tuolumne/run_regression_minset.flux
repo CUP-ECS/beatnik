@@ -141,8 +141,8 @@ else
     # suffix and is what selects; the remaining fields are the binary's
     # arguments and any path among them is MANIFEST-RELATIVE, so the whole
     # invocation runs from the manifest directory. Prefixing only some paths is
-    # the bug unit_tests.flux already paid for: a missing fixture then makes a
-    # negative case pass for the wrong reason. Here the negative case lives
+    # a real hazard: a missing fixture then makes a negative case pass for the
+    # wrong reason. Here the negative case lives
     # inside the test binary, which demands the comparator's exit status be
     # exactly 1 (a detected mismatch) and not 2 (a load error) precisely so a
     # mis-resolved path cannot masquerade as a pass -- but running from the
@@ -162,10 +162,8 @@ else
         # swallows every remaining line and the gate silently runs only its
         # first member -- reporting PASS while covering less than it claims,
         # which is exactly the "gate silently shrinks" failure CLAUDE.md's
-        # minimum-test-set rule exists to prevent. Invisible while the tier had
-        # one member per backend; found in unit_tests.flux the moment T2b added
-        # a second test, and fixed here at the same time rather than left for
-        # T2d's regression test 2 to rediscover.
+        # minimum-test-set rule exists to prevent. It is invisible whenever a
+        # backend has only one member.
         while IFS= read -r _line <&3; do
             [ -n "${_line}" ] || continue
             # shellcheck disable=SC2086
@@ -192,11 +190,10 @@ ${_lines}
 EOF
     done
 
-    # A manifest that named nothing runnable is not a pass. The gate was vacuous
-    # by design until T1c landed regression test 1; now that it has a member,
-    # zero launches means the manifest, the backend filter or the install is
-    # broken, and reporting PASS for that is the failure mode this whole file
-    # exists to avoid.
+    # A manifest that named nothing runnable is not a pass. The tier has
+    # members, so zero launches means the manifest, the backend filter or the
+    # install is broken, and reporting PASS for that is the failure mode this
+    # whole file exists to avoid.
     if [ "${_ranks_run}" -eq 0 ]; then
         echo "[gate] FAIL: the manifest named no runnable ${BEATNIK_GATE_LABEL}" \
              "tests for backends '${BEATNIK_GATE_BACKENDS}'." >&2
@@ -209,7 +206,7 @@ fi
 ##--------------------------------------------------------------------------##
 ## Report
 ##--------------------------------------------------------------------------##
-# The regression tier has FIVE members as of T4b (2026-08-17):
+# The regression tier has FIVE members:
 # Beatnik_Test_InitialConditions (regression test 1 -- the whole driver path at
 # 0 timesteps against the T1a Python gold checkpoint), Beatnik_Test_BirkhoffRott
 # (T2c -- the vertex quadrature and the direct Birkhoff-Rott sum),
@@ -220,7 +217,7 @@ fi
 # T4b -- twenty timesteps of metric-driven dynamic remeshing, split third only).
 # Together they cover mesh generation, the initial condition, the checkpoint
 # write, the surface operators, the direct BR evaluation, the fixed-mesh time
-# integration and BOTH adaptivity modes. What a green result still does not say
+# integration and BOTH adaptivity modes. What a green result does not say
 # is that the solver COARSENS anything: collapse, flips and the isotropic
 # cleanup are T4d, blocked on Tessera gaps G5b/G5c/G5d, and every configuration
 # that would reach one is rejected before the first step.

@@ -275,7 +275,7 @@ density, plus ~250 lines of unit test.** Broken down:
   Morton sort + level-wise build + upward moment pass on GPU is a known but
   non-trivial ~300 lines, and it is rebuilt every RK stage (the surface moves),
   so its cost is not amortizable the way `FarFieldSolver::setSources`' doc
-  speculates for the FMM ([Beatnik_FarFieldInterface.hpp:106-113](../src/Beatnik_FarFieldInterface.hpp#L106-L113)).
+  speculates for the FMM ([Beatnik_FarFieldInterface.hpp:105-112](../src/Beatnik_FarFieldInterface.hpp#L106-L113)).
 - **The 10x speedup measured in §1 is against serial NumPy, and does not
   transfer.** `BRSolverDirect` is already a fully parallel `RangePolicy` over
   targets with no temporaries; on a GPU it is arithmetic-dense, coalesced, and

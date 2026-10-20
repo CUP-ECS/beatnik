@@ -10,7 +10,7 @@
  ****************************************************************************/
 /**
  * @file Beatnik_Test_TangentialRelaxation.cpp
- * @brief `unit`-tier test for T4c: `MeshQuality::improveQualityTangential` —
+ * @brief `unit`-tier test of `MeshQuality::improveQualityTangential` —
  *        the neighbour-centroid Laplacian displacement projected onto the local
  *        tangent plane.
  *
@@ -23,8 +23,8 @@
  * ----------------------------------------------------------
  * 1. **Tangency, PER SWEEP.** \f$\max_v|\Delta x_v\cdot\hat n_v| \le
  *    10^{-13}\max_v|\Delta x_v|\f$ against the normals the sweep itself used.
- *    Two things forbid the per-vertex ratio
- *    \f$|\Delta x\cdot\hat n|/|\Delta x|\f$ the criterion originally asked for:
+ *    Two things forbid stating it as the per-vertex ratio
+ *    \f$|\Delta x\cdot\hat n|/|\Delta x|\f$:
  *
  *      * **42 of the 162 vertices move by exactly zero** — icosahedral symmetry
  *        makes their neighbour-centroid offset exactly radial, so the whole
@@ -65,16 +65,14 @@
  *    unobservable: getting it wrong moves a seam with the rank count rather than
  *    failing.
  *
- * THE FIRST MULTI-RANK MEMBER OF THIS TIER
- * ---------------------------------------
- * `tests/unit_tests/CMakeLists.txt` registers the tier at one rank and its
- * comment said the multi-rank question belonged to "the task that first needs
- * one". This is that task, and the answer is the one T1c already established for
- * the `regression` tier: every rank calls `report()`, so the log names which rank
- * failed, and `main` reduces the returned exit codes with
- * `MPI_Allreduce(MPI_MAX)`. See `Beatnik_TestAssert.hpp`. The registered ctest
- * entry stays at one rank; the four-rank run is the batch wrapper's
- * `BEATNIK_UNIT_RANKS`.
+ * A MULTI-RANK MEMBER OF THIS TIER
+ * --------------------------------
+ * `tests/unit_tests/CMakeLists.txt` registers the tier at one rank. This test
+ * follows the `regression` tier's multi-rank pattern: every rank calls
+ * `report()`, so the log names which rank failed, and `main` reduces the
+ * returned exit codes with `MPI_Allreduce(MPI_MAX)`. See
+ * `Beatnik_TestAssert.hpp`. The registered ctest entry stays at one rank;
+ * the four-rank run is the batch wrapper's `BEATNIK_UNIT_RANKS`.
  *
  * HOW THE REFERENCE NUMBERS WERE OBTAINED
  * ---------------------------------------
@@ -489,9 +487,9 @@ void runChecks( Beatnik::Test::Recorder& rec )
     //
     // The raw offset is `graphLaplacianVector` of the positions, checked here
     // against the Python so that a later tangency failure localizes to the
-    // PROJECTION rather than to the neighbourhood. T2b validated the same
-    // number; it is re-measured because this is the first test that depends on
-    // it at four ranks, where the one-ring's completeness on owned rows is a
+    // PROJECTION rather than to the neighbourhood. Beatnik_Test_T2bOperators
+    // checks the same number; it is re-measured here because this test depends
+    // on it at four ranks, where the one-ring's completeness on owned rows is a
     // real precondition rather than a tautology.
     //-----------------------------------------------------------------------//
     {

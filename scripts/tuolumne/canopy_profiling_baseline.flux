@@ -89,7 +89,7 @@ echo "[cpb] submit = BEATNIK_CPB_SET=${BEATNIK_CPB_SET} flux batch scripts/tuolu
 echo "[cpb] node = $(hostname)"
 
 
-# The binding, copied EXACTLY from t6b_key_demand.flux:231-245.
+# The binding, copied EXACTLY from t6b_key_demand.flux:217-231.
 launch() {
     local _exe="$1" _np="$2"; shift 2
     local _nodes=$(( (_np + 3) / 4 ))

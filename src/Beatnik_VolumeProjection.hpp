@@ -97,13 +97,13 @@ class VolumeProjection
      * `ZModelSolver::computeSurfaceTension` for why the compensation is
      * deliberately global rather than confined to the localized region.
      *
-     * @param mesh Surface providing the geometry for \f$G\f$. **T2d — no longer
+     * @param mesh Surface providing the geometry for \f$G\f$. **Not
      *        `const`**: `positions()` and `faceVertices()` are non-const.
      * @param[in,out] velocity `(N_owned,3)` field, projected in place. The
-     *        **owned** range, matching what the BR solver produces (T2c) and
+     *        **owned** range, matching what the BR solver produces and
      *        what the integrator updates.
      *
-     * **T2d — the two conventions, which are opposite and both load-bearing.**
+     * **The two conventions, which are opposite and both load-bearing.**
      * \f$G\f$ is *assembled* from the **whole local face set**, so every owned
      * vertex's row is complete and ghost rows hold partial sums; the two inner
      * products then *reduce* over **owned rows only**, which is what makes them
@@ -208,13 +208,12 @@ class VolumeProjection
      *       assembly) and its inner product then reduces over **owned
      *       vertices**.
      *
-     * **T2d — implemented but not exercised by regression test 2.** The gold set
-     * was generated with `--no-dynamic-remesh --refine-every 0`, and every call
-     * site in `run_adaptive_mesh_bubble.py::main` is inside a refine or remesh
-     * branch, so no T2d-era configuration reaches it. It is implemented anyway
-     * because the alternative is a stub on the volume-conservation path whose
-     * first exercise would be at T4a, where a failure would look like a
-     * refinement bug.
+     * **Not exercised by regression test 2.** Its gold set was generated with
+     * `--no-dynamic-remesh --refine-every 0`, and every call site in
+     * `run_adaptive_mesh_bubble.py::main` is inside a refine or remesh branch.
+     * `Solver` calls it, under `preserve_volume`, after a refinement whose
+     * repair ran and after every dynamic remesh, so the split-only dynamic
+     * remeshing test (`Beatnik_Test_DynamicRemeshSplit`) exercises it.
      */
     static void projectToVolume( mesh_type& mesh, Real target_volume,
                                  int iterations = 2 )

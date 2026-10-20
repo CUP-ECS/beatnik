@@ -27,8 +27,8 @@
 #           argument-parsing error and NOT a segfault.
 #
 # The step-4 command line is the SAME one that generated the T1a gold file
-# (tests/regression_tests/initial_conditions/README.md), so when the stubs are
-# filled in this script becomes the direct precursor to regression test 1.
+# (tests/regression_tests/initial_conditions/README.md), which makes this
+# script the direct precursor to regression test 1.
 #
 # Submit with:   flux batch scripts/tuolumne/run_v0_smoke.flux
 # Then read the beatnik_v0_smoke.<jobid>.log it writes to cwd.

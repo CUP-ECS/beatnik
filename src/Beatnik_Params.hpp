@@ -446,18 +446,18 @@ struct FmmParams
     /// essentially every evaluation -- three times per RK3 step. With it, the
     /// width is bit-identical across every build whose box stays inside one
     /// octave, and the cache survives until an octave crossing or a
-    /// `m2l_op_count_cap` overflow (canopy_profiling O1, which measured both
-    /// and set this default; `FarFieldDiagnostics::root_width_changes` and
-    /// `op_cache_overflow_clears` count them).
+    /// `m2l_op_count_cap` overflow (`FarFieldDiagnostics::root_width_changes`
+    /// and `op_cache_overflow_clears` count them).
     ///
     /// **What it costs.** The root cell becomes up to 2x the bounding box,
     /// which can add one level at the top of the tree and moves every cell
     /// boundary, so individual velocities change at the level of the far
-    /// field's truncation error. O1 measured the worst claim-A error over its
-    /// states rising at icosphere level 4 (1.099e-3 to 1.402e-3, still under
-    /// the 1.5e-3 bound) and falling at levels 5 and 6, against a 1.3-2.2x
-    /// faster HIP step; the default was adopted on that trade-off by ruling,
-    /// not under the no-regression guard. Canopy's own default is `false`.
+    /// field's truncation error. Measured over canopy_profiling O1's states,
+    /// it raises the worst claim-A error at icosphere level 4 (1.099e-3 to
+    /// 1.402e-3, still under the 1.5e-3 bound) and lowers it at levels 5 and
+    /// 6, against a 1.3-2.2x faster HIP step; the default rests on that
+    /// trade-off, by ruling, not on the no-regression guard. Canopy's own
+    /// default is `false`.
     bool quantize_root_half_width = true;
 
     /// Assemble Canopy's per-tree M2L operator table on the device. Reaches
@@ -467,11 +467,11 @@ struct FmmParams
     /// On, Canopy keeps a device copy of its operator cache, uploads only the
     /// columns built since the last interaction-list build, and gathers the
     /// table there by column index. Off, it copies every column into a host
-    /// mirror and uploads the whole table at every build, which O1's
-    /// surviving cache made almost entirely redundant (canopy_profiling O8).
+    /// mirror and uploads the whole table at every build, which is almost
+    /// entirely redundant while the operator cache survives across builds.
     /// The table is bit-identical either way, so this moves cost, never a
-    /// velocity. It exists as a switch for O8's same-job failure-direction
-    /// arm; Canopy's own default is also `true`.
+    /// velocity. It exists as a switch for a same-job failure-direction
+    /// comparison; Canopy's own default is also `true`.
     bool device_op_table_assembly = true;
 
     /// Build Canopy's communication plan through per-cell index arrays.
@@ -482,10 +482,10 @@ struct FmmParams
     /// most evaluations. On, its dual-tree traversal reads children, owners
     /// and subtree relevance from arrays and groups its output once at the
     /// end; off, it pays a hash lookup at every traversal step and a
-    /// `std::set` insert per send or receive (canopy_profiling O5). The plan
-    /// is identical either way, so this moves cost, never a velocity. It
-    /// exists as a switch for O5's same-job failure-direction arm; Canopy's
-    /// own default is also `true`.
+    /// `std::set` insert per send or receive. The plan is identical either
+    /// way, so this moves cost, never a velocity. It exists as a switch for a
+    /// same-job failure-direction comparison; Canopy's own default is also
+    /// `true`.
     bool indexed_comm_plan = true;
 
     /// De-duplicate the interaction list's M2L operator keys through one dense
@@ -495,11 +495,11 @@ struct FmmParams
     /// Stage 3 of Canopy's interaction-list build gives every M2L pair a
     /// canonical operator key and collects the distinct keys. On, each pair
     /// claims its key's slot in a dense table; off, every host thread keeps a
-    /// `std::unordered_map` and the maps are merged afterwards
-    /// (canopy_profiling O9). Both admit the keys in the same order, so the
-    /// interaction list, the operator table and every velocity are identical
-    /// either way, and this moves cost only. It exists as a switch for O9's
-    /// same-job failure-direction arm; Canopy's own default is also `true`.
+    /// `std::unordered_map` and the maps are merged afterwards. Both admit
+    /// the keys in the same order, so the interaction list, the operator
+    /// table and every velocity are identical either way, and this moves cost
+    /// only. It exists as a switch for a same-job failure-direction
+    /// comparison; Canopy's own default is also `true`.
     bool dense_key_classify = true;
 };
 
@@ -666,12 +666,11 @@ struct RemeshParams
     /// `proximity_activation_distance` when the absolute value above is <= 0.
     /// CLI `--remesh-proximity-activation-factor`, default 6.0.
     ///
-    /// **T1c CHANGE — this lived in the example's `ClArgs` and had to move
-    /// here.** `Solver::setup`'s documented step 3 is the resolution against
+    /// **Why this lives here and not in the example's `ClArgs`.**
+    /// `Solver::setup`'s documented step 3 is the resolution against
     /// `initial_min_edge`, and the solver is handed a `SolverParams`; a factor
-    /// held only in the driver's own struct was therefore unreachable at the
-    /// one place able to use it, so the resolution could not have been written
-    /// at all. The CLI option name and default are unchanged.
+    /// held only in the driver's own struct would be unreachable at the one
+    /// place able to use it.
     Real proximity_activation_factor = 6.0;
 
     /// Same-surface face rings excluded from the proximity search, so a smooth
@@ -690,8 +689,8 @@ struct RemeshParams
     /// Multiplier on \f$h^0_{\min}\f$ used for
     /// `proximity_material_exclusion_radius` when the absolute value above is
     /// <= 0. CLI `--remesh-proximity-material-exclusion-factor`, default 4.0.
-    /// Moved here from the example's `ClArgs` at T1c, for the reason recorded
-    /// on `proximity_activation_factor`.
+    /// Held here rather than in the example's `ClArgs`, for the reason
+    /// recorded on `proximity_activation_factor`.
     Real proximity_material_exclusion_factor = 4.0;
 
     /// Skip proximity sizing above this face count; <= 0 at the CLI maps to

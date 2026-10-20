@@ -137,7 +137,7 @@ fi
 echo "[cps] budget=${BEATNIK_CPS_BUDGET}s sweep:"
 printf '%s\n' "${SWEEP}" | sed '/^$/d; s/^/[cps]   /'
 
-# The binding, copied EXACTLY from t6b_key_demand.flux:231-245. A wrong
+# The binding, copied EXACTLY from t6b_key_demand.flux:217-231. A wrong
 # binding does not fail; it oversubscribes one device and returns a plausible
 # number.
 launch() {

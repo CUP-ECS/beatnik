@@ -130,7 +130,7 @@ void parseInputFile( const std::string& path, ClArgsT& cl )
 
     // --- time integration ---
     setters["timesteps"] = [&]( const std::string& v ) {
-        // 0 (or anything <= 0) means "auto: 2*tau" — preserve old semantics.
+        // 0 (or anything <= 0) means "auto: 2*tau".
         cl.t_final = parseDoubleValue( "timesteps", v );
     };
     setters["delta_t"] = [&]( const std::string& v ) {

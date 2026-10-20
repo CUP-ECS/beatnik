@@ -77,8 +77,8 @@ PERTURB_DELTA = np.array([1.0e-6, 0.0, 0.0])
 # disagree, the fixture test fails, which is the point. An import would make
 # the test pass no matter what the mapping said.
 #
-# UPDATED BY TASK M2 to Tessera's real layout -- `Tessera::writeMesh` owns the
-# file and Beatnik appends only the `/beatnik` group. See the note above
+# The layout is Tessera's -- `Tessera::writeMesh` owns the file and Beatnik
+# appends only the `/beatnik` group. See the note above
 # compare_output.py's FIELD_MAP for why `/vertices/u<N>` is a positional name
 # and what guards it.
 H5_PATH = {
@@ -231,7 +231,7 @@ def permute(payload, perm):
 def as_beatnik_h5(payload):
     """Shape a gold payload the way a real Beatnik checkpoint is shaped.
 
-    Two M2 differences from the `.npz`, both of which the comparator has
+    Two differences from the `.npz`, both of which the comparator has
     specific handling for, so a fixture that omitted them would leave that
     handling untested:
 

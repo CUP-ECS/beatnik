@@ -188,7 +188,7 @@ for _backend in "${_backends[@]}"; do
         echo "[t6l3] scratch = ${BEATNIK_TEST_SCRATCH}"
 
         # Tuolumne packs 4 ranks per node; round the node count up. The binding
-        # is copied EXACTLY from scripts/tuolumne/run_milestone.flux:211-218 and
+        # is copied EXACTLY from scripts/tuolumne/run_milestone.flux:210-217 and
         # must not be simplified: a wrong binding does not fail, it
         # oversubscribes one device and returns a plausible number that reads
         # like a real measurement.

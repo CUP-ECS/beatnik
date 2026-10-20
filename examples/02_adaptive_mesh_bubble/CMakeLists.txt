@@ -15,9 +15,9 @@
 # example 01, this one targets the CURRENT solver API and builds unconditionally
 # under Beatnik_ENABLE_EXAMPLES=ON.
 #
-# It BUILDS and RUNS. The solver integrates: task T2d landed the RHS, the volume
-# projection and the TVD-RK3 integrator, and T4a/T4b landed indicator-driven
-# refinement and split-only dynamic remeshing. What is still stubbed are the
+# It BUILDS and RUNS. The solver integrates: the RHS, the volume projection,
+# the TVD-RK3 integrator, indicator-driven refinement and split-only dynamic
+# remeshing are all implemented. What is still stubbed are the
 # follow-on mesh-quality passes (T4d, T4e) and the circulation field filter
 # (T5c); `Solver::requireSupportedConfiguration` rejects a configuration that
 # needs one of those before the first step, naming the option to change and the

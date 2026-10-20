@@ -223,7 +223,7 @@ on a drifting bounding box the cache empties on every rebuild and every
 admitted column is built again. `FmmConfig::quantize_root_half_width`
 (`Canopy_Solver.hpp:126`, default `false`) would let the cache survive drift
 within an octave; nothing here sets it. `local_m2l_op_keys_built`
-(`src/Beatnik_FarFieldInterface.hpp:279-283`) is the counter that shows it:
+(`src/Beatnik_FarFieldInterface.hpp:278-282`) is the counter that shows it:
 "climbing by the full cache size at every build is the signature of a cache that
 retains nothing, which is what a level-keyed basis on a drifting bounding box
 does." T3, T4 and T5 measured exactly that — `keys_built_delta == unique_ops` in
@@ -249,7 +249,7 @@ under 32 768. Memory scales with the cap and rebuild time does not.
 | Cap knob name | `FmmConfig::m2l_op_count_cap`, `FmmParams::m2l_op_count_cap` | Mirrors `m2l_op_table_byte_budget` (`Canopy_Solver.hpp:95`, `Beatnik_Params.hpp:395`) in name, placement and plumbing. |
 | Cap knob default | `32768`, the current `M2L_OP_COUNT_CAP` | Every existing configuration's overflow set is unchanged bit-for-bit, which is the property the deviation note protects. |
 | CLI exposure | None | `m2l_op_table_byte_budget` has no CLI option and no Python counterpart; the count cap follows it. README needs no change, since no example's accepted arguments move. |
-| Probe tier | None | The probe goes in the **"Measurement drivers — IN NO TIER"** loop (`tests/CMakeLists.txt:585-665`), which is the milestone tier's loop stopped short: no `LABELS`, no `add_test`, no manifest append, and installed so `beatnik_exe` resolves it. It therefore appears in neither `beatnik_milestone_manifest.txt` nor `beatnik_gate_manifest.txt`, which in `spack` mode are the **only** observables — this checkout has no build tree of its own and `ctest -L milestone` reports zero tests whatever the probe does. |
+| Probe tier | None | The probe goes in the **"Measurement drivers — IN NO TIER"** loop (`tests/CMakeLists.txt:576-656`), which is the milestone tier's loop stopped short: no `LABELS`, no `add_test`, no manifest append, and installed so `beatnik_exe` resolves it. It therefore appears in neither `beatnik_milestone_manifest.txt` nor `beatnik_gate_manifest.txt`, which in `spack` mode are the **only** observables — this checkout has no build tree of its own and `ctest -L milestone` reports zero tests whatever the probe does. |
 | Probe assertions | None | It measures. A probe that asserts is a test that will be tuned; this one exits 0 unless it cannot run at all. |
 | Scratch root | `BEATNIK_TEST_SCRATCH` on `/p/lustre5` | Checkpoints go through MPI-IO; a node-local scratch fails every launch spanning more than one node. |
 | Formatting | Never run clang-format, `clangformat.sh` or `cabana-format` | Write in the style of the surrounding code and leave formatting to the user. |
@@ -263,7 +263,7 @@ under 32 768. Memory scales with the cap and rebuild time does not.
   gate. The gate-side observable is zero **cap-driven** refusal, which an
   ungated comparison already shows: the merge refuses a key only once
   `local_m2l_unique_op_count` reaches `local_m2l_op_cap`
-  (`Beatnik_FarFieldInterface.hpp:273`, `:303`), so a realized count below the
+  (`Beatnik_FarFieldInterface.hpp:272`, `:302`), so a realized count below the
   effective cap on every rank means no cap refusal. T9b puts that assertion in
   place of `p.m2l_fallback == 0`.
 - **`M2L_OP_COUNT_CAP` becomes a default rather than a floor.** Today
@@ -347,7 +347,7 @@ under 32 768. Memory scales with the cap and rebuild time does not.
 
 **Beatnik** (`/g/g20/stewartj/spack_envs/tuolumne_beatnik/beatnik`):
 
-- `FarFieldDiagnostics` (`src/Beatnik_FarFieldInterface.hpp:214-348`) carries
+- `FarFieldDiagnostics` (`src/Beatnik_FarFieldInterface.hpp:214-347`) carries
   `local_m2l_unique_op_count` (`:273`), `local_m2l_op_cache_size` (`:277`),
   `local_m2l_op_keys_built` (`:283`), `local_m2l_bytes_per_key` (`:293`) and
   `local_m2l_op_cap` (`:301`), and beside them T2's four:
@@ -371,7 +371,7 @@ under 32 768. Memory scales with the cap and rebuild time does not.
   lever its own comment at `:272-291` names was considered and rejected in T8.
 - **`order` is a compile-time dispatch, and order 4 is already built.**
   `FarFieldInterface` switches on `params.order` over CartesianTaylor 0, 2, 3,
-  4 and 5 (`src/Beatnik_FarFieldInterface.hpp:1024-1040`); SolidHarmonic is
+  4 and 5 (`src/Beatnik_FarFieldInterface.hpp:1018-1034`); SolidHarmonic is
   built at 3 only (`:1047`). Changing the default needs no new instantiation.
   Order 3 is the default, stated and reasoned at `src/Beatnik_Params.hpp:196-229`
   and in README (`README.md:210`, `:314-328`). The callers that read the
@@ -417,10 +417,10 @@ under 32 768. Memory scales with the cap and rebuild time does not.
   `:1034-1035`), so the comment at `:1068-1070` saying the two claims cannot
   be at different configurations is true.
 - The milestone tier has four members and sixteen launches, registered at
-  `tests/CMakeLists.txt:439-495`, run by
+  `tests/CMakeLists.txt:430-486`, run by
   `scripts/tuolumne/run_milestone.flux` at `-q pbatch -t 1440m`.
 - **An assertion-free installed binary already has a home.**
-  `tests/CMakeLists.txt:585-665` is the **"Measurement drivers — IN NO TIER"**
+  `tests/CMakeLists.txt:576-656` is the **"Measurement drivers — IN NO TIER"**
   loop, documented in place as the milestone loop stopped short of the point
   where it applies a label: it writes one generated translation unit per backend
   pinning `BEATNIK_TEST_EXEC_SPACE`, builds `<stem>_MPI_<BACKEND>`, installs to
@@ -773,7 +773,7 @@ is the level (`:283`). The five values step 7 checks are all level-independent,
 so the probe needs no per-level literal table.
 
 The registration home is the **"Measurement drivers — IN NO TIER"** loop
-(`tests/CMakeLists.txt:585-665`), whose two existing members,
+(`tests/CMakeLists.txt:576-656`), whose two existing members,
 `Beatnik_Test_FmmScan.cpp` and `Beatnik_Test_Milestone0Run.cpp`, are the closest
 structural precedents; `Beatnik_Test_FmmScan.cpp`'s file header states the
 in-no-tier contract and the P2P-fraction discipline the probe inherits. Because
@@ -1147,7 +1147,7 @@ defaulted by a constant at `:623-624`.
 8. **Callers of `m2l_effective_op_cap()`**, enumerated: the merge's
    `effective_op_cap` read (`:1478`), the cache-overflow guard (`:1934`), the
    `:1955` bound check, the two message sites (`:1822`, `:1888`), and in Beatnik
-   `readDiagnostics` (`Beatnik_FarFieldInterface.hpp:890`). The signature does
+   `readDiagnostics` (`Beatnik_FarFieldInterface.hpp:884`). The signature does
    not change, so none needs editing; all are listed because each reads a number
    whose provenance moves from a constant to a config field.
 9. Extend the T1 test cases: one driving a small `m2l_op_count_cap` with a
@@ -1215,12 +1215,12 @@ tier, so the gate is still five `regression` members and 60 launches.
 
 **Depends on:** T6 **DONE**.
 **Fill in:** `src/Beatnik_Params.hpp` (a new member beside `:395`, and the
-doc comment at `:382-394`); `src/Beatnik_FarFieldInterface.hpp:1068` and the
+doc comment at `:382-394`); `src/Beatnik_FarFieldInterface.hpp:1062` and the
 `local_m2l_op_cap` doc comment at `:294-301`;
 `tests/regression_tests/Beatnik_Probe_FmmKeyDemand.cpp` (the ARGUMENTS block at
 `:103-110`, the argument parse at `:394-400`, the header printf at `:590-601`).
 **Reference:** `m2l_op_table_byte_budget` at `Beatnik_Params.hpp:395` routed at
-`Beatnik_FarFieldInterface.hpp:1068` is the exact pattern — no CLI option, no
+`Beatnik_FarFieldInterface.hpp:1062` is the exact pattern — no CLI option, no
 Python counterpart, reaching one `FmmConfig` member. The Canopy end is
 `FmmConfig::m2l_op_count_cap` (`Canopy_Solver.hpp:116`), an `int` defaulting to
 32768 and routed to `DownwardSweep::set_m2l_op_count_cap()` at `:217`.
@@ -1240,7 +1240,7 @@ Python counterpart, reaching one `FmmConfig` member. The Canopy end is
    every pair on the overflow path. Canopy's test-only `with_laplace_solve`
    convention, where 0 means "leave the config default", is therefore **not**
    copied — this member carries 32768 as its own default and 0 means zero.
-2. Route it at `Beatnik_FarFieldInterface.hpp:1068` beside the byte budget.
+2. Route it at `Beatnik_FarFieldInterface.hpp:1062` beside the byte budget.
 3. Rewrite the doctrine paragraph at `Beatnik_Params.hpp:382-394`. It currently
    says "the response to realized overflow is a lower `max_depth` or `order`,
    not a smaller table" — true about the *byte budget*, and it must now also say
@@ -1269,7 +1269,7 @@ Python counterpart, reaching one `FmmConfig` member. The Canopy end is
    Reject a negative `argv[2]` through `rec.fail` the way the level is rejected
    at `:401-405`, rather than letting it reach the Canopy throw.
 5. Update `FarFieldDiagnostics::local_m2l_op_cap`'s doc comment
-   (`Beatnik_FarFieldInterface.hpp:294-301`). It describes the effective cap as
+   (`Beatnik_FarFieldInterface.hpp:293-300`). It describes the effective cap as
    the smaller of what the byte budget buys and "Canopy's own 32768-key count
    cap"; the count cap is configurable since T6 and reaches Canopy from
    `FmmParams::m2l_op_count_cap`, so the comment must name that member rather
@@ -1357,7 +1357,7 @@ go in the progress log.
 at 3200 B (`Canopy_CartesianTaylorBasis.hpp:506-508`). The before/after script
 shape is `scripts/tuolumne/t7_cap_knob.flux`, which is level-3-and-np1 by
 construction and should be copied rather than edited; the level-4 matrix and
-binding are in `scripts/tuolumne/t6b_key_demand.flux:154` and `:233-243`.
+binding are in `scripts/tuolumne/t6b_key_demand.flux:141` and `:219-229`.
 **The probe takes the cap as an optional `argv[2]`**, so a candidate cap is
 measurable at level 4 without any rebuild:
 `beatnik_exe Beatnik_Probe_FmmKeyDemand_MPI_HIP 4 65536`. An **empty** `argv[2]`
@@ -1520,7 +1520,7 @@ data the breakdown must reconcile against.
    per-state row beside `global_m2l_fallback_pair_count`. **The counters join
    the existing reduction**, unlike T1's demand counters, which are rank-local
    and unreduced: `global_m2l_fallback_pair_count` is summed across ranks by the
-   five-element `MPI_Allreduce` at `src/Beatnik_FarFieldInterface.hpp:1494-1516`,
+   five-element `MPI_Allreduce` at `src/Beatnik_FarFieldInterface.hpp:1488-1510`,
    so a breakdown that did not travel with it would be a per-rank number printed
    beside a global one and the sum identity would fail at every rank but one.
    Extend that reduction rather than adding a second. The asymmetry against the
@@ -1587,7 +1587,7 @@ identity **skipped**, and `fb_range_guard + fb_count_cap == fallback` with
 **Fill in:** no source changes. A new `scripts/tuolumne/t9a_l4_member.flux`
 copied from `scripts/tuolumne/t6_l3_member.flux`, running
 `Beatnik_Test_Milestone0FmmL4_MPI_HIP`; the progress log.
-**Reference:** `kTauA = 1.0e-3` (`Beatnik_Test_Milestone0Fmm.cpp:320`), checked
+**Reference:** `kTauA = 1.0e-3` (`Beatnik_Test_Milestone0Fmm.cpp:317`), checked
 at `:1505-1506`; the contaminated peaks T0 recorded; the fallback/table path
 agreement of 3.27e-15 (`canopy/tasks/tree-opt-progress-log.md` `## C1`);
 `scripts/tuolumne/t8b_fallback_reasons.flux` (untracked, present) for the
@@ -1808,7 +1808,7 @@ In the failure direction: a level-4 state over the new `kTauA` means T9r's
 verdict rested on a draw that did not reproduce. Stop and record it; do not
 round `τ_ref` up further.
 
-**Met.** `kTauA = 1.5e-3` (`Beatnik_Test_Milestone0Fmm.cpp:320`), its comment
+**Met.** `kTauA = 1.5e-3` (`Beatnik_Test_Milestone0Fmm.cpp:317`), its comment
 rewritten around T9r's `E_ref` in the same line count, so every line this
 document cites in that file is unmoved. `spack install` of the dev env rc 0 in
 639 s, at beatnik `f496db0` plus this task's edits and canopy
@@ -1952,7 +1952,7 @@ FMM-driven run, the envelope from the earliest observed horizon.
 8. `spack install` again, and edit nothing while it runs. Then run
    `t6_l3_member.flux HIP`, and `t9a_l4_member.flux` at np1 and at np4.
 9. Confirm the gate is untouched: no source in `BEATNIK_REGRESSION_TEST_SOURCES`
-   (`tests/CMakeLists.txt:256-266`) selects the FMM. Grep for
+   (`tests/CMakeLists.txt:246-256`) selects the FMM. Grep for
    `BRApproximation::Fmm` and record the empty result. The gate stays five
    members and 60 launches, and is not re-run.
 
@@ -2202,7 +2202,7 @@ with no symptom at all. T3 step 7 echoes those five out of
 **R6 — The probe is picked up by the tier runner.** A label or a manifest line
 would put an assertion-free binary into a tier, where it would report `PASS`
 unconditionally and inflate the tier's member count. The
-`BEATNIK_DRIVER_SOURCES` loop (`tests/CMakeLists.txt:585-665`) forecloses this
+`BEATNIK_DRIVER_SOURCES` loop (`tests/CMakeLists.txt:576-656`) forecloses this
 by construction — it applies no `LABELS`, calls no `add_test` and appends to
 neither manifest — and T3's exit criterion checks both installed manifests.
 **`ctest` is not the check.** In `spack` mode this checkout has no build tree of

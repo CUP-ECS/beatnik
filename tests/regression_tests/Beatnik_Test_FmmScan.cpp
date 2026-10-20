@@ -21,7 +21,8 @@
  * pick it up — see the "Measurement drivers — IN NO TIER" loop in
  * `tests/CMakeLists.txt`, which is the milestone tier's loop stopped short of
  * the point where it applies a label. **No tolerance is compiled into this
- * file and none may be**: T5 produces the numbers that T6 compiles, and a
+ * file and none may be**: it produces the numbers the milestone FMM members
+ * compile in, and a
  * measurement that carried its own pass criterion would be asserting the thing
  * it exists to measure (risk **R1**). The only assertions here are structural
  * — entity counts, finiteness, the global source count, the spin-up reaching
@@ -67,13 +68,14 @@
  * is on a potential: Canopy's own convergence table, and the reference
  * treecode's velocity, which has no target-side expansion and so carries the
  * potential's truncation order. So both columns are printed at every point,
- * through `FarFieldSolver::evaluatePotential` — a measurement surface T5 added
- * to the adapter for exactly this, applying no prefactor.
+ * through `FarFieldSolver::evaluatePotential` — a measurement surface the
+ * adapter carries for exactly this, applying no prefactor.
  *
  * THE TWO REFERENCES
  * ------------------
  *   * **Gradient (velocity).** `BRSolverDirect` on the same mesh, geometry,
- *     state and quadrature — T4's reference, unchanged.
+ *     state and quadrature — the same reference `Beatnik_Test_FmmVsDirect`
+ *     uses.
  *   * **Potential.** An \f$O(N^2)\f$ sum written here, over the globally
  *     gathered source set. It must follow **Canopy's** exclusion rule rather
  *     than the Birkhoff-Rott one: `Canopy_P2P.hpp` skips \f$p_j=p_i\f$ and any
@@ -205,7 +207,7 @@ Beatnik::SolverParams makeScanParams( int subdivisions, int spin_up_steps )
     // PRODUCE, or every comparison below is partly circular.
     p.zmodel.br_approximation = Beatnik::BRApproximation::Direct;
     // --source-quadrature vertex. MANDATORY, and set explicitly even though it
-    // is now the ZModelParams default: Face's generate() throws, and the
+    // is the ZModelParams default: Face's generate() throws, and the
     // far-field adapter rejects anything but Vertex -- source, target and
     // output row are one index there.
     p.zmodel.source_quadrature = Beatnik::SourceQuadrature::Vertex;
@@ -240,7 +242,8 @@ Beatnik::SolverParams makeScanParams( int subdivisions, int spin_up_steps )
 //---------------------------------------------------------------------------//
 // THE SCAN.
 //
-// One row per arm. `(basis, order)` is the ONLY axis limited to what T2 built:
+// One row per arm. `(basis, order)` is the ONLY axis limited to what the
+// adapter's dispatch compiles:
 // `CartesianTaylor` at 0, 2, 3, 4, 5 and `SolidHarmonic` at 3 only. A seventh
 // arm is one line in the adapter's dispatch plus roughly 8 CPU-minutes of build
 // per translation-unit set, and nothing in this scan needs one.
@@ -285,9 +288,9 @@ std::vector<Arm> buildScan()
         s.push_back( { "order", kBgBasis, p, kBgNcrit, kBgTheta, kBgMaxDepth } );
 
     // AXIS "basis" -- R2's discriminator, at the production order only, which
-    // is the one solid-harmonic arm T2 dispatches. THE DISCRIMINATOR IS THE
-    // SHAPE OF THE ORDER CURVE ABOVE AGAINST THIS FIXED POINT, not the size of
-    // the gap: the bias is in the kernel rather than in the truncation, so no
+    // is the one solid-harmonic arm the adapter dispatches. THE DISCRIMINATOR
+    // IS THE SHAPE OF THE ORDER CURVE ABOVE AGAINST THIS FIXED POINT, not the
+    // size of the gap: the bias is in the kernel rather than in the truncation, so no
     // order rescues this arm and what proves the selector is live is that the
     // CartesianTaylor curve keeps falling with `order` while this point does
     // not move with it. A separation of tens of percent is a self-contact
@@ -462,7 +465,7 @@ gatherSources( MPI_Comm comm, const ViewP& points, const ViewQ& charges,
     // transpose the source set on the GPU backend. That does not crash: it
     // produces a potential reference built from a scrambled point cloud, whose
     // disagreement with the FMM would read as a truncation error of about the
-    // size T5 is trying to measure.
+    // size this scan exists to measure.
     static_assert( sizeof( Real ) == sizeof( double ),
                    "the potential reference's Allgatherv assumes Real is "
                    "MPI_DOUBLE; add a dispatch if that stops being true" );
@@ -866,7 +869,7 @@ void runScan( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
         {
             // An arm may legitimately refuse: `validateTreeParams` rejects an
             // `ncrit` or `max_depth` Canopy will not take, and the dispatch
-            // throws on a `(basis, order)` pair T2 did not build. A refusal is
+            // throws on a `(basis, order)` pair it does not build. A refusal is
             // a RESULT for the scan, printed with its reason, and it is a
             // recorded failure too -- the scan table names only pairs that
             // should be accepted, so a throw means the table and the dispatch

@@ -112,7 +112,7 @@ class TimeIntegrator
      *       exchanges of the vertex positions, one after each stage update —
      *       `Comm::haloExchangeVertices`.
      *
-     * **T2d — WHAT THE STAGE CONSTRUCTION HAS TO DO BESIDES THE ARITHMETIC.**
+     * **WHAT THE STAGE CONSTRUCTION HAS TO DO BESIDES THE ARITHMETIC.**
      * The reference builds each stage through `state.with_arrays(...)`, which
      * runs `MeshPotentialZModelState.__post_init__` and therefore
      * **re-centres the potential at the NEW vertices** (`mesh_solver.py:155-159`)
@@ -218,7 +218,7 @@ class TimeIntegrator
      *       adaptive dt from being the leading term in R2's trajectory
      *       divergence.
      *
-     * **T2d — `mesh` is no longer `const`** (`positions()` / `edgeVertices()`),
+     * **`mesh` is not `const`** (`positions()` / `edgeVertices()`),
      * and **this must not be stubbed to a constant.** The T2a gold set was
      * generated with `--adaptive-dt` live: `time` is `0.003` exactly at step 1
      * and then drifts (`0.0059999881751648708` at step 2), so a fixed-dt run
@@ -330,7 +330,7 @@ class TimeIntegrator
     /// What `state.with_arrays(...)` does beyond storing the arrays: refresh the
     /// ghosts of the fields just written on owned rows, rebuild the geometry at
     /// the new positions, and re-centre the potential against it. See the
-    /// T2d note on `step`.
+    /// stage-construction note on `step`.
     void finishStage( mesh_type& mesh, state_type& state )
     {
         mesh.haloExchange();
@@ -361,7 +361,7 @@ class TimeIntegrator
 
     /// The step's initial state and the current stage's rates. Allocated on
     /// first use and reused; the RHS reallocates its two out-parameters only on
-    /// an extent mismatch (T2c), so one pair serves all three stages.
+    /// an extent mismatch, so one pair serves all three stages.
     vector_view _x0;
     scalar_view _p0;
     vector_view _vertex_dot;

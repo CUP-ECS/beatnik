@@ -26,7 +26,7 @@
 #               `regression` -- same standalone self-validating binaries, same
 #               manifest line format -- and deliberately NOT part of the ship
 #               gate: these runs are far too long to sit in front of every
-#               change. Created by task M0-T1. A milestone test that fails is a
+#               change. A milestone test that fails is a
 #               real failure and gets a README "Known Issues" entry; it is not
 #               a reason to touch the gate.
 #
@@ -68,7 +68,7 @@ include(${TEST_HARNESS_DIR}/test_harness.cmake)
 ##--------------------------------------------------------------------------##
 # End-to-end tests that exercise the whole solver pipeline.
 #
-# The gtest-harness lists below are still empty; regression test 1 (T1c) is
+# The gtest-harness lists below are empty; the regression tests are
 # registered further down, in the "regression tier -- standalone end-to-end
 # tests" section, for the same reason tests/unit_tests/ exists: in spack mode
 # there is no build tree and therefore no ctest, so a gate test must be
@@ -140,7 +140,7 @@ add_subdirectory(unit_tests)
 set(_beatnik_compare_dir ${CMAKE_CURRENT_SOURCE_DIR}/regression_tests)
 set(_beatnik_compare_py ${_beatnik_compare_dir}/compare_output.py)
 set(_beatnik_fixture_dir ${_beatnik_compare_dir}/fixtures)
-# T6's two FMM milestone members read their divergence horizon out of this
+# The two FMM milestone members read their divergence horizon out of this
 # tool's --json. It is NOT the comparator and must not be substituted for it:
 # compare_output.py's quantized-lexsort pairing degenerates silently on an
 # FMM-driven run, which is the whole reason this second instrument exists (see
@@ -159,34 +159,26 @@ set(_beatnik_rel_fixtures regression_tests/fixtures)
 ##--------------------------------------------------------------------------##
 ## regression tier -- standalone end-to-end tests. THE SHIP GATE.
 ##--------------------------------------------------------------------------##
-# ADDED BY TASK T1c, WITH THE USER'S EXPLICIT AUTHORIZATION. Before this the
-# `regression` tier was EMPTY and a green gate proved nothing (see the note on
-# REGRESSION_MPI_TESTS above and README "Known Issues"). It now has exactly one
-# member:
+# The tier has exactly five members, each added with the user's explicit
+# authorization:
 #
 #   Beatnik_Test_InitialConditions   regression test 1 -- the whole driver path
 #                                    at 0 timesteps, compared against the T1a
 #                                    Python gold checkpoint by
 #                                    compare_output.py.
 #
-# GREW TO TWO MEMBERS AT TASK T2c, pre-authorized in that task's exit criterion:
-#
-#   Beatnik_Test_BirkhoffRott        T2c -- the vertex source quadrature and the
+#   Beatnik_Test_BirkhoffRott        the vertex source quadrature and the
 #                                    direct O(N^2) Birkhoff-Rott sum, against
 #                                    hard-coded reference numbers computed from
 #                                    the read-only Python. Takes NO arguments;
 #                                    everything it needs it computes.
 #
-# GREW TO THREE MEMBERS AT TASK T2d, authorized by the user for that task:
-#
 #   Beatnik_Test_DirectSolve10Steps  regression test 2 -- ten TVD-RK3 timesteps
 #                                    with the direct BR solver, compared against
 #                                    the T2a Python gold set at EVERY step by
-#                                    compare_output.py. This is the first gate
-#                                    member that says the solver integrates
-#                                    anything.
-#
-# GREW TO FOUR MEMBERS AT TASK T4a, authorized in that task's exit criterion:
+#                                    compare_output.py. It is the gate's
+#                                    field-for-field check of an integrated
+#                                    trajectory.
 #
 #   Beatnik_Test_RefineSplitEdges    regression test 4 -- twenty timesteps with
 #                                    indicator-driven refinement through
@@ -198,8 +190,6 @@ set(_beatnik_rel_fixtures regression_tests/fixtures)
 #                                    comparison against the Python meaningless
 #                                    after the first pass. See that file's
 #                                    header.
-#
-# GREW TO FIVE MEMBERS AT TASK T4b, authorized in that task's exit criterion:
 #
 #   Beatnik_Test_DynamicRemeshSplit  regression test 5 -- twenty timesteps of
 #                                    metric-driven dynamic remeshing, split
@@ -213,33 +203,33 @@ set(_beatnik_rel_fixtures regression_tests/fixtures)
 #
 # HOW A MULTI-RANK REGRESSION ENTRY IS REPRESENTED, AND WHY THIS SHAPE
 # --------------------------------------------------------------------
-# T1c's exit criterion names ranks 1, 2 and 4; the GATE is defined at ranks
-# 1-6. Those are not in tension and the difference is not encoded here:
+# A task's exit criterion may name fewer ranks (T1c's names 1, 2 and 4); the
+# GATE is defined at ranks 1-6. Those are not in tension and the difference is
+# not encoded here:
 #
 #   **The rank set is a property of the gate, not of the test.** So the test is
 #   registered once per backend and the rank sweep stays where it already lives
 #   -- BEATNIK_TEST_MPI_RANKS for ctest, BEATNIK_GATE_RANKS in
 #   scripts/<system>/run_regression_minset.*. The test reads its own comm size
-#   and adapts. T1c's three rank counts are therefore a verified SUBSET of what
-#   the gate runs, and the gate definition (label x backend x ranks 1-6) is
-#   unchanged and still single-sourced.
+#   and adapts. An exit criterion's rank counts are therefore a verified SUBSET
+#   of what the gate runs, and the gate definition (label x backend x ranks 1-6)
+#   stays single-sourced.
 #
 # The alternative -- a per-test rank list on the manifest line -- was rejected
 # because it would let one test quietly gate at fewer ranks than the gate
 # claims, which is precisely the "gate silently shrinks" failure CLAUDE.md
 # forbids.
 #
-# What DID have to change is that a gate manifest line now carries ARGUMENTS
-# after the target name (the gold file, the comparator, the mismatched fixture),
-# resolved relative to the manifest's own directory. The line format is
+# A gate manifest line carries ARGUMENTS after the target name (the gold file,
+# the comparator, the mismatched fixture), resolved relative to the manifest's
+# own directory. The line format is
 #
 #     <target> [args...]
 #
 # and the runner splits on whitespace, filters the BACKEND SUFFIX ON FIELD 1,
-# and runs from the manifest directory. A bare target name -- every line the
-# manifest could previously hold -- is still valid, so this widens the format
-# rather than replacing it. This is the same convention the unit manifest's
-# `py-pass` / `py-fail` lines already use, and it exists for the same reason:
+# and runs from the manifest directory. A bare target name is a valid line, for
+# a test that takes no arguments. This is the same convention the unit
+# manifest's `py-pass` / `py-fail` lines use, and it exists for the same reason:
 # a test's data must travel with the manifest that names it.
 #
 # ONE BINARY PER BACKEND, NOT ONE ON THE DEFAULT SPACE
@@ -254,15 +244,15 @@ set(_beatnik_rel_fixtures regression_tests/fixtures)
 # gets its own translation unit, generated below, that pins
 # BEATNIK_TEST_EXEC_SPACE.
 set(BEATNIK_REGRESSION_TEST_SOURCES
-  # T1c: regression test 1 -- initial conditions at 0 timesteps.
+  # Regression test 1 -- initial conditions at 0 timesteps.
   Beatnik_Test_InitialConditions.cpp
-  # T2c: the vertex quadrature and the direct Birkhoff-Rott sum.
+  # The vertex quadrature and the direct Birkhoff-Rott sum.
   Beatnik_Test_BirkhoffRott.cpp
-  # T2d: regression test 2 -- ten timesteps against the T2a gold set.
+  # Regression test 2 -- ten timesteps against the T2a gold set.
   Beatnik_Test_DirectSolve10Steps.cpp
-  # T4a: regression test 4 -- twenty timesteps with splitEdges() refinement.
+  # Regression test 4 -- twenty timesteps with splitEdges() refinement.
   Beatnik_Test_RefineSplitEdges.cpp
-  # T4b: regression test 5 -- twenty timesteps of split-only dynamic remeshing.
+  # Regression test 5 -- twenty timesteps of split-only dynamic remeshing.
   Beatnik_Test_DynamicRemeshSplit.cpp
   )
 
@@ -283,10 +273,10 @@ set(_beatnik_space_OPENMPTARGET  Kokkos::Experimental::OpenMPTarget)
 # files -- that is what keeps `ctest -L regression` and the manifest testing the
 # same thing.
 #
-# Keyed by the source stem rather than shared across the tier: T2c's test takes
-# none, and handing it three paths it ignores would make the manifest line claim
-# a dependency that does not exist. An entry is REQUIRED for every source in
-# BEATNIK_REGRESSION_TEST_SOURCES -- a missing one is a configure-time error
+# Keyed by the source stem rather than shared across the tier: BirkhoffRott
+# takes none, and handing it three paths it ignores would make the manifest line
+# claim a dependency that does not exist. An entry is REQUIRED for every source
+# in BEATNIK_REGRESSION_TEST_SOURCES -- a missing one is a configure-time error
 # below, not a test silently launched without its data.
 set(_beatnik_args_Beatnik_Test_InitialConditions_abs
   ${_beatnik_compare_dir}/initial_conditions/gold.npz
@@ -297,14 +287,16 @@ set(_beatnik_args_Beatnik_Test_InitialConditions_rel
   ${_beatnik_rel_compare_py}
   ${_beatnik_rel_fixtures}/synthetic_gold.npz)
 
-# T2c takes no arguments. Declared explicitly (and as DEFINED, which an empty
-# list still is) so the "did the author forget?" check below stays meaningful.
+# BirkhoffRott takes no arguments. Declared explicitly (and as DEFINED, which an
+# empty list still is) so the "did the author forget?" check below stays
+# meaningful.
 set(_beatnik_args_Beatnik_Test_BirkhoffRott_abs "")
 set(_beatnik_args_Beatnik_Test_BirkhoffRott_rel "")
 
-# T2d takes the gold DIRECTORY (not a single file): it compares one checkpoint
-# per step, and finds each step's gold file by its `_step%07d.npz` suffix rather
-# than by rebuilding the name from a time -- the time is what is under test.
+# DirectSolve10Steps takes the gold DIRECTORY (not a single file): it compares
+# one checkpoint per step, and finds each step's gold file by its
+# `_step%07d.npz` suffix rather than by rebuilding the name from a time -- the
+# time is what is under test.
 set(_beatnik_args_Beatnik_Test_DirectSolve10Steps_abs
   ${_beatnik_compare_dir}/direct-solve-10-steps/gold
   ${_beatnik_compare_dir}/compare_output.py)
@@ -312,19 +304,19 @@ set(_beatnik_args_Beatnik_Test_DirectSolve10Steps_rel
   regression_tests/direct-solve-10-steps/gold
   ${_beatnik_rel_compare_py})
 
-# T4a takes no arguments and reads no gold file: the Python reference enters it
-# as compiled-in literals (global face and vertex counts per refinement pass),
-# because those are the only quantities R13 leaves comparable. Declared
-# explicitly -- and as DEFINED, which an empty list still is -- so the "did the
-# author forget?" check below stays meaningful.
+# RefineSplitEdges takes no arguments and reads no gold file: the Python
+# reference enters it as compiled-in literals (global face and vertex counts
+# per refinement pass), because those are the only quantities R13 leaves
+# comparable. Declared explicitly -- and as DEFINED, which an empty list still
+# is -- so the "did the author forget?" check below stays meaningful.
 set(_beatnik_args_Beatnik_Test_RefineSplitEdges_abs "")
 set(_beatnik_args_Beatnik_Test_RefineSplitEdges_rel "")
 
-# T4b takes no arguments and reads no gold file either, for the same reason as
-# T4a and one more: its masks are partial from the first pass, so R13's diagonal
-# difference makes the two codes integrate different meshes from step 2 and only
-# the pass-1 counts and the shape statistics are comparable. Those enter as
-# compiled-in literals.
+# DynamicRemeshSplit takes no arguments and reads no gold file either, for the
+# same reason as RefineSplitEdges and one more: its masks are partial from the
+# first pass, so R13's diagonal difference makes the two codes integrate
+# different meshes from step 2 and only the pass-1 counts and the shape
+# statistics are comparable. Those enter as compiled-in literals.
 set(_beatnik_args_Beatnik_Test_DynamicRemeshSplit_abs "")
 set(_beatnik_args_Beatnik_Test_DynamicRemeshSplit_rel "")
 
@@ -376,8 +368,7 @@ foreach(_src ${BEATNIK_REGRESSION_TEST_SOURCES})
     endforeach()
 
     # The gate manifest line, from the same loop that applied the label. A test
-    # with no arguments contributes a bare target name, which is the format the
-    # manifest already accepted before T1c widened it.
+    # with no arguments contributes a bare target name.
     set(_manifest_line "${_target}")
     if(_beatnik_args_${_stem}_rel)
       string(REPLACE ";" " " _args_str "${_beatnik_args_${_stem}_rel}")
@@ -396,9 +387,9 @@ endforeach()
 ##--------------------------------------------------------------------------##
 ## milestone tier -- long end-to-end runs. NOT THE SHIP GATE.
 ##--------------------------------------------------------------------------##
-# ADDED BY TASK M0-T1, which created the tier. It shipped EMPTY and M0-T3 filled
-# it: the tier now has exactly TWO members, both milestone 0's, and
-# milestone1.md's M1-T1 registers the third.
+# The tier has four members: the two milestone-0 frozen-mesh members below and
+# the two FMM members described in the source list. milestone1.md's M1-T1, not
+# yet started, registers milestone 1.
 #
 #   Beatnik_Test_Milestone0Frozen    2000 TVD-RK3 timesteps of the reference's
 #                                    default physics on a frozen mesh at
@@ -415,8 +406,8 @@ endforeach()
 #
 # TWO SOURCE STEMS, NOT ONE TARGET WITH TWO ARGUMENT LISTS. The loop below keys
 # arguments by source stem, one list per source, and each member needs its own
-# gold DIRECTORY. Two stems give two honest _abs / _rel pairs and leave this loop
-# exactly as M0-T1 wrote it; one stem with two lists would have to teach the loop
+# gold DIRECTORY. Two stems give two honest _abs / _rel pairs and keep this loop
+# at one list per source; one stem with two lists would have to teach the loop
 # to carry more than one per source, and an argument list naming the wrong
 # level's gold set is precisely what its FATAL_ERROR exists to prevent.
 #
@@ -436,11 +427,11 @@ endforeach()
 # it to every change's 60-launch gate. The gate stays at five members and 60
 # launches (CLAUDE.md "Minimum test set"), and this tier is run on demand.
 set(BEATNIK_MILESTONE_TEST_SOURCES
-  # M0-T3: milestone 0 at subdivision 3 -- the primary member.
+  # Milestone 0 at subdivision 3 -- the primary member.
   Beatnik_Test_Milestone0Frozen.cpp
-  # M0-T3: the same test at subdivision 4 -- the second member.
+  # The same test at subdivision 4 -- the second member.
   Beatnik_Test_Milestone0FrozenL4.cpp
-  # T6 (tasks/canopy/add-canopy.md): the FMM members. Each asserts TWO claims
+  # The FMM members (tasks/canopy/add-canopy.md). Each asserts TWO claims
   # in one binary -- a per-evaluation velocity bound on 81 direct-driven states
   # and the stability plus divergence horizon of a 2000-step FMM-driven
   # trajectory -- because the two need different trajectories and only one of
@@ -450,9 +441,9 @@ set(BEATNIK_MILESTONE_TEST_SOURCES
   # THEY ARE EXPENSIVE, and the arithmetic is not "twice an existing launch":
   # an FMM-driven step costs ~140x a direct one at 2562 vertices over 2000
   # steps, so one level-4 claim-B trajectory alone is 2377 s at HIP np1 where
-  # the whole existing level-4 member is 22 s. That is what moved
-  # scripts/tuolumne/run_milestone.flux to -q pbatch. THE GATE IS UNCHANGED:
-  # still five `regression` members and 60 launches.
+  # the whole level-4 frozen member is 22 s. That is why
+  # scripts/tuolumne/run_milestone.flux runs in -q pbatch. They are NOT in the
+  # gate, which is five `regression` members and 60 launches.
   Beatnik_Test_Milestone0Fmm.cpp
   Beatnik_Test_Milestone0FmmL4.cpp
   )
@@ -473,14 +464,14 @@ set(_beatnik_m0_sub3_dir
 set(_beatnik_m0_sub4_dir
   ${_beatnik_compare_dir}/milestone0-sub4-2000-steps)
 
-# M0-T3, both members. Each takes the gold DIRECTORY for ITS OWN LEVEL (not a
+# The frozen members. Each takes the gold DIRECTORY for ITS OWN LEVEL (not a
 # single file): it compares one checkpoint per checkpointed step and finds each
 # step's gold file by its `_step%07d.npz` suffix rather than by rebuilding the
-# name from a time -- the time is what is under test. Same shape as T2d's pair
-# above. **The level in the path must match the level the source compiles at**
-# (BEATNIK_M0_LEVEL, 3 by default and 4 in the L4 stem): a mismatch is a
-# structural comparator failure at step 0, not a subtle one, but it is still the
-# mistake this table exists to keep visible.
+# name from a time -- the time is what is under test. Same shape as
+# DirectSolve10Steps's pair above. **The level in the path must match the level
+# the source compiles at** (BEATNIK_M0_LEVEL, 3 by default and 4 in the L4
+# stem): a mismatch is a structural comparator failure at step 0, not a subtle
+# one, but it is still the mistake this table exists to keep visible.
 set(_beatnik_args_Beatnik_Test_Milestone0Frozen_abs
   ${_beatnik_m0_sub3_dir}/gold
   ${_beatnik_compare_dir}/compare_output.py)
@@ -495,7 +486,7 @@ set(_beatnik_args_Beatnik_Test_Milestone0FrozenL4_rel
   regression_tests/milestone0-sub4-2000-steps/gold
   ${_beatnik_rel_compare_py})
 
-# T6, both members. THREE arguments, not two: the gold DIRECTORY for this
+# The FMM members. THREE arguments, not two: the gold DIRECTORY for this
 # level, the comparator (claim A's 81 gold comparisons, unchanged -- a
 # direct-driven run satisfies its pairing precondition by nine decades), and
 # the divergence ladder (claim B's horizon, which the comparator CANNOT
@@ -584,7 +575,7 @@ endforeach()
 ##--------------------------------------------------------------------------##
 ## Measurement drivers -- IN NO TIER. Not the gate, not the milestone tier.
 ##--------------------------------------------------------------------------##
-# ADDED BY TASK M0-D1. These are per-backend binaries that RUN a configuration
+# These are per-backend binaries that RUN a configuration
 # and write checkpoints; every comparison they feed is made offline in Python.
 # They exist because a per-backend binary is only obtainable from a test source
 # -- the generated translation unit below is what pins BEATNIK_TEST_EXEC_SPACE
@@ -615,27 +606,27 @@ endforeach()
 # with it, not from a manifest line, because there is no manifest line. What a
 # driver's arguments ARE is documented in its own file header.
 set(BEATNIK_DRIVER_SOURCES
-  # M0-D1: the milestone-0 frozen-mesh run. Writes checkpoints, compares
-  # nothing; milestone0_ladder.py does the comparing, offline. T5 step 7
-  # parameterizes its BR approximation and FMM knobs through argv[4..6] so the
-  # same driver produces the FMM-driven 2000-step series.
+  # The milestone-0 frozen-mesh run. Writes checkpoints, compares
+  # nothing; milestone0_ladder.py does the comparing, offline. argv[4..6]
+  # parameterize its BR approximation and FMM knobs, so the same driver
+  # produces the FMM-driven 2000-step series.
   Beatnik_Test_Milestone0Run.cpp
-  # T5 (tasks/canopy/add-canopy.md): the far-field fidelity scan. Evaluates
+  # The far-field fidelity scan (tasks/canopy/add-canopy.md). Evaluates
   # every arm against ONE spin-up state in one process and prints one
-  # `[t5arm]` line each. Compiles no tolerance -- T5 produces the numbers T6
-  # compiles, and a measurement carrying its own pass criterion would assert
-  # the thing it exists to measure (risk R1).
+  # `[t5arm]` line each. Compiles no tolerance -- it produces the numbers the
+  # FMM milestone members compile, and a measurement carrying its own pass
+  # criterion would assert the thing it exists to measure (risk R1).
   Beatnik_Test_FmmScan.cpp
-  # T3 (tasks/add-canopy-t6.md): the M2L operator-key DEMAND probe. Drives the
+  # The M2L operator-key DEMAND probe (tasks/add-canopy-t6.md). Drives the
   # milestone-0 direct trajectory at the level given on the command line and
   # prints, PER RANK AND UNREDUCED, the demanded key count against the
   # admitted one at every checkpointed step. Asserts nothing about any
-  # measured value -- T8 decides what to do about the demand, and a probe that
-  # asserted on it would be a test that gets tuned (risk R6).
+  # measured value -- a probe that asserted on it would be a test that gets
+  # tuned (risk R6).
   Beatnik_Probe_FmmKeyDemand.cpp
-  # canopy_profiling T2 (tasks/canopy_profiling.md): the FMM cost probe.
+  # The FMM cost probe (tasks/canopy_profiling.md).
   # Drives an FMM-driven frozen-mesh trajectory, snapshots Beatnik's and
-  # Canopy's timer registries around every step, and prints T0's
+  # Canopy's timer registries around every step, and prints the
   # [cost] / [acc] / [cost-total] rows for fmm_profile_reduce.py. Asserts
   # nothing about any measured value -- a measurement that carries a pass
   # criterion gets tuned to pass.
@@ -687,7 +678,7 @@ endforeach()
 # backend and no rank sweep.
 #
 # The two cases below run it on the COMMITTED synthetic fixtures in
-# tests/regression_tests/fixtures/ and pass today, before any solver exists:
+# tests/regression_tests/fixtures/, so they need no solver run:
 #
 #   ..._python_compare           positive: the same surface in a different row
 #                                order, which must MATCH. This is the case that
@@ -773,7 +764,7 @@ endif()
 # STRUCTURE IS PRESERVED, NOT MADE RELOCATABLE-BY-LOOKUP. The installed tree
 # mirrors the repo's tests/ layout under share/Beatnik/tests, so
 # `regression_tests/fixtures/synthetic_gold.npz` names the same thing relative
-# to either root. That is the cheaper of the two options the task offered and it
+# to either root. That is the cheaper of the two options and it
 # is the one that keeps compare_output.py unchanged: the script takes both files
 # as explicit CLI arguments and performs no lookup of its own, so there is
 # nothing to make relocatable -- only a caller's relative paths, which one
@@ -789,7 +780,7 @@ if(Beatnik_INSTALL_TEST_EXECUTABLES)
   install(PROGRAMS ${_beatnik_compare_dir}/compare_output.py
           DESTINATION ${_beatnik_test_install}/regression_tests)
 
-  # T6: the divergence ladder, and milestone0_ladder.py WITH it. The ladder is
+  # The divergence ladder, and milestone0_ladder.py WITH it. The ladder is
   # not self-contained -- it puts its own directory on sys.path and imports
   # `RUNGS` and `steps_in` from milestone0_ladder and `load_any` from
   # compare_output, deliberately, so the three tools cannot disagree about what
@@ -809,14 +800,14 @@ if(Beatnik_INSTALL_TEST_EXECUTABLES)
             ${_beatnik_fixture_dir}/synthetic_perturbed.h5
           DESTINATION ${_beatnik_test_install}/regression_tests/fixtures)
 
-  # The T1a gold checkpoint, which regression test 1 (T1c) compares against.
+  # The T1a gold checkpoint, which regression test 1 compares against.
   install(FILES
             ${_beatnik_compare_dir}/initial_conditions/gold.npz
             ${_beatnik_compare_dir}/initial_conditions/README.md
           DESTINATION ${_beatnik_test_install}/regression_tests/initial_conditions)
 
   # The T2a gold SET -- eleven files, steps 0-10 -- which regression test 2
-  # (T2d) compares against one step at a time. Globbed rather than enumerated
+  # compares against one step at a time. Globbed rather than enumerated
   # because the filenames encode the simulation time and would have to be
   # transcribed by hand otherwise; the glob runs at configure time, so a gold
   # file added later needs a reconfigure, which regenerating a gold set implies
@@ -835,9 +826,8 @@ if(Beatnik_INSTALL_TEST_EXECUTABLES)
           DESTINATION ${_beatnik_test_install}/regression_tests/direct-solve-10-steps)
 
   # -- the milestone tier's gold sets (M0-G1, M0-G2) --------------------------
-  # Installed HERE, by M0-T1, and not by M0-T3 which adds the test source: the
-  # data is already committed, installing it now is what makes the FATAL_ERROR
-  # guard below meaningful, and it leaves M0-T3 a test-source task only.
+  # The data is committed, and the FATAL_ERROR guard below refuses an install
+  # that would ship a milestone test without its gold set.
   #
   # 81 numbered checkpoints each, steps 0-2000 every 25, found by their
   # `_step%07d.npz` suffix at run time. `checkpoint_latest.npz` sits beside them

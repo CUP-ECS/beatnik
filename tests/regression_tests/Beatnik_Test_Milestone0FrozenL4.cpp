@@ -26,8 +26,8 @@
  *
  * Every per-level literal — the entity counts, the two carried scalars, the
  * polyhedral deficit, the final `time` and the 81-entry reference volume-drift
- * series — is selected by `BEATNIK_M0_LEVEL` inside the included file and was
- * re-derived from THIS level's gold set. Nothing is transferred from level 3.
+ * series — is selected by `BEATNIK_M0_LEVEL` inside the included file and is
+ * derived from THIS level's gold set. Nothing is transferred from level 3.
  *
  * Level 4 is the second member rather than the primary one for two measured
  * reasons (M0-A1 decision 2): it diverges *earlier* at the tight `1e-12` rung
@@ -35,8 +35,8 @@
  * `1722.066143` s of solve against level 3's `166.842830` s. It is a member at
  * all — rather than a recorded measurement — because it is the level that
  * resolves `--eps 0.025` (initial minimum edge `1.729575e-02` against
- * `3.457079e-02`) and the healthier frozen mesh, and leaving the trustworthy
- * resolution regime asserted by nothing was the wrong way round.
+ * `3.457079e-02`) and the healthier frozen mesh; without it the trustworthy
+ * resolution regime would be asserted by nothing.
  *
  * Arguments, the scratch convention and `BEATNIK_PYTHON` are all as documented
  * in the included file's header.

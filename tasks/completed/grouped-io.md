@@ -6,7 +6,7 @@
 
 A Beatnik run with `--checkpoint-dir` writes one `<prefix>_t<timekey>_step<step>.h5`
 plus one same-stemmed `.xmf` sidecar per checkpoint
-([src/Beatnik_IOInterface.hpp:547](../../src/Beatnik_IOInterface.hpp#L547)). Paraview's
+([src/Beatnik_IOInterface.hpp:537](../../src/Beatnik_IOInterface.hpp#L547)). Paraview's
 XDMF readers are not file-series readers, so those N sidecars are N unrelated
 datasets: each must be opened separately and there is no time slider over the
 sequence. Nothing downstream can recover the grouping, because grouping has to be
@@ -42,7 +42,7 @@ things codebase inspection established that the brief could not:
    Beatnik's `Solver::finalize()` re-writes the last-finite state, which carries the
    **same `(time, step)`** as the previous checkpoint whenever the last accepted step
    also checkpointed — stated outright at
-   [src/Beatnik_Solver.hpp:373-378](../../src/Beatnik_Solver.hpp#L373-L378) ("the same
+   [src/Beatnik_Solver.hpp:368-378](../../src/Beatnik_Solver.hpp#L373-L378) ("the same
    filename as `setup`'s startup checkpoint, written twice"). Gate test 2 runs with
    `--checkpoint-every-steps 1`
    ([tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp:372](../../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp#L372)),
@@ -59,7 +59,7 @@ things codebase inspection established that the brief could not:
 
 3. **A restart cannot reach any of this.** `CheckpointIO::read` is a
    `BEATNIK_NOT_IMPLEMENTED` stub
-   ([src/Beatnik_IOInterface.hpp:636-642](../../src/Beatnik_IOInterface.hpp#L636-L642))
+   ([src/Beatnik_IOInterface.hpp:624-630](../../src/Beatnik_IOInterface.hpp#L636-L642))
    and `RestartReader::load` throws (framework.md T5b, NOT STARTED), so
    `--restart-from` cannot complete. The series-across-restart question is real but
    unreachable, and this design defers it to T5b rather than guessing an answer now.
@@ -97,10 +97,10 @@ string and an empty vector and no I/O.
 | Equal-time frame | When `header.time == ` the last appended frame's time **and** the stem is identical: call `Tessera::writeMesh( mesh.tesseraMesh(), stem, time )` directly (the **timed** overload, so the sidecar is byte-identical to what `MeshSeries` would have written) and do **not** append to the series. The master already names that exact frame at that exact time, so nothing is lost and there is nothing to warn about. |
 | Decreasing time, or equal time with a different stem | `throw std::runtime_error` naming both stems and both times. These are unreachable given fact 2 of [Read this first](#read-this-first); reaching one means an invariant broke and the loud failure is the point. |
 | Series state Beatnik keeps | `_last_frame_time` and `_last_frame_stem`, private, only meaningful when `_series.numFrames() > 0`. `MeshSeries` exposes `numFrames()` and `masterStem()` but not the last time or stem, so the guard needs its own. Do not add a separate frame counter — `_series.numFrames()` is the counter. |
-| Adapter contract | Unchanged and load-bearing: `Tessera::MeshSeries` may be named **only** in `Beatnik_IOInterface.hpp`. No other Beatnik header may acquire a Tessera or HDF5 type ([src/Beatnik_IOInterface.hpp:23-25](../../src/Beatnik_IOInterface.hpp#L23-L25)). |
+| Adapter contract | Unchanged and load-bearing: `Tessera::MeshSeries` may be named **only** in `Beatnik_IOInterface.hpp`. No other Beatnik header may acquire a Tessera or HDF5 type ([src/Beatnik_IOInterface.hpp:19-21](../../src/Beatnik_IOInterface.hpp#L23-L25)). |
 | Public signatures | None change. `CheckpointIO::write( header, mesh )` keeps its signature and its return value (the timestamped `.h5` path). See [Callers](#callers). |
 | Test tier | `unit`, as a standalone self-validating binary under `tests/unit_tests/`, per that directory's convention ([tests/unit_tests/CMakeLists.txt:11-40](../../tests/unit_tests/CMakeLists.txt#L11-L40)). The `regression` tier is the ship gate and is **not** touched. |
-| Test output path | `$BEATNIK_TEST_SCRATCH`, else `$TMPDIR`, else `"."`, then a subdirectory unique per `(execution space, rank count)` — copy the resolution order and the reasoning from [tests/regression_tests/Beatnik_Test_InitialConditions.cpp:271-282](../../tests/regression_tests/Beatnik_Test_InitialConditions.cpp#L271-L282). A relative default fails only on the installed path, where the manifest directory is read-only. |
+| Test output path | `$BEATNIK_TEST_SCRATCH`, else `$TMPDIR`, else `"."`, then a subdirectory unique per `(execution space, rank count)` — copy the resolution order and the reasoning from [tests/regression_tests/Beatnik_Test_InitialConditions.cpp:268-279](../../tests/regression_tests/Beatnik_Test_InitialConditions.cpp#L271-L282). A relative default fails only on the installed path, where the manifest directory is read-only. |
 | File headers | BSD-3-Clause block with `SPDX-License-Identifier: BSD-3-Clause` on any new file, in the comment style of its file type. |
 | Formatting | **Do not run clang-format, `clangformat.sh` or the `cabana-format` target.** Match the surrounding style by hand. |
 
@@ -113,7 +113,7 @@ string and an empty vector and no I/O.
 - **The per-frame `.xmf` sidecars now carry a `<Time Value=>` child**, because
   `MeshSeries::write` goes through the timed `writeMesh` overload rather than the
   timeless one that
-  [src/Beatnik_IOInterface.hpp:547](../../src/Beatnik_IOInterface.hpp#L547) calls today.
+  [src/Beatnik_IOInterface.hpp:537](../../src/Beatnik_IOInterface.hpp#L547) calls today.
   This is a change to emitted light data, accepted rather than avoided: it makes a
   single frame self-describing, and nothing reads those sidecars —
   `compare_output.py` reads `.h5` datasets only.
@@ -134,11 +134,11 @@ string and an empty vector and no I/O.
 
 - `CheckpointIO::write` works and is exercised by all five gate members. It calls the
   **timeless** `Tessera::writeMesh( mesh, stem )`
-  ([src/Beatnik_IOInterface.hpp:547](../../src/Beatnik_IOInterface.hpp#L547)) and knows
+  ([src/Beatnik_IOInterface.hpp:537](../../src/Beatnik_IOInterface.hpp#L547)) and knows
   nothing about series. There is no master `.xmf`, no `.xmfindex`, and no `<Time>`
   element in any file Beatnik emits.
 - `CheckpointIO::read` is a stub that **throws** (`BEATNIK_NOT_IMPLEMENTED`,
-  [src/Beatnik_IOInterface.hpp:636-642](../../src/Beatnik_IOInterface.hpp#L636-L642)) —
+  [src/Beatnik_IOInterface.hpp:624-630](../../src/Beatnik_IOInterface.hpp#L636-L642)) —
   it does not return a wrong header. Restart is therefore loudly unavailable, not
   quietly broken.
 - Tessera at `../tessera` HEAD (`2ba15cd`) has `Tessera_XdmfSeries.hpp`, and
@@ -209,7 +209,7 @@ members plus one new private static helper.
   [../tessera/src/Tessera_Xdmf.hpp:247-310](../../../tessera/src/Tessera_Xdmf.hpp#L247-L310)
   and Tessera's README "Time series: one Paraview dataset instead of N".
 - The five-step order `write()` must preserve:
-  [src/Beatnik_IOInterface.hpp:496-509](../../src/Beatnik_IOInterface.hpp#L496-L509).
+  [src/Beatnik_IOInterface.hpp:486-499](../../src/Beatnik_IOInterface.hpp#L496-L509).
 
 **Do:**
 
@@ -292,19 +292,19 @@ to `BEATNIK_UNIT_TEST_SOURCES` in
 [tests/unit_tests/CMakeLists.txt:43-54](../../tests/unit_tests/CMakeLists.txt#L43-L54).
 That list is single-sourced — the same loop applies the `unit` label, appends to the
 installed manifest and installs the binary
-([tests/unit_tests/CMakeLists.txt:79-98](../../tests/unit_tests/CMakeLists.txt#L79-L98))
+([tests/unit_tests/CMakeLists.txt:72-98](../../tests/unit_tests/CMakeLists.txt#L79-L98))
 — so no other build file is touched.
 
 **Reference:**
 - Test shape, `Recorder`, `BEATNIK_CHECK_TRUE`/`_EQ`/`_CLOSE`, and the
   `MPI_Allreduce( MPI_MAX )` single-verdict `main`:
-  [tests/unit_tests/Beatnik_Test_TangentialRelaxation.cpp:910-947](../../tests/unit_tests/Beatnik_Test_TangentialRelaxation.cpp#L910-L947)
+  [tests/unit_tests/Beatnik_Test_TangentialRelaxation.cpp:908-945](../../tests/unit_tests/Beatnik_Test_TangentialRelaxation.cpp#L910-L947)
   and [tests/unit_tests/Beatnik_TestAssert.hpp:183-240](../../tests/unit_tests/Beatnik_TestAssert.hpp#L183-L240).
 - Building a mesh without a solver:
-  [tests/unit_tests/Beatnik_Test_MeshGeometry.cpp:111-113](../../tests/unit_tests/Beatnik_Test_MeshGeometry.cpp#L111-L113)
+  [tests/unit_tests/Beatnik_Test_MeshGeometry.cpp:108-110](../../tests/unit_tests/Beatnik_Test_MeshGeometry.cpp#L111-L113)
   (`mesh_type mesh( MPI_COMM_WORLD ); mesh.generateIcosphere( ... )`).
 - Scratch-path resolution: the Conventions table row, and
-  [tests/regression_tests/Beatnik_Test_InitialConditions.cpp:271-282](../../tests/regression_tests/Beatnik_Test_InitialConditions.cpp#L271-L282).
+  [tests/regression_tests/Beatnik_Test_InitialConditions.cpp:268-279](../../tests/regression_tests/Beatnik_Test_InitialConditions.cpp#L271-L282).
 - What the emitted text must look like:
   [../tessera/src/Tessera_Xdmf.hpp:247-310](../../../tessera/src/Tessera_Xdmf.hpp#L247-L310).
 
@@ -419,7 +419,7 @@ is N, the file is right and the reader choice is wrong. T2 asserts on the text f
 exactly this reason: it removes Paraview from the loop.
 
 **R2 — Two frames collide on one stem.** `timeKey()` formats to six decimals
-([src/Beatnik_IOInterface.hpp:464-483](../../src/Beatnik_IOInterface.hpp#L464-L483)), so
+([src/Beatnik_IOInterface.hpp:454-473](../../src/Beatnik_IOInterface.hpp#L464-L483)), so
 two checkpoints less than 1e-6 apart in time produce the same `timeKey`; the stems
 then differ only by the step field, but if the step also matched, the second write
 would silently overwrite the first while the master listed one `h5name` twice at two

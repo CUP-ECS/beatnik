@@ -50,34 +50,29 @@
  *
  * THE FIELDS LIVE IN THE MESH — THIS CLASS HOLDS NO STORAGE
  * --------------------------------------------------------
- * **T1c CHANGE, and it is the one M1 booked and deferred to here.** The pre-T1c
- * revision declared three `Kokkos::View`s of its own for the potential, the
- * sheet vector and the material position. Under the M1 vertex user field pack
- * those three *are* slots in Tessera's vertex AoSoA
- * (`Beatnik::VertexFieldId`), and M1 recorded why a Beatnik-side copy cannot
- * work: `splitEdges()` interpolates only fields it owns, `migrate()` ships only
+ * The potential, the sheet vector and the material position are slots in
+ * Tessera's vertex AoSoA, the vertex user field pack
+ * (`Beatnik::VertexFieldId`). A Beatnik-side copy cannot work:
+ * `splitEdges()` interpolates only fields it owns, `migrate()` ships only
  * tuples it owns, and `haloExchange()` syncs only the pack. A per-vertex field
  * held outside the mesh is therefore **silently dropped by refinement and
- * silently stale after migration** — and, before T1c, those three views were
- * simply never allocated at all.
+ * silently stale after migration**.
  *
- * So every accessor is gone and every method below takes the mesh:
+ * So the fields are read through the mesh, and every method below takes it:
  *
- * | Was | Now |
+ * | Field | Accessor |
  * | --- | --- |
- * | `potential()` | `mesh.potential()` |
- * | `sheetVector()` | `mesh.sheetVector()` |
- * | `materialPosition()` | `mesh.materialPosition()` |
- * | `resize( vertex_count )` | `initializeFields( mesh )` |
- * | `remap( edit )` | **deleted** |
+ * | potential | `mesh.potential()` |
+ * | sheet vector | `mesh.sheetVector()` |
+ * | material position | `mesh.materialPosition()` |
  *
- * `resize` becomes `initializeFields` because Tessera allocates and only
- * *initialization* is left to do; `remap` is deleted because Tessera transfers
- * the pack itself.
+ * Tessera allocates the pack, so `initializeFields( mesh )` only initializes
+ * it; there is no remap after a mesh edit because Tessera transfers the pack
+ * itself.
  *
  * What remains here is the state *model* and the operations that are specific
- * to it. The class is deliberately still a class rather than a free-function
- * namespace: `Solver` holds one and hands it around, and a later task may want
+ * to it. The class is deliberately a class rather than a free-function
+ * namespace: `Solver` holds one and hands it around, and it leaves room for
  * per-model scratch that genuinely is Beatnik's.
  */
 
@@ -146,11 +141,10 @@ class SurfaceState
      * Port of mesh_solver.py::sphere_potential_mesh_state (lines 355-361) —
      * `potential=np.zeros(surface.vertex_count)`
      *
-     * **T1c CHANGE — this replaces `resize( vertex_count )`.** Under the M1
-     * field pack Tessera owns the allocation (the vertex AoSoA is sized by
-     * `buildIcosphere` / `distribute` / `refine`), so there is nothing left for
+     * Tessera owns the allocation (the vertex AoSoA is sized by
+     * `buildIcosphere` / `distribute` / `refine`), so there is nothing for
      * Beatnik to allocate and nothing that a vertex count would be used for.
-     * What *is* left is initialization: a freshly built mesh's user fields are
+     * What Beatnik does is initialize: a freshly built mesh's user fields are
      * uninitialized storage, so reading one before it is written is a genuine
      * bug that would show up as a plausible-looking non-zero potential.
      *
@@ -158,10 +152,7 @@ class SurfaceState
      * owned one, so the ghost rows are defined before the first
      * `haloExchange()` rather than holding garbage that a kernel might read.
      *
-     * @warning **Cold start only. Do NOT call this after a mesh edit.** The
-     *          pre-T1c `resize` was documented as "called after every mesh
-     *          edit", which was correct when Beatnik owned the storage and
-     *          reallocation was Beatnik's job. It is now actively wrong:
+     * @warning **Cold start only. Do NOT call this after a mesh edit.**
      *          `splitEdges()` interpolates the pack through the
      *          `RefinePolicy` and `migrate()` ships it, so zeroing afterwards
      *          would **destroy the solution**. Nothing needs calling after an
@@ -209,9 +200,7 @@ class SurfaceState
      *
      * A no-op under `StateModel::SheetVector`.
      *
-     * **Implemented at T2b**, which is where `SurfaceOperators::surfaceGradient`
-     * landed — T1c left this throwing because its body *is* that call and
-     * because at 0 timesteps the sheet vector is never read. Written over the
+     * Its body is `SurfaceOperators::surfaceGradient`. Written over the
      * **whole local range**, so ghost rows are consistent with their owners
      * without an exchange: `surfaceGradient` assembles from the whole local face
      * set, so a *ghost* vertex's gradient is a partial sum and its sheet vector
@@ -228,10 +217,9 @@ class SurfaceState
      *      `Beatnik_MeshGeometry.hpp`), and a second exchange does not widen the
      *      one-ring — the depth-2 halo built once in `SurfaceMesh` does (R8).
      *
-     * **T2d — this is now a `const` member.** It writes the *mesh*, never the
-     * state (which holds no storage at all), and the RHS receives its state by
-     * `const&` because the source quadrature does. Every other method here was
-     * already `const` for the same reason; this one was the outlier.
+     * **A `const` member**, like every other method here: it writes the
+     * *mesh*, never the state (which holds no storage at all), and the RHS
+     * receives its state by `const&` because the source quadrature does.
      */
     template <class MeshType, class GeometryType>
     void updateSheetVector( MeshType& mesh, const GeometryType& geometry ) const
@@ -288,11 +276,10 @@ class SurfaceState
      *      (`run_adaptive_mesh_bubble.py:904-910`). Using only the vertex value
      *      lets the dt throttle miss the blow-up it exists to catch.
      *
-     * **T2d — implemented for use 2 only.** `max_sheet_strength` needs it, and
+     * **Only use 2 calls it.** `max_sheet_strength` needs it, and
      * `TimeIntegrator::chooseStepSize`'s `--max-sheet-dt-product` clamp needs
-     * that, so leaving it throwing would have left a documented clamp that
-     * aborts the run the moment it is enabled. Use 1 is the `Face` and
-     * `Triangle3` quadratures, which are still T5-era or later.
+     * that. Use 1 is the `Face` and `Triangle3` quadratures, which are not yet
+     * implemented.
      *
      * @param face_sheet `(Nf,3)`; **its extent chooses the face range**. Pass
      *        the OWNED range for anything that reduces to a global scalar
@@ -337,8 +324,8 @@ class SurfaceState
      * construction; the RHS separately re-centres `potential_dot`. A no-op
      * under `SheetVector`.
      *
-     * **T1c CHANGE — it takes the mesh as well as the geometry**, because the
-     * potential it re-centres now lives in the mesh (see the file header) and
+     * **It takes the mesh as well as the geometry**, because the
+     * potential it re-centres lives in the mesh (see the file header) and
      * because the owned/ghost split it must respect is the mesh's.
      *
      * @note MPI. Collective, and **reduce-both-then-divide**. The two partial
@@ -432,7 +419,7 @@ class SurfaceState
      * Applied on every state construction under `SheetVector`. See
      * `SurfaceOperators::projectTangent` for why this cannot be skipped.
      *
-     * **T2d — it takes the mesh too**, for the reason recorded on
+     * **It takes the mesh too**, for the reason recorded on
      * `centerPotential`: the sheet vector it projects lives in the mesh. A no-op
      * under `Potential`, where the sheet vector is derived and already
      * tangential by construction.
@@ -459,7 +446,7 @@ class SurfaceState
      *
      * @note MPI. `Comm::allReduceMax`. Must be global — see that function.
      *
-     * **T2d — the "nothing is finite" rule is a GLOBAL statement.** The Python
+     * **The "nothing is finite" rule is a GLOBAL statement.** The Python
      * drops non-finite candidates and returns \f$+\infty\f$ only if the whole
      * list is non-finite. Distributed, a rank whose owned range happens to be
      * entirely non-finite must not report \f$+\infty\f$ on its own, so the count

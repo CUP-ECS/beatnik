@@ -172,7 +172,7 @@ _t_job0="$(date +%s)"
 # FD 3, NOT STDIN: `flux run` inherits and CONSUMES the loop's stdin, so with
 # the row list on stdin the first launched binary swallows every remaining row
 # and the sweep silently runs only its first member, reporting a plausible
-# partial table. milestone0_divergence.flux already paid for this.
+# partial table. milestone0_divergence.flux reads its rows from FD 3 too.
 while IFS= read -r _row <&3; do
     [ -n "${_row}" ] || continue
     # shellcheck disable=SC2086

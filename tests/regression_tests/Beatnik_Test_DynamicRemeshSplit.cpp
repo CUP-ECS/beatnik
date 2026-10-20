@@ -10,14 +10,13 @@
  ****************************************************************************/
 /**
  * @file Beatnik_Test_DynamicRemeshSplit.cpp
- * @brief **REGRESSION TEST 5** (task T4b) — twenty timesteps of metric-driven
+ * @brief **REGRESSION TEST 5** — twenty timesteps of metric-driven
  *        dynamic remeshing, split third only, against the reference's own
  *        split-only run, the structural invariants, and risk R12's two shape
  *        signals.
  *
- * THIS IS THE FIFTH MEMBER OF THE SHIP GATE, so the gate is now 5 members x
- * {SERIAL, HIP} x ranks 1-6 = **60 launches** on tuolumne. The user authorized
- * the growth in T4b's exit criterion.
+ * THIS IS THE FIFTH MEMBER OF THE SHIP GATE, so the gate is 5 members x
+ * {SERIAL, HIP} x ranks 1-6 = **60 launches** on tuolumne.
  *
  * WHAT "SPLIT ONLY" MEANS HERE, AND WHY IT IS NOT A BEATNIK-ONLY MODE
  * ------------------------------------------------------------------
@@ -90,19 +89,20 @@
  *     mesh both codes agree on bitwise (T2d validated the fixed-connectivity
  *     steps at `1e-10`), so the masks agree and the counts must. That the other
  *     nineteen agree too is a measurement and not an expectation; R13 predicts
- *     divergence and got it at T4a. See `kPyVertices`.
+ *     divergence, and the T4a refinement test shows it. See `kPyVertices`.
  *  5. **R12's two signals, every pass, against the reference's own**: the global
  *     minimum `r/R` and the global count of faces below `r/R = 0.25`. This mask
- *     is the length-driven family Tessera measured as periodic, so unlike T4a
- *     the expected shape is the HEALTHY one, and the test asserts that shape:
- *     the count returns to zero after a dip, and the last third of the run sets
- *     no new low.
+ *     is the length-driven family Tessera measured as periodic, so unlike the
+ *     T4a refinement test the expected shape is the HEALTHY one, and the test
+ *     asserts that shape: the count returns to zero after a dip, and the last
+ *     third of the run sets no new low.
  *  6. **The volume projection actually runs.** Under `--dynamic-remesh` the
  *     reference projects to the initial volume after every remesh step
  *     (`:1513-1516`), gated on the remesh having *run* rather than on it having
- *     changed anything — so T4b is where `VolumeProjection::projectToVolume`
- *     first executes. The per-step drift is therefore driven to zero, and the
- *     bound is tight enough to tell that from "the projection was skipped":
+ *     changed anything — so this test executes
+ *     `VolumeProjection::projectToVolume`. The per-step drift is therefore
+ *     driven to zero, and the bound is tight enough to tell that from "the
+ *     projection was skipped":
  *     T2d measured `5.17e-11` at step 10 on a FIXED mesh with no projection, so
  *     `kVolumeDriftBound = 1e-14` separates the two by three decades. T2d's
  *     `kGoldVolumeDrift` is for that fixed mesh and is deliberately NOT reused.
@@ -194,13 +194,14 @@ constexpr double kScalarRtol = 1.0e-12;
 /// the quad along its geometrically shorter diagonal while
 /// `split_selected_edges` uses a fixed one -- same V/E/F, different
 /// connectivity, and from the next step the two codes integrate different
-/// meshes. That is what happened at T4a. It did **not** happen here: T4b's first
-/// run reproduced the reference's per-step counts, minimum `r/R` and sub-`0.25`
-/// population at every one of the twenty steps, to every digit measured, and
-/// byte-identically across {SERIAL, HIP} x ranks {1, 3, 6}. The honest reading
-/// is that on this mesh the two diagonal rules agree wherever the case arises,
-/// not that R13 has been retired -- so if a later change breaks one of these
-/// late-step assertions, check the diagonal before assuming a bug.
+/// meshes. That is what the T4a refinement test sees. It does **not** happen
+/// here: the run reproduces the reference's per-step counts, minimum `r/R` and
+/// sub-`0.25` population at every one of the twenty steps, to every digit
+/// measured, and byte-identically across {SERIAL, HIP} x ranks {1, 3, 6}. The
+/// honest reading is that on this mesh the two diagonal rules agree wherever
+/// the case arises, not that R13 has been retired -- so if a later change
+/// breaks one of these late-step assertions, check the diagonal before assuming
+/// a bug.
 constexpr long long kPyVertices[kSteps + 1] = {
     162, 282, 402, 522, 582, 702, 702, 702, 702, 702, 702,
     702, 702, 702, 702, 702, 702, 702, 702, 702, 702 };
@@ -239,7 +240,7 @@ constexpr long long kPyBelowQuarter[kSteps + 1] = {
 
 /// Steps on which the two shape signals are asserted against the reference's:
 /// **all of them**, to the twelve significant digits the reference columns
-/// carry. Measured on T4b's first run and identical across
+/// carry. Measured identical across
 /// {SERIAL, HIP} x ranks {1, 3, 6}; see the log entry.
 constexpr int kShapeAgreementSteps = kSteps;
 constexpr double kShapeRtol = 1.0e-10;
@@ -255,7 +256,7 @@ constexpr double kMinRadiusRatioFloor = 0.248;
 /// The reference's minimum triangle quality `4*sqrt(3)*A/sum(l^2)` never falls
 /// below this over the twenty steps (measured: `0.9773` initially, `0.6247` at
 /// its worst, `0.6732` at step 20). This is the scale `--remesh-min-quality`
-/// (0.18) is expressed on, and it is **T4b's answer to what T4d needs to know**:
+/// (0.18) is expressed on, and it answers **what T4d needs to know**:
 /// with no coarsening at all, quality does not approach the repair trigger
 /// within 20 steps, so the missing collapse third does not bite here.
 constexpr double kMinTriangleQuality = 0.60;
@@ -280,8 +281,8 @@ constexpr double kPyVolumeDrift[kSteps + 1] = {
 /// WITHOUT the projection as `5.17e-11` by step 10, growing linearly, so a
 /// bound three decades below that fails a build in which the projection was
 /// skipped -- which is the R15 trap for a control whose correct output is
-/// "zero". The `1e-9` absolute blow-up cap T4b's criterion also names is
-/// implied by it and is kept as a second, coarser assertion.
+/// "zero". The `1e-9` absolute blow-up cap is implied by it and is kept as a
+/// second, coarser assertion.
 constexpr double kVolumeDriftBound = 1.0e-14;
 constexpr double kVolumeDriftAbsCap = 1.0e-9;
 
@@ -590,8 +591,8 @@ void runChecks( Beatnik::Test::Recorder& rec )
         BEATNIK_CHECK_EQ( rec, solver.lastRefinement().new_faces, 0 );
 
         //-------------------------------------------------------------------//
-        // Agreement with the reference. See `kPyFaces` for why the number of
-        // passes compared is not twenty.
+        // Agreement with the reference, at every step. See `kPyVertices` for
+        // why that is a measurement rather than an expectation.
         //-------------------------------------------------------------------//
         if ( step <= kPyAgreementSteps )
         {
@@ -665,7 +666,7 @@ void runChecks( Beatnik::Test::Recorder& rec )
     BEATNIK_CHECK_TRUE( rec, last_third_min_ratio > run_min_ratio );
 
     //-----------------------------------------------------------------------//
-    // T4b's answer to what T4d needs to know: how badly the missing coarsening
+    // What T4d needs to know: how badly the missing coarsening
     // bites. It does not, within twenty steps -- the minimum triangle quality
     // never approaches `--remesh-min-quality`, so the repair trigger the
     // reference gates its flip/smooth pass on is never reached for that reason.

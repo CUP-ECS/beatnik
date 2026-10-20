@@ -10,18 +10,17 @@
  ****************************************************************************/
 /**
  * @file Beatnik_Test_RefineSplitEdges.cpp
- * @brief **REGRESSION TEST 4** (task T4a) — twenty timesteps with
+ * @brief **REGRESSION TEST 4** — twenty timesteps with
  *        indicator-driven refinement through `Tessera::splitEdges()`, checked
  *        against the structural invariants, the projection, the Python's face
  *        counts, and risk R12's two shape signals.
  *
- * THIS IS THE FOURTH MEMBER OF THE SHIP GATE, so the gate is now 4 members x
- * {SERIAL, HIP} x ranks 1-6 = **48 launches** on tuolumne. The user authorized
- * the growth in T4a's exit criterion.
+ * THIS IS A MEMBER OF THE SHIP GATE (the `regression` tier), run on
+ * {SERIAL, HIP} x ranks 1-6 on tuolumne.
  *
  * WHY THE THRESHOLDS ARE NOT THE DEFAULTS, AND WHY THAT IS NOT A DODGE
  * -------------------------------------------------------------------
- * T4a's exit criterion names the run configuration `--no-dynamic-remesh
+ * The run configuration under test is `--no-dynamic-remesh
  * --refine-every 5 --flip-passes 0 --smooth-iters 0 --no-isotropic-cleanup`.
  * Run at the **default** indicator thresholds that configuration **refines
  * nothing**: measured against the read-only Python at exactly those flags, 20
@@ -38,7 +37,7 @@
  *
  * which makes the four scheduled passes real: 320 -> 452 -> 796 -> 1388 faces
  * in the Python, with `--max-faces 1400` binding on the fourth. Every other
- * flag is the criterion's. The deviation and its measurement are recorded in
+ * flag is as above. The deviation and its measurement are recorded in
  * `tasks/framework.md` under T4a and in the progress log.
  *
  * WHAT IS ACTUALLY CHECKED
@@ -66,8 +65,8 @@
  *  5. **R12's two signals, per pass, against the round index**: the global
  *     minimum \f$r/R\f$ and the global count of faces below \f$r/R = 0.25\f$.
  *     Both are logged for every pass and the minimum over the whole run is
- *     checked against `kMinRadiusRatioFloor` — **measured on T4a's first run
- *     and recorded in `tasks/framework.md`**, deliberately NOT Tessera's own
+ *     checked against `kMinRadiusRatioFloor` — **measured, and recorded in
+ *     `tasks/framework.md`**, deliberately NOT Tessera's own
  *     `kMinRadiusRatioFloor` of `0.25`, which is a statement about case 8's
  *     mask and not about `splitEdges()` (R12 says so explicitly).
  *  6. **The failure direction.** A second solver configured
@@ -90,11 +89,11 @@
  * `compare_output.py` field table is not, which is why this test invokes no
  * comparator at all.
  *
- * **`VolumeProjection::projectToVolume`.** It still does not execute, and that
- * is the reference's behaviour rather than an omission: the Python gates it on
+ * **`VolumeProjection::projectToVolume`.** It does not execute, and that is
+ * the reference's behaviour rather than an omission: the Python gates it on
  * a repair having actually run — `flips > 0 or smooth_iters > 0 or
  * isotropic_cleanup` (`run_adaptive_mesh_bubble.py:1465-1468`) — and under this
- * configuration all three are false. It first executes at T4c/T4d.
+ * configuration all three are false.
  *
  * ARGUMENTS: none. Everything it needs it computes or carries as a literal.
  */
@@ -159,7 +158,7 @@ constexpr double kScalarRtol = 1.0e-12;
 ///
 /// **Only pass 1 is asserted against these**, and the reason is risk R13 rather
 /// than a defect on either side. Pass 1 acts on a mesh the two codes agree on
-/// (T2d validated the first ten fixed-connectivity steps at `1e-10`), so the
+/// (the first ten fixed-connectivity steps match at `1e-10`), so the
 /// mark sets agree and the counts agree exactly. Pass 1 also *retriangulates
 /// differently*: wherever a face had exactly two split edges Tessera cuts the
 /// quad along its geometrically shorter diagonal while `refine_marked_faces`
@@ -167,7 +166,7 @@ constexpr double kScalarRtol = 1.0e-12;
 /// CONNECTIVITY. From step 6 onward the two codes integrate different meshes,
 /// so their indicators differ and pass 2 selects a slightly different mark set:
 /// 788 faces here against 796 there. That is R13's consequence one level out,
-/// which R13 did not state; T4a measured it.
+/// which R13 does not state; it is measured.
 ///
 /// What survives the divergence is the SHAPE statistics -- see `kPyMinRadius`.
 constexpr long long kPyVertices[kPasses + 1] = { 162, 228, 400, 696, 696 };
@@ -177,8 +176,8 @@ constexpr long long kPyFaces[kPasses + 1] = { 320, 452, 796, 1388, 1388 };
 /// `kPyFaces` for why the number is not three.
 constexpr int kPythonAgreementPasses = 1;
 
-/// Beatnik's own counts after passes 1 and 2, measured on T4a's first gate run
-/// and **identical across all twelve configurations** (SERIAL and HIP, ranks
+/// Beatnik's own counts after passes 1 and 2, measured on a gate run and
+/// **identical across all twelve configurations** (SERIAL and HIP, ranks
 /// 1-6). Asserted, because a count invariant across the whole sweep is a real
 /// statement about the algorithm rather than about a partition: it says the
 /// mark closure, the threshold search and the projection all agree across rank
@@ -190,8 +189,8 @@ constexpr int kPythonAgreementPasses = 1;
 /// a score near the cut -- which risk R2 guarantees across rank counts -- flips
 /// a mark. Measured: 1372 faces at ranks 1-4 and 1390 at ranks 5-6, identically
 /// on both backends, so it is the cross-rank reduction order and not the
-/// on-node atomics. This EXTENDS R4, which said only that a capped run will not
-/// match the Python; T4a measures that it does not match itself either.
+/// on-node atomics. This EXTENDS R4, which says only that a capped run will not
+/// match the Python: a capped run does not match itself either.
 constexpr int kMeasuredPasses = 3;
 constexpr long long kFaces[kMeasuredPasses] = { 320, 452, 788 };
 constexpr long long kVerticesAfter[kMeasuredPasses] = { 162, 228, 396 };
@@ -208,7 +207,7 @@ constexpr long long kVerticesAfter[kMeasuredPasses] = { 162, 228, 396 };
 /// | 2 | `0.123117984672` | 4 |
 /// | 3 | `0.119867830292` | 101 |
 ///
-/// **This is T4a's R12 answer, and it is not what Phase 4 assumed.** The
+/// **This is the measured R12 answer, and it is not what Phase 4 assumes.** The
 /// minimum does not cycle and the sub-`0.25` count does not return to zero;
 /// both decline monotonically, which is R12's *shape-problem* signature. It
 /// belongs to the **reference algorithm**, not to Beatnik and not to
@@ -221,7 +220,7 @@ constexpr long long kVerticesAfter[kMeasuredPasses] = { 162, 228, 396 };
 /// transition faces** at the red region's boundary are bisected on whichever
 /// edge their neighbour happened to red -- not on their own longest edge. Those
 /// are not length-driven, so they inherit none of the bound, and the next pass
-/// cuts the previous pass's green children again. Phase 4's claim that T4a's
+/// cuts the previous pass's green children again. Phase 4's claim that this
 /// mask is in the bounded family is wrong for exactly the faces that matter.
 constexpr double kPyMinRadius[kMeasuredPasses] = { 0.486497704566,
                                                    0.304119905237,
@@ -232,7 +231,7 @@ constexpr double kShapeRtol = 1.0e-10;
 /// **THE MEASURED FLOOR** -- the global minimum inradius/circumradius the whole
 /// 20-step run stays above, `0.5` being equilateral.
 ///
-/// Measured on T4a's first gate run and recorded in `tasks/framework.md`:
+/// Measured on a gate run and recorded in `tasks/framework.md`:
 /// `0.119867826031` at ranks 5-6 and `0.119876446958` at ranks 1-4, on both
 /// backends -- a spread of `7.2e-5` relative, entirely inside the capped pass's
 /// mark divergence. The literal is that minimum rounded DOWN to three digits,
@@ -303,12 +302,13 @@ Beatnik::SolverParams makeParams( const std::string& checkpoint_dir )
     p.amr.transition_quality_fraction = 0.45;
     p.amr.min_refine_edge = 0.0;
 
-    // --flip-passes 0 --smooth-iters 0 --no-isotropic-cleanup. All three of the
-    // reference's post-refine repairs are unimplemented (T4c / T4d), and
-    // `requireSupportedConfiguration` rejects each by name, so these are not
-    // stylistic choices -- any other value aborts at setup. `--isotropic-cleanup`
-    // is ON by default, which is why the criterion's command needed the extra
-    // flag.
+    // --flip-passes 0 --smooth-iters 0 --no-isotropic-cleanup. Flips and
+    // isotropic cleanup are unimplemented (T4d) and
+    // `requireSupportedConfiguration` rejects each by name, so those two are
+    // not stylistic choices -- any other value aborts at setup. Smoothing is
+    // off so that no repair runs and `projectToVolume` stays gated off, as the
+    // file header says. `--isotropic-cleanup` is ON by default, which is why
+    // the command needs the extra flag.
     p.filter.flip_passes = 0;
     p.filter.smooth_iters = 0;
     p.cleanup.enabled = false;
@@ -317,7 +317,7 @@ Beatnik::SolverParams makeParams( const std::string& checkpoint_dir )
     p.filter.redistribute_every = 0;
 
     // No checkpoints: this test compares counts and shape statistics, not
-    // fields, so writing 21 files per launch x 48 launches would be pure I/O.
+    // fields, so writing 21 files per launch x 12 launches would be pure I/O.
     // `checkpoint_dir` empty makes `writeCheckpoint()` a no-op by its own guard.
     p.checkpoint.directory = checkpoint_dir;
     p.checkpoint.prefix = "checkpoint";
@@ -347,7 +347,7 @@ void checkConformity( Beatnik::Test::Recorder& rec, MeshType& mesh,
     // faces — not the gid-recorded `EdgeField::Faces`, which Tessera fills from
     // each rank's own incidences only and which therefore reads 1 for a
     // perfectly conforming boundary edge after an edit. See
-    // `SurfaceMesh::EdgeFaceIncidence`; T4a measured that trap.
+    // `SurfaceMesh::EdgeFaceIncidence`.
     auto inc = mesh.edgeAdjacency();
     auto count = inc.resident_count;
     auto faces = inc.resident_faces;
@@ -474,8 +474,8 @@ void runChecks( Beatnik::Test::Recorder& rec )
     //-----------------------------------------------------------------------//
     // THE RUN. Driven one step at a time so the refinement passes can be
     // inspected where they happen; `advanceOneStep` is collective and every rank
-    // calls it the same number of times (the BR ring deadlocks otherwise -- T2c
-    // -- and so now does every reduction inside the refiner).
+    // calls it the same number of times (the BR ring deadlocks otherwise, and
+    // so does every reduction inside the refiner).
     //-----------------------------------------------------------------------//
     double run_min_ratio = 1.0;
     int passes_seen = 0;
@@ -568,7 +568,7 @@ void runChecks( Beatnik::Test::Recorder& rec )
         }
         else
         {
-            // The cap binds, and two things follow, both measured at T4a. R4:
+            // The cap binds, and two things follow, both measured. R4:
             // a threshold search accepts a different mark set than the
             // reference's greedy accept loop. And the search is *marginal* by
             // construction -- it converges to a value pinned between two

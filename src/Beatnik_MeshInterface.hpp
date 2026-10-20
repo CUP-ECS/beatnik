@@ -13,9 +13,8 @@
  * @brief ADAPTER (1 of 3). The distributed unstructured triangle surface,
  *        backed by **Tessera**.
  *
- * RECONCILED AGAINST TESSERA (task M1 and its adapter rework). Every
- * capability Beatnik needs from Tessera exists upstream, edge collapse, edge
- * flip and compaction included (`Tessera_EdgeCollapse.hpp`,
+ * Every capability Beatnik needs from Tessera exists upstream, edge
+ * collapse, edge flip and compaction included (`Tessera_EdgeCollapse.hpp`,
  * `Tessera_EdgeFlip.hpp`, `Tessera_Compact.hpp`). The adapters for those three
  * — `collapseEdges`, `flipEdges` and `compact` below — are not yet written;
  * they are task T4d1 in `tasks/milestone1.md`. *Nothing Tessera owns is
@@ -42,8 +41,8 @@
  * It owns no physics and no discretization convention: normals are unoriented,
  * areas undefined, stencil weights are the caller's.
  *
- * STORAGE MODEL (M1 CHANGE — this replaces the two-array model)
- * ------------------------------------------------------------
+ * STORAGE MODEL
+ * -------------
  * Tessera stores **three** entity kinds, not two, each owned-first:
  *
  *   - vertices : `Gid`, `Owner`, `Flags`, `Position[3]`, then the user pack.
@@ -65,19 +64,18 @@
  *    ghost)**, so an operator over owned vertices can read its full ring.
  *
  * 2. **Per-vertex solution fields must live inside the mesh** — see the field
- *    pack section below. This is the single largest M1 change.
+ *    pack section below.
  *
- * THE VERTEX USER FIELD PACK (M1 CHANGE — replaces `MeshEditResult`)
- * -----------------------------------------------------------------
- * The pre-M1 design had every topological edit return a `parent_a`/`parent_b`/
- * `weights` map, and `SurfaceState` gather its own `Kokkos::View`s through it.
- * **Tessera does not report such a map and does not need one**, because it
- * transfers fields itself:
+ * THE VERTEX USER FIELD PACK
+ * --------------------------
+ * A topological edit returns no `parent_a`/`parent_b`/`weights` map for a
+ * caller to gather its own `Kokkos::View`s through. **Tessera does not report
+ * such a map and does not need one**, because it transfers fields itself:
  *
  *   - `splitEdges()` inserts a midpoint vertex on each bisected edge and fills
  *     its position *and every vertex user field* from the two endpoints through
- *     a pluggable `RefinePolicy` (default: the linear average, i.e. exactly the
- *     `(0.5, 0.5)` weights the old `MeshEditResult` encoded). Existing vertex
+ *     a pluggable `RefinePolicy` (default: the linear average, i.e.
+ *     `(0.5, 0.5)` weights on the two endpoints). Existing vertex
  *     user fields are preserved, and **face** user fields are inherited
  *     verbatim by every child of a subdivided face — which is not the rule
  *     Beatnik's reference area wants, and is why `AdaptiveMesh::refine` wraps
@@ -114,12 +112,10 @@
  * assembly rule that makes that correct without a scatter-add is stated under
  * DISTRIBUTED ASSEMBLY below.
  *
- * **DONE at T1c.** `Beatnik_SurfaceState.hpp` used to declare its own
- * `Kokkos::View`s for the three *evolved* fields, and they were never
- * allocated. It now holds no storage at all and every method takes the mesh,
- * reading the `potential()` / `sheetVector()` / `materialPosition()` accessors
- * below. See that header's "THE FIELDS LIVE IN THE MESH" section for the table
- * of what changed.
+ * `Beatnik_SurfaceState.hpp` holds no storage for the three *evolved* fields:
+ * every method takes the mesh, reading the `potential()` / `sheetVector()` /
+ * `materialPosition()` accessors below. See that header's "THE FIELDS LIVE IN
+ * THE MESH" section.
  *
  * MPI DECOMPOSITION AND THE HALO
  * ------------------------------
@@ -128,12 +124,11 @@
  * face. Local indices `[0, ownedXCount())` are owned; `[ownedXCount(),
  * totalXCount())` are ghosts.
  *
- * **M1-REWORK — the halo takes a depth, and Beatnik sets it to 2 once.** At M1
- * the ghost layer was 1-deep and not configurable, which was risk R8's blocker:
- * the Beatnik RHS is a **two-ring** stencil (one surface gradient builds the
- * sheet vector from the potential, a second is taken of the Bernoulli
- * potential), and `buildVertexStencil(mesh, 2)` was *silently* short within one
- * hop of a partition boundary. Tessera now takes a `depth` on `distribute()`
+ * **The halo takes a depth, and Beatnik sets it to 2 once.** The Beatnik RHS
+ * is a **two-ring** stencil (one surface gradient builds the sheet vector from
+ * the potential, a second is taken of the Bernoulli potential), so a 1-deep
+ * ghost layer would leave `buildVertexStencil(mesh, 2)` short within one hop
+ * of a partition boundary (risk R8). Tessera takes a `depth` on `distribute()`
  * and `rebuildHalo()`, reports it as `mesh.haloDepth()`, and **preserves it
  * across `splitEdges()` and `migrate()`**. So:
  *
@@ -141,15 +136,15 @@
  * once,
  *     inside the construction entry points below. Nothing downstream re-states
  *     it, and no code path may narrow it.
- *   - A stencil request with `k > haloDepth()` now **throws
+ *   - A stencil request with `k > haloDepth()` **throws
  *     `std::invalid_argument`** naming both numbers, rather than returning
  *     short rows. `vertexOneRing()` (k = 1) and a future two-ring stencil are
  *     therefore either correct or loud, never quietly incomplete.
- *   - Two successive `haloExchange()` calls still do **not** substitute for
+ *   - Two successive `haloExchange()` calls do **not** substitute for
  *     depth — the second refreshes the same ghost set rather than widening it.
  *     Depth is a property of the local entity closure, not of how many times
- *     the plan is replayed. That was the trap R8 named; what remains of R8 is
- *     only forgetting to set the depth, which is now loud.
+ *     the plan is replayed. That is the trap R8 names; forgetting to set the
+ *     depth is loud.
  *
  * `haloExchange()` is **collective** on the mesh communicator and is a pure
  * **gather** (owner -> ghost, overwrite) that syncs the *whole field pack of
@@ -161,11 +156,10 @@
  *
  * DISTRIBUTED ASSEMBLY — WHY BEATNIK NEEDS NO SCATTER-ADD FOR ITS GEOMETRY
  * -----------------------------------------------------------------------
- * **M1-REWORK.** Tessera now provides the reverse halo,
+ * Tessera provides the reverse halo,
  * `haloScatterAddVertices<FieldIndex>( mesh, halo )` — ghost -> owner, `+=`,
- * one
- * *named mesh field* per call. It closes M1 gap G2 and
- * `haloScatterAddVertexField()` below forwards to it.
+ * one *named mesh field* per call — and `haloScatterAddVertexField()` below
+ * forwards to it.
  *
  * It is, however, **not** what the per-vertex geometry assembly needs, and the
  * reason is a property of Tessera's local set worth stating once here rather
@@ -186,21 +180,20 @@
  *   - `haloScatterAddVertexField()` exists for the case the rule does not
  * cover:
  *     accumulating into a field that lives *in the mesh* from a loop over
- *     **owned** faces only. Nothing in T1b does that; it is kept because it is
- *     the only correct primitive for it and because Tessera's contract (ghosts
- *     untouched, not idempotent, peer-ordered summation) must be recorded
- *     somewhere in Beatnik.
+ *     **owned** faces only. No geometry kernel does that; it is kept because it
+ *     is the only correct primitive for it and because Tessera's contract
+ *     (ghosts untouched, not idempotent, peer-ordered summation) must be
+ *     recorded somewhere in Beatnik.
  *
  * GLOBAL REDUCTIONS
  * -----------------
- * **M1-REWORK.** At M1 Tessera exposed only `globalMin`, and Beatnik was to
- * hand-roll the rest. It now provides `globalSum`, `globalMax`,
+ * Tessera provides `globalMin`, `globalSum`, `globalMax`,
  * `globalAllFinite` and the exact integer counts
  * `globalOwnedVertices/Edges/Faces/Euler`. Beatnik's four `Comm::allReduce*`
  * wrappers and the three `global*Count()` accessors below forward to them; no
  * Beatnik code calls `MPI_Allreduce` directly. `globalSum` on `double` is
  * **not** bitwise reproducible across rank counts — that is risk R2, and
- * Tessera now states it too.
+ * Tessera states it too.
  *
  * GENERATION GUARD — THE LIFETIME CONTRACT
  * ----------------------------------------
@@ -220,7 +213,6 @@
  *
  * THE TWO EDITING FAMILIES ARE DISJOINT — AND BEATNIK USES EXACTLY ONE
  * --------------------------------------------------------------------
- * **M1-REWORK — a constraint that did not exist at M1; SETTLED at T4a.**
  * Tessera's topological edits fall into two families and **a mesh belongs to
  * exactly one**:
  *
@@ -235,11 +227,11 @@
  * cannot be one.
  *
  * **Beatnik never uses the Hierarchical family.** Every topological edit, in
- * every configuration — the indicator-driven refiner (T4a) as much as the
- * metric remesher (T4b) — goes through the **Remesh** family, so Tessera's
- * guard is a backstop that should never fire. `SurfaceMesh::refine` was
- * **deleted** at T4a rather than left unused; see `tasks/framework.md`,
- * Phase 4, *The editing-family question — RESOLVED*. Two findings drove it:
+ * every configuration — the indicator-driven refiner as much as the
+ * metric remesher — goes through the **Remesh** family, so Tessera's
+ * guard is a backstop that should never fire. `SurfaceMesh` has no `refine`
+ * wrapper; see `tasks/framework.md`, Phase 4, *The editing-family question —
+ * RESOLVED*. Two findings decide it:
  * the two adaptivity modes are mutually exclusive per run
  * (`run_adaptive_mesh_bubble.py:1424` versus `:1469-1471`), so no mesh ever
  * needed both; and `Tessera::splitEdges()` **is** `mesh.py::refine_marked_faces`
@@ -249,7 +241,7 @@
  *
  * REFINEMENT MODE
  * ---------------
- * The mesh is still instantiated `RefinementMode::Conforming`, which is
+ * The mesh is instantiated `RefinementMode::Conforming`, which is
  * Tessera's default and what fixes the face tuple layout; nothing Beatnik calls
  * exercises the closure, because `splitEdges()` is conforming on exit with no
  * closure layer and no 2:1 pass. `Level` is therefore advisory throughout, and
@@ -287,11 +279,10 @@ namespace Beatnik
  * header can name a field without naming a Tessera type. The adapter maps them
  * onto `Tessera::userVertexField<N>()` internally.
  *
- * **M2 CHANGE — this order IS the checkpoint contract.** The pre-M2 note here
- * said the HDF5 schema was "keyed by name, not by this index". It is not:
- * `Tessera::writeMesh` names user fields *positionally*, so slot `N` is written
- * as `/vertices/u<N>` and nothing in the file records what it means. Reordering
- * this enum silently relabels every checkpoint already on disk, and
+ * **This order IS the checkpoint contract.** The HDF5 schema is not keyed by
+ * name: `Tessera::writeMesh` names user fields *positionally*, so slot `N` is
+ * written as `/vertices/u<N>` and nothing in the file records what it means.
+ * Reordering this enum silently relabels every checkpoint already on disk, and
  * additionally invalidates any `RefinePolicy` written against it. Changing it
  * means changing the schema table in `Beatnik_IOInterface.hpp`, and `FIELD_MAP`
  * and `H5_PATH` under `tests/regression_tests/`, in one commit. The writer
@@ -315,7 +306,7 @@ enum : int
 //---------------------------------------------------------------------------//
 /**
  * @brief Beatnik's **face** user fields, as offsets into Tessera's face user
- *        pack. Added at T4a.
+ *        pack.
  *
  * The same reasoning as `VertexFieldId`, applied to per-face state: a
  * `Kokkos::View` of per-face values held *outside* the mesh is silently dropped
@@ -332,8 +323,8 @@ enum : int
  * | `ReferenceCurvature` | `Real` | \f$\kappa^{\text{ref}}_f\f$, likewise for the curvature-change indicator. |
  * | `RefineMark`         | `Real` | `1` if the face is red this pass, else `0`. **Scratch between passes, but it must be halo-exchanged during one**, which is the whole of route (a) below. |
  *
- * **Why `RefineMark` is in the pack even though it is scratch.** T4a's mark
- * translation is route (a) of the two `tasks/framework.md` offered: a face-level
+ * **Why `RefineMark` is in the pack even though it is scratch.** The mark
+ * translation is route (a) of the two `tasks/framework.md` offers: a face-level
  * verdict is computed on **owned** faces, `haloExchange()`d, and each rank then
  * evaluates its **owned edges** from locally-resident faces. `haloExchange()` is
  * whole-tuple and addresses fields by their compile-time Cabana member index, so
@@ -344,18 +335,18 @@ enum : int
  * protocol of Beatnik's own. The per-face **score** deliberately stays outside
  * the mesh: only owned faces are ever thresholded, so it never needs to cross.
  *
- * **T4a CHANGE — this widens every checkpoint**, exactly as risk R14 predicted:
- * `Tessera::writeMesh` writes the face user pack unconditionally, so a file now
+ * **This pack is part of every checkpoint** (risk R14):
+ * `Tessera::writeMesh` writes the face user pack unconditionally, so a file
  * carries `/faces/u0`, `/faces/u1` and `/faces/u2`. Two consequences:
  *
- *   1. A checkpoint written by a pre-T4a binary is **not readable** by a
- *      post-T4a one — `Tessera::readMesh` treats a field-pack mismatch as an
+ *   1. A checkpoint whose face pack differs from this one is **not readable** —
+ *      `Tessera::readMesh` treats a field-pack mismatch as an
  *      `MPI_Abort` inside Tessera, not a catchable exception (M2's trap (b)).
- *      Nothing depends on it yet (`CheckpointIO::read` still throws, T5b), but
- *      T5b must not assume the two packs are compatible.
+ *      Nothing depends on it yet (`CheckpointIO::read` throws, task T5b), but
+ *      T5b must not assume two packs are compatible.
  *   2. `/faces/u<N>` is **positional**, so reordering this enum silently
- *      relabels every file on disk. The same mitigation the vertex pack got at
- *      M2 applies: the writer emits `/beatnik/face_field_names` alongside
+ *      relabels every file on disk. The vertex pack's mitigation applies: the
+ *      writer emits `/beatnik/face_field_names` alongside
  *      `/beatnik/vertex_field_names`, and `compare_output.py` cross-checks it.
  */
 namespace FaceFieldId
@@ -373,15 +364,11 @@ enum : int
 /**
  * @brief What a topological edit did.
  *
- * M1 CHANGE. This replaces the pre-M1 `MeshEditResult`, whose `parent_a` /
- * `parent_b` / `weights` map does not exist in Tessera and is not needed:
- * Tessera transfers vertex user fields itself through the refinement policy
- * (see the field-pack section in the file header). What is left is what
- * `Tessera::RefineResult` / `Tessera::SplitResult` actually report, plus the
- * entity counts a caller wants for a progress line.
- *
- * `MeshEditResult` is deleted rather than kept as a shim, because a shim would
- * have to fabricate a parent map that no Beatnik code could correctly consume.
+ * There is no `parent_a` / `parent_b` / `weights` map: Tessera has none and
+ * none is needed, because Tessera transfers vertex user fields itself through
+ * the refinement policy (see the field-pack section in the file header). What
+ * is reported is what `Tessera::RefineResult` / `Tessera::SplitResult`
+ * actually report, plus the entity counts a caller wants for a progress line.
  */
 struct MeshEditReport
 {
@@ -405,9 +392,9 @@ struct MeshEditReport
 /**
  * @brief Distributed unstructured triangle surface. Tessera lives behind this.
  *
- * The class template parameters are unchanged from the pre-M1 header, so every
- * other Beatnik header's `using mesh_type = SurfaceMesh<ExecutionSpace,
- * MemorySpace>;` still compiles. Tessera's `Mesh` takes `<Scalar, Dim,
+ * The class takes only the execution and memory spaces, as every other
+ * Beatnik header's `using mesh_type = SurfaceMesh<ExecutionSpace,
+ * MemorySpace>;` expects. Tessera's `Mesh` takes `<Scalar, Dim,
  * VertexUserFields, EdgeUserFields, FaceUserFields, MemorySpace,
  * ExecutionSpace, RefinementMode>`; the mapping is fixed below.
  *
@@ -447,9 +434,8 @@ class SurfaceMesh
     /// it.
     using edge_fields = Tessera::EdgeFields<>;
 
-    /// Beatnik's face user pack, in `FaceFieldId` order. **T4a CHANGE — this
-    /// was `FaceFields<>`.** See `FaceFieldId` for what each slot is for and
-    /// for the checkpoint consequences (risk R14).
+    /// Beatnik's face user pack, in `FaceFieldId` order. See `FaceFieldId` for
+    /// what each slot is for and for the checkpoint consequences (risk R14).
     using face_fields = Tessera::FaceFields<Real, Real, Real>;
 
   public:
@@ -465,11 +451,11 @@ class SurfaceMesh
     /**
      * @brief `(Nv, 3)` vertex positions, as a generation-stamped Cabana slice.
      *
-     * M1 CHANGE — this was `Kokkos::View<Real*[3], device_type>`. Positions are
-     * a core member of Tessera's vertex AoSoA, so what comes back is a slice of
-     * that AoSoA wrapped in the generation guard, not a standalone view.
-     * Indexing is unchanged (`pos(i, d)`), and it is capturable by value into a
-     * `KOKKOS_LAMBDA`; capturing it after a topology edit aborts by design.
+     * Not a `Kokkos::View`: positions are a core member of Tessera's vertex
+     * AoSoA, so what comes back is a slice of that AoSoA wrapped in the
+     * generation guard, not a standalone view. Indexing is `pos(i, d)`, and it
+     * is capturable by value into a `KOKKOS_LAMBDA`; capturing it after a
+     * topology edit aborts by design.
      *
      * It deliberately exposes **no extent**: the guard forwards `operator()`
      * only. A routine that needs `Nv` takes it as an argument from
@@ -490,7 +476,7 @@ class SurfaceMesh
                           VertexFieldId::Potential>()>() );
 
     /**
-     * @brief `(Nf,)` scalar **face** user field slice. T4a.
+     * @brief `(Nf,)` scalar **face** user field slice.
      *
      * The face analogue of `scalar_field_slice`, and it carries the same
      * generation guard and the same "exposes no extent" property — a routine
@@ -510,10 +496,9 @@ class SurfaceMesh
     /**
      * @brief `(Nf, 3)` **local** vertex indices per face.
      *
-     * M1 CHANGE — this replaces `face_view = Kokkos::View<LocalIndex*[3]>`
-     * taken from storage. Tessera stores corner vertex *gids*; this view is the
-     * `faceVerts` member of `Tessera::MeshGeometry`, derived host-side once per
-     * topology generation. A corner whose gid is not held locally is `-1`
+     * Not taken from storage: Tessera stores corner vertex *gids*; this view is
+     * the `faceVerts` member of `Tessera::MeshGeometry`, derived host-side once
+     * per topology generation. A corner whose gid is not held locally is `-1`
      * (`Tessera::invalid_local`), which a kernel must **skip** rather than
      * index with. That is unreachable for an *owned* face, whose corners are
      * owned or ghosted by construction, but it is reachable for a ghost face
@@ -544,14 +529,12 @@ class SurfaceMesh
      * @brief Edge-to-face incidence, two ways, because the two answer different
      *        questions and **only one of them survives a topological edit**.
      *
-     * M1-REWORK, corrected at T4a.
-     *
      * `count` / `faces` are a *read* of Tessera's `EdgeField::Faces`, which
      * holds an edge's incident face **gids**. Immediately after `distribute()`
      * that field is complete on every rank that holds the edge, because
      * distribution cuts a replicated mesh in which every rank knew both
-     * incidences — which is what made `count == 2` a global closed-surface
-     * assertion at T1b.
+     * incidences — which is why `count == 2` is a global closed-surface
+     * assertion on a freshly distributed mesh.
      *
      * **It does not stay complete.** Tessera fills `EdgeField::Faces` from
      * *each rank's own incidences only* — its own words, at
@@ -560,7 +543,7 @@ class SurfaceMesh
      * `buildFaceAdjacency()` exists rather than reading this field". So after
      * `splitEdges()` rebuilds the edge set from each rank's local faces, an edge
      * on a partition boundary records only the face on this side and `count`
-     * drops to 1 for a perfectly conforming mesh. **Measured at T4a:** 0 such
+     * drops to 1 for a perfectly conforming mesh. **Measured:** 0 such
      * edges at 1 rank, 24 at 2, 45 at 3, 104 at 6 — a partition-boundary
      * population, not a hole.
      *
@@ -585,7 +568,7 @@ class SurfaceMesh
         Kokkos::View<int* [2], memory_space> faces;
 
         /// `(Ne,)` **locally resident** faces incident on each local edge,
-        /// counted from the faces themselves. T4a. `2` for every owned edge of
+        /// counted from the faces themselves. `2` for every owned edge of
         /// a closed conforming surface at `halo_depth = 2`, at every generation;
         /// a ghost edge at the outermost ring may legitimately read `1`. A value
         /// above 2 is a non-manifold edge, and only the first two are stored.
@@ -599,12 +582,12 @@ class SurfaceMesh
     /**
      * @brief Face-to-face adjacency through shared edges, both halves.
      *
-     * M1-REWORK — this is `Tessera::FaceAdjacency`, adapted. It has two halves
+     * This is `Tessera::FaceAdjacency`, adapted. It has two halves
      * and **which one a consumer may use is a precondition, not a preference**:
      *
      *   - `neighbor_gid` / `neighbor_owner` are **always valid**, resident or
-     *     not. A *topological* consumer — AMR mark growth by neighbour rings
-     *     (T4a), remesh conflict resolution (T4b) — uses these: it sends to the
+     *     not. A *topological* consumer — AMR mark growth by neighbour rings,
+     *     remesh conflict resolution — uses these: it sends to the
      *     owner and names the face by gid, and never needs it locally.
      *   - `neighbors` (local indices) is usable only where the neighbour is
      *     resident, and `-1` elsewhere. A *geometric* consumer, one that reads
@@ -657,8 +640,8 @@ class SurfaceMesh
     /**
      * @brief The underlying Tessera mesh. **For the sibling adapters only.**
      *
-     * **T1c CHANGE, and the narrowest one that made `CheckpointIO::write`
-     * possible.** `Tessera::writeMesh` / `readMesh` take the Tessera `Mesh`
+     * **The narrowest hole that makes `CheckpointIO::write` possible.**
+     * `Tessera::writeMesh` / `readMesh` take the Tessera `Mesh`
      * itself — they are whole-mesh operations over storage, connectivity,
      * ownership and the user pack at once, so there is no subset of this facade
      * that could stand in for it, and re-exposing each piece would be a worse
@@ -709,7 +692,7 @@ class SurfaceMesh
     // cut it to owned + a `halo_depth`-deep ghost layer and build the three
     // halo plans.
     //
-    // M1-REWORK (G6 closed). Tessera now also offers
+    // Tessera also offers
     // `buildIcosphereDistributed()` / `buildFromTriangleSoupDistributed()`,
     // which never materialize the global mesh on any rank and produce a
     // **bitwise identical** vertex-position multiset to the replicated path.
@@ -750,7 +733,7 @@ class SurfaceMesh
      * position
      *      slice, as `c + r\,\hat v` — the Python's association
      *      (`center[None,:] + radius * vertices`), which matters in the last
-     *      bit. **M1 CHANGE — Tessera's generator is unit-sphere only and takes
+     *      bit. **Tessera's generator is unit-sphere only and takes
      *      neither argument**, so this is Beatnik's step, not a parameter
      *      forwarded to Tessera.
      *   3. `Tessera::facePartitionByAxis( mesh, axis = 2 )` then
@@ -810,17 +793,17 @@ class SurfaceMesh
      * is two triangles per quad, and the south cap fans from the south pole
      * with reversed winding so all normals point outward.
      *
-     * **M1-REWORK (G7 closed) — Tessera now has this generator.**
+     * **Tessera has this generator.**
      * `Tessera::buildLatLonSphere( mesh, nLat, nLon )` produces exactly this
      * surface, with the four classic UV-sphere traps pinned by its own tests:
      * exact literal poles (a computed south pole is off the unit sphere in its
      * last bits *and different for different phi*), no duplicated seam
      * meridian, a fixed quad diagonal, and CCW-outward winding matching the
-     * icosphere. So Beatnik no longer builds the soup itself.
+     * icosphere. So Beatnik does not build the soup itself.
      *
-     * Two parameter differences to reconcile when this is implemented (T5a-era;
-     * `--mesh-kind latlon` is on no regression path today, which is why the
-     * body still throws):
+     * Two parameter differences to reconcile when this is implemented (task
+     * T5a; `--mesh-kind latlon` is on no regression path today, which is why
+     * the body throws):
      *   - Tessera's `nLat` counts latitude rings **including** both poles, so
      *     `nLat = n_theta + 1` against the Python's convention.
      *   - Tessera's generator is unit-sphere only, like the icosphere's, so
@@ -853,7 +836,7 @@ class SurfaceMesh
      *
      * This is the path used by the "read the initial mesh from the gold file"
      * mitigation for regression test 1 (`tasks/framework.md`, risk R1).
-     * **M2 CHANGE — it is *not* the `--restart-from` path**, which goes through
+     * **It is *not* the `--restart-from` path**, which goes through
      * `Tessera::readMesh` and never materializes the global mesh anywhere.
      *
      * TESSERA MAPPING. `Tessera::buildFromTriangleSoup( mesh, soup )` where
@@ -861,14 +844,13 @@ class SurfaceMesh
      * indices, then partition + distribute + halo exchange as in
      * `generateIcosphere` step 3.
      *
-     * **M1 CHANGE — the arrays must be replicated on EVERY rank, not rank 0.**
-     * The pre-M1 contract said "meaningful on rank 0 only", with Beatnik
-     * partitioning from there. `buildFromTriangleSoup` is a single-rank host
-     * routine with no communication: it assumes identical input everywhere and
-     * `distribute()` then relies on that (its ownership rule is computed
-     * locally *because* the mesh is replicated). So the caller must broadcast
-     * first — `Beatnik_Communication.hpp::broadcastFromRoot`, which for this
-     * reason is a prerequisite of `adopt`, not an alternative to it.
+     * **The arrays must be replicated on EVERY rank, not rank 0 only.**
+     * `buildFromTriangleSoup` is a single-rank host routine with no
+     * communication: it assumes identical input everywhere and `distribute()`
+     * then relies on that (its ownership rule is computed locally *because* the
+     * mesh is replicated). So the caller must broadcast first —
+     * `Beatnik_Communication.hpp::broadcastFromRoot`, which for this reason is
+     * a prerequisite of `adopt`, not an alternative to it.
      *
      * The winding is **not** verified here, unlike `generateIcosphere`: an
      * adopted surface's orientation is a property of the file it came from, and
@@ -983,7 +965,7 @@ class SurfaceMesh
     }
 
     /**
-     * @brief `(Nf,)` reference face area \f$A^{\text{ref}}_f\f$. T4a.
+     * @brief `(Nf,)` reference face area \f$A^{\text{ref}}_f\f$.
      *
      * What `AdaptiveMesh::areaChangeIndicator` measures the current area
      * against. Set to the current areas at construction and re-based after any
@@ -1002,7 +984,7 @@ class SurfaceMesh
             Tessera::userFaceField<FaceFieldId::ReferenceArea>()>();
     }
 
-    /// `(Nf,)` reference face curvature indicator. T4a. Same storage contract
+    /// `(Nf,)` reference face curvature indicator. Same storage contract
     /// as `referenceFaceArea()`; **reset**, not scaled, for a subdivided face.
     face_scalar_slice referenceFaceCurvature()
     {
@@ -1011,7 +993,7 @@ class SurfaceMesh
     }
 
     /// `(Nf,)` red-refinement mark, `1` = this face bisects all three of its
-    /// edges. T4a. Scratch between refinement passes, but a **mesh field**
+    /// edges. Scratch between refinement passes, but a **mesh field**
     /// because the balance fixpoint has to halo-exchange it — see
     /// `FaceFieldId`.
     face_scalar_slice refineMark()
@@ -1065,12 +1047,10 @@ class SurfaceMesh
     /**
      * @brief Global vertex count, summed across the communicator.
      *
-     * **M1-REWORK (G3 closed).** At M1 Tessera exposed only `globalMin` and
-     * this was to be a hand-rolled `MPI_Allreduce(MPI_SUM)` routed through
-     * `Comm::allReduceSum`. `Tessera::globalOwnedVertices( mesh )` now does it,
-     * as a `long long` — **exact, because integer**, unlike the floating-point
-     * sums of risk R2. Summing the **owned** count is what makes this a
-     * partition and not a double count.
+     * `Tessera::globalOwnedVertices( mesh )` does the sum, as a `long long` —
+     * **exact, because integer**, unlike the floating-point sums of risk R2.
+     * Summing the **owned** count is what makes this a partition and not a
+     * double count.
      *
      * Involves a collective; every rank must call it. Not cached: it is one
      * `MPI_Allreduce` of one `long long`, and a cache keyed on `generation()`
@@ -1115,13 +1095,12 @@ class SurfaceMesh
     //-----------------------------------------------------------------------//
     // Adjacency
     //
-    // M1 CHANGE — the three pre-M1 "build*Adjacency" calls do not survive as
-    // three symmetric builders, because Tessera does not treat the three
-    // relations symmetrically. Edge-to-face is maintained continuously and is
-    // only *read* here; the vertex one-ring is a cheap local BFS Tessera
-    // exposes as a stencil; face-to-face genuinely needs communication and is a
-    // collective builder. All three are cached against `generation()` where the
-    // build is not free.
+    // There are no three symmetric "build*Adjacency" builders, because Tessera
+    // does not treat the three relations symmetrically. Edge-to-face is
+    // maintained continuously and is only *read* here; the vertex one-ring is a
+    // cheap local BFS Tessera exposes as a stencil; face-to-face genuinely
+    // needs communication and is a collective builder. All three are cached
+    // against `generation()` where the build is not free.
     //-----------------------------------------------------------------------//
 
     /**
@@ -1129,7 +1108,7 @@ class SurfaceMesh
      *
      * Port of mesh.py::edges_from_faces (lines 227-237)
      *
-     * M1 CHANGE — **there is nothing to build.** Tessera derives the unique
+     * **There is nothing to build.** Tessera derives the unique
      * edge set on construction and maintains it through every topology op, as a
      * first-class entity kind: `EdgeField::Verts` holds the two endpoint vertex
      * gids (sorted, so an edge is keyed identically on both sides of a rank
@@ -1141,10 +1120,9 @@ class SurfaceMesh
      * The Python's closed-surface check carries over unchanged and is worth
      * keeping: on a closed surface every edge must name two faces, i.e.
      * `count(e) == 2` for every local edge. A count of 1 signals a genuine
-     * hole. **M1-REWORK — the pre-rework caveat that this is only meaningful on
-     * a halo-consistent mesh no longer applies**: `splitEdges()` rebuilds the
-     * halo itself before returning, so there is no window in which the mesh is
-     * left with a cleared halo.
+     * hole — but only before the first edit; see `EdgeFaceIncidence`, whose
+     * `resident_count` is the post-edit form. The mesh is never left with a
+     * cleared halo: `splitEdges()` rebuilds the halo itself before returning.
      *
      * @note `EdgeField::Faces` stores **gids**, and Tessera carries them
      *       verbatim through migration — an edge's incident-face gid may name a
@@ -1162,20 +1140,22 @@ class SurfaceMesh
     }
 
     /**
-     * @brief `(Nf, 3)` **local** edge indices per face. T4a.
+     * @brief `(Nf, 3)` **local** edge indices per face.
      *
-     * The inverse of `edgeAdjacency()`, and the one new adapter accessor T4a
-     * needed. Tessera publishes no face->edge CSR — it has `vertexEdges()`, and
-     * the face AoSoA carries `FaceField::Edges` as **gids** — so this is the
-     * same host `gid -> local` resolution `edgeAdjacency()` does, run the other
-     * way, and cached against `generation()` for the same reason.
+     * The inverse of `edgeAdjacency()`, and the adapter accessor the AMR mark
+     * translation needs. Tessera publishes no face->edge CSR — it has
+     * `vertexEdges()`, and the face AoSoA carries `FaceField::Edges` as
+     * **gids** — so this is the same host `gid -> local` resolution
+     * `edgeAdjacency()` does, run the other way, and cached against
+     * `generation()` for the same reason.
      *
-     * It exists because the whole of T4a is a translation between a face-level
-     * verdict and an edge-level mask, in both directions: "mark all three edges
-     * of this face" needs face->edge, and "how many of this face's edges are
-     * marked" (\f$|S_f|\f$, which decides the child count and therefore
-     * `AdaptiveMesh::projectedFaceCount`) needs it too. Doing it inline in the
-     * AMR code would put a host-side gid map inside a per-pass loop.
+     * It exists because indicator-driven refinement is a translation between a
+     * face-level verdict and an edge-level mask, in both directions: "mark all
+     * three edges of this face" needs face->edge, and "how many of this face's
+     * edges are marked" (\f$|S_f|\f$, which decides the child count and
+     * therefore `AdaptiveMesh::projectedFaceCount`) needs it too. Doing it
+     * inline in the AMR code would put a host-side gid map inside a per-pass
+     * loop.
      *
      * Edge slot `k` is the edge Tessera records in `FaceField::Edges[k]`; it is
      * **not** promised to be the edge between corners `k` and `k+1` of
@@ -1196,7 +1176,7 @@ class SurfaceMesh
 
     /**
      * @brief Global ids of this rank's **owned** faces, on the host, in local
-     *        index order. T4a.
+     *        index order.
      *
      * The discriminator for "was this face subdivided?", which nothing else in
      * the adapter can answer: a face with \f$|S| = 0\f$ **keeps its gid**
@@ -1247,13 +1227,12 @@ class SurfaceMesh
      * those are the right handle when the *incident edges* or *incident faces*
      * are wanted rather than the adjacent vertices.
      *
-     * **M1-REWORK — k = 2 is now available and checked.** The pre-rework
-     * warning here said a two-ring CSR would be silently truncated near a
-     * partition boundary. It no longer can be: the mesh is built at
+     * **k = 2 is available and checked.** A two-ring CSR cannot be silently
+     * truncated near a partition boundary: the mesh is built at
      * `halo_depth = 2`, and `buildVertexStencil` **throws
      * `std::invalid_argument`** naming `k` and the depth if `k` exceeds it. The
      * RHS's two-ring stencil is therefore expressible; it is not built here
-     * only because no T1b caller needs it yet.
+     * only because no caller needs it.
      */
     AdjacencyCsr vertexOneRing()
     {
@@ -1270,13 +1249,12 @@ class SurfaceMesh
      *
      * Port of mesh_solver.py::_face_neighbors (lines 1533-1540)
      *
-     * Used to grow AMR marks by neighbour rings (T4a) and to build the
-     * proximity-exclusion rings (T4b).
+     * Used to grow AMR marks by neighbour rings and to build the
+     * proximity-exclusion rings.
      *
-     * **M1-REWORK (G4 closed) — `Tessera::buildFaceAdjacency( mesh )` provides
-     * it, collectively.** The pre-rework header recorded this as a gap, and the
-     * reasoning it gave for why it *cannot* be derived locally is still exactly
-     * right and is why the builder is a collective rather than a walk:
+     * **`Tessera::buildFaceAdjacency( mesh )` provides it, collectively.** It
+     * *cannot* be derived locally, which is why the builder is a collective
+     * rather than a walk:
      *
      *   - From `EdgeField::Faces`: those are gids of faces that may not be held
      *     locally at all, carried verbatim through migration without repair.
@@ -1332,19 +1310,16 @@ class SurfaceMesh
      * Topology-preserving: does **not** bump `generation()`, so handles taken
      * before it stay valid.
      *
-     * @pre The halo plans must be live. **M1-REWORK — they always are.** At M1
-     *      Tessera's edits returned with the halo *cleared*, so an exchange in
-     *      between was a silent no-op on an empty plan and the adapter had to
-     *      insert an identity `migrate()`. `splitEdges()` now calls
-     *      `rebuildHalo()` itself, at the recorded depth, before returning.
-     *      There is no longer a window in which this is a no-op, and the
-     *      workaround is gone from `splitEdges()` below.
+     * @pre The halo plans must be live. **They always are**: `splitEdges()`
+     *      calls `rebuildHalo()` itself, at the recorded depth, before
+     *      returning, so there is no window in which this is a silent no-op on
+     *      an empty plan.
      */
     void haloExchange() { Tessera::haloExchange( _mesh, _halo ); }
 
     /**
      * @brief Refresh the ghost rows of a **Beatnik-owned** per-vertex scalar
-     *        view from their owners. T4b.
+     *        view from their owners.
      *
      * TESSERA MAPPING: `Tessera::haloExchange( comm, aosoa, halo.vplan )` — the
      * *same* plan and the same pack/unpack machinery `haloExchange()` uses,
@@ -1361,15 +1336,15 @@ class SurfaceMesh
      * ordinary integers.
      *
      * **Why not a fourth vertex user field instead.** The one consumer is
-     * `DynamicRemesh`'s sizing field, whose gradation sweep (T4b) propagates a
+     * `DynamicRemesh`'s sizing field, whose gradation sweep propagates a
      * minimum `--remesh-target-gradation-iters` (8) rings — past
      * `halo_depth = 2`, so it must exchange between sweeps or the sizing field
      * differs at every partition boundary and the split set moves with the rank
      * count. Adding a slot to `vertex_fields` would put a *scratch* quantity in
      * `/vertices/u3` of every checkpoint and make every existing file
-     * unreadable (risk R14) for a field no restart needs. T4a paid that price
-     * for `RefineMark` because the reverse direction left it no choice; here
-     * there is one.
+     * unreadable (risk R14) for a field no restart needs. `RefineMark` pays
+     * that price because the reverse direction leaves it no choice; here there
+     * is one.
      *
      * @param values `(Nv,)` over the **local** vertex range,
      *        `totalVertexCount()` rows. Owned rows are read, ghost rows are
@@ -1409,7 +1384,7 @@ class SurfaceMesh
      *
      * TESSERA MAPPING: `Tessera::haloScatterAddVertices<
      * Tessera::userVertexField<FieldId>()>( mesh, halo )` — the reverse halo
-     * (ghost -> owner, `+=`), which closes M1 gap G2.
+     * (ghost -> owner, `+=`).
      *
      * **Read the assembly rule in the file header before reaching for this.**
      * Beatnik's *derived geometry* — vertex areas, vertex normals, the volume
@@ -1453,13 +1428,12 @@ class SurfaceMesh
     // Topological edits
     //
     // EDITING FAMILIES — READ THE FILE HEADER. Every edit named below is in the
-    // REMESH family, which is the only family Beatnik uses:
-    // `splitEdges()` today, `collapseEdges()` / `flipEdges()` / `compact()`
-    // when Tessera lands them. `SurfaceMesh::refine` — the HIERARCHICAL
-    // family's entry point — was **deleted** at T4a rather than left unused, so
-    // Tessera's `EditFamily` guard is a backstop that should never fire. The
-    // decision and its two findings are in `tasks/framework.md`, Phase 4,
-    // *The editing-family question — RESOLVED*.
+    // REMESH family, which is the only family Beatnik uses: `splitEdges()`, and
+    // `collapseEdges()` / `flipEdges()` / `compact()` once task T4d1 writes
+    // their adapters. `SurfaceMesh` has no `refine` — the HIERARCHICAL family's
+    // entry point — so Tessera's `EditFamily` guard is a backstop that should
+    // never fire. The decision and its two findings are in
+    // `tasks/framework.md`, Phase 4, *The editing-family question — RESOLVED*.
     //-----------------------------------------------------------------------//
 
     /**
@@ -1469,18 +1443,18 @@ class SurfaceMesh
      * Port of dynamic_remesh.py::split_selected_edges (lines 261-298) **and**
      * of mesh.py::refine_marked_faces (lines 570-730)
      *
-     * The second of those is the T4a finding and is not a coincidence. For the
+     * The second of those is not a coincidence. For the
      * mask "every edge of every marked face", `splitEdges()` and
      * `refine_marked_faces` are the *same algorithm*: the Python mints
      * midpoints on marked faces' edges only and retriangulates every face on
      * the bit pattern of its own split edges — `|S|` of 1, 2, 3 giving 2, 3, 4
      * children — with no cascade, because its `existing_midpoint` only ever
      * finds midpoints a marked face minted. That is `splitEdges()`'s contract
-     * verbatim. So the indicator-driven refiner (T4a) and the metric remesher
-     * (T4b) are two mask-construction rules over one primitive, rather than two
+     * verbatim. So the indicator-driven refiner and the metric remesher
+     * are two mask-construction rules over one primitive, rather than two
      * editing families.
      *
-     * **M1-REWORK (G5a closed).** `Tessera::splitEdges( mesh, halo, edgeMask )`
+     * `Tessera::splitEdges( mesh, halo, edgeMask )`
      * bisects exactly the marked edges, the edge **owner** decides, every
      * incident face becomes 2, 3 or 4 children, and the result is **conforming
      * on exit with no closure layer and no 2:1 pass** — an edge-addressed split
@@ -1490,15 +1464,14 @@ class SurfaceMesh
      * `haloExchange()` immediately afterwards is meaningful, and a second
      * `splitEdges()` may follow with nothing in between.
      *
-     * **T4a CHANGE — the parameter is a concrete `const std::vector<char>&`,
-     * not a template.** It was left templated at M1 because T4b had not settled
-     * how the remesher would produce it; T4a settles it for both, and the
-     * answer is Tessera's own convention rather than a second one invented on
-     * top: a **host** mask sized `ownedEdgeCount()`, indexed by owned edge local
-     * index, `1` = bisect. A device-computed indicator is copied to the host and
-     * truncated to the owned range, which is a real cost on the AMR path and is
-     * where it belongs — `Tessera::splitEdges` takes a host vector, so a
-     * templated parameter could only have hidden the copy, not avoided it.
+     * **The parameter is a concrete `const std::vector<char>&`, not a
+     * template**, for the refiner and the remesher alike, and it is Tessera's
+     * own convention rather than a second one invented on top: a **host** mask
+     * sized `ownedEdgeCount()`, indexed by owned edge local index, `1` =
+     * bisect. A device-computed indicator is copied to the host and truncated
+     * to the owned range, which is a real cost on the AMR path and is where it
+     * belongs — `Tessera::splitEdges` takes a host vector, so a templated
+     * parameter could only have hidden the copy, not avoided it.
      *
      * @param edgeMask Per-**owned-edge** marks, `1` = bisect. Must be exactly
      *        `ownedEdgeCount()` long; Tessera checks this and an empty mask is
@@ -1511,11 +1484,10 @@ class SurfaceMesh
      * @note MPI. **Collective**, and the mask needs no reconciling first: the
      *       edge owner's verdict is routed to every rank holding an incident
      *       face by Tessera's edge coordinator, so an arbitrary, unreconciled,
-     *       rank-local mask is a legal input. This is what left
-     *       `Comm::reconcileRefinementMarks` with nothing to do, and T4a
-     *       deleted it. What Beatnik must still agree across ranks is its own
-     *       *mark closure*, which happens before this call and terminates on
-     *       one `MPI_Allreduce(MPI_LOR)`.
+     *       rank-local mask is a legal input. This is why there is no
+     *       `Comm::reconcileRefinementMarks`. What Beatnik must still agree
+     *       across ranks is its own *mark closure*, which happens before this
+     *       call and terminates on one `MPI_Allreduce(MPI_LOR)`.
      *
      * @note INVALIDATION. Reallocates the AoSoAs, the key views and the CSRs
      *       and replaces the halo plans, so every slice, CSR and cached
@@ -1524,8 +1496,8 @@ class SurfaceMesh
      *       accessor must be re-taken.
      *
      * **EDITING FAMILY — Remesh**, and this is the call that tags the mesh.
-     * Nothing can subsequently violate it, because `refine()` no longer exists
-     * in this facade.
+     * Nothing can subsequently violate it, because this facade has no
+     * `refine()`.
      */
     MeshEditReport splitEdges( const std::vector<char>& edgeMask )
     {
@@ -1651,10 +1623,9 @@ class SurfaceMesh
      *
      * This is what `Beatnik_Communication.hpp::redistribute` (T5d) calls.
      *
-     * **M1-REWORK — it is no longer also the post-edit halo rebuild.**
-     * `splitEdges()` rebuilds its own halo now, so the identity-`migrate()` call
-     * that used to be forced through here is gone and `rebalance == false` is a
-     * genuine no-op path a caller has no reason to ask for.
+     * **It is not the post-edit halo rebuild.** `splitEdges()` rebuilds its
+     * own halo, so `rebalance == false` is a genuine no-op path a caller has no
+     * reason to ask for.
      *
      * TESSERA MAPPING, two forms, both of which rebuild the ghost layer at the
      * recorded `halo_depth` and all three halo plans as a side effect:
@@ -1671,7 +1642,7 @@ class SurfaceMesh
      * tree, so the BR evaluation and the mesh agree on locality) is the same
      * `migrate()` call with a different `dest`, built from
      * `Tessera::ownedFaceCentroids( mesh )`. That is the documented Canopy
-     * contract and is available to Beatnik unchanged — worth knowing at T3a.
+     * contract and is available to Beatnik unchanged.
      *
      * **Field data follows automatically.** Migration ships whole Cabana
      * tuples, so all three Beatnik vertex fields move with their vertices with
@@ -1682,9 +1653,9 @@ class SurfaceMesh
      *   - Host-orchestrated, not GPU-resident: entity payloads travel as tuple
      *     byte images over `allToAllV`, in four rounds, then the local AoSoAs,
      *     both CSRs, the key tables and the three halo plans are rebuilt.
-     *   - **M1-REWORK (G8 closed).** The partition solve is no longer
-     *     rank-0-bound. `Tessera::LoadBalanceMode` offers `GatherRoot` (the old
-     *     path, kept as the reference), `Distributed` (rank 0 receives **zero**
+     *   - The partition solve is not rank-0-bound.
+     *     `Tessera::LoadBalanceMode` offers `GatherRoot` (the rank-0 solve,
+     *     kept as the reference), `Distributed` (rank 0 receives **zero**
      *     faces) and `Sampled`, and **`Sampled` is the default** because it is
      *     the only mode Tessera measured run-to-run reproducible — its cuts
      *     come from a gid-order sample solved once and broadcast, and each rank
@@ -1838,7 +1809,7 @@ class SurfaceMesh
     /// Resolve `FaceField::Edges` (gids) to local edge indices, on the host,
     /// once per topology generation — the inverse of
     /// `ensureEdgeFaceIncidence()` below and built the same way, for the same
-    /// reason. T4a.
+    /// reason.
     void ensureFaceEdges()
     {
         if ( _face_edges_generation == _mesh.generation() )
@@ -2020,7 +1991,7 @@ class SurfaceMesh
     EdgeFaceIncidence _edge_faces;
     std::size_t _edge_faces_generation = static_cast<std::size_t>( -1 );
 
-    /// Cached face-to-edge indices, resolved from gids on the host. T4a.
+    /// Cached face-to-edge indices, resolved from gids on the host.
     face_vertex_view _face_edges;
     std::size_t _face_edges_generation = static_cast<std::size_t>( -1 );
 };

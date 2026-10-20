@@ -77,8 +77,8 @@ namespace Test
  * Not thread-safe and **not MPI-aware**, deliberately: it records what happened
  * on *this* rank.
  *
- * **The multi-rank question, settled at T1c** (which needed it first, for the
- * `regression` tier's rank sweep). The reduction stays **outside** this class:
+ * **The multi-rank convention** (the `regression` tier's rank sweep relies on
+ * it). The reduction stays **outside** this class:
  * a multi-rank test calls `report()` on every rank — so the log names which
  * rank failed, which a rank-0-only tally would hide — and then reduces the
  * returned exit codes with `MPI_Allreduce(..., MPI_MAX, comm)` to reach one

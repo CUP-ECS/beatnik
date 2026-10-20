@@ -237,8 +237,8 @@ class Solver
         RestartState start;
         if ( _params.checkpoint.restarting() )
         {
-            // T5b. `RestartReader::load` still throws; reached only with
-            // --restart-from, which no regression test uses.
+            // `RestartReader::load` throws (task T5b, not yet implemented);
+            // reached only with --restart-from, which no regression test uses.
             ensureCheckpointIO();
             start = RestartReader<ExecutionSpace, MemorySpace>::load(
                 *_io, _params.checkpoint.restart_from, _mesh, _state );
@@ -317,17 +317,16 @@ class Solver
      *         exit status.
      *
      * The `steps == 0` guard is not a special case bolted on. `--steps 0` is a
-     * legitimate configuration (it is exactly the one T1a generated the gold
-     * file with), the Python's loop is `while local_step < steps` and so runs
-     * zero times, and `setup()` has already written the startup checkpoint while
-     * `finalize()` will write the final one. So returning `true` there is the
-     * *correct* behaviour: the run completed its budget.
+     * legitimate configuration (it is exactly the one the T1a gold file was
+     * generated with), the Python's loop is `while local_step < steps` and so
+     * runs zero times, and `setup()` has already written the startup
+     * checkpoint while `finalize()` will write the final one. So returning
+     * `true` there is the *correct* behaviour: the run completed its budget.
      *
-     * **T2d — the loop is here, and the post-step passes it cannot yet run
-     * THROW rather than being skipped.** `requireSupportedConfiguration()` is
-     * called once before the loop and rejects, by name and by task ID, any
-     * configuration whose post-step passes are still stubs (T4d/T4e/T5c; T4a,
-     * T4b and T4c have landed and their rejections are gone). It
+     * **Post-step passes that are not implemented THROW rather than being
+     * skipped.** `requireSupportedConfiguration()` is called once before the
+     * loop and rejects, by name and by task ID, any configuration whose
+     * post-step passes are stubs (pending T4d/T4e/T5c). It
      * is a configuration check and not a mid-loop guard on purpose: the
      * conditions are global and time-independent, so failing before the first
      * step is both cheaper and more honest than aborting at step 5. Silently
@@ -366,16 +365,17 @@ class Solver
      * abort and after an interrupt, and writes the recorded last-finite state
      * rather than the current one. A no-op when `--checkpoint-dir` is empty.
      *
-     * **T2d — the distinction is now real.** `advanceOneStep` records the three
-     * owned vertex fields, the positions, and the `(time, step)` pair after
-     * every mutation of a step that ended finite; this restores them into the
-     * mesh before writing, so a run that blows up at step N still leaves a
-     * restartable file describing step N-1. At `--steps 0` nothing was ever
-     * recorded and the current state is written, which is the T1c behaviour and
-     * is what keeps regression test 1 unchanged: same `(time, step)`, therefore
-     * the same filename as `setup`'s startup checkpoint, written twice — exactly
-     * what the Python does (`main` 1313-1324 and 1641-1652 both fire at
-     * t=0/step=0) and harmless because `writeMesh` truncates.
+     * **The last-finite state is not the current one.** `advanceOneStep`
+     * records the three owned vertex fields, the positions, and the
+     * `(time, step)` pair after every mutation of a step that ended finite;
+     * this restores them into the mesh before writing, so a run that blows up
+     * at step N still leaves a restartable file describing step N-1. At
+     * `--steps 0` nothing was ever recorded and the current state is written,
+     * which is what regression test 1 (T1c, 0 timesteps) compares: same
+     * `(time, step)`, therefore the same filename as `setup`'s startup
+     * checkpoint, written twice — exactly what the Python does (`main`
+     * 1313-1324 and 1641-1652 both fire at t=0/step=0) and harmless because
+     * `writeMesh` truncates.
      */
     void finalize()
     {
@@ -409,8 +409,8 @@ class Solver
      *
      * @note MPI. Collective throughout, and **uniformly so**: the BR ring inside
      *       the integrator deadlocks unless every rank reaches it the same
-     *       number of times per step, including a rank that owns zero sources
-     *       (T2c). Every branch here is therefore driven by a globally identical
+     *       number of times per step, including a rank that owns zero sources.
+     *       Every branch here is therefore driven by a globally identical
      *       quantity — the step counter, the simulation time, or a reduced
      *       verdict — and never by a rank-local count.
      */
@@ -436,7 +436,7 @@ class Solver
             return false;
         }
 
-        // -- the indicator-driven refine branch (T4a) ---------------------
+        // -- the indicator-driven refine branch ---------------------------
         // run_adaptive_mesh_bubble.py:1424-1468. The cadence condition is
         // globally identical (it is built from the step counter and two
         // parameters), so every rank enters the collective refiner together.
@@ -498,7 +498,7 @@ class Solver
             }
         }
 
-        // -- the metric-remesh branch (T4b) --------------------------------
+        // -- the metric-remesh branch -------------------------------------
         // run_adaptive_mesh_bubble.py:1469-1527. Mutually exclusive with the
         // branch above by construction (`:1424` versus `:1469`), and the
         // cadence condition is again built only from the step counter and two
@@ -560,12 +560,12 @@ class Solver
             }
         }
 
-        // -- the periodic redistribution branch (T4c) -----------------------
+        // -- the periodic redistribution branch -----------------------------
         // run_adaptive_mesh_bubble.py:1557-1565. **NOT load balancing**, in
         // spite of the name: it is the tangential pass on its own cadence plus
         // the volume projection, and nothing else — the Python is serial and
-        // repartitions nothing, so this branch is not blocked on T5d and
-        // `Comm::redistribute` stays T5d's. Off by default
+        // repartitions nothing, so this branch does not use
+        // `Comm::redistribute` (task T5d, not yet implemented). Off by default
         // (`--redistribute-every 0`); the cadence is built from the step counter
         // and one parameter, so every rank enters the collective pass together.
         //
@@ -655,14 +655,14 @@ class Solver
     /// The surface.
     const mesh_type& mesh() const { return _mesh; }
 
-    /// The surface, mutably. **T2d — added for the test, and the reason is the
-    /// M1 storage model rather than convenience:** every geometric accessor
+    /// The surface, mutably. **It exists for tests, and the reason is the
+    /// storage model rather than convenience:** every geometric accessor
     /// (`positions()`, `faceVertices()`, `edgeVertices()`) is non-const, because
     /// the first two return Cabana slices of a non-const member and the third
     /// builds and caches `Tessera::MeshGeometry` against `generation()`. So a
     /// caller that wants to *measure* the surface — regression test 2 checks the
     /// enclosed volume every step — cannot do it through the const accessor.
-    /// Same constraint that widened twelve signatures at T2c.
+    /// The same constraint is why many signatures take a non-const mesh.
     mesh_type& mesh() { return _mesh; }
     /// The solution fields.
     const state_type& state() const { return _state; }
@@ -676,8 +676,7 @@ class Solver
     /// The BR solver driving the run, as `createBRSolver` made it from
     /// `params().zmodel` and `params().fmm`. Valid only after `setup()`. A
     /// caller that needs the FMM's cumulative diagnostics downcasts to
-    /// `BRSolverFMM`. **Added by canopy_profiling T2** for
-    /// `Beatnik_Probe_FmmCost`.
+    /// `BRSolverFMM`, as `Beatnik_Probe_FmmCost` does.
     const br_solver_type& brSolver() const { return *_br_solver; }
 
     /// \f$V_0\f$, the target the volume projection drives toward all run.
@@ -698,10 +697,10 @@ class Solver
     }
 
     /// What the most recent dynamic-remesh call did, or a default-constructed
-    /// value if none has run. T4b, and exposed for the same reason
-    /// `lastRefinement()` is: the split pass's **candidate** count and the
-    /// cap's verdict are knowable only inside the call, and T4b's exit
-    /// criterion asserts on the difference between them.
+    /// value if none has run. Exposed for the same reason `lastRefinement()`
+    /// is: the split pass's **candidate** count and the cap's verdict are
+    /// knowable only inside the call, and the T4b regression test asserts on
+    /// the difference between them.
     const RemeshDiagnostics& lastRemesh() const { return _last_remesh; }
 
     /// Path of the last checkpoint written, empty if none. Exposed so a test
@@ -715,7 +714,7 @@ class Solver
 
   private:
     /// Reject, before the first step, any configuration whose post-step passes
-    /// are still stubs — by name and by the task that owns them.
+    /// are stubs — by name and by the task that owns them.
     ///
     /// **Why a throw and not a skip.** The reference's *default* configuration
     /// runs the dynamic remesher every step, so a Beatnik run that quietly
@@ -878,7 +877,7 @@ class Solver
     ///
     /// Port of run_adaptive_mesh_bubble.py::main (lines 1566-1569)
     ///
-    /// Under the M1 storage model the solution lives in the Tessera vertex user
+    /// Under the storage model the solution lives in the Tessera vertex user
     /// pack, so "keeping a reference to the state" is not available the way the
     /// Python's `last_finite_state = state` is: the next step overwrites those
     /// slots in place. What is kept instead is a copy of the four owned arrays
@@ -938,10 +937,11 @@ class Solver
     /// writes *that* rather than the current one.
     ///
     /// A no-op when nothing was ever recorded (`--steps 0`, or an abort in the
-    /// first step), which is what makes T1c's 0-timestep behaviour unchanged.
-    /// Also a no-op if the owned vertex count has changed since the record,
-    /// which cannot happen today (no adaptivity) and would mean the copy no
-    /// longer describes this mesh; that is reported rather than papered over,
+    /// first step), so a 0-timestep run (T1c) writes the current state.
+    /// Also a no-op if the owned vertex count has changed since the record —
+    /// a remesh that changes the mesh and is followed by a non-finite abort
+    /// reaches this — because the copy then does not describe this mesh; that
+    /// is reported rather than papered over,
     /// because writing a mismatched field pack would produce a plausible file.
     void restoreLastFiniteState()
     {
@@ -1115,10 +1115,10 @@ class Solver
     /// Path of the most recent checkpoint, for `lastCheckpointPath()`.
     std::string _last_checkpoint_path;
 
-    /// What the most recent refinement pass did. T4a.
+    /// What the most recent refinement pass did.
     RefinementDiagnostics _last_refinement;
 
-    /// What the most recent dynamic-remesh call did. T4b.
+    /// What the most recent dynamic-remesh call did.
     RemeshDiagnostics _last_remesh;
 
     /// Running totals reported on the progress line.

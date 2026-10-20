@@ -117,9 +117,8 @@ class BRSolverFMM : public BRSolverBase<ExecutionSpace, MemorySpace>
      *       force.
      *
      *       Because the softened basis carries the blob at every order, the
-     *       old reading of this note — that the acceptance criterion is tuned
-     *       on the bare kernel and so is optimistic where the sheet separation
-     *       approaches \f$\sqrt{b}\f$ — does not describe the error under it:
+     *       acceptance criterion is not optimistic where the sheet separation
+     *       approaches \f$\sqrt{b}\f$, as it would be on the bare kernel:
      *       self-contact is not a special case for a kernel that is
      *       regularized inside the expansion. What binds instead is **Taylor
      *       truncation at the accepted separation ratio**. Canopy accepts a
@@ -130,7 +129,8 @@ class BRSolverFMM : public BRSolverBase<ExecutionSpace, MemorySpace>
      *       the potential, which is why `FmmParams::order` defaults to 3 and
      *       not 2. `FmmParams::order` is the knob, not `mac_theta`. See
      *       `tasks/canopy/add-canopy.md` ("The order that reaches the target").
-     *       No accuracy figure is claimed for this path until T5 measures one.
+     *       The measured accuracy is T5's; the bound the FMM milestone
+     *       members assert is `kTauA` in `Beatnik_Test_Milestone0Fmm.cpp`.
      *
      * @note MPI. Collective, inside Canopy, and every rank must call it the
      *       same number of times per step. Beyond Canopy's own collectives the

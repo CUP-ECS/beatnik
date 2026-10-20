@@ -38,9 +38,8 @@
  * ------------------------------------------------------------------
  * Every routine here that turns a per-face quantity into a per-vertex one does
  * it by looping faces and accumulating onto their three corners. On a
- * distributed surface that looks like it needs a ghost-to-owner scatter-add,
- * and the pre-T1b version of this header said so on four routines. **It does
- * not**, and the reason is a property of Tessera's local set:
+ * distributed surface that looks like it needs a ghost-to-owner scatter-add.
+ * **It does not**, and the reason is a property of Tessera's local set:
  *
  *   Tessera's local face set is *the owned faces plus every face incident on an
  *   owned vertex* (more at halo depth 2, which is what Beatnik builds).
@@ -161,9 +160,7 @@ class MeshGeometry
      * @param vertex_count `Nv` = `mesh.totalVertexCount()`. **Explicit because
      *                     `SurfaceMesh::position_slice` deliberately exposes no
      *                     extent** — it is a Cabana slice behind a generation
-     *                     guard that forwards `operator()` only. (Signature
-     *                     change from the pre-T1b header, forced by the M1
-     *                     storage model.)
+     *                     guard that forwards `operator()` only.
      * @param faces        `(Nf,3)` **local** vertex indices. Pass the WHOLE
      *                     local set, `mesh.totalFaceCount()` rows — see
      *                     DISTRIBUTED ASSEMBLY in the file header. A corner
@@ -173,9 +170,8 @@ class MeshGeometry
      *
      * @note MPI. **None.** No exchange and no scatter-add: the local-face loop
      *       already gives every owned vertex its complete one-ring, and a
-     *       scatter-add afterwards would double-count. The pre-T1b note here
-     *       required one; that was written before Tessera's local-set rule was
-     *       read, and it is wrong. Ghost rows hold partial sums; a consumer
+     *       scatter-add afterwards would double-count. Ghost rows hold partial
+     *       sums; a consumer
      *       that needs them consistent should recompute rather than
      *       communicate, since these are derived scratch and not mesh fields.
      */
@@ -361,18 +357,16 @@ class SurfaceOperators
      * diagnostic and Tessera's depth study compare without a conversion at the
      * call site.
      *
-     * **Single-sourced at T4b, and the reason is that it is now measured by two
-     * unrelated passes.** T4a computed it inline inside
-     * `AdaptiveMesh::measureShape`; T4b's remesher needs exactly the same
+     * **Single-sourced because two unrelated passes measure it.**
+     * `AdaptiveMesh::measureShape` and the remesher both need exactly this
      * number, per pass, compared against the same twelve-significant-digit
      * Python literals. Two copies of a formula that a gold set is asserted
-     * against is one copy too many, so the kernel moved here verbatim —
-     * identical arithmetic in identical order, which is why T4a's compiled-in
-     * literals did not move.
+     * against is one copy too many, so both call this kernel — identical
+     * arithmetic in identical order for both.
      *
      * A face with a `-1` corner is **skipped entirely** (it contributes to
      * neither the minimum nor the tail count), which is what a partial ghost
-     * triangle deserves and what T4a's kernel already did.
+     * triangle deserves.
      *
      * @param face_count Rows to reduce. Pass the **OWNED** count: each local
      *        face is owned exactly once globally, so a ghost would be counted
@@ -453,7 +447,7 @@ class SurfaceOperators
      * and the unit in which the proximity activation and material-exclusion
      * radii are expressed.
      *
-     * **M1-REWORK — this takes EDGES, not faces.** The Python builds a
+     * **This takes EDGES, not faces.** The Python builds a
      * `set` of sorted endpoint pairs out of the face array, because a NumPy
      * triangle soup has no edge list; deriving the unique edge set is the whole
      * body of that function. Tessera maintains the unique edge set as a
@@ -841,7 +835,7 @@ class SurfaceOperators
      * at `SurfaceMesh::halo_depth = 2` once at setup, **not** by exchanging
      * twice — see the halo section of `Beatnik_MeshInterface.hpp` and risk R8.
      *
-     * @note MPI (CORRECTED at the M1 rework; T2b implements this). Two
+     * @note MPI. Two
      *       face-loop scatters (weighted gradient and weight), assembled from
      *       the **whole local face set** and therefore already complete on
      *       every owned vertex — see DISTRIBUTED ASSEMBLY in the file header.
@@ -1027,23 +1021,22 @@ class SurfaceOperators
      * \f$h^2\Delta\f$, so its diffusive effect *weakens* exactly where the mesh
      * is refined — i.e. where the sheet spike lives and the diffusion is
      * needed. The cotangent form is a true \f$\Delta\f$ and does not have that
-     * defect. `--viscosity-mode graph` selects the old behavior.
+     * defect. `--viscosity-mode graph` selects the graph Laplacian.
      *
      * Units: [scalar]/length^2.
      *
-     * @note MPI (CORRECTED at the M1 rework; T2b implements this). Per-face
+     * @note MPI. Per-face
      *       scatter with `+=` onto both endpoints of each edge, over the
      *       **whole local face set**, and therefore already complete on every
      *       owned vertex before the division by the vertex area — see
      *       DISTRIBUTED ASSEMBLY in the file header. **No scatter-add.** Only
      *       the input `values` need a preceding `haloExchange`.
      *
-     * @param values Per-vertex input. **T2b — its type is now independent of
-     *        `result`'s.** The pre-T2b declaration used one `ScalarView` for
-     *        both, which cannot express the call the viscous term actually
-     *        makes: `values` is `mesh.potential()`, a Cabana slice, and
-     *        `result` is a Beatnik-owned `Kokkos::View`. A widening, so every
-     *        conceivable pre-T2b call still compiles.
+     * @param values Per-vertex input. **Its type is independent of
+     *        `result`'s**, because one `ScalarView` for both cannot express
+     *        the call the viscous term actually makes: `values` is
+     *        `mesh.potential()`, a Cabana slice, and `result` is a
+     *        Beatnik-owned `Kokkos::View`.
      * @param[out] result `(Nv,)`. Its extent defines `Nv`; **zeroed here**.
      */
     template <class VertexView, class FaceView, class ScalarView,
@@ -1111,9 +1104,8 @@ class SurfaceOperators
      * under `--viscosity-mode graph` than under `laplace-beltrami`. Kept for
      * bit-comparability against Python runs that used it.
      *
-     * **T2b SIGNATURE CHANGE — this takes the vertex one-ring CSR, not
-     * `faces`.** The pre-T2b declaration was `(faces, values, vertex_count,
-     * result)`, i.e. a per-face scatter. That cannot reproduce the reference:
+     * **This takes the vertex one-ring CSR, not `faces`.** A per-face
+     * scatter cannot reproduce the reference:
      * the Python builds a `set` of neighbours per vertex and averages over the
      * **unique** neighbour set, while a per-face scatter visits every interior
      * neighbour **twice** (once from each of the two faces sharing that edge).
@@ -1173,7 +1165,7 @@ class SurfaceOperators
      * asymmetry with the potential state, which uses the cotangent Laplacian by
      * default. That asymmetry is in the reference, not a porting slip.
      *
-     * **T2b SIGNATURE CHANGE — takes the vertex one-ring CSR**, for exactly the
+     * **Takes the vertex one-ring CSR**, for exactly the
      * reason written out on `graphLaplacianScalar` above.
      */
     template <class CsrType, class VectorView, class OutVectorView>

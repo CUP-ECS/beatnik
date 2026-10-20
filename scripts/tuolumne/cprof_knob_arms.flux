@@ -82,7 +82,7 @@ echo "[cps] canopy spec   = $(spack find --variants canopy 2>/dev/null | grep -o
 echo "[cps] submit = flux batch scripts/tuolumne/cprof_knob_arms.flux"
 
 
-# The binding, copied EXACTLY from t6b_key_demand.flux:231-245.
+# The binding, copied EXACTLY from t6b_key_demand.flux:217-231.
 launch() {
     local _exe="$1" _np="$2"; shift 2
     local _nodes=$(( (_np + 3) / 4 ))

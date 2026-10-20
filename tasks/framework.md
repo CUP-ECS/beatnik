@@ -594,7 +594,7 @@ temporary array that the Kokkos formulation never allocates.
 **Four `const mesh_type&` parameters must widen to `mesh_type&`**, and this task
 is where it happens because it is the first to write a body that touches the
 mesh. Every accessor a quadrature or a BR kernel needs is **non-const**:
-`SurfaceMesh::positions()` (`src/Beatnik_MeshInterface.hpp:821`), `potential()`
+`SurfaceMesh::positions()` (`src/Beatnik_MeshInterface.hpp:804`), `potential()`
 (`:834`), `sheetVector()` (`:846`) and `faceVertices()` (`:877`). The first
 three return Cabana slices of a non-const member; the fourth calls
 `ensureGeometry()`, which builds and caches `Tessera::MeshGeometry` against
@@ -1068,7 +1068,7 @@ particular this task needs **no** new Tessera capability.
 **Fill in:**
 - `Beatnik_MeshInterface.hpp`: add `face_fields = Tessera::FaceFields<Real, Real>`
   and the `FaceFieldId` enum alongside `VertexFieldId`; **delete**
-  `SurfaceMesh::refine` (`src/Beatnik_MeshInterface.hpp:1258`) and the
+  `SurfaceMesh::refine` (`src/Beatnik_MeshInterface.hpp:1237`) and the
   editing-family warning block above it (`:1184-1195`, whose "Beatnik's default
   configuration wants both" is the same false premise corrected in *Finding 1*);
   change `SurfaceMesh::splitEdges` (`:1296`) from
@@ -1080,7 +1080,7 @@ particular this task needs **no** new Tessera capability.
   `expandMarkedRings`, `balanceRedGreen`, `projectedFaceCount`, `selectMarks`,
   `refine`, `resetReferenceState`.
 - `Beatnik_Communication.hpp`: **delete** `reconcileRefinementMarks`
-  (`src/Beatnik_Communication.hpp:351`) — M1 already recorded that Tessera leaves
+  (`src/Beatnik_Communication.hpp:344`) — M1 already recorded that Tessera leaves
   it nothing to do, and this task confirms it for `splitEdges()` too.
 - `Beatnik_Solver.hpp`: `requireSupportedConfiguration` — drop the
   `refine_every > 0` rejection, add rejections for `--flip-passes > 0`
@@ -1115,7 +1115,7 @@ _balance_red_green_refinement (1543-1580), _single_green_split_quality
 `SurfaceMesh::refine`, `SurfaceMesh::splitEdges`, `reconcileRefinementMarks` or
 any `AdaptiveMesh` method today; the only occurrences are the declarations
 themselves and prose references in `Beatnik_MeshQuality.hpp:157`,
-`Beatnik_Restart.hpp:153` and `Beatnik_SurfaceState.hpp:165`, which must be
+`Beatnik_Restart.hpp:153` and `Beatnik_SurfaceState.hpp:156`, which must be
 re-pointed but compile either way. So every signature change here is free, and it
 will not be after T4b.
 
@@ -1123,12 +1123,12 @@ will not be after T4b.
 
 1. **Correct the stale header statements first**, so the headers stop
    contradicting the code that is about to be written. Two of them:
-   - `Beatnik_AdaptiveMesh.hpp:410-412` claims the refined state is built with
+   - `Beatnik_AdaptiveMesh.hpp:411-413` claims the refined state is built with
      `reference_face_area=None` and the reference is "re-based to the
      post-refinement geometry". It is not — see step 4 — and a session
      implementing from that comment gets the indicator wrong in a way no
      structural test catches. The file header's list at `:33-43` is right.
-   - `Beatnik_MeshInterface.hpp:1184-1195` says "Beatnik's default configuration
+   - `Beatnik_MeshInterface.hpp:1164-1175` says "Beatnik's default configuration
      wants both" editing families. It does not; see *Finding 1* above.
 
 2. **Get face → edge.** Tessera has no face→edge CSR: it has
@@ -1566,7 +1566,7 @@ the ship gate stays at five members / 60 launches — showing:
   the factor itself is asserted: `4119.6170715364051`, derived from the two
   volume literals rather than carried as a third one.)*
 - **rank-count invariance of every scalar above**, with the tier run once at
-  `BEATNIK_UNIT_RANKS=4` (`scripts/tuolumne/unit_tests.flux:99`). The pass
+  `BEATNIK_UNIT_RANKS=4` (`scripts/tuolumne/unit_tests.flux:98`). The pass
   recomputes normals each sweep and so needs a position halo exchange *between*
   sweeps; at one rank that precondition is unobservable, and getting it wrong
   moves a seam with the rank count rather than failing. *(Met — and the exchange
@@ -1764,9 +1764,9 @@ gold file that exists, because each defaults to off:
 
 | Control | Default | Reference | Port |
 | --- | --- | --- | --- |
-| `--max-sheet-dt-product` | `0.0` (off) | `:897-900`, `max_sheet_strength` `:904-920` | `src/Beatnik_TimeIntegrator.hpp:277-300`, `src/Beatnik_SurfaceState.hpp:474-544` |
-| `--dt-switch-time` / `--dt-after-switch` | `-1.0` (off) / `0.001` | `:1407-1408` | `src/Beatnik_Solver.hpp:410-412` |
-| `--t-end` | unset | `:1402-1403`, `:1409-1410` | `src/Beatnik_Solver.hpp:337-339`, `:413-414` |
+| `--max-sheet-dt-product` | `0.0` (off) | `:897-900`, `max_sheet_strength` `:904-920` | `src/Beatnik_TimeIntegrator.hpp:277-300`, `src/Beatnik_SurfaceState.hpp:461-531` |
+| `--dt-switch-time` / `--dt-after-switch` | `-1.0` (off) / `0.001` | `:1407-1408` | `src/Beatnik_Solver.hpp:410-413` |
+| `--t-end` | unset | `:1402-1403`, `:1409-1410` | `src/Beatnik_Solver.hpp:336-338`, `:413-414` |
 
 This task produces the gold sets. **T5f** consumes them; splitting them is the
 pattern T1a/T2a set, because generating a gold file means running the read-only
@@ -1858,7 +1858,7 @@ one; that is the whole point of the criterion.
 
 **Reference:** `tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp` for
 the whole shape — the per-step gold lookup by `_step%07d.npz` suffix (which is
-why it takes a gold *directory* and not a file, `tests/CMakeLists.txt:257-262`),
+why it takes a gold *directory* and not a file, `tests/CMakeLists.txt:247-252`),
 the `compare_output.py` invocation, and the rank-0-reports convention.
 `src/Beatnik_TimeIntegrator.hpp:228-303` and `src/Beatnik_Solver.hpp:404-438`
 for what is under test.
@@ -1871,7 +1871,7 @@ all three run as-is and nothing needs unblocking first.
 **Do:**
 
 1. **Find the gold set by step suffix, never by time key.** The checkpoint name
-   embeds the time (`CheckpointIO::timeKey`, `src/Beatnik_IOInterface.hpp:463`,
+   embeds the time (`CheckpointIO::timeKey`, `src/Beatnik_IOInterface.hpp:453`,
    six fractional digits), and the time is the quantity under test — rebuilding
    the filename from a computed time would make the test agree with whatever dt
    it produced. T2d's test already does it this way.

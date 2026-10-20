@@ -162,7 +162,7 @@ class DiagnosticsCalculator
      *       the two gap fields are global spatial queries. Every rank must call
      *       it, on the same steps, or the throttle itself deadlocks the run.
      *
-     * **T2d — SIX FIELDS ARE REPORTED AS UNAVAILABLE, AND THAT IS DELIBERATE.**
+     * **SIX FIELDS ARE REPORTED AS UNAVAILABLE, AND THAT IS DELIBERATE.**
      * Nothing here is written to a checkpoint and nothing here is compared by
      * the regression harness (see the file header), so an unavailable field is a
      * legibility gap and not a correctness one. What is left unavailable, and
@@ -170,9 +170,9 @@ class DiagnosticsCalculator
      *
      * | Field(s) | Needs | Reported as |
      * | --- | --- | --- |
-     * | `min_nonlocal_distance`, `gap_edge_ratio` | the global centroid-proximity query (T3-era / T4b) | `+inf` / `+inf` |
-     * | `exact_min_nonlocal_distance`, `exact_gap_edge_ratio` | the exact triangle-pair search (T4b) | NaN |
-     * | `max_area_change`, `max_curvature_change`, `max_curvature_resolution`, `max_curvature` | the four AMR indicators (T4a) | NaN |
+     * | `min_nonlocal_distance`, `gap_edge_ratio` | the global centroid-proximity query | `+inf` / `+inf` |
+     * | `exact_min_nonlocal_distance`, `exact_gap_edge_ratio` | the exact triangle-pair search | NaN |
+     * | `max_area_change`, `max_curvature_change`, `max_curvature_resolution`, `max_curvature` | the four AMR indicators | NaN |
      *
      * `+inf` and NaN are exactly what the Python prints when *it* has nothing —
      * `min_nonlocal_distance` is `np.inf` when every face is excluded, and
@@ -181,8 +181,8 @@ class DiagnosticsCalculator
      * against a Python one, and no field silently reports a zero that reads as a
      * measurement.
      *
-     * **T2d — `mesh` is no longer `const`** (`positions()`, `faceVertices()`,
-     * `edgeVertices()`, `sheetVector()`).
+     * **`mesh` is not `const`**: `positions()`, `faceVertices()`,
+     * `edgeVertices()` and `sheetVector()` are called on it.
      */
     static Diagnostics compute( mesh_type& mesh, const state_type& state,
                                 Real initial_volume,
@@ -330,7 +330,7 @@ class DiagnosticsCalculator
      * log can be diffed against a Python log of the same configuration. Rank 0
      * only.
      *
-     * **T2d — formatted with `snprintf`, not with iostream manipulators.** The
+     * **Formatted with `snprintf`, not with iostream manipulators.** The
      * Python's f-string specifiers (`:.4f`, `:.2e`, `:+.5e`, `:.3g`, `:5d`) are
      * `printf` specifiers verbatim, and the point of this function is that the
      * two logs diff — so the format string is the reference's, transcribed, and

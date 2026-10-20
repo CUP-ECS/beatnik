@@ -22,8 +22,8 @@
  * retained because it is simpler, deterministic, and the right thing to
  * validate first.
  *
- * THE EDIT IS `splitEdges()`, AND THE MASK IS AN EDGE MASK (T4a)
- * --------------------------------------------------------------
+ * THE EDIT IS `splitEdges()`, AND THE MASK IS AN EDGE MASK
+ * --------------------------------------------------------
  * Beatnik never calls `Tessera::refine()`; `SurfaceMesh::refine` does not
  * exist. Every topological edit here goes through the **Remesh** family, and
  * the reason is fidelity rather than convenience: for the mask "every edge of
@@ -94,7 +94,7 @@
  * cap that **throws** rather than proceeding with a partial mark set. Tessera
  * needs no reconciled mask (the edge coordinator routes the owner's verdict
  * itself), so what is agreed here is Beatnik's own closure and nothing else —
- * which is why `Comm::reconcileRefinementMarks` was deleted at T4a.
+ * which is why `Comm` has no mark-reconciliation step.
  *
  * The precondition route (a) rests on is that **both incident faces of every
  * owned edge, and all three edges of every owned face, are locally resident at
@@ -108,7 +108,7 @@
  * reference was last set. A `TriangleSurfaceState` stores
  * `reference_face_area` and `reference_face_curvature`
  * (`mesh.py:38-49`), initialized to the current values whenever they are not
- * supplied. Under the M1 storage model both live **in the mesh**, as
+ * supplied. Under Beatnik's storage model both live **in the mesh**, as
  * `FaceFieldId::{ReferenceArea, ReferenceCurvature}`, for the same reason the
  * evolved vertex fields do: a `Kokkos::View` outside the mesh is silently
  * dropped by `splitEdges()` and silently stale after `migrate()`.
@@ -162,8 +162,8 @@ namespace Beatnik
 /**
  * @brief What one refinement pass did.
  *
- * Port of mesh.py::RefinementDiagnostics (lines 69-78), plus the fields T4a's
- * exit criterion measures. Every count is **global** — a per-rank number here
+ * Port of mesh.py::RefinementDiagnostics (lines 69-78), plus the fields
+ * regression test 4 checks. Every count is **global** — a per-rank number here
  * would be a partition-dependent diagnostic, and the whole point of these is to
  * be comparable across rank counts and against the Python.
  */
@@ -181,7 +181,7 @@ struct RefinementDiagnostics
     Real max_area_change = 0.0;
     Real max_curvature = 0.0;
 
-    //-- T4a additions ------------------------------------------------------//
+    //-- Beyond the reference ----------------------------------------------//
 
     /// \f$\sum_f (|S_f| + 1)\f$ over owned faces, reduced. Computed **before**
     /// the edit; `new_faces` must equal it exactly afterwards.
@@ -251,18 +251,19 @@ class AdaptiveMesh
     static constexpr Real quality_tail_threshold = 0.25;
 
     /**
-     * @brief What each `FaceFieldId` slot means, in slot order. T4a.
+     * @brief What each `FaceFieldId` slot means, in slot order.
      *
      * The declaration `CheckpointIO::write` emits as
      * `/beatnik/face_field_names`, and the face-side answer to risk R14's
      * second consequence: `/faces/u<N>` is positional exactly as
      * `/vertices/u<N>` is, so reordering `FaceFieldId` would silently relabel
-     * every checkpoint on disk. R14 asks T4a to **extend M2's mechanism rather
-     * than invent a second one**, and this is that extension — same shape, same
-     * `static_assert` at the writer, same cross-check in `compare_output.py`.
+     * every checkpoint on disk. R14 asks for **an extension of the
+     * vertex-side mechanism rather than a second one**, and this is that
+     * extension — same shape, same `static_assert` at the writer, same
+     * cross-check in `compare_output.py`.
      *
      * It lives here rather than in the IO adapter or beside the enum for the
-     * reason M2 gave for putting `vertex_field_names` on `SurfaceState`: the
+     * reason `vertex_field_names` lives on `SurfaceState`: the
      * cross-check is only worth something if the writer and the comparator name
      * the slots **independently**, and `AdaptiveMesh` is what actually decides
      * what the three face slots mean.
@@ -307,7 +308,7 @@ class AdaptiveMesh
      * face that has *shrunk* by 16% is marked too, which is deliberate — a
      * shrinking face signals a compressing region.
      *
-     * **T4a CHANGE — the reference is read from the mesh**, not passed in. It
+     * **The reference is read from the mesh**, not passed in. It
      * is `FaceFieldId::ReferenceArea`, because a per-face array outside the
      * mesh does not survive `splitEdges()`; see the file header.
      *
@@ -450,7 +451,7 @@ class AdaptiveMesh
      *   \eta^{\kappa}_f = \left|\frac{\kappa_f}{\kappa_f^{\text{ref}}}-1\right| .
      * \f]
      *
-     * **T4a CHANGE — the reference is read from the mesh**, as for the area.
+     * **The reference is read from the mesh**, as for the area.
      */
     void curvatureChangeIndicator( mesh_type& mesh,
                                    const scalar_view& face_curvature,
@@ -614,8 +615,9 @@ class AdaptiveMesh
      *                    \frac{\eta^{\text{sag}}_f}{\tau_{\text{sag}}}\Big).
      * \f]
      *
-     * **The two are the same statement**, and T4a leans on that: under this
-     * normalization the seed condition is exactly \f$s_f > 1\f$, so "which
+     * **The two are the same statement**, and the seed selection leans on
+     * that: under this normalization the seed condition is exactly
+     * \f$s_f > 1\f$, so "which
      * faces are seeded" and "how highly are they ranked" are one number. That
      * is what lets `--max-refine-fraction` and `--max-faces` both be enforced by
      * *raising the threshold* rather than by a distributed sort or a greedy
@@ -1670,10 +1672,9 @@ class AdaptiveMesh
      * reciprocal of twice Tessera's published \f$Q = R/2r\f$, so the two
      * measurements compare directly without a conversion at the call site.
      *
-     * **T4b — the kernel moved to `SurfaceOperators::radiusRatioStats`**, which
-     * is the same arithmetic in the same order (so T4a's compiled-in literals
-     * are unchanged), single-sourced because T4b's remesher reports the same two
-     * signals per pass against the same Python numbers.
+     * **The kernel is `SurfaceOperators::radiusRatioStats`**, single-sourced
+     * because the dynamic remesher reports the same two signals per pass
+     * against the same Python numbers.
      */
     void measureShape( mesh_type& mesh, RefinementDiagnostics& diag ) const
     {
@@ -1707,9 +1708,9 @@ class AdaptiveMesh
      * silently under-marks along partition boundaries, which reads as a
      * physics difference that moves with the rank count.
      *
-     * T1b's test already asserts every edge has exactly two incident faces at
+     * T1b's test also asserts every edge has exactly two incident faces at
      * ranks 1-6, so the `count == 2` half is a re-assertion; the residency half
-     * is new.
+     * is checked only here.
      */
     void requireLocalIncidence( mesh_type& mesh ) const
     {

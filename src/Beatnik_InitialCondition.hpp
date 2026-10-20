@@ -73,12 +73,12 @@ class InitialCondition
      * deformation, zero the potential (or sheet vector), seed the vorticity,
      * then seed the material position from the resulting positions.
      *
-     * **T1c implements THE FAST PATH ONLY** — `--initial-shape sphere`,
+     * **Only THE FAST PATH is implemented** — `--initial-shape sphere`,
      * `--initial-potential-strength 0`, `--polar-amp 0`, i.e. the defaults and
      * the configuration regression test 1 compares. Anything else reaches
      * `applyShapeDeformation` / `applyPolarMode` / `seedInitialVorticity`,
-     * which are T5a and throw. The dispatch below mirrors the Python's, which
-     * is a three-way branch and not two independent conditions:
+     * which are pending T5a and throw. The dispatch below mirrors the
+     * Python's, which is a three-way branch and not two independent conditions:
      *
      *   sphere && strength == 0 && amp == 0  ->  nothing (the fast path)
      *   sphere && strength == 0 && amp != 0  ->  applyPolarMode ONLY
@@ -96,7 +96,8 @@ class InitialCondition
      * the fast path (the potential is identically zero, so its area-weighted
      * mean is zero), and it is called anyway rather than skipped, because it is
      * the *only* collective in the cold-start field path and a run that skipped
-     * it here would first exercise it at T2d with the RHS in flight.
+     * it here would first exercise it inside a timestep, with the RHS in
+     * flight.
      *
      * @param[out] mesh  Surface to build.
      * @param[out] state Fields to initialize.
@@ -115,8 +116,8 @@ class InitialCondition
                                     _params.radius, center );
             break;
         case MeshKind::LatLon:
-            // Tessera has the generator (M1 gap G7 closed); the adapter body is
-            // T5a-era, so this throws rather than silently building an
+            // Tessera has the generator; the adapter body is pending T5a,
+            // so this throws rather than silently building an
             // icosphere. `--mesh-kind latlon` is on no regression path.
             mesh.generateLatLonSphere( _params.n_theta, _params.n_phi,
                                        _params.radius, center );

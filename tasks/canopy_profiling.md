@@ -115,7 +115,7 @@ with 25 steps of motion at once, which is not the motion it sees in
 production: one RK3 stage at a time, three evaluations per step
 (`src/Beatnik_TimeIntegrator.hpp:155,162,168`, each through
 `ZModelSolver::computeRightHandSidePotential` to
-`_br_solver->computeInterfaceVelocity` at `src/Beatnik_ZModelSolver.hpp:223`).
+`_br_solver->computeInterfaceVelocity` at `src/Beatnik_ZModelSolver.hpp:224`).
 Only an FMM-driven run measures the production maintenance pattern, so the
 probe drives one, and pays the FMM cost the document exists to reduce.
 
@@ -170,7 +170,7 @@ build on.
   of the admitted columns, against 100 % with it off
   (`../canopy/tasks/tree-opt.md` B2; `../canopy/README.md`, "The M2L operator
   cache empties on every build"). `FarFieldSolver::buildConfig`
-  (`src/Beatnik_FarFieldInterface.hpp:1124`) never set it before O1, and
+  (`src/Beatnik_FarFieldInterface.hpp:1118`) never set it before O1, and
   `FmmParams` (`src/Beatnik_Params.hpp:167-434`) had no field for it.
 - **At level 4 the downward sweep dominates an evaluation.** The T9b level-4
   HIP log's per-solve breakdown reads Downward 97.6 %, Upward 1.3 %, P2P 1.1 %
@@ -184,7 +184,7 @@ build on.
   in Canopy's A3 to add fallback work and save nothing
   (`../canopy/tasks/tree-opt.md` A3 `**Met.**`). It is not a candidate here.
 - **The adapter does host work on every evaluation that is not FMM work.**
-  `p2pPairCountLocal()` (`src/Beatnik_FarFieldInterface.hpp:1298-1323`) builds
+  `p2pPairCountLocal()` (`src/Beatnik_FarFieldInterface.hpp:1292-1317`) builds
   a host hash every evaluation and is always computed. It is followed by a
   9-element `MPI_Allreduce` (`:1589`) and the forward distributor's own claims
   migrate (`:1237`). These are sized in T3, not assumed.
@@ -202,13 +202,13 @@ build on.
 | Canopy test runs | `ctest` inside a flux batch script under `../canopy/scripts/tuolumne/`, with an anchored regex. The env and `GLIBC_TUNABLES` come from `../canopy/systems/tuolumne/claude.md` §4–5. SERIAL at np 1–6, HIP at np 1–4 | Canopy's tests register HIP at np 1–4 only (`../canopy/run_cmake_tuolumne.sh`). |
 | Spack env for measurement | **dev env** (`BEATNIK_USE_PROD` unset). Every new script under `scripts/tuolumne/` refuses `BEATNIK_USE_PROD=1` loudly, as `t5_divergence.flux:143` does | `canopy +profiling` is dev-only (`systems/tuolumne/claude.md` §1); a production binary has no timers to read. |
 | Profiling levels | dev env: `canopy +profiling profiling_level=2` (T2), `beatnik profiling_level=2` (already). Production unchanged: `canopy ~profiling`, `beatnik profiling_level=1` | Level 2 is where the operator-build and DTT timers live. |
-| Measurement driver | `Beatnik_Probe_FmmCost`, in the **"Measurement drivers — IN NO TIER"** loop (`tests/CMakeLists.txt:584-675`): no `LABELS`, no `add_test`, no manifest. Installed, launched by `beatnik_exe` | A probe measures and asserts nothing. A measurement that carries a pass criterion gets tuned to pass. |
+| Measurement driver | `Beatnik_Probe_FmmCost`, in the **"Measurement drivers — IN NO TIER"** loop (`tests/CMakeLists.txt:575-666`): no `LABELS`, no `add_test`, no manifest. Installed, launched by `beatnik_exe` | A probe measures and asserts nothing. A measurement that carries a pass criterion gets tuned to pass. |
 | Accuracy bound for any optimization | Claim A's metric, `max|u_fmm − u_direct| / max|u_direct|` over owned vertices (`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp:1447-1490`). **No regression in aggregate, at every level:** the worst value over that level's SMS states after the task is ≤ the worst value before it (the previous task's, or T3's for the first), compared exactly. Individual states may move either way. Level 4 therefore also stays within `kTauA` = 1.5e-3 (`:320`). Every change is still reported per state, against the previous task and against T3 | The user's ruling after T3 (log, "Decision: no accuracy regression in any O task"). `[acc]` is bit-reproducible across repetitions, nodes, rank counts and backends (T3), so "no regression" needs no tolerance. $\tau_A$ alone would not do: it was set at level 4 from the reference treecode's own error, and the unoptimized `ncrit 8` baseline already exceeds it at L5 (1.6e-3) and L6 (2.7e-3) ([log](canopy_profiling-progress-log.md) "L5/L6 accuracy check"). |
 | Backend priority | **HIP first.** SERIAL is measured at level 4 and must stay correct, but a SERIAL-only slowness (np4 slower than np1 on SERIAL: 2.21x at level 3, 1.37x at level 4) is O7, the last optimization task | MI300A production runs HIP. |
 | Rank counts | Phase P/O: np 1 and 4, one node. Phase S: 16–64 ranks | One node holds 4 MI300A APUs. |
 | New file headers | Beatnik: the BSD-3 block with `SPDX-License-Identifier: BSD-3-Clause` exactly as `src/Profiling.hpp:1-10`. Canopy: Canopy's banner | `CLAUDE.md` "Match the license/header convention". |
 | Formatting | Never run clang-format, `clangformat.sh` or `cabana-format`, in either repo | The user formats by hand. |
-| Sentinel for "not compiled in" | `-1`, never `0` | Zero is a legal count or time. This matches `FarFieldDiagnostics`' existing demand fields (`src/Beatnik_FarFieldInterface.hpp:214-399`). |
+| Sentinel for "not compiled in" | `-1`, never `0` | Zero is a legal count or time. This matches `FarFieldDiagnostics`' existing demand fields (`src/Beatnik_FarFieldInterface.hpp:214-396`). |
 
 #### Build and run economy (applies to every task)
 
@@ -285,7 +285,7 @@ and jobs are the dominant cost of this programme.
 - **Three FMM evaluations per timestep**, one per RK3 stage (see
   [Why the trajectory is FMM-driven](#why-the-trajectory-is-fmm-driven)). Each
   goes through `FarFieldSolver::evaluate`
-  (`src/Beatnik_FarFieldInterface.hpp:1395-1733`, as of O1) in these phases,
+  (`src/Beatnik_FarFieldInterface.hpp:1389-1727`, as of O1) in these phases,
   each under its T2 `ff_*` timer:
 
   | # | Phase | Code | Timer |
@@ -312,11 +312,11 @@ and jobs are the dominant cost of this programme.
   `Beatnik_Test_Milestone0Fmm.cpp:2215`, and `eval_wall` in
   `Beatnik_Probe_FmmKeyDemand.cpp:579-583`.
 - **`FarFieldDiagnostics` describes the last evaluation only**
-  (`src/Beatnik_FarFieldInterface.hpp:214-399`). With three evaluations per
+  (`src/Beatnik_FarFieldInterface.hpp:214-396`). With three evaluations per
   step, a caller that reads it after `advanceOneStep` sees the third stage's
   maintenance action and nothing of the first two. Nothing in `src/` prints it.
-  The test and probe readers are `Beatnik_Test_FmmVsDirect.cpp:717`,
-  `Beatnik_Test_Milestone0Fmm.cpp:1467,1968`, `Beatnik_Test_FmmScan.cpp:826-831`
+  The test and probe readers are `Beatnik_Test_FmmVsDirect.cpp:718`,
+  `Beatnik_Test_Milestone0Fmm.cpp:1467,1968`, `Beatnik_Test_FmmScan.cpp:829-834`
   and `Beatnik_Probe_FmmKeyDemand.cpp:585`.
 - **The driving BR solver is not reachable from outside `Solver`.**
   `Solver::_br_solver` (`src/Beatnik_Solver.hpp:1099`) is private and has no
@@ -963,7 +963,7 @@ or eviction instead of a full clear) when they occur.
 - **FmmVsDirect: PASS at ranks 1–6 on HIP** (job `f3dk9yN1mqFM`, installed
   default `true`). **Gap:** the binary instantiates only
   `Kokkos::DefaultExecutionSpace`
-  (`tests/unit_tests/Beatnik_Test_FmmVsDirect.cpp:1193-1195`), so there is
+  (`tests/unit_tests/Beatnik_Test_FmmVsDirect.cpp:1194-1196`), so there is
   no SERIAL FmmVsDirect to run. SERIAL's evidence is the SERIAL probe's
   `[acc]` rows, identical to HIP's.
 
@@ -1269,8 +1269,8 @@ compiles both out.
 The knob: a Canopy `FmmConfig` field, a `DownwardSweep` setter, a Beatnik
 `FmmParams` field mapped in `buildConfig`, and a probe key, as O8's
 `device_op_table_assembly` and O5's `indexed_comm_plan`
-(`../canopy/src/Canopy_Solver.hpp:134,141`; `src/Beatnik_Params.hpp:488`;
-`src/Beatnik_FarFieldInterface.hpp:1184`). README "FMM tunables" and the
+(`../canopy/src/Canopy_Solver.hpp:134,141`; `src/Beatnik_Params.hpp:485`;
+`src/Beatnik_FarFieldInterface.hpp:1178`). README "FMM tunables" and the
 Canopy README's `FmmConfig` table each gain a row.
 
 **Do:**

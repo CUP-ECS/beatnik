@@ -162,10 +162,10 @@ struct ClArgs
     // does the resolution in `setup()`; see
     // run_adaptive_mesh_bubble.py:1272-1286.
 
-    // T1c CHANGE: the four proximity distance/factor fields that used to live
-    // here now live in `RemeshParams`, because `Solver::setup` is what resolves
-    // them against `initial_min_edge` and it is handed only a `SolverParams`.
-    // The CLI option names and defaults are unchanged; see
+    // The four proximity distance/factor fields live in `RemeshParams`, not
+    // here, because `Solver::setup` is what resolves them against
+    // `initial_min_edge` and it is handed only a `SolverParams`. Their CLI
+    // option names and defaults are the Python's; see
     // `Beatnik_Params.hpp::RemeshParams::proximity_activation_factor`.
 
     /// `--remesh-tight-proximity`, default false. ORed with

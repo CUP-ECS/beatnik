@@ -43,7 +43,7 @@
  * It is also the expensive member by a wide margin: one 2000-step FMM-driven
  * level-4 trajectory is **2377 s** at HIP np1 and **1473 s** at HIP np4 (T5),
  * against level 3's 256 s at HIP np1, and this member runs one of those on top
- * of a full direct trajectory. That is what moved the tier runner to
+ * of a full direct trajectory. That is why the tier runs under
  * `-q pbatch`.
  *
  * Arguments, the scratch convention and `BEATNIK_PYTHON` are all as documented

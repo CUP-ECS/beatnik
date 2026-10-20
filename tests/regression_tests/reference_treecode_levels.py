@@ -17,7 +17,7 @@ icosphere level (canopy_profiling, the L5/L6 accuracy question).
 **A MEASUREMENT TOOL, NOT A TEST.** In no tier; the exit status says whether
 the measurement completed, never whether any bound was met.
 
-`reference_treecode_error.py` (T9r) does the same measurement on the level-4
+`reference_treecode_error.py` does the same measurement on the level-4
 gold `.npz` set. This reads Beatnik's own `.h5` checkpoints instead, so the
 reference can be evaluated at levels 5 and 6, where no gold set exists, on the
 states a Beatnik run produced. For each file it builds

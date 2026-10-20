@@ -32,15 +32,14 @@
 # then 2000 FMM-driven steps (claim B), then the divergence ladder. There is
 # no step-count override anywhere in this path, deliberately.
 #
-# THE LAUNCH FAILS BY CONSTRUCTION, and that is not the result. The member
-# asserts `p.m2l_fallback == 0` per claim-A state (`:1500`) and the same on
-# claim B's final state (`:1967`); the classify pass's range guard carries
-# 100 % of level-4 fallback (T8b) and no configuration removes it, so both
-# fail. T9b, not T9a, replaces those checks. What T9a reads is the
-# `[t6] CLAIM A SERIES` block and the `CLAIM A: worst relative velocity
-# error` note -- the per-state error against `tau_A` -- and it confirms that
-# every `[FAIL]` line is at one of :1500, :1505, :1506 or :1967. Any other
-# failed check, a walltime kill or a missing claim-A state is a real failure.
+# WHAT TO READ. The `[t6] CLAIM A SERIES` block and the `CLAIM A: worst
+# relative velocity error` note -- the per-state error against `tau_A`. The
+# classify pass's range guard carries 100 % of level-4 fallback (T8b), and
+# the member asserts no m2l fallback count, at a claim-A state or on claim
+# B's final state. The Report block's text below expects a non-zero rc from
+# zero-fallback checks at :1500 and :1967; the member has no such checks, so
+# that text does not apply: any `[FAIL]` line, a walltime kill or a missing
+# claim-A state is a real failure.
 #
 # Targets the DEVELOPMENT spack env (BEATNIK_USE_PROD is not set): this is
 # measurement work, not a large production run.
@@ -155,8 +154,8 @@ echo "[t9a] args  = ${_args[*]}"
 
 # MUST be on a PARALLEL filesystem: this member writes TWO 2000-step checkpoint
 # series through MPI-IO, and a node-local scratch fails every launch spanning
-# more than one node. Per JOB, so two submissions cannot share a series (T5
-# lost a launch to exactly that collision). `FLUX_JOB_ID` is not set for a
+# more than one node. Per JOB, so two submissions cannot share a series (two
+# launches writing one series collide). `FLUX_JOB_ID` is not set for a
 # batch script's init program, so ask the batch instance itself.
 BEATNIK_T9A_SCRATCH_ROOT="${BEATNIK_T9A_SCRATCH_ROOT:-/p/lustre5/stewartj/beatnik/t9a_l4_member}"
 _jobid="${FLUX_JOB_ID:-$(flux getattr jobid 2>/dev/null)}"

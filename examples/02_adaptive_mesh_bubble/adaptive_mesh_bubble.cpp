@@ -37,7 +37,7 @@
  *
  * CURRENT BEHAVIOR
  * ----------------
- * The solver integrates (tasks T2d, T4a, T4b). The still-unported passes are
+ * The solver integrates. The still-unported passes are
  * the mesh-quality ones (T4d, T4e) and the circulation field filter (T5c), and
  * a configuration that needs one of them is rejected by
  * `Solver::requireSupportedConfiguration` before the first step, with a message

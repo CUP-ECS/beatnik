@@ -132,12 +132,12 @@ class RestartReader
      *
      * Port of run_adaptive_mesh_bubble.py::main (lines 1199-1214)
      *
-     * **M2 CHANGE — this no longer "reads and adopts".** `CheckpointIO::read`
+     * **This does not "read and adopt".** `CheckpointIO::read`
      * is `Tessera::readMesh`, which rebuilds the distributed mesh *and every
      * per-vertex field* in one collective call, across a change of rank count,
      * without any rank holding the global mesh. There is no rank-0 read, no
      * `Comm::broadcastFromRoot` and no `SurfaceMesh::adopt` on this path, and
-     * the fields arrive **inside** the mesh (the M1 vertex user pack) rather
+     * the fields arrive **inside** the mesh (the vertex user pack) rather
      * than in `state`. What is left for this function is the part Tessera has
      * no opinion about: the `/beatnik` scalars, and the consequences below.
      *
@@ -166,7 +166,7 @@ class RestartReader
      *         starting — a silent cold start would produce a plausible-looking
      *         run of the wrong thing.
      *
-     * @warning **M2 — the other half of "unreadable" is not an exception.** A
+     * @warning **The other half of "unreadable" is not an exception.** A
      *          file whose precision, dimension, refinement mode or vertex field
      *          pack disagrees with this build is an `MPI_Abort` raised inside
      *          Tessera's `readMesh`, which cannot be caught. The checks this
@@ -204,12 +204,12 @@ class RestartReader
      * wrong looks exactly like a summation-order difference, which is why both
      * follow the same rule here rather than only the one that needs it.
      *
-     * **T1c CHANGE — the mesh is taken by NON-const reference.** It was
-     * `const mesh_type&`. `faceVertices()` / `edgeVertices()` build and cache
-     * `Tessera::MeshGeometry` against `generation()` on first call after an
-     * edit, so they cannot be `const`, and neither can any caller of them.
-     * Forced by the M1 storage model (connectivity is stored as gids and the
-     * local-index views are derived), not a convenience.
+     * **The mesh is taken by NON-const reference.** `faceVertices()` /
+     * `edgeVertices()` build and cache `Tessera::MeshGeometry` against
+     * `generation()` on first call after an edit, so they cannot be `const`,
+     * and neither can any caller of them. That is forced by the storage model
+     * (connectivity is stored as gids and the local-index views are derived),
+     * not a convenience.
      *
      * @note MPI. Both quantities are global reductions —
      *       `Comm::allReduceSum` and `Comm::allReduceMin` — so on a run with a

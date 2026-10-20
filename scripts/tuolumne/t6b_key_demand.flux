@@ -19,56 +19,43 @@
 # T5's MEASUREMENT RUN (`tasks/add-canopy-t6.md`): Beatnik_Probe_FmmKeyDemand
 # at LEVEL 4 on HIP at ranks 1 and 4, with a LEVEL 3 np1 control beside it.
 #
-# WHAT IT IS FOR. T5 measures the level-4 M2L operator-key demand series, so
-# T8 can size the count cap from a number instead of a guess. T3 and T4 ran
-# this same script at level 3 only, to show that the probe RUNS -- that both
-# per-backend targets resolve, and that the rank-local fields are printed once
-# per rank rather than reduced. That is now established, and the level-4 matrix
-# below is the measurement itself.
+# WHAT IT IS FOR. It measures the level-4 M2L operator-key demand series, so
+# the count cap can be sized from a number instead of a guess. The probe is
+# known to RUN at level 3: both per-backend targets resolve, and the
+# rank-local fields are printed once per rank rather than reduced.
 #
-# ONE SUBMISSION IS NOT THE NUMBER. The level-3 control was measured twice and
-# the two runs disagree in 369 of 405 rows of `unique_ops`, with np1 peak
-# demand 6 198 and 5 938 -- about a 4 % spread (`## T4` in the progress log).
-# The peak is a draw from a distribution, so T5 submits this script THREE
-# separate times and reports the WORST OBSERVED peak per (rank count, rank)
+# ONE SUBMISSION IS NOT THE NUMBER. The level-3 np1 peak demand is a draw from
+# a distribution: the five draws on record (`## T4` and `## T5` in the
+# progress log) span 5 586 to 6 624 -- about +/-8.5 % around 6 100 -- and the
+# peak's STEP moves from 400 to 1925 across them. So submit this script THREE
+# separate times and report the WORST OBSERVED peak per (rank count, rank)
 # with the run-to-run spread stated. Three independent allocations also
 # separate a run-to-run effect from an allocation-fixed one. Never a mean, and
 # never a single draw.
 #
-# WHAT THE LEVEL-3 LAUNCH IS FOR NOW. It is a REPRODUCIBILITY CHECK against a
-# measured band -- np1 peak demand 6 198 at step 1600 and 5 938 at step 1575 --
-# not a test of whether level-3 demand is under the cap, which is already
-# measured (zero fallback in all 405 rows of both runs, `demand_saturated`
-# never set). **T5 WIDENED THAT BAND BY MEASURING IT THREE MORE TIMES**: the
-# five draws now on record span 5 586 to 6 624 -- about +/-8.5 % around 6 100,
-# not 4 % -- and the peak's STEP moves from 400 to 1925 across them, so the
-# original two-point 5 938-6 198 range was an under-sampled min/max and not a
-# bound. Compare the SUBSTANTIVE columns instead, which are stable to the point
-# of being identical: zero fallback and zero over-cap rows at every state, a
-# demand minimum of 828 in every draw, `demand == unique_ops` in 81 of 81, and
-# `occupied_depths` in 4-6. One of those moving means the measurement apparatus
-# moved; a peak outside 5 586-6 624 alone does not. Level 3 declares
-# `kFarFieldIsLive = false` and cannot exercise the overflow path at all, so it
-# proves NOTHING about level 4. Note also that `demand == unique_ops` at
-# level 3 is an artefact of the cap not binding there: a level-4
-# `demand > realized` is the EXPECTED reading, not a regression against the
-# control.
+# WHAT THE LEVEL-3 LAUNCH IS FOR. It is a REPRODUCIBILITY CHECK, not a test of
+# whether level-3 demand is under the cap, which is already measured (zero
+# fallback in all 405 rows, `demand_saturated` never set). The peak is not a
+# bound, so compare the SUBSTANTIVE columns instead, which are stable to the
+# point of being identical: zero fallback and zero over-cap rows at every
+# state, a demand minimum of 828 in every draw, `demand == unique_ops` in 81
+# of 81, and `occupied_depths` in 4-6. One of those moving means the
+# measurement apparatus moved; a peak outside 5 586-6 624 alone does not.
+# Level 3 declares `kFarFieldIsLive = false` and cannot exercise the overflow
+# path at all, so it proves NOTHING about level 4. Note also that
+# `demand == unique_ops` at level 3 is an artefact of the cap not binding
+# there: a level-4 `demand > realized` is the EXPECTED reading, not a
+# regression against the control.
 #
-# THE `-1` OBSERVATION HAS BEEN TAKEN AND IS RECORDED. T3 ran this script
-# against the `canopy ~profiling` the env concretized then (job `f3bQSGSss6RD`)
-# and read the `-1` SENTINEL in 405 of 405 rows, with the loud
-# `*** DEMAND UNAVAILABLE ***` header line -- see `## T3` in
-# `tasks/add-canopy-t6-progress-log.md`. T4 then added `+profiling` to the
-# canopy spec, so the sentinel is no longer reachable in this environment and
-# nothing here needs to preserve it.
-#
-# WHAT THIS SCRIPT SHOWS NOW. Under `canopy +profiling` the header reports
-# `demand_available=1` and the demand column carries a REAL non-negative count,
-# beside the two ungated depth columns that were live all along. A probe that
-# reported `-1` for the depth columns would still be reporting its own bug
-# (risk R7), and a `-1` in the demand column now would mean the binary that ran
-# was not built against the `+profiling` canopy -- check the `spack find
-# --variants canopy` line this script echoes before trusting any row.
+# WHAT THIS SCRIPT SHOWS. The env's canopy spec carries `+profiling`, under
+# which the header reports `demand_available=1` and the demand column carries
+# a REAL non-negative count, beside the two ungated depth columns. A probe
+# that reported `-1` for the depth columns would be reporting its own bug
+# (risk R7). A `-1` SENTINEL in the demand column, with the loud
+# `*** DEMAND UNAVAILABLE ***` header line, is what a `canopy ~profiling`
+# build prints, so it means the binary that ran was not built against the
+# `+profiling` canopy -- check the `spack find --variants canopy` line this
+# script echoes before trusting any row.
 #
 # WHY np1 AND np4. np4 is the only launch that exercises the per-rank unreduced
 # printing at all: at np1 "per rank" and "reduced" are the same four lines. The
@@ -204,11 +191,10 @@ for _entry in "${_matrix[@]}"; do
     # recreated immediately before the launch so a stale checkpoint from an
     # earlier run cannot be read back as this run's output.
     #
-    # THE JOB ID IN THE PATH IS LOAD-BEARING, not tidiness. T5 submits this
-    # script three times, and two submissions that overlap in the queue would
-    # otherwise write the SAME checkpoint files: that is exactly how T5's first
-    # attempt lost a launch, with
-    # `H5FD__sec2_lock(): unable to lock file, errno = 11` at step 1325 and a
+    # THE JOB ID IN THE PATH IS LOAD-BEARING, not tidiness. This script is
+    # submitted three times, and two submissions that overlap in the queue would
+    # otherwise write the SAME checkpoint files: that loses a launch, with
+    # `H5FD__sec2_lock(): unable to lock file, errno = 11` and a
     # `collective tags 14 and 1 do not match` MPI abort behind it. A collision
     # need not abort to be harmful -- it could also round-trip another job's
     # particle counts -- so the path is per job whether the submissions overlap

@@ -16,9 +16,7 @@
  * THIS IS THE FIRST MEMBER OF THE SHIP GATE.
  * `tasks/framework.md` states T1c's exit criterion as: *regression test 1
  * passes at 0 timesteps; `compare_output.py beatnik.h5 gold.npz --rtol 1e-12
- * --atol 1e-14` exits 0, at ranks 1, 2 and 4.* Before this file the
- * `regression` tier was empty and a green gate proved nothing (89ec015 removed
- * the pre-redesign solver and its only end-to-end test). It is `regression`
+ * --atol 1e-14` exits 0, at ranks 1, 2 and 4.* It is `regression`
  * and not `unit` because it composes the whole pipeline that exists today —
  * `InitialCondition::build` -> `RestartReader::coldStart` -> `Solver::setup` ->
  * `solve()` -> `finalize()` -> `CheckpointIO::write` -> the comparator — rather
@@ -39,14 +37,13 @@
  * In spack mode there is no build tree and therefore no ctest, so a directly
  * launched binary is judged by its exit code and nothing else (CLAUDE.md,
  * "Running tests in `spack` mode"). Exit 0 iff **every** check passed on
- * **every** rank *and at least one check ran* — the same contract T1b
- * established, with the cross-rank reduction added; see
- * `Beatnik_TestAssert.hpp`.
+ * **every** rank *and at least one check ran* — the contract of
+ * `Beatnik_TestAssert.hpp`, reduced across ranks.
  *
- * THE NEGATIVE CASE, AND THE T1b TRAP IT AVOIDS
- * ---------------------------------------------
- * A test that has only ever seen matching data has not been tested. T1b found
- * the sharp edge here the hard way: a `WILL_FAIL`-style case can pass
+ * THE NEGATIVE CASE, AND THE VACUOUS-PASS TRAP IT AVOIDS
+ * ------------------------------------------------------
+ * A test that has only ever seen matching data has not been tested. The sharp
+ * edge here: a `WILL_FAIL`-style case can pass
  * **vacuously**, because a missing file also exits non-zero, and the failure is
  * invisible in a green log. So this test runs the comparator a *second* time,
  * against the deliberately mismatched `synthetic_gold.npz` fixture, and
@@ -102,8 +99,7 @@ using Beatnik::Real;
 //---------------------------------------------------------------------------//
 // T1a reference values and configuration.
 //
-// Produced by the Python driver, `tasks/framework.md` task T1a (met
-// 2026-08-07):
+// Produced by the Python driver (the T1a gold set, `tasks/framework.md`):
 //
 //   python examples/run_adaptive_mesh_bubble.py
 //       --A 0.3 --g 1.0 --mu 0.002 --eps 0.025
@@ -118,7 +114,8 @@ using Beatnik::Real;
 //
 // `--source-quadrature vertex` is not optional even at 0 timesteps, where the
 // quadrature is never evaluated: risk R11 in `tasks/framework.md` records that
-// every gold file is generated that way so the trap cannot bite at T2a.
+// every gold file is generated that way, so the gold sets for runs that do
+// take timesteps agree with the port's vertex-only quadrature.
 //---------------------------------------------------------------------------//
 constexpr double kInitialVolume = 6.3235073124669514e-02;
 constexpr double kInitialMinEdge = 6.8976121063816842e-02;
@@ -191,7 +188,7 @@ Beatnik::SolverParams makeParams( const std::string& checkpoint_dir )
     p.initial.radius = kRadius;
     p.initial.center_z = kCenterZ;
     // --initial-shape sphere, --initial-potential-strength 0, --polar-amp 0:
-    // the fast path, which is all T1c implements. Set explicitly rather than
+    // the fast path. Set explicitly rather than
     // left to the defaults, because a later change to a default must break this
     // test loudly rather than silently change what it compares.
     p.initial.shape = Beatnik::InitialShape::Sphere;
@@ -205,8 +202,8 @@ Beatnik::SolverParams makeParams( const std::string& checkpoint_dir )
     p.zmodel.eps = 0.025;
     // --viscosity-mode laplace-beltrami
     p.zmodel.viscosity_mode = Beatnik::ViscosityMode::LaplaceBeltrami;
-    // --br-approximation direct. Not `fmm`: this must not depend on Canopy
-    // (T3a), and at 0 timesteps the BR evaluator is constructed but never
+    // --br-approximation direct. Not `fmm`: this must not depend on Canopy,
+    // and at 0 timesteps the BR evaluator is constructed but never
     // called.
     p.zmodel.br_approximation = Beatnik::BRApproximation::Direct;
     // --source-quadrature vertex. See R11.
@@ -253,7 +250,7 @@ void runChecks( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
 
     // Every input path is checked BEFORE it is used. A missing file makes the
     // comparator exit 2, which the negative case below would otherwise accept
-    // as "non-zero, therefore failed" -- the T1b trap.
+    // as "non-zero, therefore failed" -- the vacuous-pass trap.
     if ( rank == 0 )
     {
         BEATNIK_CHECK_TRUE( rec, fileExists( gold ) );
@@ -409,7 +406,7 @@ void runChecks( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
         rec.note( "checkpoint written to " + checkpoint_path );
         BEATNIK_CHECK_TRUE( rec, fileExists( checkpoint_path ) );
 
-        // Positive case: this IS T1c's exit criterion.
+        // Positive case: this IS the exit criterion quoted in the header.
         const int positive =
             runComparator( python, script, checkpoint_path, gold );
         std::ostringstream os;

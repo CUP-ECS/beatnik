@@ -10,20 +10,18 @@
  ****************************************************************************/
 /**
  * @file Beatnik_Test_MeshGeometry.cpp
- * @brief `unit`-tier test for T1b: icosphere generation and mesh geometry.
+ * @brief `unit`-tier test: icosphere generation and mesh geometry.
  *
  * THIS IS T1b's EXIT CRITERION, MECHANIZED.
  * `tasks/framework.md` states it as: *a 1-rank run reproduces the Python's
  * vertex and face counts (162 / 320 at the default subdivision 2) and its
  * enclosed volume and minimum edge length to `1e-14` relative.*
  *
- * There is no driver path to check that through — `Solver::setup` and
- * `CheckpointIO::write` are T1c, so no `beatnik.h5` exists to hand to
- * `compare_output.py`. This test is what stands in until there is, and it
- * checks strictly more than the exit criterion: the two reference scalars, the
- * three entity counts, and the internal consistency of all three adjacency
- * relations, which is what would catch a mesh that has the right *number* of
- * things connected wrongly.
+ * This test checks it directly, without a driver run or `compare_output.py`,
+ * and it checks strictly more than the exit criterion: the two reference
+ * scalars, the three entity counts, and the internal consistency of all three
+ * adjacency relations, which is what would catch a mesh that has the right
+ * *number* of things connected wrongly.
  *
  * The two reference scalars are **hard-coded literals** taken from the T1a run
  * recorded in `tasks/framework.md`. They are not recomputed here and must not
@@ -58,8 +56,7 @@ using Beatnik::Real;
 //---------------------------------------------------------------------------//
 // T1a reference values.
 //
-// Produced by the Python driver, `tasks/framework.md` task T1a (met
-// 2026-08-07):
+// Produced by the Python driver, `tasks/framework.md` task T1a:
 //
 //   python examples/run_adaptive_mesh_bubble.py
 //       --A 0.3 --g 1.0 --mu 0.002 --eps 0.025
@@ -326,8 +323,8 @@ void runChecks( Beatnik::Test::Recorder& rec )
     //-----------------------------------------------------------------------//
     // Group 5 — the derived geometry is self-consistent.
     //
-    // `MeshGeometry::compute` and `volumeGradient` are T1b bodies with no
-    // reference value of their own at this task, so they are pinned by two
+    // `MeshGeometry::compute` and `volumeGradient` have no reference value of
+    // their own in this test, so they are pinned by two
     // identities that hold exactly in exact arithmetic. Both are stated over
     // the WHOLE surface, so they are asserted at 1 rank only -- a per-rank
     // partial sum satisfies neither.

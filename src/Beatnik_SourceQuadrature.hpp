@@ -205,7 +205,7 @@ class VertexQuadrature : public SourceQuadratureBase<ExecutionSpace, MemorySpace
      * `source_strength = vertex_area[:, None] * sheet_vector`
      *
      * `state` is unused, and deliberately so: under both state models the
-     * vertex sheet vector lives in the mesh (`mesh.sheetVector()`, an M1 vertex
+     * vertex sheet vector lives in the mesh (`mesh.sheetVector()`, a vertex
      * user field). Under `Potential` it is derived, and the caller refreshes it
      * with `SurfaceState::updateSheetVector` before each evaluation; under
      * `SheetVector` it is the evolved unknown. Either way this rule reads the

@@ -65,8 +65,8 @@ set -u
 # Pin the repo root. `flux batch` copies this script into a per-job spool
 # directory, so BASH_SOURCE points at /var/tmp/... and cannot find the checkout.
 # It does preserve the submitting working directory, so walk up from PWD;
-# BASH_SOURCE still covers a direct `bash` run. Copied in shape from
-# run_milestone.flux, which already paid for this.
+# BASH_SOURCE still covers a direct `bash` run. Same shape as
+# run_milestone.flux.
 beatnik_find_repo() {
     local _d
     for _d in "$(dirname "${BASH_SOURCE[0]}")/../.." "${PWD}"; do
@@ -206,7 +206,7 @@ _skipped=0
 # FD 3, NOT STDIN: `flux run` inherits and CONSUMES the loop's stdin, so with
 # the row list on stdin the first launched binary swallows every remaining row
 # and the sweep silently runs only its first member -- reporting a plausible
-# partial table. run_milestone.flux already paid for this; copied in shape.
+# partial table. Same shape as run_milestone.flux.
 while IFS= read -r _row <&3; do
     [ -n "${_row}" ] || continue
     # shellcheck disable=SC2086
@@ -249,7 +249,7 @@ while IFS= read -r _row <&3; do
     }
 
     # Tuolumne packs 4 ranks per node; round the node count up. The binding is
-    # copied EXACTLY from run_milestone.flux:195-203 and must not be simplified:
+    # copied EXACTLY from run_milestone.flux:194-202 and must not be simplified:
     # a wrong binding does not fail, it oversubscribes one device and returns a
     # plausible wall time that reads like a real measurement.
     _nodes=$(( (_np + 3) / 4 ))

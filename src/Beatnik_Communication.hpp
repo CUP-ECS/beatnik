@@ -25,17 +25,14 @@
  * the invariant that breaks without it. The last is the part that cannot be
  * reconstructed from the code afterwards.
  *
- * WHO OWNS THE COLLECTIVE (M1-REWORK)
- * -----------------------------------
+ * WHO OWNS THE COLLECTIVE
+ * -----------------------
  * **Nothing here calls `MPI_Allreduce` or posts a message.** Every function
  * below forwards either to Tessera — through `SurfaceMesh`, so no Tessera type
  * is named outside the adapter — or, for the reductions, to Tessera's
- * single-sourced collective wrappers. At M1 that was not possible: Tessera
- * exposed only `globalMin` and no reverse halo, so this file was specified as
- * the one place Beatnik would hand-roll the rest. Both gaps (M1 G2 and G3) are
- * closed, so the hand-rolling is gone and the value of this file is now
- * entirely in **where** these calls must sit in the control flow, which follows
- * from the mathematics and is unchanged.
+ * single-sourced collective wrappers. The value of this file is entirely in
+ * **where** these calls must sit in the control flow, which follows from the
+ * mathematics.
  *
  * The reduction wrappers take an `MPI_Comm` rather than a mesh because their
  * callers (the time integrator, the diagnostics, `SurfaceState`) hold a
@@ -52,7 +49,7 @@
  * `initial_min_edge` — so a 4-rank run and a 6-rank run will not produce
  * bit-identical trajectories. This is expected and is why
  * `compare_output.py` compares with `rtol`/`atol` rather than exactly. It is
- * recorded as risk R2 in `tasks/framework.md`, and Tessera now documents the
+ * recorded as risk R2 in `tasks/framework.md`, and Tessera documents the
  * same caveat on its own `globalSum`. **Integer sums are exact**, which is why
  * the entity counts on `SurfaceMesh` are reduced as `long long`.
  */
@@ -85,16 +82,13 @@ namespace Comm
  * Collective on the mesh communicator in the sense that every rank must call
  * it, but not a collective over `MPI_COMM_WORLD`.
  *
- * **M1-REWORK — this is the ONLY gather, and it is whole-tuple.** The
- * pre-rework header had a second entry point, `haloExchangeField( mesh, field
- * )`, for refreshing one named per-vertex field. Tessera has no such operation
- * and cannot have one cheaply: `haloExchange` ships the tuple as one opaque
+ * **This is the ONLY gather, and it is whole-tuple.** There is no entry point
+ * for refreshing one named per-vertex field: Tessera has no such operation and
+ * cannot have one cheaply, because `haloExchange` ships the tuple as one opaque
  * `MPI_Type_contiguous` of `sizeof(tuple)` bytes, which is correct for an
- * overwrite of every field at once. So `haloExchangeField` is **deleted**
- * rather than kept as a shim that would have implied a cost model Beatnik does
- * not have — the M2 precedent set by `gatherForCheckpoint`. The consequence for
- * a caller is only that refreshing one field costs the same as refreshing
- * everything.
+ * overwrite of every field at once. A per-field shim would imply a cost model
+ * Beatnik does not have. The consequence for a caller is only that refreshing
+ * one field costs the same as refreshing everything.
  *
  * **Why here:** every differential operator in the solver — face normals and
  * areas, the cotangent Laplacian, the surface gradient, the mean-curvature
@@ -110,13 +104,13 @@ namespace Comm
  * **Why it is not needed for ring width.** Exchanging twice does **not** widen
  * the ghost set; it refreshes the same set. The two-ring RHS is served by
  * building the mesh at `SurfaceMesh::halo_depth = 2`, once, at setup. That is
- * what retired most of risk R8; see the halo section of
+ * what addresses most of risk R8; see the halo section of
  * `Beatnik_MeshInterface.hpp`.
  *
  * @pre The halo plans must be live. **They always are**: Tessera's
  *      `splitEdges()` rebuilds the halo at the recorded depth before
- *      returning, so unlike at M1 there is no window in which this is a silent
- *      no-op on an empty plan.
+ *      returning, so there is no window in which this is a silent no-op on an
+ *      empty plan.
  */
 template <class MeshType>
 void haloExchangeVertices( MeshType& mesh )
@@ -152,9 +146,9 @@ void haloExchangeVertices( MeshType& mesh )
  * DISTRIBUTED ASSEMBLY in `Beatnik_MeshInterface.hpp`.
  *
  * What it is for is the other pattern: accumulating into a field that lives *in
- * the mesh* from a loop over **owned faces only**. Nothing in T1b does that;
- * this exists because it is the only correct primitive for it, and because a
- * later task reaching for a scatter-add must find Tessera's contract written
+ * the mesh* from a loop over **owned faces only**. Nothing in Beatnik does
+ * that; this exists because it is the only correct primitive for it, and
+ * because code reaching for a scatter-add must find Tessera's contract written
  * down rather than assume the usual one.
  *
  * **The three contract properties**, all of which a caller will get wrong if
@@ -167,9 +161,8 @@ void haloExchangeVertices( MeshType& mesh )
  *   3. **Summation order is fixed by peer order, not by rank count** — bitwise
  *      reproducible within a run, *not* across rank counts. Risk R2 again.
  *
- * **M1-REWORK — the signature changed, and it had to.** The pre-rework
- * signature was `haloScatterAdd( mesh, field )` with `field` an arbitrary
- * Beatnik-owned `Kokkos::View`. That **cannot be implemented**: Tessera
+ * **Why the field is a template parameter.** A signature taking an arbitrary
+ * Beatnik-owned `Kokkos::View` **cannot be implemented**: Tessera
  * accumulates a field *inside* the mesh AoSoA, addressed by its compile-time
  * Cabana member index, and an external view has no such index. The field is
  * therefore a template parameter naming a slot in Beatnik's vertex pack, and a
@@ -188,8 +181,8 @@ void haloScatterAdd( MeshType& mesh )
 //---------------------------------------------------------------------------//
 // 2. Global reductions
 //
-// M1-REWORK. Tessera now single-sources these as `globalSum` / `globalMin` /
-// `globalMax` / `globalAllFinite` over `mesh.comm()`, closing M1 gap G3. The
+// Tessera single-sources these as `globalSum` / `globalMin` /
+// `globalMax` / `globalAllFinite` over `mesh.comm()`. The
 // wrappers here keep an `MPI_Comm` signature because their callers hold a
 // communicator rather than a mesh, and they perform the identical single
 // `MPI_Allreduce` with the identical datatype and op. Where a caller does hold
@@ -318,8 +311,8 @@ inline bool allReduceAllFinite( MPI_Comm comm, bool local_finite )
 // 3. Refinement and load balancing
 //---------------------------------------------------------------------------//
 
-// NOTE (T4a): `reconcileRefinementMarks` was DELETED here, not left as a stub
-// and not made a no-op.
+// There is deliberately no `reconcileRefinementMarks` entry point, not even a
+// stub or a no-op.
 //
 // Red-green closure is a fixed-point computation
 // (`mesh_solver.py::_balance_red_green_refinement`, lines 1543-1580, loops
@@ -369,15 +362,12 @@ inline bool allReduceAllFinite( MPI_Comm comm, bool local_finite )
  * the potential, silently reinitializing the solution) looks like a physics bug
  * rather than a communication bug.
  *
- * **M1-REWORK — this is no longer also the post-`refine()` rebuild.** At M1
- * `Tessera::refine()` returned with the halo cleared and the adapter had to
- * follow it with an identity `migrate()`. It rebuilds its own halo now, so the
- * only reason to call this is a genuine rebalance. See
- * `SurfaceMesh::redistribute` for the modes and for G8's closure.
+ * **This is not a post-`refine()` rebuild.** Tessera's refinement rebuilds its
+ * own halo, so the only reason to call this is a genuine rebalance. See
+ * `SurfaceMesh::redistribute` for the modes.
  *
- * T5d's territory; the `state` parameter survives from the pre-M1 design in
- * which fields lived outside the mesh and will be dropped when T5d implements
- * this.
+ * Not yet implemented (task T5d). The `state` parameter is unused, since every
+ * field lives in the mesh, and is to be dropped when T5d implements this.
  */
 template <class MeshType, class StateType>
 void redistribute( MeshType& mesh, StateType& state )
@@ -390,21 +380,16 @@ void redistribute( MeshType& mesh, StateType& state )
 //---------------------------------------------------------------------------//
 // 4. Whole-surface transfer for I/O
 //
-// **M2 CHANGE — `gatherForCheckpoint` is deleted.** It collected the owned
-// vertices, faces and fields of every rank onto rank 0, renumbering face
-// connectivity from local to global indices on the way, so a serial writer
-// could emit one whole-surface array per field.
-//
-// `Tessera::writeMesh` does all of that and does it collectively: it writes
-// each rank's owned entities directly, at `MPI_Exscan` offsets, with
-// connectivity already translated to dense global indices. So the gather is not
-// just redundant, it is strictly worse — O(global) memory on rank 0, a
+// **There is no gather-to-rank-0 for checkpoints.** `Tessera::writeMesh` writes
+// each rank's owned entities directly and collectively, at `MPI_Exscan`
+// offsets, with connectivity already translated to dense global indices. A
+// rank-0 gather would be strictly worse — O(global) memory on rank 0, a
 // serialized write, and a hand-rolled reimplementation of the one genuinely
 // error-prone step. See `Beatnik_IOInterface.hpp` for the division of labour.
 //
-// The reverse direction survives, but for a different caller: `readMesh`
-// reconstructs a Beatnik checkpoint without any rank holding the global mesh,
-// so `broadcastFromRoot` is no longer part of the restart path either.
+// The reverse direction exists, but not for restarts: `readMesh` reconstructs
+// a Beatnik checkpoint without any rank holding the global mesh, so
+// `broadcastFromRoot` is not part of the restart path.
 //---------------------------------------------------------------------------//
 
 /**
@@ -417,8 +402,8 @@ void redistribute( MeshType& mesh, StateType& state )
  *
  * **Why here:** `SurfaceMesh::adopt` wraps `Tessera::buildFromTriangleSoup`,
  * which has no communication and therefore requires its input replicated on
- * **every** rank (M1). This is how it gets there. **M2 CHANGE — this is no
- * longer on the `--restart-from` path**, which goes through `Tessera::readMesh`
+ * **every** rank. This is how it gets there. **This is not on the
+ * `--restart-from` path**, which goes through `Tessera::readMesh`
  * and never materializes the global mesh anywhere; the one remaining caller is
  * the "read the initial mesh from the gold file" mitigation for regression
  * test 1 (risk R1), whose input is a Python `.npz`.

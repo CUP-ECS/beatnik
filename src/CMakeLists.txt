@@ -70,10 +70,9 @@ set(DEPENDS_ON
   Tessera::Tessera
   )
 
-# Silo was the pre-redesign I/O path and is gone: checkpoint output is HDF5 via
-# Tessera (Beatnik_IOInterface.hpp). Re-add SILO::silo here only if a Silo
-# writer comes back, and restore the find_package(SILO) in the top-level
-# CMakeLists.txt in the same change.
+# Checkpoint output is HDF5 via Tessera (Beatnik_IOInterface.hpp); there is no
+# Silo writer. Add SILO::silo here only together with one, and add a
+# find_package(SILO) to the top-level CMakeLists.txt in the same change.
 
 if(Beatnik_ENABLE_CANOPY)
   list(APPEND DEPENDS_ON Canopy::Canopy)

@@ -18,12 +18,12 @@
  * `tasks/framework.md` states T2d's exit criterion as: *regression test 2
  * (direct-solve-10-steps) passes at all 10 timesteps, `--rtol 1e-10`, at ranks
  * 1, 2, 3, 4 and 5; volume drift stays below `1e-12` relative.* The tier — not
- * this file — supplies the rank sweep, per the convention T1c set and T2c
- * followed, so the criterion's ranks 1-5 are a verified subset of the gate's
+ * this file — supplies the rank sweep, as for every gate member, so the
+ * criterion's ranks 1-5 are a verified subset of the gate's
  * 1-6 on SERIAL and HIP. The test reads its own comm size and adapts.
  *
- * WHAT IT ACTUALLY EXERCISES, WHICH IS EVERYTHING T2d BUILT
- * --------------------------------------------------------
+ * WHAT IT ACTUALLY EXERCISES
+ * --------------------------
  * One `Solver::advanceOneStep` per gold file, so every step drives
  * `TimeIntegrator::chooseStepSize` -> three
  * `ZModelSolver::computeRightHandSidePotential` evaluations (each one halo
@@ -57,9 +57,9 @@
  * about the accumulated truncation, which grows linearly in the step count.
  * The reference carries exactly the same truncation: measured offline from the
  * eleven gold `.npz` files, the Python's own relative drift is `5.19e-12` at
- * step 1 and `5.17e-11` at step 10, so the `1e-12` bound this test first
- * asserted was written a priori and sits an order of magnitude below the
- * discretization's floor. What is checked instead is **agreement with the
+ * step 1 and `5.17e-11` at step 10, so the criterion's `1e-12` bound is an a
+ * priori figure that sits an order of magnitude below the discretization's
+ * floor. What is checked instead is **agreement with the
  * reference's drift** — `kGoldVolumeDrift`, at `kVolumeDriftRtol` relative —
  * which is a strictly stronger statement than any bound: it fails if Beatnik
  * conserves volume better than the Python as well as worse. `kVolumeDriftAbsCap`
@@ -85,8 +85,8 @@
  *
  * Distinguishing R8 from R2 if it ever does disagree: a seam localized on
  * partition boundaries is R8; uniformly distributed noise at the `1e-15` level
- * is summation order (R2). The three structural R9 discriminators T1c and T2c
- * established are mechanized below and stay decisive here, because they are
+ * is summation order (R2). The three structural R9 discriminators are
+ * mechanized below and stay decisive here, because they are
  * statements about the partition rather than about the trajectory:
  *
  *   1. the owned sets partition the global sets (162 / 480 / 320), summed with
@@ -97,9 +97,9 @@
  *   3. the entity counts never change, which is what `--no-dynamic-remesh
  *      --refine-every 0` is for.
  *
- * R9's third T1c ground — "the deviation does not trend with rank count" — is
+ * R9's third ground — "the deviation does not trend with rank count" — is
  * deliberately NOT relied on here: once positions evolve, a real seam bug also
- * moves with the partition, so that argument no longer separates the two.
+ * moves with the partition, so that argument does not separate the two.
  *
  * HOW THE GOLD FILE FOR A STEP IS FOUND
  * -------------------------------------
@@ -178,7 +178,7 @@ constexpr double kInitialVolume = 6.3235073124669514e-02;
 constexpr double kInitialMinEdge = 6.8976121063816842e-02;
 
 /// The polyhedral deficit of the subdivision-2 icosphere — a property of the
-/// triangulation, not of the partition. R9 discriminator 2 (T1c).
+/// triangulation, not of the partition. R9 discriminator 2.
 constexpr double kVolumeOverSphere = 0.96616074859858714;
 
 /// `time` at each of the ten steps, read from the gold set's `/time` scalar.
@@ -505,7 +505,7 @@ void runChecks( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
     // and is independent of the partition, so double-counting even a handful of
     // ghost faces moves it in the second or third digit while a summation-order
     // difference does not move it at all in the digits printed. Asserted here
-    // (T1c only reported it) because this test's volume drift check would
+    // because this test's volume drift check would
     // otherwise be measured against a number that could itself be wrong.
     //-----------------------------------------------------------------------//
     {
@@ -530,7 +530,7 @@ void runChecks( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
     // failing step is the answer.
     //
     // `advanceOneStep` is collective and every rank calls it the same number of
-    // times -- the BR ring deadlocks otherwise (T2c), including for a rank that
+    // times -- the BR ring deadlocks otherwise, including for a rank that
     // owns zero sources.
     //-----------------------------------------------------------------------//
     for ( int step = 1; step <= kSteps; ++step )
@@ -635,8 +635,8 @@ void runChecks( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
     }
 
     //-----------------------------------------------------------------------//
-    // `finalize()` writes the LAST FINITE state, which T2d made distinct from
-    // "current" for the first time. This run never went non-finite, so the two
+    // `finalize()` writes the LAST FINITE state, which is distinct from
+    // "current". This run never went non-finite, so the two
     // coincide -- and that is the check: the final file must still match step
     // 10's gold, which it cannot if the record/restore round trip corrupts the
     // fields or the (time, step) pair.
@@ -669,7 +669,7 @@ void runChecks( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
     //-----------------------------------------------------------------------//
     // A NEGATIVE CASE, and it is a real one.
     //
-    // T1b's lesson: a check that has only ever seen agreeing data has not been
+    // A check that has only ever seen agreeing data has not been
     // tested. Here the cheapest genuine negative is comparing the final state
     // against the STEP 0 gold file -- same schema, same mesh, same carried
     // scalars, and a different time and different vertex positions. It must exit

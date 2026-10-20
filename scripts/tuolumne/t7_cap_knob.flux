@@ -22,11 +22,12 @@
 # `FmmParams::m2l_op_count_cap` reaches Canopy rather than being accepted and
 # dropped.
 #
-# WHAT IT PROVES, AND WHY IT TAKES TWO LAUNCHES. T7 plumbs a new knob through
+# WHAT IT PROVES, AND WHY IT TAKES TWO LAUNCHES. The knob runs from
 # `FmmParams` to `FmmConfig::m2l_op_count_cap`. A single default-valued launch
 # cannot distinguish "the knob is routed" from "the member exists and nothing
-# reads it", because the default IS today's constant: a knob that is accepted
-# and silently dropped produces a byte-identical run. So the pair is the test.
+# reads it", because the default IS Canopy's own constant: a knob that is
+# accepted and silently dropped produces a byte-identical run. So the pair is
+# the test.
 #
 #   launch A  no argv[2]  -> header op_count_cap=32768 op_cap=32768,
 #                            global_m2l_fallback == 0 at EVERY row
@@ -46,15 +47,16 @@
 # roughly six. This is the one thing level 3 CAN say about the overflow path:
 # the level-3 member declares `kFarFieldIsLive = false` and never overflows at
 # the DEFAULT cap, which is precisely why launch A's fallback is exactly zero
-# and launch B's is not. No level-4 run is needed or wanted here -- T7 ships
-# the cap at 32768 byte-for-byte and T8 is the task that changes its value.
+# and launch B's is not. No level-4 run is needed or wanted here -- the pair
+# tests that the cap is routed, at the default of 32768, not what its value
+# should be.
 #
 # WHY LEVEL 3 AND np1, AND WHY THIS FITS `pdebug`. Cost, and nothing else: the
 # probe at level 3 is 24 s at HIP np1 (`## T3`), so the pair is about a minute
 # and `-t 30m` is already generous. A short limit is deliberate -- it makes a
 # hang fail fast instead of holding a `pdebug` allocation. np4 would add the
-# per-rank unreduced printing, which T3 and T5 have already exercised and which
-# the routing claim does not depend on.
+# per-rank unreduced printing, which the `## T3` and `## T5` runs exercise and
+# which the routing claim does not depend on.
 #
 # NOT A REPLACEMENT FOR THE OTHER HALF OF T7's EXIT CRITERION. The default
 # direction -- that the level-3 FMM member still passes unchanged at HIP np1 --
@@ -171,10 +173,11 @@ for _entry in "${_pair[@]}"; do
     # and rank count only, so the two launches here would otherwise share one
     # series and the second would read back the first's checkpoints.
     #
-    # THE JOB ID IN THE PATH IS LOAD-BEARING, not tidiness. T5 lost a launch to
-    # two overlapping submissions writing the same checkpoint files, with
-    # `H5FD__sec2_lock(): unable to lock file, errno = 11` at step 1325 and a
-    # `collective tags 14 and 1 do not match` MPI abort behind it. A collision
+    # THE JOB ID IN THE PATH IS LOAD-BEARING, not tidiness. Two overlapping
+    # submissions writing the same checkpoint files fail with
+    # `H5FD__sec2_lock(): unable to lock file, errno = 11` (seen at step 1325 in
+    # a `## T5` launch) and a `collective tags 14 and 1 do not match` MPI abort
+    # behind it. A collision
     # need not abort to be harmful -- it could also round-trip another job's
     # particle counts -- so the path is per job whether submissions overlap or
     # not.

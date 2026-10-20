@@ -9,7 +9,7 @@
 #                                                                          #
 # SPDX-License-Identifier: BSD-3-Clause                                    #
 ############################################################################
-"""canopy_profiling T0's reducer: one tool for every FMM cost log.
+"""canopy_profiling's reducer: one tool for every FMM cost log.
 
     fmm_profile_reduce.py LOG [LOG ...] [--format auto|milestone|probe]
                           [--bin-steps N] [--json OUT] [--states]
@@ -62,9 +62,9 @@ At np 4 every rank prints every `[note]`, so a boundary is taken from its first
 occurrence per (claim, step). A block that cannot be attributed, a cross-check
 that fails, or a block count that is not 3*steps or 3*steps + 1 is an error.
 
-FORMAT 2: PROBE LOGS (`Beatnik_Probe_FmmCost`, canopy_profiling T2)
--------------------------------------------------------------------
-T0 owns this grammar; the probe emits it. One row per line:
+FORMAT 2: PROBE LOGS (`Beatnik_Probe_FmmCost`)
+----------------------------------------------
+This tool owns this grammar; the probe emits it. One row per line:
 
     [cost] run=<id> step=<n> key=value key=value ...
     [acc] run=<id> step=<n> key=value ...
@@ -81,7 +81,7 @@ other key is read generically, so the probe can add fields without touching
 this tool. Canopy breakdown blocks in a probe log (`canopy_report=1`) are
 parsed and counted but not attributed; read such a log with `--format probe`.
 
-**The per-row evaluation-count check** (canopy_profiling T3). Every `[cost]`
+**The per-row evaluation-count check.** Every `[cost]`
 row must carry `steps`, `evals` and the four `maint_*` counts as non-negative
 integers; a row that does not is malformed and fatal. A well-formed row must
 then satisfy
@@ -582,17 +582,15 @@ def print_probe(path: str, red: Dict) -> None:
 # revealed").
 TIMED_MAINT = ("builder_build", "repartition", "sort_by_leaf",
                "comm_plan_build")
-# auto_maintain's own timers and its Migrate-path redistribute, added by
-# canopy_profiling O5. A log that predates them lacks the keys, and they count
-# as 0 there, so its untimed column is unchanged.
+# auto_maintain's own timers and its Migrate-path redistribute. A log that
+# lacks the keys counts them as 0, so its untimed column is unaffected.
 TIMED_MAINT_O5 = ("maint_rebuild_check", "maint_key_snapshot",
                   "maint_compare_build", "maint_key_diff", "maint_sweep_setup",
                   "redistribute")
-# Stage 3's sub-timers (canopy_profiling O9: ilist_s3_classify_shard,
-# ilist_s3_merge, ilist_s3_instrumentation, ilist_s3_remap) are nested inside
+# Stage 3's sub-timers (ilist_s3_classify_shard, ilist_s3_merge,
+# ilist_s3_instrumentation, ilist_s3_remap) are nested inside
 # ilist_s3_classify_pairs, which runs under ff_solve, not ff_maintain. They are
-# deliberately in neither tuple above; a log that predates them simply lacks
-# the keys.
+# deliberately in neither tuple above; a log may lack the keys.
 ILIST_S3_SPLIT = ("ilist_s3_classify_shard", "ilist_s3_merge",
                   "ilist_s3_instrumentation", "ilist_s3_remap")
 # Everything in ff_evaluate_total outside ff_maintain and ff_solve.
@@ -758,8 +756,8 @@ def self_test() -> int:
             raise AssertionError(f"accepted: {line}")
         except ReduceError:
             pass
-    # Stage 3's sub-timer keys (O9) leave a state's untimed maintenance
-    # unchanged, and a row without them reduces as before.
+    # Stage 3's sub-timer keys leave a state's untimed maintenance
+    # unchanged, and a row without them reduces the same way.
     base = ("[cost] run=s step=1 steps=1 evals=3 step_wall=1.0 "
             "ff_evaluate_total=0.3 ff_solve=0.2 ff_maintain=0.05 "
             "builder_build=0.01 repartition=0.01 sort_by_leaf=0.0 "

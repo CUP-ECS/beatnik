@@ -200,12 +200,12 @@ class MeshQuality
      * The `reset_reference` flag in the Python is threaded oddly — the caller
      * passes `reset_reference=(smooth_iters == 0)` so the reference is re-based
      * by whichever of the flip and smooth passes runs last
-     * (`run_adaptive_mesh_bubble.py:1440-1451`). **T4c correction: that is a
-     * statement about THIS pass only.** The tangential pass is handed
+     * (`run_adaptive_mesh_bubble.py:1440-1451`). **That is a statement about
+     * THIS pass only.** The tangential pass is handed
      * `reset_reference=False` at *both* of the reference's call sites (`:1449`,
      * `:1562`), so it never re-bases and `improveQualityTangential` does not;
      * whether the flip path re-bases explicitly afterwards is T4d's decision to
-     * make, and this note previously claimed it for both.
+     * make.
      */
     int improveConnectivityByFlips( mesh_type& mesh, int max_passes,
                                     Real min_gain ) const
@@ -231,7 +231,7 @@ class MeshQuality
      * normal smoothing of the interface geometry" — the same tangential
      * constraint, stated for the same reason.
      *
-     * **T4c.** One kernel, two entry points: this is `relaxTangential` below,
+     * One kernel, two entry points: this is `relaxTangential` below,
      * as is `tangentialRelaxation`. Called from `Solver::advanceOneStep` at both
      * of the reference's call sites — after an indicator-driven refine
      * (`--smooth-iters`, `--smooth-relaxation`) and from the periodic
@@ -252,7 +252,7 @@ class MeshQuality
 
   private:
     /**
-     * @brief The one tangential-relaxation sweep loop. T4c.
+     * @brief The one tangential-relaxation sweep loop.
      *
      * Port of mesh_solver.py::improve_mesh_quality_tangential (lines 1792-1812)
      * and mesh_quality.py::_tangential_relaxation (lines 108-115)
@@ -264,7 +264,7 @@ class MeshQuality
      * with \f$\bar x_v\f$ the mean over the **unique** neighbour set. That
      * offset is exactly `SurfaceOperators::graphLaplacianVector` over
      * `mesh.vertexOneRing()` and the projection is exactly
-     * `SurfaceOperators::projectTangent` — both validated at T2b against this
+     * `SurfaceOperators::projectTangent` — both validated (task T2b) against this
      * same reference on this same mesh (`max` of the raw offset
      * `1.2663750374617e-2`, agreeing to `4e-17`), so no new stencil is written
      * here and a failure localizes to the projection rather than to the
@@ -282,7 +282,7 @@ class MeshQuality
      * not.** The vertex normals are recomputed **every sweep** (the surface
      * parameterization has moved, and the reference recomputes them too), and
      * the positions are halo-exchanged **between** sweeps — `mesh.haloExchange()`,
-     * since positions live in the mesh; `haloExchangeVertexView` (T4b) is for
+     * since positions live in the mesh; `haloExchangeVertexView` is for
      * views held outside it and is not needed here. Without the exchange a
      * boundary vertex relaxes against stale neighbours and the seam moves with
      * the rank count. The exchange at the top of the loop also covers whatever

@@ -58,8 +58,7 @@
  * going as \f$(cw/R)^{p}\f$ on the **gradient** — one order worse than on the
  * potential, which is the quantity Beatnik actually reads. Separations
  * comparable to \f$\sqrt{b}\f$ are *not* a distinguished case for it. See
- * `tasks/canopy/add-canopy.md`; no accuracy figure is claimed for either basis
- * until T5 measures one.
+ * `tasks/canopy/add-canopy.md` (task T5) for the measured accuracy.
  *
  * The two evaluations Beatnik needs from it:
  *
@@ -120,8 +119,9 @@
  * quantities above are gradients — but it truncates one order *better* at the
  * same `order`, so a fidelity measurement that quotes only the gradient cannot
  * be read against any figure stated on a potential. `evaluatePotential` is
- * that read and it exists for **T5** step 2; it is a measurement surface, not
- * a physics path, and applies no prefactor.
+ * that read and it exists for fidelity measurement (`add-canopy.md` T5 step
+ * 2); it is a measurement surface, not a physics path, and applies no
+ * prefactor.
  *
  * The two physical evaluations do **not** share a tensor — they contract against different source
  * fields — so they are two `solve()` calls over one tree, which Canopy
@@ -238,7 +238,7 @@ struct FarFieldDiagnostics
     /// rather than the last evaluation, so a caller can difference them across
     /// a timestep -- three RK3 stages are three evaluations, and `maintenance`
     /// alone shows only the third. Always on: integers, no profiling
-    /// dependency, no collective. **Added by canopy_profiling T2.**
+    /// dependency, no collective.
     long long evaluations = 0;
 
     /// **Cumulative**: completed evaluations per maintenance path, indexed by
@@ -254,7 +254,7 @@ struct FarFieldDiagnostics
     /// (`DownwardSweep::set_root_half_width`), so under
     /// `FmmParams::quantize_root_half_width` a change is an octave crossing
     /// of the root box, and without it the width moves at nearly every tree
-    /// build. Always on, no collective. **Added by canopy_profiling O1.**
+    /// build. Always on, no collective.
     long long root_width_changes = 0;
 
     /// **Cumulative, rank-local**, in evaluations: completed evaluations
@@ -265,7 +265,6 @@ struct FarFieldDiagnostics
     /// before plus the keys built in it, and after a clear it does not
     /// (unless the cache was already empty, when the clear discards nothing).
     /// The first evaluation is never counted. Always on, no collective.
-    /// **Added by canopy_profiling O1.**
     long long op_cache_overflow_clears = 0;
 
     /// The basis actually instantiated, not the one requested — they are the
@@ -328,8 +327,8 @@ struct FarFieldDiagnostics
     /// written as a literal. Carried here so that the size of the realized
     /// table is `local_m2l_unique_op_count * local_m2l_bytes_per_key` and is a
     /// *measurement* rather than arithmetic re-derived from the order in a
-    /// consumer. **Added by T5 step 5**, which has to report the bytes the
-    /// table occupies beside the key count.
+    /// consumer, so a report can give the bytes the table occupies beside
+    /// the key count.
     std::size_t local_m2l_bytes_per_key = 0;
 
     /// **Rank-local.** `DownwardSweep::m2l_effective_op_cap()` — the operator
@@ -339,7 +338,7 @@ struct FarFieldDiagnostics
     /// `M2L_OP_COUNT_CAP`; the count cap is configurable rather than a
     /// constant). The number `local_m2l_unique_op_count` is read *against*;
     /// which of the two floors it is follows from the byte budget and
-    /// `local_m2l_bytes_per_key`. **Added by T5 step 5** (R6).
+    /// `local_m2l_bytes_per_key`. See risk R6.
     int local_m2l_op_cap = 0;
 
     /// **Rank-local, unreduced.** `DownwardSweep::m2l_n_demanded_ops()` —
@@ -353,7 +352,7 @@ struct FarFieldDiagnostics
     /// (`CANOPY_ENABLE_PROFILING` undefined), and never `0` for that reason:
     /// zero demand is a legal measurement — a tree with no M2L pairs realizes
     /// no keys — so a consumer must test for `-1` before reading this as a
-    /// count. Also `-1` before the first build. **Added by T6 T2.**
+    /// count. Also `-1` before the first build.
     int local_m2l_demanded_op_count = -1;
 
     /// **Rank-local, unreduced.** `DownwardSweep::m2l_demand_saturated()` —
@@ -362,7 +361,6 @@ struct FarFieldDiagnostics
     /// bound equal to that cap rather than the tree's actual demand. Always
     /// `false` in a build without profiling, where the count is `-1` and means
     /// nothing — this flag is never the test for availability, the `-1` is.
-    /// **Added by T6 T2.**
     bool local_m2l_demand_saturated = false;
 
     /// **Rank-local, unreduced.** Cells at the deepest *occupied* depth of
@@ -373,7 +371,6 @@ struct FarFieldDiagnostics
     /// uninformative 0 rather than a real count. `0` when the vector is empty,
     /// i.e. before Canopy's `setup()`. The accessor is **ungated**, so this
     /// field has no `-1` case and `0` here never means "no profiling".
-    /// **Added by T6 T2.**
     int local_m2l_cells_at_max_depth = 0;
 
     /// **Rank-local, unreduced.** The number of **non-zero** entries in
@@ -385,7 +382,7 @@ struct FarFieldDiagnostics
     /// integer offset at different depths different operators, so every
     /// occupied depth multiplies the demanded key count. A demand figure read
     /// without this is a number with no mechanism behind it. `0` before
-    /// `setup()`; **ungated**, so no `-1` case. **Added by T6 T2.**
+    /// `setup()`; **ungated**, so no `-1` case.
     int local_m2l_occupied_depths = 0;
 
     /// **Global, reduced**, in pairs: the per-reason breakdown of
@@ -409,7 +406,6 @@ struct FarFieldDiagnostics
     /// `range_guard + count_cap == global_m2l_fallback_pair_count`, which is a
     /// claim between **global** figures. A rank-local breakdown printed beside
     /// a reduced total would fail that sum at every rank but one.
-    /// **Added by T6 T8b.**
     long long global_m2l_fallback_pairs_range_guard = -1;
 
     /// **Global, reduced**, in pairs: the other half of the breakdown, from
@@ -419,7 +415,6 @@ struct FarFieldDiagnostics
     /// only one of the two reasons `FmmParams::m2l_op_count_cap` moves: this
     /// field is what "the cap bound" means in pairs rather than in keys.
     /// Same `-1` sentinel and same reduction as the field above.
-    /// **Added by T6 T8b.**
     long long global_m2l_fallback_pairs_count_cap = -1;
 
     /// **Global, reduced**, in pairs: refused pairs that reached **neither**
@@ -434,7 +429,6 @@ struct FarFieldDiagnostics
     /// the only way the two counters above can fail to sum to the fallback
     /// total. Carried beside them so the sum identity has something to name
     /// when it fails. Same `-1` sentinel and same reduction.
-    /// **Added by T6 T8b.**
     long long global_m2l_fallback_pairs_depth_dropped = -1;
 };
 
@@ -687,8 +681,8 @@ class FarFieldSolver
      * per point therefore cannot be read against a figure quoted on the
      * potential — including the reference treecode's own, which has no
      * target-side expansion and so carries the *potential's* truncation order
-     * on its velocity. **T5** step 2 requires the two columns separately and
-     * this is the only route to the first of them.
+     * on its velocity. A fidelity measurement needs the two columns
+     * separately, and this is the only route to the first of them.
      *
      * **NO PREFACTOR IS APPLIED.** `evaluateVelocity` applies
      * \f$\sigma_{BR}/4\pi\f$ and `evaluateRieszScalar` applies
@@ -772,8 +766,8 @@ class FarFieldSolver
     {
         Curl, ///< \f$u_i = -\epsilon_{ijk}T_{kj}\f$, into `Output(p, 0..2)`.
         Trace, ///< \f$\Psi = -\operatorname{tr}T\f$, into `Output(p, 0)`.
-        /// **Not a contraction at all**, and the reason this enum is no longer
-        /// named for one: the potential vector \f$\phi_c\f$ itself, copied
+        /// **Not a contraction at all**, which is why this enum is not named
+        /// for one: the potential vector \f$\phi_c\f$ itself, copied
         /// component-wise into `Output(p, 0..2)`. It reads
         /// `Impl::potential()` where the other two read `Impl::gradient()`.
         /// **Measurement path only** — see `evaluatePotential`.
@@ -861,7 +855,7 @@ class FarFieldSolver
         /// The values written are rank-local; the caller reduces the two that
         /// are meaningful globally. Returns the downward sweep's root
         /// half-width, which the caller compares across evaluations for
-        /// `FarFieldDiagnostics::root_width_changes` (canopy_profiling O1).
+        /// `FarFieldDiagnostics::root_width_changes`.
         virtual double readDiagnostics( FarFieldDiagnostics& d ) const = 0;
     };
 
@@ -973,7 +967,7 @@ class FarFieldSolver
             d.local_m2l_op_keys_built = down.m2l_op_keys_built_count();
             d.global_m2l_pair_count = down.total_m2l_pair_count();
             d.global_m2l_fallback_pair_count = down.total_fallback_pair_count();
-            // T5 step 5. `bytes_per_key` is a compile-time property of the
+            // `bytes_per_key` is a compile-time property of the
             // BASIS, not of the sweep, so it comes off `kernel_type` -- the
             // same type the arm's `static_assert` above checks. The cap does
             // come off the sweep: it is the byte budget's worth of columns
@@ -981,7 +975,7 @@ class FarFieldSolver
             // `FmmParams::m2l_op_table_byte_budget`.
             d.local_m2l_bytes_per_key = solver_type::kernel_type::bytes_per_key;
             d.local_m2l_op_cap = down.m2l_effective_op_cap();
-            // T6 T2. The two demand counters are mirrored verbatim, sentinel
+            // The two demand counters are mirrored verbatim, sentinel
             // and all: -1 is "this Canopy build carries no profiling" and 0
             // is a legal count, so neither this copy nor any consumer may
             // substitute one for the other (R7). Saturation is a separate
@@ -989,7 +983,7 @@ class FarFieldSolver
             // count.
             d.local_m2l_demanded_op_count = down.m2l_n_demanded_ops();
             d.local_m2l_demand_saturated = down.m2l_demand_saturated();
-            // T6 T8b. The per-reason fallback breakdown, mirrored verbatim
+            // The per-reason fallback breakdown, mirrored verbatim
             // and sentinel and all for the same reason: -1 is "no profiling"
             // and 0 is the normal reading for the range guard, so the two
             // must not be substituted for each other (R7). These three are
@@ -1023,7 +1017,7 @@ class FarFieldSolver
                     ++d.local_m2l_occupied_depths;
                 }
             }
-            // canopy_profiling O1. The width the sweep's operators were built
+            // The width the sweep's operators were built
             // at; a change of it is what empties the cache, so the caller
             // counts changes rather than this returning a flag.
             return down.root_half_width();
@@ -1329,7 +1323,7 @@ class FarFieldSolver
     /**
      * @brief The global near-field pair count this rank contributes.
      *
-     * Step 7 of T2: **Canopy reports no such counter**, and its own accuracy
+     * **Canopy reports no such counter**, and its own accuracy
      * test settles for an `m2l_n_unique_ops() > 0` liveness guard, which is
      * weaker than a fraction. The ingredients are host-side and already
      * public: `CommunicationPlan::p2p_plan().neighbor_lists` maps each of this
@@ -1401,10 +1395,10 @@ class FarFieldSolver
                    const scalar_view& scalar_out )
     {
         // The one-integer tag is only meaningful because sources, targets and
-        // output rows are the same rows. `ZModelParams::source_quadrature`
-        // defaults to `Face`, whose `generate` still throws, so today that
-        // equality is protected only by an unimplemented stub -- the guard
-        // belongs here rather than being inherited from it.
+        // output rows are the same rows. The other rules, `Face` and
+        // `Triangle3`, throw from `generate`, so that equality is protected
+        // only by unimplemented stubs -- the guard belongs here rather than
+        // being inherited from them.
         if ( zparams.source_quadrature != SourceQuadrature::Vertex )
             throw std::runtime_error(
                 std::string( "FarFieldSolver: the far field requires "
@@ -1415,7 +1409,7 @@ class FarFieldSolver
 
         const int ns = static_cast<int>( sources.extent( 0 ) );
 
-        // canopy_profiling T2: one level-2 timer per phase, no-ops below level
+        // One level-2 timer per phase, no-ops below level
         // 2. Each fences on exit (src/Profiling.hpp), so a phase's time is its
         // device work too. Construction is part of `ff_maintain`, below.
         BEATNIK_SCOPED_TIMER_DETAILED( Profiling::TIMER_FF_EVALUATE_TOTAL );
@@ -1639,14 +1633,14 @@ class FarFieldSolver
         // check, rather than one apiece: they are all sums over the same
         // communicator at the same point in the sequence.
         BEATNIK_SCOPED_TIMER_DETAILED( Profiling::TIMER_FF_DIAGNOSTICS );
-        // canopy_profiling O1: the cache's state before this evaluation's
+        // The cache's state before this evaluation's
         // reading overwrites it, for the overflow-clear test below.
         const long long op_cache_size_before =
             _diagnostics.local_m2l_op_cache_size;
         const long long op_keys_built_before =
             _diagnostics.local_m2l_op_keys_built;
         const double root_half_width = _impl->readDiagnostics( _diagnostics );
-        // T6 T8b: the per-reason fallback breakdown rides this reduction
+        // The per-reason fallback breakdown rides this reduction
         // rather than a second one, because the identity it exists to check
         // -- the two reasons summing to the fallback total -- is a claim
         // between GLOBAL figures and would fail at every rank but one if the
@@ -1713,11 +1707,11 @@ class FarFieldSolver
         _diagnostics.p2p_pair_fraction =
             ( n > 0.0 ) ? static_cast<double>( global[1] ) / ( n * n ) : 0.0;
 
-        // canopy_profiling T2: the cumulative counters, counted only for an
+        // The cumulative counters, counted only for an
         // evaluation that completed.
         ++_diagnostics
               .maintenance_counts[static_cast<int>( _diagnostics.maintenance )];
-        // canopy_profiling O1. A width change empties the cache by itself, so
+        // A width change empties the cache by itself, so
         // only an evaluation without one can be an overflow clear; and the
         // first evaluation has no previous width or cache to compare with.
         if ( _diagnostics.evaluations > 0 )
@@ -1773,7 +1767,7 @@ class FarFieldSolver
     bool _first_call = true;
 
     /// The downward sweep's root half-width at the last completed evaluation,
-    /// for `FarFieldDiagnostics::root_width_changes` (canopy_profiling O1).
+    /// for `FarFieldDiagnostics::root_width_changes`.
     double _root_half_width = 0.0;
 
     /// The softening **length** handed to Canopy, held so a later evaluation

@@ -13,36 +13,30 @@
  * @brief ADAPTER (2 of 3). Checkpoint read/write, backed by **Tessera's HDF5**
  *        mesh I/O.
  *
- * RECONCILED AGAINST TESSERA 2026-08-11 (task M2). The pre-M2 version of this
- * header was written without reading `../tessera`: it invented a `/mesh/...`
- * plus `/fields/...` schema and a rank-0 gather-and-write. Neither survives.
- * Every semantic that changed is flagged inline with **M2 CHANGE**. The Tessera
- * sources this was read against are `Tessera_HDF5Writer.hpp`,
+ * The Tessera sources this header describes are `Tessera_HDF5Writer.hpp`,
  * `Tessera_HDF5Reader.hpp` and `Tessera_IoCommon.hpp`.
  *
  * ADAPTER CONTRACT
  * ----------------
  * No other Beatnik header may name a Tessera or HDF5 type.
  *
- * WHO WRITES WHAT — THE M2 DECISION
- * ---------------------------------
- * The task left one thing genuinely open: does Tessera write the checkpoint, or
- * does Beatnik gather to rank 0 and write it? **Tessera writes it.**
+ * WHO WRITES WHAT
+ * ---------------
+ * Does Tessera write the checkpoint, or does Beatnik gather to rank 0 and write
+ * it? **Tessera writes it.**
  *
  * `Tessera::writeMesh( mesh, stem )` is a collective MPI-IO write of the
  * **owned** entities of every rank, each exactly once, into a clean partition
  * of `<stem>.h5`. Dense global vertex/edge indices come from an `MPI_Exscan`
  * over owned-only counts, and connectivity is translated into those dense
  * indices before it is written — which is precisely the local-to-global
- * renumbering the pre-M2 header warned the gather path would have to do by
- * hand. It also carries **every vertex user field**, so all three Beatnik
- * fields are written for free (see the field pack in
- * `Beatnik_MeshInterface.hpp`).
+ * renumbering a gather path would have to do by hand. It also carries
+ * **every vertex user field**, so all three Beatnik fields are written for free
+ * (see the field pack in `Beatnik_MeshInterface.hpp`).
  *
  * So the gather is not merely unnecessary, it is worse on every axis: O(global)
  * memory on rank 0, a serialized write, and a hand-rolled reimplementation of
- * the one genuinely error-prone step. **M2 CHANGE —
- * `Beatnik_Communication.hpp::gatherForCheckpoint` is deleted.**
+ * the one genuinely error-prone step. Beatnik has no checkpoint gather.
  *
  * What Tessera does *not* write is the run's scalar metadata. Its only
  * root-attribute types are `int` and `uint64` (`Tessera_IoCommon.hpp`:
@@ -69,11 +63,10 @@
  * `.npz`. `tests/regression_tests/compare_output.py` maps between them through
  * a hand-maintained table (`FIELD_MAP` at the top of that script) — the two
  * names must be kept in sync **there**, not guessed at either end. `FIELD_MAP`
- * was updated to the table below in the same change as this header.
+ * matches the table below.
  *
  * Python writer: `run_adaptive_mesh_bubble.py::save_state_checkpoint`
- * (lines 955-990). **M2 CHANGE — the HDF5 column is now Tessera's actual
- * layout**, not the grouping this header used to invent:
+ * (lines 955-990). The HDF5 column is Tessera's actual layout:
  *
  * | `.npz` key                 | HDF5 dataset                | Shape      | By |
  * |----------------------------|-----------------------------|------------|----|
@@ -127,7 +120,7 @@
  *
  * BOTH STATE FIELDS ARE ALWAYS PRESENT
  * ------------------------------------
- * **M2 CHANGE.** The Python writes `potential` *or* `sheet_vector` according to
+ * The Python writes `potential` *or* `sheet_vector` according to
  * the state model, and never both. Beatnik cannot: the two are slots in one
  * Cabana tuple, and `writeMesh` writes the whole user pack unconditionally. A
  * Beatnik checkpoint therefore always carries `/vertices/u0` **and**
@@ -135,8 +128,8 @@
  * (under `Potential`, `u1` is whatever `updateSheetVector` last left there).
  *
  * `/beatnik/state_model` is what says which is which, and `compare_output.py`
- * was changed in the same commit to compare only the *active* field and to
- * ignore the inactive one rather than reporting it as a one-sided presence.
+ * compares only the *active* field and ignores the inactive one rather than
+ * reporting it as a one-sided presence.
  * `remesh_material_position` keeps the strict both-or-neither rule, because
  * there it is a real signal.
  *
@@ -153,7 +146,6 @@
  *
  * READING IS `readMesh`, NOT `adopt`
  * ----------------------------------
- * **M2 CHANGE, and the largest one on the read side.**
  * `Tessera::readMesh( mesh, halo, stem )` reconstructs the whole distributed
  * mesh — vertices, edges, faces, connectivity, ownership, ghosts, both CSRs and
  * the three halo plans — *and every vertex user field* from the file. It does
@@ -161,12 +153,12 @@
  * unrelated to the partition that wrote the file, so a checkpoint round-trips
  * across a **rank count change**.
  *
- * So the pre-M2 read path — rank 0 reads, `Comm::broadcastFromRoot`,
- * `SurfaceMesh::adopt` — is gone, and with it the `state` and `material`
- * out-parameters: under the M1 field-pack model the solution *is* in the mesh,
- * so there is nothing left to hand back separately. `read` below takes the mesh
- * alone and returns the header. (`adopt` and `broadcastFromRoot` survive, but
- * for the *other* caller: the R1 mitigation that reads the initial surface out
+ * So the read path is not a rank-0 read, `Comm::broadcastFromRoot` and
+ * `SurfaceMesh::adopt`, and it has no `state` or `material` out-parameters:
+ * under the field-pack model the solution *is* in the mesh, so there is
+ * nothing to hand back separately. `read` below takes the mesh alone and
+ * returns the header. (`adopt` and `broadcastFromRoot` exist for the *other*
+ * caller: the R1 mitigation that reads the initial surface out
  * of a Python `.npz` gold file, which is not a Tessera file and cannot go
  * through `readMesh`.)
  *
@@ -185,9 +177,9 @@
  *     `depth == 0`, which Tessera reads as the historical 1. The Beatnik RHS is
  *     a two-ring stencil (risk R8), so `read` must follow `readMesh` with
  *     `Tessera::rebuildHalo( mesh, halo, 2 )`. Nothing else in the restart path
- *     re-states the depth, and `buildVertexStencil( mesh, 2 )` now throws
+ *     re-states the depth, and `buildVertexStencil( mesh, 2 )` throws
  *     rather than returning short rows, so forgetting this is loud — but it is
- *     still the adapter's job, not the caller's.
+ *     the adapter's job, not the caller's.
  *  3. **The Python's missing-field fallbacks are dead code here.** A Tessera
  *     file always carries all three vertex fields and the `/beatnik` group, so
  *     the "missing `remesh_material_position` -> seed from vertices" and
@@ -201,11 +193,11 @@
  * Paraview's XDMF readers are not file-series readers, so N per-frame `.xmf`
  * sidecars are N unrelated datasets with no time slider over them. Grouping has
  * to be stated in the light data, and `Tessera::MeshSeries` states it: it writes
- * each frame exactly as before and additionally maintains **one master `.xmf`**,
- * an XDMF temporal collection naming every frame with its time, rewritten after
- * every frame (so a killed run still leaves a valid master over the frames that
- * exist). `write` therefore routes its frame through a `MeshSeries` member
- * rather than calling `Tessera::writeMesh` directly.
+ * each frame as a standalone pair and additionally maintains **one master
+ * `.xmf`**, an XDMF temporal collection naming every frame with its time,
+ * rewritten after every frame (so a killed run still leaves a valid master over
+ * the frames that exist). `write` therefore routes its frame through a
+ * `MeshSeries` member rather than calling `Tessera::writeMesh` directly.
  *
  * A `--checkpoint-dir out --checkpoint-prefix checkpoint` run that takes N
  * checkpoints leaves, for N *distinct* `(time, step)` pairs:
@@ -236,12 +228,11 @@
  *   time > last, or no frame yet   -> `_series.write(...)`; the frame joins the
  *                                     master.
  *   time == last AND stem == last  -> the timed `Tessera::writeMesh(...)`
- *                                     directly. The frame is rewritten (as it
- *                                     already was before this change) but NOT
- *                                     appended: the master already names that
- *                                     exact file at that exact time, so nothing
- *                                     is lost and a duplicate timestep is kept
- *                                     off the time slider.
+ *                                     directly. The frame is rewritten but
+ *                                     NOT appended: the master already names
+ *                                     that exact file at that exact time, so
+ *                                     nothing is lost and a duplicate timestep
+ *                                     is kept off the time slider.
  *   anything else                  -> **throw**. A decreasing time, or an equal
  *                                     time under a different name, is
  *                                     unreachable — `recordLastFiniteState()`
@@ -258,12 +249,11 @@
  *
  * Two consequences worth knowing before they are discovered:
  *
- *  - **The per-frame sidecars now carry a `<Time Value=>` child**, because both
+ *  - **The per-frame sidecars carry a `<Time Value=>` child**, because both
  *    the series and the equal-time branch go through the *timed* `writeMesh`
- *    overload rather than the timeless one this file used to call. That is a
- *    change to emitted light data, accepted rather than avoided: it makes a
- *    single frame self-describing, and nothing reads those sidecars —
- *    `compare_output.py` reads `.h5` datasets only. No `.h5` dataset changes.
+ *    overload rather than the timeless one. It makes a single frame
+ *    self-describing, and nothing reads those sidecars — `compare_output.py`
+ *    reads `.h5` datasets only.
  *  - **A series is not reopened across a restart.** On a restart the master
  *    would be rewritten with only the post-restart frames while Tessera appends
  *    to the pre-existing `.xmfindex`, leaving the two describing different frame
@@ -288,7 +278,7 @@
  * filename. Note Tessera appends the `.h5` itself, so what is handed to
  * `writeMesh` is the **stem**, without an extension.
  *
- * **M2 CHANGE — `_latest` is a symlink, not a second copy.** The Python
+ * **`_latest` is a symlink, not a second copy.** The Python
  * rewrites the whole payload a second time under the `_latest` name. Doing that
  * here would double the cost of every checkpoint at production scale, and a
  * plain byte copy is not equivalent either: the `<stem>.xmf` sidecar names its
@@ -298,7 +288,7 @@
  * reference still resolves — which is O(1) and always consistent.
  * `--restart-from <dir>/<prefix>_latest.h5` follows the link transparently.
  *
- * **`<prefix>_latest.xmf` deliberately still names the newest *frame* sidecar,
+ * **`<prefix>_latest.xmf` deliberately names the newest *frame* sidecar,
  * not the master.** It is half of the "latest checkpoint" pair whose other half
  * a restart consumes; repointing it at the collection master would break that
  * pairing, and the master is a third thing beside the pair rather than a newer
@@ -467,10 +457,10 @@ inline void relink( const std::string& link, const std::string& target )
  */
 struct CheckpointHeader
 {
-    /// Which unknown the file stores; `/beatnik/state_model`. **M2 CHANGE — it
-    /// no longer determines which field is *present*** (a Beatnik file always
-    /// carries both `u0` and `u1`), only which one is the evolved unknown and
-    /// which is a stale cache.
+    /// Which unknown the file stores; `/beatnik/state_model`. It does **not**
+    /// determine which field is *present* (a Beatnik file always carries both
+    /// `u0` and `u1`), only which one is the evolved unknown and which is a
+    /// stale cache.
     StateModel state_model = StateModel::Potential;
 
     /// Simulation time of the snapshot.
@@ -578,10 +568,10 @@ class CheckpointIO
      * Port of run_adaptive_mesh_bubble.py::save_state_checkpoint
      * (lines 955-990)
      *
-     * **M2 CHANGE — the signature loses `state` and `material`.** Under the M1
-     * field pack all three per-vertex fields live inside the mesh, and
-     * `writeMesh` writes the whole vertex user pack, so passing them separately
-     * would name storage that no longer exists.
+     * **The signature takes no `state` or `material`.** Under the field pack
+     * all three per-vertex fields live inside the mesh, and `writeMesh` writes
+     * the whole vertex user pack, so passing them separately would name
+     * storage that does not exist.
      *
      * TESSERA MAPPING, in order:
      *   1. rank 0 creates `_directory`; barrier.
@@ -609,18 +599,16 @@ class CheckpointIO
      *               per-vertex fields.
      * @return Path of the timestamped file (not the `_latest` alias).
      *
-     * @tparam MeshType `SurfaceMesh<ExecutionSpace, MemorySpace>`. Still
-     *         templated only to keep this header free of a mesh include; it is
-     *         no longer "pending an interface", so the pre-M2 `TODO(types)`
-     *         marker is gone.
+     * @tparam MeshType `SurfaceMesh<ExecutionSpace, MemorySpace>`. Templated
+     *         only to keep this header free of a mesh include.
      *
      * @note MPI. **Collective on `mesh.comm()`**, and every rank must call it
      *       even if it owns nothing — `Tessera::detail::writeHyperslab` selects
      *       an empty hyperslab rather than skipping the call, precisely because
      *       skipping deadlocks. No gather: ghosts are excluded and connectivity
      *       is renumbered to dense global indices by the writer, so neither of
-     *       the two bugs the pre-M2 note warned about (duplicated vertices,
-     *       local indices in a concatenated file) is reachable from here.
+     *       the two classic gather bugs (duplicated vertices, local indices in
+     *       a concatenated file) is reachable from here.
      */
     template <class MeshType>
     std::string write( const CheckpointHeader& header, const MeshType& mesh )
@@ -663,9 +651,9 @@ class CheckpointIO
             // The same frame, written a second time. The master already names
             // this exact stem at this exact time, so appending it again would
             // both trip the strictly-increasing rule and put a duplicate
-            // timestep on Paraview's time slider. Rewrite the frame -- today's
-            // documented behaviour is that it is written twice and truncated,
-            // and this change is confined to the light data -- but through the
+            // timestep on Paraview's time slider. Rewrite the frame -- the
+            // documented behaviour is that it is written twice, the second
+            // write truncating the first -- but through the
             // TIMED `writeMesh` overload, so the sidecar is byte-identical to
             // the one the series would have written.
             Tessera::writeMesh( mesh.tesseraMesh(), stem, time );
@@ -730,8 +718,8 @@ class CheckpointIO
      * Port of run_adaptive_mesh_bubble.py::load_state_checkpoint
      * (lines 993-1033)
      *
-     * **M2 CHANGE — the signature loses `state` and `material`**, for the same
-     * reason `write` does, and the implementation is `Tessera::readMesh`, not
+     * **The signature takes no `state` or `material`**, for the same reason
+     * `write` does not, and the implementation is `Tessera::readMesh`, not
      * `Comm::broadcastFromRoot` + `SurfaceMesh::adopt`.
      *
      * TESSERA MAPPING:
@@ -891,12 +879,12 @@ class CheckpointIO
             names.push_back( state_type::vertex_field_names[i] );
         IoDetail::writeStringArray( group, "vertex_field_names", names );
 
-        // T4a: the same declaration for the FACE user pack, which this task
-        // added and which risk R14 flagged for exactly this reason --
-        // `/faces/u<N>` is as positional as `/vertices/u<N>`. R14 asked that
-        // M2's mechanism be extended rather than a second one invented, so this
-        // is the identical shape: an independent name table, a static_assert
-        // that it covers every slot, and a cross-check in `compare_output.py`.
+        // The same declaration for the FACE user pack, which risk R14 flagged
+        // for exactly this reason -- `/faces/u<N>` is as positional as
+        // `/vertices/u<N>`. It extends the vertex mechanism rather than
+        // inventing a second one, so this is the identical shape: an
+        // independent name table, a static_assert that it covers every slot,
+        // and a cross-check in `compare_output.py`.
         using amr_type = AdaptiveMesh<ExecutionSpace, MemorySpace>;
         static_assert(
             FaceFieldId::Count ==
