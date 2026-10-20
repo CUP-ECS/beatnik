@@ -39,13 +39,13 @@ if(NOT TARGET Beatnik)
 endif()
 
 option(Beatnik_EXAMPLES_ALLOW_BROKEN
-  "Build example drivers that still target the pre-redesign solver API" OFF)
+  "Build example drivers that include solver headers missing from src/" OFF)
 
 if(NOT Beatnik_EXAMPLES_ALLOW_BROKEN)
   message(STATUS
-    "Example 01_rising_bubble skipped: rocketrig.cpp targets the removed "
-    "pre-redesign solver API. Set Beatnik_EXAMPLES_ALLOW_BROKEN=ON to attempt "
-    "it anyway.")
+    "Example 01_rising_bubble skipped: rocketrig.cpp includes Solver.hpp and "
+    "BoundaryCondition.hpp, which do not exist in src/. Set "
+    "Beatnik_EXAMPLES_ALLOW_BROKEN=ON to attempt it anyway.")
   return()
 endif()
 

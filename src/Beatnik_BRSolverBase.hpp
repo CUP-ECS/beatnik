@@ -162,9 +162,11 @@ class BRSolverBase
      *
      * @note The Python raises for this combination under `treecode`
      *       (`mesh_solver.py:605`), so no Python run exercises
-     *       `surface-riesz` + a fast far field. Beatnik supports it, which
-     *       means there is no gold file to validate that combination against —
-     *       recorded as risk R5 in `tasks/framework.md`.
+     *       `surface-riesz` + a fast far field. Beatnik implements it for
+     *       `BRSolverDirect` only; `BRSolverFMM::computeSurfaceRieszScalar`
+     *       throws (task T7 in `tasks/canopy/add-canopy.md`). There is no gold
+     *       file for the fast-far-field combination — risk R5 in
+     *       `tasks/framework.md`.
      */
     virtual void computeSurfaceRieszScalar( mesh_type& mesh,
                                             const geometry_type& geometry,

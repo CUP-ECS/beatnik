@@ -36,10 +36,8 @@
 # relative velocity error` note -- the per-state error against `tau_A`. The
 # classify pass's range guard carries 100 % of level-4 fallback (T8b), and
 # the member asserts no m2l fallback count, at a claim-A state or on claim
-# B's final state. The Report block's text below expects a non-zero rc from
-# zero-fallback checks at :1500 and :1967; the member has no such checks, so
-# that text does not apply: any `[FAIL]` line, a walltime kill or a missing
-# claim-A state is a real failure.
+# B's final state. A zero rc is the expected outcome: any non-zero rc, any
+# `[FAIL]` line, a walltime kill or a missing claim-A state is a real failure.
 #
 # Targets the DEVELOPMENT spack env (BEATNIK_USE_PROD is not set): this is
 # measurement work, not a large production run.
@@ -194,11 +192,10 @@ _dt=$(( $(date +%s) - _t0 ))
 ## Report
 ##--------------------------------------------------------------------------##
 echo "[t9a] HIP np=${_np}: rc=${_obs} after ${_dt}s"
-echo "[t9a] A NON-ZERO rc IS EXPECTED: the :1500 and :1967 zero-fallback"
-echo "[t9a] checks fail by construction at level 4 (T8b). Read, in order:"
+echo "[t9a] rc=0 IS EXPECTED; a non-zero rc or any [FAIL] line is a real"
+echo "[t9a] failure. Read, in order:"
 echo "[t9a]   [t6] CLAIM A SERIES   81 rows; the relative-error column against"
 echo "[t9a]                         tau_A, and the p2p_frac column."
 echo "[t9a]   [note] CLAIM A: worst relative velocity error ... at step ..."
-echo "[t9a]   [FAIL] lines          every 'at:' must be :1500, :1505, :1506 or"
-echo "[t9a]                         :1967. Anything else is a real failure."
+echo "[t9a]   [FAIL] lines          none expected."
 exit "${_obs}"

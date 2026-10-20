@@ -82,10 +82,10 @@ One example per ordered `examples/NN_name/` directory; shared helpers go in
 
 #### `01_rising_bubble` — `rocketrig`
 
-> **Does not currently build.** `rocketrig.cpp` and `InputFile.hpp` target the
-> removed pre-redesign solver API. They are kept as the starting material for the
-> rising-bubble driver, behind an explicit opt-in
-> (`-DBeatnik_EXAMPLES_ALLOW_BROKEN=ON`). The argument documentation below
+> **Does not currently build.** `rocketrig.cpp` and `InputFile.hpp` include
+> `BoundaryCondition.hpp` (and `rocketrig.cpp` also `Solver.hpp`), which do not
+> exist in `src/`. They are kept as the starting material for the rising-bubble
+> driver, behind an explicit opt-in (`-DBeatnik_EXAMPLES_ALLOW_BROKEN=ON`). The argument documentation below
 > describes what the retained parser accepts and is carried forward with it.
 
 All run-time parameters — mesh size, initial condition, physics constants, solver
