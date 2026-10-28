@@ -1,6 +1,6 @@
 # Canopy profiling and optimization, driven through Beatnik
 
-**Status:** IN PROGRESS — T0, T1, T2, T3, O1, O8, O5 and O9 done; V1 is triggered by O1's `[acc]` moves but **deferred by ruling** to the end of Phase O (log, "Decision: defer V1; a milestone failure from O1 is accepted"); O2 and O4 NOT TAKEN (triggers unmet after O1); **O10 next**, then O6, whose trigger O9's shares now meet (sequence in [Phase O](#phase-o--optimize-single-node)).
+**Status:** IN PROGRESS — T0, T1, T2, T3, O1, O8, O5 and O9 done; V1 is triggered by O1's `[acc]` moves but **deferred by ruling** to the end of Phase O (log, "Decision: defer V1; a milestone failure from O1 is accepted"); O2 and O4 NOT TAKEN (triggers unmet after O1); **O6 next** (its trigger is met after O9, and its install also adds O10's probe keys), then O10 (sequence in [Phase O](#phase-o--optimize-single-node)).
 
 ## Problem
 
@@ -285,7 +285,7 @@ and jobs are the dominant cost of this programme.
 - **Three FMM evaluations per timestep**, one per RK3 stage (see
   [Why the trajectory is FMM-driven](#why-the-trajectory-is-fmm-driven)). Each
   goes through `FarFieldSolver::evaluate`
-  (`src/Beatnik_FarFieldInterface.hpp:1389-1727`, as of O1) in these phases,
+  (`src/Beatnik_FarFieldInterface.hpp`, from `:1392`) in these phases,
   each under its T2 `ff_*` timer:
 
   | # | Phase | Code | Timer |
@@ -299,7 +299,7 @@ and jobs are the dominant cost of this programme.
   | 7 | reverse distribute | `:1561-1579` | `ff_rev_distribute` |
   | 8 | reverse migrate | `:1585` | `ff_rev_migrate` |
   | 9 | scatter | `:1590-1633` | `ff_scatter` |
-  | — | diagnostics | `readDiagnostics` `:1645` (body `:968-1030`), `p2pPairCountLocal` (`:1345-1370`), the `MPI_Allreduce` at `:1676`, the cumulative counters at the end | `ff_diagnostics` |
+  | — | diagnostics | from `:1635`: `readDiagnostics` `:1642` (body `:962-1030`), `p2pPairCountLocal` (`:1342-1367`), the `MPI_Allreduce` at `:1673`, the cumulative counters at the end | `ff_diagnostics` |
 
   `ff_evaluate_total` covers the whole of `evaluate`.
 - **Beatnik's FMM path is timed at `beatnik profiling_level=2` (T2).**
@@ -803,8 +803,10 @@ the step at np1 and 87 % at np4 (O7).
 Sequence: **O1 → O2 → O4 → O5 → O8 → O9 → O10 → O6 → O7 → V1.** O2, O4 and O6
 are conditional; O3 is NOT TAKEN.
 
-**After O1 the sequence is O8 → O5 → O9 → O10 → O6 → O7 → V1.** O2 and O4
-are NOT TAKEN. O8 moved ahead of O5 by the user's choice, on O1's post-retention
+**After O1 the sequence is O8 → O5 → O9 → O6 → O10 → O7 → V1.** O2 and O4
+are NOT TAKEN. O6 runs before O10: after O9 its target is larger than O10's at
+every HIP SMS run (log `## O9`, "Post-O9 shares"), and O6's install carries
+O10's probe keys, so O6's SMS job measures O10's split. O8 moved ahead of O5 by the user's choice, on O1's post-retention
 shares (log, "Decision: O2 and O4 not taken; O8 before O5"). The table above is
 T3's and predates O1.
 
@@ -1380,9 +1382,85 @@ job IDs are in the [log](canopy_profiling-progress-log.md) `## O9`.
     difference sits in `builder_build` and `maint_compare_build`, which O9
     does not touch.
 
+### O6 — Adapter overheads in `FarFieldSolver::evaluate` — **NOT STARTED**
+
+**Depends on:** O1, O5, O8 and O9 **DONE** (O9's knob-on SMS is the
+baseline).
+
+**Trigger: met.** `ff_pack + ff_fwd_* + ff_rev_* + ff_scatter +
+ff_diagnostics` is 14.0 % (L4) and 10.3 % (L5) of the HIP np4 step after O9,
+and 4.0 / 6.1 % at np1, against 5 % (log `## O9`, "Post-O9 shares").
+
+**Baseline (after O9).** Medians of `3 × phase / step_wall` over O9's knob-on
+(`d1`) rows after step 1, HIP (jobs `f3f5F8ZgyeNT` np1, `f3f5F8i5FaoZ` np4):
+
+| phase | L4 np1 | L5 np1 | L4 np4 | L5 np4 |
+| --- | --- | --- | --- | --- |
+| `ff_pack` | 0.04 | 0.02 | 0.05 | 0.03 |
+| `ff_fwd_distribute` | 0.96 | 0.37 | 5.68 | 3.21 |
+| `ff_fwd_migrate` | 0.15 | 0.06 | 2.95 | 1.54 |
+| `ff_contract` | 0.03 | 0.01 | 0.04 | 0.02 |
+| `ff_rev_distribute` | 0.35 | 0.16 | 1.81 | 1.90 |
+| `ff_rev_migrate` | 0.15 | 0.06 | 3.12 | 1.56 |
+| `ff_scatter` | 0.07 | 0.02 | 0.07 | 0.04 |
+| `ff_diagnostics` | 2.10 | 5.46 | 0.57 | 1.79 |
+
+At np4 the distributors and migrates are the target; at np1 it is
+`ff_diagnostics`. Accuracy baseline, O9's maxima: L4 1.4025e-3, SERIAL's 500
+steps 1.1338e-3, L5 1.2115e-3. SERIAL's "before" is O9's `f3f5F8riMQ47` (np1)
+and `f3f5F8zS5fAF` (np4).
+
+**Scope: every adapter phase on HIP**, the distributors and migrates
+included. The phase code is in [Current state](#current-state): the forward
+distributor `buildForwardDistributor` (`src/Beatnik_FarFieldInterface.hpp:1249`,
+called at `:1452`, its claims migrate inside), the reverse distributor and
+migrate (`:1561`, `:1579`), and `ff_diagnostics` (`:1635` to the end of
+`evaluate`). The distributor code is shared with SERIAL, so the SERIAL SMS
+rows are run as always and reported; SERIAL-specific slowness that remains is
+O7's.
+
+**Fill in:**
+- `src/Beatnik_FarFieldInterface.hpp`, the phases chosen from the table above.
+  - `p2pPairCountLocal` (`:1342-1367`) builds a host hash on every
+    evaluation, and the 9-element `MPI_Allreduce` (`:1673`) follows. Its
+    `FarFieldDiagnostics` fields (`global_p2p_pair_count`,
+    `p2p_pair_fraction`) are read by `Beatnik_Test_FmmVsDirect.cpp`,
+    `Beatnik_Test_Milestone0Fmm.cpp` (`:1486`, `:1979`), `Beatnik_Test_FmmScan.cpp`
+    (`:846-866`), `Beatnik_Probe_FmmKeyDemand.cpp` (`:604`) and
+    `Beatnik_Probe_FmmCost.cpp` (`:910`). If it is gated, each reader gets a
+    way to request it and the list above is re-checked by search.
+- Each change sits behind a knob, as O1, O8, O5 and O9: a `FmmParams` field in
+  `src/Beatnik_Params.hpp` (after `dense_key_classify`, `:503`), default on, a
+  probe key echoed in `[fmmcost] header`, and a README "FMM tunables" row
+  (`README.md:307`). Off is the current path, unchanged, and runs in the same
+  job.
+- **O10's probe keys, in the same install.** Add to `kCanopyKeys`
+  (`tests/regression_tests/Beatnik_Probe_FmmCost.cpp:189-229`) Canopy's
+  existing downward-sweep keys: `m2l_comm`, `m2l_allreduce`, `l2l_kernel` and
+  `l2l_comm` (level 1), and `dn_zero_locals`, `dn_pre_m2l`, `dn_m2l_call` and
+  `dn_post_m2l` (level 2, `detailed`). They are timed at
+  `../canopy/src/Canopy_DownwardSweep.hpp:3022,3284,3434,3466,3641,3683,3688,3693`
+  (`Canopy_Profiling.hpp:110-124`). No Canopy file changes.
+- `tests/regression_tests/fmm_profile_reduce.py`: name the new keys as nested
+  downward keys, outside `TIMED_MAINT` and `TIMED_MAINT_O5` (`:583-594`), as
+  `ILIST_S3_SPLIT` is, with a `--self-test` case showing a row with them
+  reduces to the same untimed maintenance as one without.
+
+**Exit criterion:** the common O criteria on HIP and SERIAL (no Canopy change,
+so no Canopy stems), plus:
+- `FmmVsDirect` at ranks 1–6 on HIP, `scripts/tuolumne/t4_fmm_vs_direct.flux`
+  as its own two-node job in the same sitting. The binary instantiates only
+  `Kokkos::DefaultExecutionSpace` (`tests/unit_tests/Beatnik_Test_FmmVsDirect.cpp:1194`),
+  so SERIAL's evidence is the SERIAL SMS `[acc]` rows;
+- every `FarFieldDiagnostics` reader above still compiling (the single
+  `spack install` builds them all);
+- each of the eight O10 keys printing a non-sentinel value in every `[cost]`
+  row, and the log recording O10's split from them at every HIP SMS run.
+
 ### O10 — Downward-sweep communication and per-depth loop at np > 1 — **NOT STARTED**
 
-**Depends on:** T3.
+**Depends on:** O6 **DONE** (O6's SMS rows carry this task's split and are
+its baseline).
 
 **Measured (T3):** `downward_total` minus `dn_build_ilist`, `m2l_kernel` and
 `l2p` is 6.3–11.1 % of HIP step wall at np4 (medians per run), up to 18.2 % at
@@ -1392,14 +1470,13 @@ one level-4 state. It is under 1 % at np1, so it is the multi-rank part of
 - the loop over all `max_depth + 1` = 11 depths of snapshot, allreduce, L2L
   and exchange, of which only 5–8 are occupied.
 
-Phase S raises its weight.
+After O9 it is 9.8 % (L4) and 5.9 % (L5) of the HIP np4 step. Phase S raises
+its weight.
 
-**Additional information needed:** the split, which T3 could not take without
-a new probe key. Canopy already times the parts: `m2l_comm`, `m2l_allreduce`,
-`l2l_kernel`, `l2l_comm`, and at level 2 `dn_zero_locals`, `dn_pre_m2l`,
-`dn_m2l_call` and `dn_post_m2l`. The probe prints none of them. Step 1 adds
-them to `kCanopyKeys` (`tests/regression_tests/Beatnik_Probe_FmmCost.cpp:168-193`)
-in the same install as the change.
+**The split** comes from O6's SMS rows, which carry `m2l_comm`,
+`m2l_allreduce`, `l2l_kernel`, `l2l_comm`, `dn_zero_locals`, `dn_pre_m2l`,
+`dn_m2l_call` and `dn_post_m2l` (O6's **Fill in**). Choose the candidate from
+it.
 
 Candidates:
 - skip depths with no shared cells;
@@ -1407,26 +1484,6 @@ Candidates:
 
 **Exit criterion:** the common O criteria, with Canopy stems `DownwardSweep`
 and `MultiSolve` at np 1–6.
-
-### O6 — Adapter overheads in `FarFieldSolver::evaluate` — **NOT STARTED (conditional)**
-
-**Depends on:** O1, O5, O8, O9 and O10 resolved (DONE or NOT TAKEN).
-
-**Trigger:** `ff_pack + ff_fwd_* + ff_rev_* + ff_scatter + ff_diagnostics` is
-more than 5 % of the HIP SMS step wall. T3 measured 1.0–3.4 % (medians per
-run, HIP), with one level-4 np4 state at 6.7 %: **not met.** It is re-evaluated
-on the SMS once the earlier tasks have shrunk the rest of the step, which
-raises this share. SERIAL's adapter share is O7's.
-
-**Fill in:** `src/Beatnik_FarFieldInterface.hpp`, the phases `T3` ranks. The
-likeliest target is `p2pPairCountLocal` (`:1298-1323`), a host hash computed on
-every evaluation for a diagnostic. It is read by `FmmVsDirect`,
-`Milestone0Fmm`, `FmmScan` and the probes, so gating it changes those readers.
-Enumerate them in the task and give them a way to request it.
-
-**Exit criterion:** the common O criteria, plus `FmmVsDirect` at ranks 1–6 on
-SERIAL and HIP, and every `FarFieldDiagnostics` reader still compiling (the
-single `spack install` builds them all).
 
 ### O7 — SERIAL rank scaling — **NOT STARTED (lowest priority)**
 
@@ -1440,8 +1497,11 @@ against np1's 1.72 s (2.2x, 500 steps).
 - `solve()` is 41 % of the step at np1 and 11 % at np4. On HIP the same two
   phases are at most 2.3 %.
 
+O6 may change the same distributor code for HIP. O7's baseline is O6's SERIAL
+SMS rows, and its target is whatever SERIAL-specific slowness remains there.
+
 **Fill in:** the forward and reverse distributor scopes in
-`src/Beatnik_FarFieldInterface.hpp` (`:1424`, `:1534`), and whatever Cabana
+`src/Beatnik_FarFieldInterface.hpp` (`:1452`, `:1561`), and whatever Cabana
 distributor path they take on the host.
 
 **Exit criterion:** the common O criteria on the SERIAL rows of the SMS.
