@@ -1,6 +1,6 @@
 # Canopy profiling and optimization, driven through Beatnik
 
-**Status:** IN PROGRESS — T0, T1, T2, T3, O1, O8, O5 and O9 done; V1 is triggered by O1's `[acc]` moves but **deferred by ruling** to the end of Phase O (log, "Decision: defer V1; a milestone failure from O1 is accepted"); O2 and O4 NOT TAKEN (triggers unmet after O1); **O6 next** (its trigger is met after O9, and its install also adds O10's probe keys), then O10 (sequence in [Phase O](#phase-o--optimize-single-node)).
+**Status:** IN PROGRESS — T0, T1, T2, T3, O1, O8, O5 and O9 done; V1 is triggered by O1's `[acc]` moves but **deferred by ruling** to the end of Phase O (log, "Decision: defer V1; a milestone failure from O1 is accepted"); O2 and O4 NOT TAKEN (triggers unmet after O1); **O6 next** (its trigger is met after O9, and its install also adds O10's probe keys), then O11, then O10 (sequence in [Phase O](#phase-o--optimize-single-node)).
 
 ## Problem
 
@@ -803,10 +803,13 @@ the step at np1 and 87 % at np4 (O7).
 Sequence: **O1 → O2 → O4 → O5 → O8 → O9 → O10 → O6 → O7 → V1.** O2, O4 and O6
 are conditional; O3 is NOT TAKEN.
 
-**After O1 the sequence is O8 → O5 → O9 → O6 → O10 → O7 → V1.** O2 and O4
+**After O1 the sequence is O8 → O5 → O9 → O6 → O11 → O10 → O7 → V1.** O2 and O4
 are NOT TAKEN. O6 runs before O10: after O9 its target is larger than O10's at
 every HIP SMS run (log `## O9`, "Post-O9 shares"), and O6's install carries
-O10's probe keys, so O6's SMS job measures O10's split. O8 moved ahead of O5 by the user's choice, on O1's post-retention
+O10's probe keys, so O6's SMS job measures O10's split. O11 takes the
+maintenance left after O5 — the comm-plan M2L finalizer, the comparison tree
+build and the sweep setups — which after O9 is the largest target at np1 and
+at level 5, ahead of O10. O8 moved ahead of O5 by the user's choice, on O1's post-retention
 shares (log, "Decision: O2 and O4 not taken; O8 before O5"). The table above is
 T3's and predates O1.
 
@@ -1457,10 +1460,116 @@ so no Canopy stems), plus:
 - each of the eight O10 keys printing a non-sentinel value in every `[cost]`
   row, and the log recording O10's split from them at every HIP SMS run.
 
+### O11 — Maintenance after the indexed comm plan: finalizers, the comparison build, sweep setup — **NOT STARTED**
+
+**Depends on:** O6 **DONE** (O6's knob-on SMS is the baseline).
+
+**Measured (after O9).** Medians of `3 × phase / step_wall` over O9's knob-on
+rows, HIP (log `## O9`, "Post-O9 shares"; `builder_build` and the DTT from
+O5's table, `## O5`):
+
+| target | L4 np1 | L4 np4 | L5 np1 | L5 np4 |
+| --- | --- | --- | --- | --- |
+| `ff_maintain` | 43.3 | 33.1 | 50.4 | 43.3 |
+| `comm_plan_build` | 23.8 | 7.0 | 34.8 | 17.8 |
+| `commplan_finalize_m2l` (in `comm_plan_build`) | 9.9 | 2.6 | 18.4 | 7.8 |
+| `maint_compare_build` | 6.1 | 8.4 | 2.8 | 6.4 |
+| `maint_sweep_setup` | 6.3 | 4.7 | 8.3 | 5.9 |
+
+After O5, `commplan_finalize_p2p` was 1.2–4.9 %, the DTT 2.3–7.5 % and
+`builder_build` 2.1–8.7 % (`## O5`). Maintenance is the largest single target
+at np1 and at L5. Rebalance is chosen on 77 % of evaluations at L4 and 98 % at
+L5 (T3), so the Rebalance path is what is paid.
+
+Three costs, all host work in `../canopy/src`:
+1. **The M2L finalizer** of the indexed comm-plan build,
+   `finalize_m2l_plan_indexed` (`Canopy_CommunicationPlan.hpp:1361-1387`,
+   under `TIMER_COMMPLAN_FINALIZE_M2L` at `:1489-1495`).
+   - It groups the flat DTT emissions by target with a counting sort and
+     pushes each target's sources into
+     `_m2l_plan.interaction_lists[cells[t].key]`, an
+     `std::unordered_map<MortonKey, std::vector<std::pair<MortonKey, int>>>`
+     (`:95-96`).
+   - It then sorts every list by source key (`sort_interaction_lists`,
+     `:917-972`, radix above 64 entries) and sort-uniques the receive and
+     send buffers.
+   - O5 moved this cost here from the DTT, so it grew 36–96 % (`## O5`, "Bugs
+     only running revealed").
+   - The consumer, `build_interaction_list_device`
+     (`Canopy_DownwardSweep.hpp:1650`), reads `interaction_lists` by key.
+2. **The comparison build.** `auto_maintain` (`Canopy_Solver.hpp:474-597`)
+   rebuilds the tree from the current positions under
+   `TIMER_MAINT_COMPARE_BUILD` (`:521-526`), only to compare cell keys with
+   the previous tree. Both paths then build again:
+   - `_finish_topology_change` builds again after `repartition` (`:712-750`,
+     `TIMER_BUILDER_BUILD`);
+   - `_finish_topology_stable` builds again after `redistribute`
+     (`:757-777`).
+
+   So every evaluation builds the tree twice from the same positions.
+3. **The sweep setups.** `maint_sweep_setup` (`:740`, `:771`) runs the upward,
+   downward and P2P `setup` on both paths, on every evaluation.
+
+**Do:**
+1. **Split first,** in the same install as the change. Add level-2 Canopy
+   timers inside `finalize_m2l_plan_indexed`: the target grouping and map
+   inserts, `sort_interaction_lists`, and the receive/send `sort_unique`. Add
+   timers inside `maint_sweep_setup` around the upward, downward and P2P
+   setups. Add the keys to `kCanopyKeys` and to the reducer as nested keys,
+   outside `TIMED_MAINT` and `TIMED_MAINT_O5`, as `ILIST_S3_SPLIT` is. Before
+   choosing the change, record the split's best available prior from a
+   Canopy-only job on the nearest fixture, as O9 did.
+2. **Candidates, chosen from the split:**
+   - **The finalizer.**
+     - Write each target's list straight into a pre-sized flat
+       (CSR-shaped) store, sorted by source cell index, which equals key
+       order wherever `cells` is key-sorted (`Canopy_TreeBuilder.hpp:1114`).
+       Check that precondition and throw where it fails.
+     - Keep `interaction_lists`' public shape, or change it together with its
+       one consumer at `Canopy_DownwardSweep.hpp:1650` and say so.
+   - **The comparison build.** Reuse it for the second build: the positions
+     are the same, so after `repartition` or `redistribute` only the
+     particle-to-leaf assignment of the moved particles changes, not the
+     global cell list.
+     - Prove that on the fixtures before relying on it. A unit case asserts
+       that the reused tree's `cells()` and `particle_keys()` are identical
+       to a full rebuild's on both paths.
+     - The remaining question is which `TreeBuilder` state the second build
+       refreshes beyond the cell list. Read `TreeBuilder::build` (`:392`)
+       and enumerate it.
+   - **The sweep setups.** On the Migrate path the topology is unchanged.
+     Skip any part of a setup that depends only on topology, and say per
+     sweep which parts those are.
+3. Put each change behind a knob, default on, with the off arm in the same job:
+   a Canopy `FmmConfig` field and setter, a Beatnik `FmmParams` field mapped in
+   `buildConfig`, a probe key, README "FMM tunables" and the Canopy README
+   `FmmConfig` table, as O5 and O9 do. One knob per independent change, so
+   each gain is attributed.
+
+- **No `MaintenanceAction` policy change.** A key change still forces the
+  Rebalance path's full comm-plan rebuild (log `## O5`, "No
+  `MaintenanceAction` policy change"). Repartition (1–6 %) is out of scope.
+- **Expected `[acc]`: bit-identical** to O6 at every state. Every candidate
+  produces the same tree, plan and setups. A moved state means a candidate is
+  not equivalent, and it is a defect, not geometry.
+
+**Exit criterion:** the common O criteria, with Canopy stems `TreeBuilder`,
+`TreePartitioner`, `CommunicationPlan`, `DownwardSweep` and `MultiSolve`. In
+addition:
+- the new sub-timer keys print a non-sentinel value in every `[cost]` row;
+- for each knob, a unit case builds the same state with it off and on and
+  asserts equality: every public comm-plan field
+  (`CommunicationPlan.testIndexedMatchesLegacy*`'s comparison), or the tree's
+  `cells()` and `particle_keys()`, or the sweeps' setup outputs.
+
+Failure direction: one broken build per knob, checked once by hand and not
+committed, fails its unit case. For example, a finalizer that leaves one list
+unsorted, or a reused tree that misses one moved particle.
+
 ### O10 — Downward-sweep communication and per-depth loop at np > 1 — **NOT STARTED**
 
-**Depends on:** O6 **DONE** (O6's SMS rows carry this task's split and are
-its baseline).
+**Depends on:** O6 and O11 **DONE**. O6's SMS rows carry this task's split;
+O11's knob-on SMS is its baseline.
 
 **Measured (T3):** `downward_total` minus `dn_build_ilist`, `m2l_kernel` and
 `l2p` is 6.3–11.1 % of HIP step wall at np4 (medians per run), up to 18.2 % at
