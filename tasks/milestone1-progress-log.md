@@ -378,3 +378,24 @@ called the endpoint relation absent upstream now says it is present and unused.
   same-diagonal case would fail conformity mid-run rather than diverge. Read a
   conformity failure in the cleanup flips with that finding in mind.
 - **T4d3:** none. The quality flips keep the default `SharedFace` relation.
+
+## M1-U3 (design only)
+
+The same-new-diagonal finding in `## M1-U2` is now fixed in Tessera rather than
+in Beatnik's masks. A mask cannot see a second edge with the same opposite
+corners on another rank, and the defect corrupts the mesh for every caller of
+`flipEdges`, under both relations. `milestone1.md` gains task **M1-U3**:
+
+- the `(w,x)` coordinator in step 2b resolves the competing claims, using the
+  existing priority, among the candidates that pass geometry;
+- the losers count into `rejectedConflict`;
+- no new collective is added;
+- on any input without such a pair, every verdict and counter is unchanged.
+
+No code changed.
+
+**Affects:**
+
+- **T4d3, T4d5, M1-T2:** each now depends on M1-U3.
+- **T4d5:** the open question in `## M1-U2`'s **Affects:** line is settled, and
+  the mask need not avoid pairs of edges whose quads share both opposite corners.

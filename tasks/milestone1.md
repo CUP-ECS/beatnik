@@ -218,7 +218,10 @@ references in this section are against `05b5942` (M1-U2):
   flip whose diagonal `(c,d)` is an existing edge is rejected and counted in
   `rejectedDuplicateEdge`. The answer comes from the `(c,d)` coordinator,
   which has seen every owned face's edges (`Tessera_EdgeFlip.hpp:142-150`).
-  A Beatnik mask cannot answer it reliably, so the mask does not try.
+  A Beatnik mask cannot answer it reliably, so the mask does not try. The check
+  is against the pre-flip edge set only, so two flips in one call that create
+  the same diagonal are both accepted. **M1-U3** makes `flipEdges` accept at
+  most one of them, and T4d3 and T4d5 rely on that.
 - **Tessera's default flip conflict relation is per face; the valence pass
   needs a different one.** Under the default `FlipConflict::SharedFace`,
   Tessera's independent set forbids two accepted flips sharing a *face* and
@@ -247,8 +250,9 @@ Three strands, run in this order of *risk*, not of code size:
 1. **Measure the achievable comparison first** (M1-G1, M1-D1). A fixed-mesh
    600-step Python/Beatnik comparison needs no new solver code and answers the
    only question that can invalidate the milestone's premise.
-2. **Land T4d** (M1-U1, M1-U2, T4d1–T4d6). M1-U1 and M1-U2 are small upstream
-   Tessera changes that T4d2 and T4d5 need (Read this first #6); T4d1 is an
+2. **Land T4d** (M1-U1, M1-U2, M1-U3, T4d1–T4d6). M1-U1, M1-U2 and M1-U3 are
+   small upstream Tessera changes that T4d2, T4d3 and T4d5 need (Read this first
+   #6); T4d1 is an
    adapter layer, T4d2–T4d5 are one reference function each, T4d6 is an
    operational decision.
 3. **Wire the milestone test** (M1-T1, M1-T2) and **fix the acceptance**
@@ -318,6 +322,9 @@ True at HEAD, and specific about what is *defined but wrong* versus what
   the radius ratio; no Beatnik policy uses it yet (T4d2). `flipEdges` has the
   opt-in `FlipConflict::EndpointInQuad` relation beside the default per-face one
   (M1-U2, **DONE**, Tessera `05b5942`); no Beatnik call site sets it yet (T4d5).
+- **Wrong upstream:** `flipEdges` accepts two flips that create the same
+  diagonal in one call, under either relation, and leaves two edges with one key
+  (M1-U3).
 - **Defined and deliberately inert**, transcribed rather than folded away, so
   landing T4d turns them on by deleting a rejection instead of by remembering to
   add a call: `const int collapses = 0` and `diag.flips += 0; diag.smooth_steps += 0`
@@ -712,6 +719,117 @@ and the `SharedFace` branch is the `else` at `:828`. Log: `## M1-U2`.
 
 ---
 
+### M1-U3 — no two accepted flips create the same diagonal *(upstream, in `../tessera`)* — **NOT STARTED**
+
+**Depends on:** M1-U2 (**DONE**, Tessera `05b5942`). The line references below
+are against `05b5942`.
+
+**The defect.** Two marked edges `(a,b)` and `(c,d)` can have the same
+opposite corners `w, x`, so both flips would create the same diagonal `(w,x)`.
+`flipEdges` accepts both, under either `FlipConflict`, and the mesh ends with
+two edges keyed `(w,x)`:
+
+- The duplicate-edge round (step 2b, `Tessera_EdgeFlip.hpp:695-723`) asks the
+  `(w,x)` coordinator only whether `(w,x)` is in the **pre-flip** edge set.
+- The flips share no face, so `SharedFace` does not separate them.
+- Neither flip has an endpoint among the other's corners, so `EndpointInQuad`
+  does not separate them either.
+
+Reproduction: M1-U1's `flatBipyramidSoup` (`tests/test_flip_edges.cpp:1129`)
+with ring edges `(2,3)` and `(5,6)` marked, under the permissive policy. Both
+edges have opposite corners `0, 1`. This has been found by reading, not yet by
+running. A Beatnik mask cannot prevent it reliably: the owner of `(a,b)` does
+not see `(c,d)` in general. The fix therefore belongs in `flipEdges`, for every
+caller and under both relations. T4d3 and T4d5 call `flipEdges` without
+testing the new diagonal in their masks (Read this first #6).
+
+**Fill in:** in `../tessera/src/Tessera_EdgeFlip.hpp`:
+
+- step 2b and 2c (`:695-762`);
+- `detail::DupQuery`/`DupReply` (`:411-421`), whose only users are step 2b;
+- the header's step-2 `DUPLICATE` text (`:142-150`);
+- the `FlipResult::rejectedConflict` comment (`:277-281`).
+
+Add one new case to `tests/test_flip_edges.cpp`. Update the duplicate-edge
+passage in `docs/design.md` ("The duplicate-edge round") and the `rejected*`
+comments in `README.md`'s flip section. `flipEdges`' signature and
+`FlipResult`'s members do not change.
+
+**Reference:** the `(w,x)` coordinator in step 2b already receives one
+`DupQuery` from every candidate that would create `(w,x)`, so it is the one rank
+that sees every claimant. Resolve the claims there, in the existing round, with
+no new collective.
+
+**Do:**
+
+1. **Evaluate the geometric test before the duplicate round, and change no
+   verdict precedence.** Compute each candidate's pass/fail in 2c's code, but
+   attribute verdicts in the existing order: boundary, then duplicate, then
+   geometric. A candidate whose diagonal exists still counts as
+   `rejectedDuplicateEdge` even if it also fails geometry. Case 3
+   (`caseDuplicateEdge`, `:901`) asserts `rejectedDuplicateEdge == 1`, and it
+   must not move.
+2. **Each `DupQuery` carries the asker's `len2` and its geometric pass/fail.**
+   At the `(w,x)` coordinator:
+   - If `(w,x)` exists, every asker is answered *exists*.
+   - Otherwise, among askers that **passed geometry**, the best by the existing
+     priority `(len2 DESCENDING, EdgeKey ASCENDING)` is answered *free*. Every
+     other geometric survivor is answered *claimed*.
+   - An asker that failed geometry is answered *free*, because its own
+     geometric verdict rejects it next.
+
+   `DupReply::exists` becomes a three-valued reply. A *claimed* candidate counts
+   into `rejectedConflict`: it lost to a higher-priority candidate, and no
+   pre-flip edge is in the way. Filtering on geometry is what stops a winner
+   that is about to fail its own geometric test from vetoing a valid flip.
+3. **The claim winner can still lose step 3.** If it does, the claimant it shut
+   out is not reconsidered. That is the same non-maximality as Decision 3 (one
+   round, one bounded cost), and the header says so.
+4. **Bit-identity.** On every input where no two geometric survivors share a new
+   diagonal, every verdict and counter equals `05b5942`'s, under both relations.
+   Every existing `flip_edges` and `collapse_edges` case must pass at its
+   unchanged literals.
+   - Most existing calls cannot contain such a pair: they mark one edge, mark
+     pairs whose diagonals differ, or mark on the unedited subdivision-2
+     icosphere, where two non-adjacent vertices never share four neighbours.
+   - Four calls mark on an already-edited mesh, so their counts may change:
+     `test_flip_edges` case 9's second all-marked call (`caseEmptyAndHalo`,
+     `mask2`), case 12, and the flip passes in `test_collapse_edges` case 14.
+     Whatever they assert must still pass.
+   - If a literal fails, stop and report it. Do not change it.
+5. **The new case**, in the style of case 14 (`conflictRun`, `:1393`), runs
+   under both relations with the permissive policy:
+   - **Success:** `flatBipyramidSoup` with `(2,3)` and `(5,6)` marked gives
+     `accepted == 1` and `rejectedConflict == 1` under both relations, and the
+     mesh passes `checkAll` and `checkKeyTables`. The winner is whichever edge
+     the priority picks; assert it is the same at every rank count by comparing
+     the gathered flip set against an `MPI_COMM_SELF` run.
+   - **Failure direction:** a same-diagonal pair whose higher-priority member
+     fails geometry. Then the other member is accepted and the loser counts
+     `rejectedGeometric`, not `rejectedConflict`. Build it by perturbing the
+     flat bipyramid so the two ring edges differ in length and in new-face
+     quality, and set `minQuality` between the two. Check the fixture with a
+     Python model of both metrics before the build, as M1-U2 did, and have the
+     case assert its own premise from the soup coordinates, as case 13 does.
+   - **Unchanged:** case 3's existing-diagonal rejection still gives
+     `rejectedDuplicateEdge == 1`.
+6. Build only the four test executables and run the targeted set, as M1-U1 and
+   M1-U2 did (Log: `## M1-U1`, `## M1-U2`). Follow Tessera's `CLAUDE.md`.
+
+**Exit criterion:** the same targeted run as M1-U2, after building the same four
+executables. Run
+`flux batch scripts/tuolumne/run_unit_tests.flux regression -R "^(collapse_edges|flip_edges)_"`
+from `../tessera` with `TESSERA_REPO` exported. It must report
+`100% tests passed, 0 tests failed out of 20`: `flip_edges` and
+`collapse_edges`, SERIAL and HIP, np1–5. The new case must print identical lines
+in every launch, showing all three of:
+
+- the same-diagonal pair accepts one flip under each relation;
+- the higher-priority member that fails geometry does not veto the other;
+- case 3 still reports `rejectedDuplicateEdge=1`.
+
+---
+
 ### T4d1 — the three `SurfaceMesh` adapters — **NOT STARTED**
 
 **Depends on:** none.
@@ -825,7 +943,7 @@ unlimited), asserted so the deleted rejection's warning cannot be re-lost.
 
 ### T4d3 — the two quality-flip entry points — **NOT STARTED**
 
-**Depends on:** T4d1.
+**Depends on:** T4d1, M1-U3 (two quality flips in one round must not create the same diagonal).
 
 **Fill in:** `DynamicRemesh::flipEdgesForQuality`
 ([src/Beatnik_DynamicRemesh.hpp:914](../src/Beatnik_DynamicRemesh.hpp#L914)),
@@ -929,7 +1047,7 @@ positions **unchanged**, and a healthy mesh returns
 ### T4d5 — `MeshQuality::{valenceEqualizingFlips, isotropicCleanup}` and the cleanup call site — **NOT STARTED**
 
 **Depends on:** T4d1, T4d3 (shares the flip adapter and the mask machinery),
-M1-U2, and T4c (landed).
+M1-U2, M1-U3, and T4c (landed).
 
 **Fill in:** [src/Beatnik_MeshQuality.hpp:111](../src/Beatnik_MeshQuality.hpp#L111)
 and [:182](../src/Beatnik_MeshQuality.hpp#L182); the two call sites in
@@ -1087,7 +1205,7 @@ lists **60** cases.
 
 ### M1-T2 — the milestone comparison test — **NOT STARTED**
 
-**Depends on:** M1-U1, M1-U2, T4d1, T4d2, T4d3, T4d4, T4d5, T4d6, M1-G2, M1-T1, M1-D1.
+**Depends on:** M1-U1, M1-U2, M1-U3, T4d1, T4d2, T4d3, T4d4, T4d5, T4d6, M1-G2, M1-T1, M1-D1.
 
 **Fill in:** `tests/regression_tests/Beatnik_Test_Milestone1Bubble.cpp`,
 registered in the `milestone` tier with the gold **directory** and the comparator
