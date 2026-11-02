@@ -24,15 +24,15 @@ of the Python `.npz` checkpoints against the Beatnik `.h5` checkpoints by
 
 What exists now is a Beatnik that **rejects this command at setup**, by name and
 by task ID, from `Solver::requireSupportedConfiguration`
-([src/Beatnik_Solver.hpp:728-871](../src/Beatnik_Solver.hpp#L729-L872)). Four
+([src/Beatnik_Solver.hpp:727-859](../src/Beatnik_Solver.hpp#L727-L859)). Four
 rejections fire and every one of them is **T4d**:
 
 | Option, at its default | Rejection | Needs |
 | --- | --- | --- |
-| `--isotropic-cleanup` (default **on**) | [:769-775](../src/Beatnik_Solver.hpp#L769) | `MeshQuality::isotropicCleanup` |
-| `--remesh-collapse-factor 0.45` | [:818-828](../src/Beatnik_Solver.hpp#L818) | `DynamicRemesh::collapseShortEdges` |
-| `--remesh-smooth-iters 1` | [:830-837](../src/Beatnik_Solver.hpp#L830) | `DynamicRemesh::tangentialSmooth` |
-| `--remesh-flip-min-gain 1e-3` | [:839-850](../src/Beatnik_Solver.hpp#L839) | `DynamicRemesh::flipEdgesForQuality` |
+| `--isotropic-cleanup` (default **on**) | [:759-765](../src/Beatnik_Solver.hpp#L759-L765) | `MeshQuality::isotropicCleanup` |
+| `--remesh-collapse-factor 0.45` | [:809-817](../src/Beatnik_Solver.hpp#L809-L817) | `DynamicRemesh::collapseShortEdges` |
+| `--remesh-smooth-iters 1` | [:819-826](../src/Beatnik_Solver.hpp#L819-L826) | `DynamicRemesh::tangentialSmooth` |
+| `--remesh-flip-min-gain 1e-3` | [:828-837](../src/Beatnik_Solver.hpp#L828-L837) | `DynamicRemesh::flipEdgesForQuality` |
 
 Nothing else on the command line is stubbed. The end state is: the command runs,
 the two codes' checkpoints are compared to a **measured, documented** depth, and
@@ -59,12 +59,13 @@ framework.md's standing deviations.
 
 ## Read this first
 
-Five places where inspection contradicted the brief or the prior design text.
+Six facts about the reference, the comparator and Tessera that every task below
+builds on.
 
-### 1. The brief's command runs 140 steps and writes no checkpoints
+### 1. The target command runs 140 steps and writes no checkpoints
 
 `--steps` defaults to **140**, `--checkpoint-dir` to `""` and
-`--checkpoint-every-steps` to **0** (`run_adaptive_mesh_bubble.py:133,318,325`),
+`--checkpoint-every-steps` to **0** (`run_adaptive_mesh_bubble.py:133,316,329`),
 and both checkpoint criteria are guarded on the directory being set (`:1571`,
 `:1573`). The command as written therefore produces no `.npz` at all, and cannot
 reach step 500.
@@ -117,9 +118,9 @@ the 600-step gold set in hand. **This document does not assert that step 500,
 ### 3. `--max-faces` does not bound a `--dynamic-remesh` run
 
 `max_faces` is a parameter of the *indicator-driven* refiner only: it is absent
-from `DynamicRemeshParams` (`run_adaptive_mesh_bubble.py:1310-1357` constructs it
+from `DynamicRemeshParams` (`run_adaptive_mesh_bubble.py:1326-1357` constructs it
 without one) and in Beatnik it is read only by `AdaptiveMesh`
-([src/Beatnik_AdaptiveMesh.hpp:1029-1032](../src/Beatnik_AdaptiveMesh.hpp#L1027-L1030)).
+([src/Beatnik_AdaptiveMesh.hpp:1029-1032](../src/Beatnik_AdaptiveMesh.hpp#L1029-L1032)).
 So T4b's plateau at 1400 faces was the sizing field reaching equilibrium, **not**
 a cap, and a 600-step milestone run has no face-count ceiling other than
 `--remesh-h-min 0.0015` and `--remesh-max-splits 300` per pass. R4's greedy-cap
@@ -131,7 +132,7 @@ divergence is therefore *not* in play on this path, and the cost of the
 framework.md carried the T4d design; it now points here. **The IDs are
 unchanged** — `T4d`, `T4d1`…`T4d6` — because four `requireSupportedConfiguration`
 messages, several header comments and
-[src/Beatnik_DynamicRemesh.hpp:1018-1045](../src/Beatnik_DynamicRemesh.hpp#L1018-L1045)
+[src/Beatnik_DynamicRemesh.hpp:1020-1047](../src/Beatnik_DynamicRemesh.hpp#L1020-L1047)
 all name "task T4d" in text a user will read at a failed run. Renaming them to
 `M1-*` would make every one of those strings wrong. Tasks that are new with this
 milestone carry an `M1-` prefix.
@@ -169,6 +170,59 @@ Each changes an implementation, not just a comment:
   reduction and an accept/reject decision, and the returned `smooth_steps` counts
   *accepted* iterations.
 
+### 6. Tessera's admissibility tests are not the reference's
+
+Tessera's collapse and flip each run a geometric test of their own, configured by
+a policy struct. Neither test is the reference's at its default settings, and one
+of them cannot be made the reference's without an upstream change:
+
+- **The quality metric differs.** The reference's `triangle_quality` is
+  `4√3·A / Σℓ²` (`dynamic_remesh.py:626-636`), which Beatnik already has as
+  `SurfaceOperators::triangleQuality`
+  ([src/Beatnik_MeshGeometry.hpp:305](../src/Beatnik_MeshGeometry.hpp#L305)).
+  Tessera's `minQuality` thresholds the **radius ratio** `2r/R`
+  (`detail::flipRadiusRatio`, `Tessera_EdgeFlip.hpp:389-415`), which Beatnik has
+  as `SurfaceOperators::radiusRatioStats` (`:384`) and reports only as R12's
+  diagnostic. The two are not monotone in one another, so no threshold on one
+  reproduces a threshold on the other.
+- **For collapse this has to be fixed in Tessera.** The reference rejects a
+  collapse if any surviving incident face's quality falls below `min_quality`
+  (`dynamic_remesh.py:519-549`). That test needs the full one-rings of both
+  endpoints, which only Tessera's vertex coordinator assembles
+  (`Tessera_EdgeCollapse.hpp:229-235`); the rank that owns an edge may own neither
+  endpoint, so Beatnik cannot evaluate it while building the mask. **M1-U1** adds
+  a quality hook to Tessera's policies so Beatnik can pass the reference metric.
+- **The collapse fold guard maps exactly.** The reference accepts iff every
+  surviving incident face has `n_old·n_new > 0.1` on unit normals
+  (`dynamic_remesh.py:546-549`). Tessera rejects iff
+  `angle(n_old, n_new) > maxNormalRotation` over the same faces, with the two
+  dying faces skipped (`Tessera_EdgeCollapse.hpp:990-994`). So
+  `maxNormalRotation = acos(0.1) = 1.4706289056333368` reproduces it; the two
+  differ only at `n_old·n_new == 0.1` exactly, which the reference rejects and
+  Tessera accepts.
+- **The flip tests need only the quad, so they belong in the mask.**
+  `DefaultFlipPolicy` rejects a new face whose normal deviates more than
+  0.35 rad from the area-weighted mean of the two old normals, or whose radius
+  ratio is below 0.05 (`Tessera_EdgeFlip.hpp:262-272`, `:634-671`). The
+  reference's quality flips have **no** normal test (`dynamic_remesh.py:408-457`);
+  its valence flips require `dot ≥ 0.2` against each face's *own* pre-flip normal
+  (`mesh_quality.py:78`). The defaults would therefore reject flips the
+  reference accepts. Both flip call sites pass
+  `{maxNormalDeviation = π, minQuality = 0}`, which disables both tests (a
+  degenerate normal is still rejected), and put the reference's tests in the
+  mask.
+- **Tessera checks that the new diagonal does not already exist, exactly.** A
+  flip whose diagonal `(c,d)` is an existing edge is rejected and counted in
+  `rejectedDuplicateEdge`. The answer comes from the `(c,d)` coordinator,
+  which has seen every owned face's edges (`Tessera_EdgeFlip.hpp:142-150`).
+  A Beatnik mask cannot answer it reliably, so the mask does not try.
+- **The flip conflict relation is per face.** Tessera's independent set forbids
+  two accepted flips sharing a *face* and allows two sharing only a vertex
+  (`Tessera_EdgeFlip.hpp:154-177`). That matches the reference's quality flips,
+  whose `touched` set holds faces (`dynamic_remesh.py:416-421`, `:454`), but not its
+  valence flips, whose `touched` set holds the four *vertices*
+  (`mesh_quality.py:62-83`). See the deliberate deviations and M1-R9.
+
 ## Approach
 
 Three strands, run in this order of *risk*, not of code size:
@@ -176,7 +230,8 @@ Three strands, run in this order of *risk*, not of code size:
 1. **Measure the achievable comparison first** (M1-G1, M1-D1). A fixed-mesh
    600-step Python/Beatnik comparison needs no new solver code and answers the
    only question that can invalidate the milestone's premise.
-2. **Land T4d** (T4d1–T4d6). Six sub-tasks; T4d1 is an adapter layer, T4d2–T4d5
+2. **Land T4d** (M1-U1, T4d1–T4d6). M1-U1 is a small upstream Tessera change
+   that T4d2 needs (Read this first #6); T4d1 is an adapter layer, T4d2–T4d5
    are one reference function each, T4d6 is an operational decision.
 3. **Wire the milestone test** (M1-T1, M1-T2) and **fix the acceptance**
    (M1-A1).
@@ -188,12 +243,13 @@ introduces or sharpens.
 
 | Convention | Choice |
 | --- | --- |
-| Task IDs | `T4d*` for work moved from framework.md (IDs are referenced from source strings); `M1-*` for work new here. `M1-G*` = human gold-file generation, `M1-D*` = measurement, `M1-T*` = code, `M1-A*` = a decision to be recorded. |
+| Task IDs | `T4d*` for work moved from framework.md (IDs are referenced from source strings); `M1-*` for work new here. `M1-G*` = human gold-file generation, `M1-D*` = measurement, `M1-T*` = code, `M1-U*` = a change made upstream in `../tessera`, `M1-A*` = a decision to be recorded. |
 | Edge-mask type | host `const std::vector<char>&`, sized `ownedEdgeCount()`, one entry per **owned** edge — T4a's convention for `splitEdges`, and exactly what Tessera's collapse and flip take. De-template the two stale `EdgeListView` signatures rather than adding an overload. |
-| Where a Beatnik-only acceptance rule lives | **mask construction, never a Tessera policy.** The gain test, the valence test and the normalized-length ranking are Beatnik's; `maxNormalRotation`/`minQuality`/`maxNormalDeviation` are Tessera's absolute admissibility on top. A marked edge may still be rejected, and that shows up in the `rejected*` counters. |
+| Where a reference acceptance rule lives | **In the mask whenever it needs only the quad; in the Tessera policy only when it needs both endpoints' one-rings.** Flip tests (the gain test, the valence test, the valence path's normal and quality tests) and the collapse candidate predicate and normalized-length ranking are evaluated by Beatnik while building the mask, and both flip call sites pass the permissive `DefaultFlipPolicy{ maxNormalDeviation = π, minQuality = 0 }`. Collapse's geometric test needs the full one-rings, so it is a Tessera policy: `maxNormalRotation = acos(0.1)`, `minQuality = --remesh-min-quality`, and the reference quality metric through M1-U1's hook. Read this first #6 has the evidence. A marked edge may still be rejected; that shows up in the `rejected*` counters, never as a silent drop. |
 | Reference-state re-basing | every pass that moves a vertex or changes connectivity states, in its progress-log entry, whether it calls `AdaptiveMesh::resetReferenceState`, and why. A silent choice here changes every later refinement decision. |
 | Failure behavior | loud. A configuration Beatnik cannot reproduce is rejected before the first step, by method name and task ID, exactly as the four rejections this milestone deletes do. No pass may silently no-op. |
 | Diagnostics that must be numbers | per remesh pass: `splits`, `collapses`, `flips`, `smooth_steps`, `min_quality` before/after, R12's two shape signals, and (T4d6) the gid-space high-water mark. A milestone run that reports zero edits everywhere is M1-R7, not a pass. |
+| Unit-tier rank and backend coverage | Unit members register at **one** rank on the build's default execution space ([tests/unit_tests/CMakeLists.txt:68-80](../tests/unit_tests/CMakeLists.txt#L68-L80)). "Ranks 1 and 4" in a T4d exit criterion means two submissions, `BEATNIK_UNIT_RANKS=1` and `BEATNIK_UNIT_RANKS=4 flux batch scripts/tuolumne/unit_tests.flux`, and the member's checks must be global reductions so one set of literals holds at both, as `Beatnik_Test_TangentialRelaxation` does. The unit tier has no SERIAL/HIP pair; the `regression` gate and the T4d umbrella run supply backend coverage. |
 | Test tier for the milestone comparison | the **`milestone`** label, at ranks **1 and 4** on SERIAL and HIP, outside the 60-launch ship gate. The tier is created by **M0-T1** in [`milestone0.md`](completed/milestone0.md); M1-T1 registers a member in it. The `regression` tier keeps exactly its five members; promoting anything into it needs the user's confirmation (CLAUDE.md "Minimum test set"). |
 | Provenance comments | `// Port of <file>::<fn> (lines N-M)` against the **real** origin, per framework.md. The functions this milestone ports live in `dynamic_remesh.py` and `mesh_quality.py`; cite line ranges, not function names alone. |
 
@@ -206,10 +262,20 @@ introduces or sharpens.
   Kokkos trajectory agree over hundreds of steps. The consequence is that the
   milestone's compare depth is an empirical quantity (M1-A1), not an assumption.
 - **`--remesh-max-collapses 0` is not a lever.** A non-positive value maps to
-  `None` = *unlimited* (`run_adaptive_mesh_bubble.py:1338-1340`), reproduced by
+  `None` = *unlimited* (`run_adaptive_mesh_bubble.py:1338`), reproduced by
   `RemeshParams::max_collapses_per_pass`. Only `--remesh-collapse-factor 0`
   disables collapse. The deleted rejection text says so and the replacement
   diagnostics must not re-introduce the confusion.
+- **Valence flips in one round may share a vertex.** The reference's valence
+  pass forbids two flips touching the same vertex in one pass
+  (`mesh_quality.py:62-83`); Tessera forbids only two sharing a face
+  (Read this first #6). So in one `flipEdges` round two accepted flips can both
+  move the valence of a shared corner, each judged against valences taken
+  before the round. Beatnik does not build a vertex-independent mask to prevent
+  this: that needs a cross-rank coordination round Tessera does not expose, and
+  a selection the reference would make serially can't be reproduced anyway (R7).
+  `valenceEqualizingFlips` recomputes valence between rounds, as Tessera's
+  header prescribes. M1-R9 is how it would show.
 - **`SurfaceMesh::compact()` is not called from the remesh cycle.**
   `Tessera::collapseEdges` runs `compact()` as its own last step; the standalone
   adapter exists for T4d6's renumbering cadence and for tests. Its doc comment
@@ -222,33 +288,41 @@ True at HEAD, and specific about what is *defined but wrong* versus what
 
 - **Throws** (`BEATNIK_NOT_IMPLEMENTED`), so a run cannot reach them silently:
   `SurfaceMesh::{collapseEdges, flipEdges, compact}`
-  ([src/Beatnik_MeshInterface.hpp:1550](../src/Beatnik_MeshInterface.hpp#L1578),
-  [:1604](../src/Beatnik_MeshInterface.hpp#L1604),
-  [:1622](../src/Beatnik_MeshInterface.hpp#L1622));
+  ([src/Beatnik_MeshInterface.hpp:1538](../src/Beatnik_MeshInterface.hpp#L1538),
+  [:1562](../src/Beatnik_MeshInterface.hpp#L1562),
+  [:1581](../src/Beatnik_MeshInterface.hpp#L1581));
   `DynamicRemesh::{collapseShortEdges, flipEdgesForQuality, tangentialSmooth}`
-  ([src/Beatnik_DynamicRemesh.hpp:890](../src/Beatnik_DynamicRemesh.hpp#L889),
-  [:911](../src/Beatnik_DynamicRemesh.hpp#L911),
-  [:936](../src/Beatnik_DynamicRemesh.hpp#L936));
+  ([src/Beatnik_DynamicRemesh.hpp:892](../src/Beatnik_DynamicRemesh.hpp#L892),
+  [:914](../src/Beatnik_DynamicRemesh.hpp#L914),
+  [:940](../src/Beatnik_DynamicRemesh.hpp#L940));
   `MeshQuality::{valenceEqualizingFlips, isotropicCleanup, improveConnectivityByFlips}`
-  ([src/Beatnik_MeshQuality.hpp:108](../src/Beatnik_MeshQuality.hpp#L108),
-  [:177](../src/Beatnik_MeshQuality.hpp#L177),
-  [:205](../src/Beatnik_MeshQuality.hpp#L205)).
+  ([src/Beatnik_MeshQuality.hpp:111](../src/Beatnik_MeshQuality.hpp#L111),
+  [:182](../src/Beatnik_MeshQuality.hpp#L182),
+  [:210](../src/Beatnik_MeshQuality.hpp#L210)).
+- **Shaped for the wrong result:** `SurfaceMesh::flipEdges` returns `int`, and
+  `MeshEditReport`
+  ([src/Beatnik_MeshInterface.hpp:373-391](../src/Beatnik_MeshInterface.hpp#L373-L391))
+  carries only split counters — nothing for `CollapseResult`'s or
+  `FlipResult`'s `requested`/`accepted`/`rejected*`/`*Removed` fields. Neither
+  adapter takes a Tessera policy.
+- **Absent upstream:** Tessera's collapse and flip policies have no quality hook;
+  both hard-code the radius ratio (M1-U1).
 - **Defined and deliberately inert**, transcribed rather than folded away, so
   landing T4d turns them on by deleting a rejection instead of by remembering to
   add a call: `const int collapses = 0` and `diag.flips += 0; diag.smooth_steps += 0`
   inside the pass loop
-  ([src/Beatnik_DynamicRemesh.hpp:1006-1047](../src/Beatnik_DynamicRemesh.hpp#L1006-L1047)),
+  ([src/Beatnik_DynamicRemesh.hpp:1009-1048](../src/Beatnik_DynamicRemesh.hpp#L1009-L1048)),
   and `const int flips = 0` on the refine branch
-  ([src/Beatnik_Solver.hpp:467](../src/Beatnik_Solver.hpp#L467)). Note the
+  ([src/Beatnik_Solver.hpp:465](../src/Beatnik_Solver.hpp#L465)). Note the
   **sizing-field recompute before the collapse pass is absent**, not merely
   unused — the comment at
-  [:1018-1028](../src/Beatnik_DynamicRemesh.hpp#L1018-L1028) records that it is
+  [:1020-1031](../src/Beatnik_DynamicRemesh.hpp#L1020-L1031) records that it is
   load-bearing the moment collapse lands, because without it the collapse pass
   undoes the split pass.
 - **Missing entirely from the remesh branch:** the `isotropic_cleanup` call site
   and the *second* state rebuild that follows it
-  ([src/Beatnik_Solver.hpp:527-547](../src/Beatnik_Solver.hpp#L527-L547) has the
-  first rebuild and a comment where the cleanup goes).
+  ([src/Beatnik_Solver.hpp:521-541](../src/Beatnik_Solver.hpp#L521-L541) has a
+  comment where the cleanup goes, then the first rebuild).
 - Implemented and validated, and this milestone must not re-invent them: the
   sizing field, the gradation sweeps, the split pass and the edge-mask plumbing
   (T4a/T4b); `MeshQuality::relaxTangential` and `improveQualityTangential` (T4c);
@@ -315,7 +389,7 @@ launch interactively from a login node), and a table of measured numbers in
 **Reference:** the existing runner
 [scripts/tuolumne/run_regression_minset.flux](../scripts/tuolumne/run_regression_minset.flux)
 for the resolver-sourcing, `beatnik_exe` and scratch conventions;
-`Beatnik_Test_DirectSolve10Steps.cpp:257-306` for the `goldForStep` +
+`Beatnik_Test_DirectSolve10Steps.cpp:263-304` for the `goldForStep` +
 `compare_output.py` subprocess pattern.
 
 **Do:**
@@ -348,7 +422,7 @@ such rather than absorbed into the trend.
 **Fill in:** `tests/regression_tests/milestone1-bubble/gold/*.npz` plus that
 directory's `README.md` with the command recorded verbatim.
 
-**Reference:** the brief's command, plus the three options that make it produce
+**Reference:** the target command (`## Problem`), plus the three options that make it produce
 data (Read this first #1):
 
 ```
@@ -362,8 +436,8 @@ python examples/run_adaptive_mesh_bubble.py \
 
 Every other option stays at its `parse_args` default. The four explicit switches
 and `--source-quadrature vertex` are *already* the defaults
-(`run_adaptive_mesh_bubble.py:68-527`); they are written out because the brief
-does, and because a reader comparing this set against the T2a set will otherwise
+(`run_adaptive_mesh_bubble.py:64-533`); they are written out because the
+reference README's configuration (a) does, and because a reader comparing this set against the T2a set will otherwise
 suspect the two describe different physics — they do not (see the T2a entry in
 [`framework-progress-log.md`](framework-progress-log.md)).
 
@@ -401,13 +475,13 @@ caller obligations from them apply to every sub-task and are not restated in
 each:
 
 1. **Halo depth ≥ 2** or `collapseEdges` throws. `SurfaceMesh::halo_depth` is
-   already 2 ([src/Beatnik_MeshInterface.hpp:428](../src/Beatnik_MeshInterface.hpp#L441));
+   already 2 ([src/Beatnik_MeshInterface.hpp:423](../src/Beatnik_MeshInterface.hpp#L423));
    do not lower it.
 2. **`haloExchange()` *before* collapsing** — the surviving vertex's owner blends
    positions and every vertex user field from local copies of both endpoints, one
    of which is generally a ghost. Note the asymmetry with `splitEdges()`, whose
    wrapper exchanges *after*
-   ([src/Beatnik_DynamicRemesh.hpp:874](../src/Beatnik_DynamicRemesh.hpp#L873)).
+   ([src/Beatnik_DynamicRemesh.hpp:873-874](../src/Beatnik_DynamicRemesh.hpp#L873-L874)).
 3. **One independent set per call.** More progress means calling again:
    `while ( collapseEdges( … ).accepted > 0 ) {}`.
 4. **All three invalidate every slice, CSR and key View.** Re-slice afterwards.
@@ -417,11 +491,69 @@ rebuild that whole-tuple copies every AoSoA, so **face and vertex user fields
 survive collapse, flip and compaction verbatim** — T4a's `/faces/u0..u2` are not
 invalidated; and `DefaultCollapsePolicy{t=0.5}` is the same linear average
 Beatnik already uses for refinement
-([src/Beatnik_MeshInterface.hpp:103-110](../src/Beatnik_MeshInterface.hpp#L105-L112)),
+([src/Beatnik_MeshInterface.hpp:75-104](../src/Beatnik_MeshInterface.hpp#L75-L104)),
 which is what the reference does (`dynamic_remesh.py:395-398`), so **no custom
-field-blending policy is needed**. The real hazard is *staleness*: the face user
+field-blending rule is needed** — the collapse policy T4d2 passes derives from
+`DefaultCollapsePolicy` for M1-U1's quality hook and inherits its blend
+unchanged. The real hazard is *staleness*: the face user
 fields are the AMR reference state and now describe a geometry that no longer
 exists — see the re-basing convention.
+
+---
+
+### M1-U1 — a quality hook on Tessera's collapse and flip policies *(upstream, in `../tessera`)* — **NOT STARTED**
+
+**Depends on:** none.
+
+**Fill in:** in `../tessera/src/`: `DefaultCollapsePolicy`
+(`Tessera_EdgeCollapse.hpp:378-407`) and its one quality call
+(`:995-996`); `DefaultFlipPolicy` (`Tessera_EdgeFlip.hpp:262-272`) and its
+two quality calls (`:662-663`); the doc comments that name the radius ratio
+(`DefaultCollapsePolicy::minQuality` `:387-390`, `CollapseResult::rejectedQuality`
+`:329-331`, `DefaultFlipPolicy::minQuality` `Tessera_EdgeFlip.hpp:268-269`); one new case each in
+`tests/test_collapse_edges.cpp` and `tests/test_flip_edges.cpp`; Tessera's
+`README.md` and `docs/design.md` wherever they describe the policies.
+
+**Reference:** Read this first #6 for why it exists. The per-field override
+pattern `DefaultCollapsePolicy` already documents (`Tessera_EdgeCollapse.hpp:351-377`) is the shape
+to match: a policy is duck-typed and a consumer derives from the default and
+shadows one member.
+
+**Do:**
+
+1. Add to both default policies a host member
+   `double quality( const double* p0, const double* p1, const double* p2 ) const`
+   returning `detail::flipRadiusRatio( p0, p1, p2 )`, documented with the
+   metric's range (`[0,1]`, 1 for an equilateral triangle) and that
+   `minQuality` thresholds whatever it returns. `flipRadiusRatio` is defined
+   after `DefaultFlipPolicy` (`Tessera_EdgeFlip.hpp:391`), so move it, or the
+   `detail` helpers it needs, above the struct; do not duplicate it.
+2. Replace the three `flipRadiusRatio( … ) < / >= policy.minQuality`
+   comparisons with `policy.quality( … )`. Keep the comparison directions
+   unchanged: collapse rejects `quality < minQuality`, which is exactly the
+   reference's `min(quality) < min_quality` reject
+   (`dynamic_remesh.py:544`).
+3. Default behavior must be bit-identical. **Callers:** no policy other than
+   the two defaults exists in `src/`, `tests/` or `examples/` (grep for
+   `CollapsePolicy`/`FlipPolicy`); the only explicit constructions are
+   `test_collapse_edges.cpp:1209` and `test_flip_edges.cpp:1061`, both of the
+   defaults. Beatnik passes no policy today.
+4. Follow Tessera's own CLAUDE.md for build, header and test conventions. It is
+   a separate repository with its own gate; this task commits there. The Beatnik
+   environment builds Tessera as a `develop` spec
+   (`../spack.yaml`, `develop: tessera: spec: tessera@=develop`), so a Beatnik
+   `spack install` picks up the change with no version bump.
+
+**Exit criterion:** Tessera's gate passes unchanged —
+`flux batch scripts/tuolumne/run_regression_minset.flux` from `../tessera`
+(label `regression`, SERIAL and HIP, ranks 1–5; `collapse_edges` and
+`flip_edges` are members). The two new cases show the hook is live in both
+directions: on a fixture where the radius ratio and `4√3·A/Σℓ²` fall on
+opposite sides of one threshold, a policy deriving from the default and
+overriding `quality` with `4√3·A/Σℓ²` changes the verdict compared with the
+default. The changed candidate moves between `accepted` and
+`rejectedQuality` (collapse) or `rejectedGeometric` (flip). The
+default-policy result is unchanged.
 
 ---
 
@@ -431,40 +563,53 @@ exists — see the re-basing convention.
 
 **Fill in:** `SurfaceMesh::{collapseEdges, flipEdges, compact}` in
 [src/Beatnik_MeshInterface.hpp](../src/Beatnik_MeshInterface.hpp) at
-[:1578](../src/Beatnik_MeshInterface.hpp#L1578),
-[:1604](../src/Beatnik_MeshInterface.hpp#L1604),
-[:1622](../src/Beatnik_MeshInterface.hpp#L1622).
+[:1518-1543](../src/Beatnik_MeshInterface.hpp#L1518-L1543),
+[:1545-1567](../src/Beatnik_MeshInterface.hpp#L1545-L1567),
+[:1569-1584](../src/Beatnik_MeshInterface.hpp#L1569-L1584), and
+`MeshEditReport` ([:373-391](../src/Beatnik_MeshInterface.hpp#L373-L391)).
 
 **Reference:** `Tessera::{collapseEdges, flipEdges, compact,
 compactAndRenumberGids}` and their policies and result structs, in the three
 headers named under T4d. `SurfaceMesh::splitEdges`
-([:1535](../src/Beatnik_MeshInterface.hpp#L1535)) is the adapter shape to match.
+([:1502-1516](../src/Beatnik_MeshInterface.hpp#L1502-L1516)) is the adapter shape to match.
 
-**Callers of the signatures this changes:** **none today** — both edge entry
-points still carry the M1-era `template <class EdgeListView>` and no call site
-exists (verified by grep over `src/`, `examples/` and `tests/`). De-templating
-them is therefore free, and doing it now is what keeps T4d2/T4d3/T4d5 from each
-inventing a mask type.
+**Callers of the signatures this changes:** **none** — both edge entry points
+carry a placeholder `template <class EdgeListView>`, `flipEdges` returns `int`,
+and no call site of any of the three exists in `src/`, `examples/` or `tests/`.
+`MeshEditReport`'s existing fields are read by the split path only, and this
+task adds fields without changing those. Changing the signatures is therefore
+free, and doing it now is what keeps T4d2/T4d3/T4d5 from each inventing a mask
+type.
 
 **Do:**
 
 1. Replace `const EdgeListView&` with `const std::vector<char>&` sized
-   `ownedEdgeCount()` on both, per the conventions table.
-2. Map `CollapseResult` and `FlipResult` into `MeshEditReport`, and **assert the
-   closed-manifold identities** Tessera's header states —
+   `ownedEdgeCount()` on both, per the conventions table, and make both return
+   `MeshEditReport`.
+2. Give both edge adapters a trailing policy parameter, templated and defaulted
+   to Tessera's default policy, forwarded verbatim — the policy is chosen by the
+   caller (T4d2, T4d3, T4d5), never inside the adapter.
+3. Extend `MeshEditReport` with the counters `CollapseResult` and `FlipResult`
+   report (`requested`, `accepted`, each `rejected*`, and for collapse the three
+   `*Removed`) — the global counts, which Tessera already reduces. Then **assert
+   the closed-manifold identities** Tessera's header states —
    `verticesRemoved == accepted`, `edgesRemoved == 3*accepted`,
-   `facesRemoved == 2*accepted` — as the cheapest end-to-end check that the
-   connectivity rewrite closed. Fail loudly; do not log and continue.
-3. State in `compact()`'s doc comment that the remesh cycle does **not** call it
-   (`collapseEdges` compacts internally) and that it exists for T4d6 and for
-   tests.
-4. Delete the three "M1 GAP (G5b/G5c/G5d) — STILL OPEN" comment blocks, which are
-   false, and the "when it lands" phrasing around them.
+   `facesRemoved == 2*accepted` (`Tessera_EdgeCollapse.hpp:336-340`) — as the
+   cheapest end-to-end check that the connectivity rewrite closed. Fail loudly;
+   do not log and continue.
+4. Rewrite the three doc comments as the adapters they now are. State in
+   `compact()`'s that the remesh cycle does **not** call it (`collapseEdges`
+   compacts internally) and that it exists for T4d6 and for tests. The
+   `flipEdges` comment describes the reference's flip
+   (`dynamic_remesh.py:408-458`), not what Tessera checks; replace it with
+   Tessera's tests and point at Read this first #6.
 
 **Exit criterion:** a new `unit`-tier member
 `tests/unit_tests/Beatnik_Test_MeshEdits.cpp`, registered in
-[tests/unit_tests/CMakeLists.txt](../tests/unit_tests/CMakeLists.txt), passes at
-ranks 1–6 via `flux batch scripts/tuolumne/unit_tests.flux`: on the default
+`BEATNIK_UNIT_TEST_SOURCES`
+([tests/unit_tests/CMakeLists.txt:42](../tests/unit_tests/CMakeLists.txt#L42)), passes at
+each of `BEATNIK_UNIT_RANKS=1` through `6` via
+`flux batch scripts/tuolumne/unit_tests.flux`: on the default
 icosphere it collapses a named edge set, flips another, and compacts, and checks
 (a) the three V/E/F identities, (b) `V - E + F == 2` globally afterwards,
 (c) gid preservation across `compact()`, and (d) the **failure direction** — a
@@ -476,13 +621,14 @@ producing a torn mesh.
 
 ### T4d2 — `DynamicRemesh::collapseShortEdges` — **NOT STARTED**
 
-**Depends on:** T4d1.
+**Depends on:** T4d1, M1-U1.
 
-**Fill in:** [src/Beatnik_DynamicRemesh.hpp:890](../src/Beatnik_DynamicRemesh.hpp#L889);
+**Fill in:** [src/Beatnik_DynamicRemesh.hpp:892](../src/Beatnik_DynamicRemesh.hpp#L892);
 the sizing-field recompute and the `const int collapses = 0` placeholder inside
-the pass loop at [:1018-1029](../src/Beatnik_DynamicRemesh.hpp#L1018-L1029);
+the pass loop at [:1020-1032](../src/Beatnik_DynamicRemesh.hpp#L1020-L1032);
 and the deletion of the rejection at
-[src/Beatnik_Solver.hpp:817-827](../src/Beatnik_Solver.hpp#L818-L828).
+[src/Beatnik_Solver.hpp:797-817](../src/Beatnik_Solver.hpp#L797-L817), comment
+included.
 
 **Reference:** `dynamic_remesh.py::collapse_short_edges` (361-405), its two
 safety predicates (509-516, 519-549), and the cycle's *second* sizing-field
@@ -497,20 +643,23 @@ recompute (`dynamic_remesh.py:158`).
    `length < collapse_factor * max(min(target[i], target[j]), h_min)`.
 3. Rank candidates by the reference's key — `length / max(local_target, 1e-300)`,
    ascending — and truncate to `max_collapses_per_pass`
-   ([src/Beatnik_Params.hpp:293](../src/Beatnik_Params.hpp#L293), 120). The cap is
+   ([src/Beatnik_Params.hpp:678](../src/Beatnik_Params.hpp#L678), 120). The cap is
    mask construction; there is no per-call cap argument (M1-R3).
-4. `haloExchange()` first. Then call `SurfaceMesh::collapseEdges` with
-   `policy.minQuality` from `--remesh-min-quality` and `maxNormalRotation` chosen
-   to reproduce the reference's fold guard — the reference accepts iff every
-   incident face's `old·new` normal dot exceeds **0.1** (`dynamic_remesh.py:546-549`);
-   read Tessera's header for what `maxNormalRotation` measures before picking a
-   number, and record the mapping in the log.
+4. `haloExchange()` first. Then call `SurfaceMesh::collapseEdges` with a policy
+   deriving from `Tessera::DefaultCollapsePolicy` that overrides M1-U1's
+   `quality` hook with the reference metric `4√3·A/Σℓ²` — the same formula as
+   `SurfaceOperators::triangleQuality`
+   ([src/Beatnik_MeshGeometry.hpp:305](../src/Beatnik_MeshGeometry.hpp#L305)),
+   on host pointers — and sets `minQuality = --remesh-min-quality`
+   ([src/Beatnik_Params.hpp:654](../src/Beatnik_Params.hpp#L654), 0.18),
+   `maxNormalRotation = std::acos( 0.1 )`, `t = 0.5`. Read this first #6 derives
+   each value; do not leave any at Tessera's default.
 5. Report `collapses` into `RemeshDiagnostics` and decide, explicitly, whether the
    pass re-bases the AMR reference state (it deletes faces and moves a vertex, so
    the convention applies).
 
 **Exit criterion:** a `unit`-tier sub-case in `Beatnik_Test_MeshEdits.cpp` (or a
-new member) shows, at ranks 1 and 4 on SERIAL and HIP: the global face count
+new member) shows, at `BEATNIK_UNIT_RANKS` 1 and 4 (conventions table): the global face count
 **falls** on a mesh given an artificially large `collapse_factor`, by the **same
 amount at both rank counts**; `V - E + F == 2` after the pass; and the failure
 direction — `--remesh-collapse-factor 0` produces `collapses == 0` with no
@@ -524,14 +673,14 @@ unlimited), asserted so the deleted rejection's warning cannot be re-lost.
 **Depends on:** T4d1.
 
 **Fill in:** `DynamicRemesh::flipEdgesForQuality`
-([:911](../src/Beatnik_DynamicRemesh.hpp#L911)),
+([src/Beatnik_DynamicRemesh.hpp:914](../src/Beatnik_DynamicRemesh.hpp#L914)),
 `MeshQuality::improveConnectivityByFlips`
-([src/Beatnik_MeshQuality.hpp:205](../src/Beatnik_MeshQuality.hpp#L205)), the
-`diag.flips += 0` placeholder ([:1042-1044](../src/Beatnik_DynamicRemesh.hpp#L1042-L1044)),
+([src/Beatnik_MeshQuality.hpp:210](../src/Beatnik_MeshQuality.hpp#L210)), the
+`diag.flips += 0` placeholder ([src/Beatnik_DynamicRemesh.hpp:1044-1046](../src/Beatnik_DynamicRemesh.hpp#L1044-L1046)),
 the `const int flips = 0` on the refine branch
-([src/Beatnik_Solver.hpp:467](../src/Beatnik_Solver.hpp#L467)), and the deletion
-of two rejections ([:752-759](../src/Beatnik_Solver.hpp#L752-L759),
-[:839-850](../src/Beatnik_Solver.hpp#L839-L850)).
+([src/Beatnik_Solver.hpp:456-465](../src/Beatnik_Solver.hpp#L456-L465)), and the deletion
+of two rejections ([:746-751](../src/Beatnik_Solver.hpp#L746-L751),
+[:828-837](../src/Beatnik_Solver.hpp#L828-L837)).
 
 **Reference:** `dynamic_remesh.py::flip_edges_for_quality` (408-457) for the
 criterion; `mesh_solver.py::improve_mesh_connectivity_by_edge_flips` (1704-1772)
@@ -542,25 +691,39 @@ for the second entry point's pass structure and its `reset_reference` argument.
 1. Write the **gain predicate once** and give both call sites the mask it
    produces: mark an edge iff its quad `(a,b,c,d)` yields
    `min(q_new) >= min_quality` **and** `min(q_new) > min(q_old) * (1 + gain)`,
-   with `gain` = `--remesh-flip-min-gain`, and the opposite diagonal `(c,d)` does
-   not already exist. The quad comes from `buildFaceAdjacency` and is resident at
-   halo depth 2.
-2. Do **not** express the gain through `DefaultFlipPolicy` — it offers absolute
+   with `q` the reference metric (`SurfaceOperators::triangleQuality`, not the
+   radius ratio) and `gain` = `--remesh-flip-min-gain`. The reference has no
+   normal test here, only a re-orientation of the children against the old
+   faces' summed normal (`dynamic_remesh.py:434-443`), which Tessera's
+   orientation-preserving rewrite already guarantees. The quad comes from
+   `SurfaceMesh::faceAdjacency()`
+   ([src/Beatnik_MeshInterface.hpp:1278](../src/Beatnik_MeshInterface.hpp#L1278)).
+   Reading the neighbour face's positions makes this a *geometric* consumer, so
+   it must check `non_resident == 0` rather than assume halo depth 2 supplies
+   the quad ([:586-596](../src/Beatnik_MeshInterface.hpp#L586-L596)), and throw
+   if it does not hold.
+2. **Do not test whether `(c,d)` already exists** — Tessera rejects that flip
+   exactly, into `rejectedDuplicateEdge` (Read this first #6).
+3. Call `SurfaceMesh::flipEdges` with
+   `Tessera::DefaultFlipPolicy{ maxNormalDeviation = π, minQuality = 0 }`. Do
+   **not** express the gain through the policy — the policy offers absolute
    admissibility only, and its priority is longest-edge-first, not gain-ordered.
-   A marked edge Tessera rejects lands in `rejectedGeometric`; that is correct.
-3. Answer T4c's deferred question — **does the flip path re-base the AMR
+   Tessera's conflict relation (two flips may not share a face) is the
+   reference's here (`dynamic_remesh.py:416-421`), so loop
+   `flipEdges` while `accepted > 0`, rebuilding the mask each round.
+4. Answer T4c's deferred question — **does the flip path re-base the AMR
    reference state?** The reference passes `reset_reference=(smooth_iters == 0)`
    at the refine call site (`run_adaptive_mesh_bubble.py:1440-1445`) and nothing
    at the remesh one. Record the decision and its reasoning in the log; the
-   comment at [src/Beatnik_MeshQuality.hpp:195-204](../src/Beatnik_MeshQuality.hpp#L195-L203)
+   comment at [src/Beatnik_MeshQuality.hpp:200-209](../src/Beatnik_MeshQuality.hpp#L200-L209)
    is where T4c parked it.
-4. `--flip-passes` is **0** in the milestone configuration, so
+5. `--flip-passes` is **0** in the milestone configuration, so
    `improveConnectivityByFlips` has no milestone caller. Implement it anyway —
-   the rejection at [:752](../src/Beatnik_Solver.hpp#L752) is being deleted, so
+   the rejection at [src/Beatnik_Solver.hpp:746](../src/Beatnik_Solver.hpp#L746) is being deleted, so
    the path becomes reachable — and say in the log that it is unexercised by any
    milestone run (the standing `relaxTangential` situation from T4c).
 
-**Exit criterion:** a `unit`-tier case at ranks 1 and 4, both backends, shows the
+**Exit criterion:** a `unit`-tier case at `BEATNIK_UNIT_RANKS` 1 and 4 shows the
 global minimum triangle quality **rises or holds** across a pass and never falls,
 and the count of faces below `--remesh-min-quality` does not increase.
 **Statistics are compared, never flip sets** (R7). Failure direction:
@@ -574,10 +737,10 @@ which is what the T4b regression member already depends on.
 **Depends on:** none. It moves vertices and changes no connectivity; it was
 parked under T4d only because it was unreachable while the flips were.
 
-**Fill in:** [src/Beatnik_DynamicRemesh.hpp:937](../src/Beatnik_DynamicRemesh.hpp#L936),
+**Fill in:** [src/Beatnik_DynamicRemesh.hpp:940](../src/Beatnik_DynamicRemesh.hpp#L940),
 the `diag.smooth_steps += 0` placeholder
-([:1045](../src/Beatnik_DynamicRemesh.hpp#L1045)), and the deletion of the
-rejection at [src/Beatnik_Solver.hpp:829-836](../src/Beatnik_Solver.hpp#L830-L837).
+([:1047](../src/Beatnik_DynamicRemesh.hpp#L1047)), and the deletion of the
+rejection at [src/Beatnik_Solver.hpp:819-826](../src/Beatnik_Solver.hpp#L819-L826).
 
 **Reference:** `dynamic_remesh.py::tangential_smooth_vertices` (459-490) — **not**
 `mesh_solver.py::improve_mesh_quality_tangential`, which is T4c's landed
@@ -589,7 +752,8 @@ rejection at [src/Beatnik_Solver.hpp:829-836](../src/Beatnik_Solver.hpp#L830-L83
 2. Add what the reference has and `relaxTangential` does not (Read this first
    #5): per iteration, compute *trial* positions, reduce the global minimum
    triangle quality over the trial mesh, and **reject the whole iteration and
-   stop** if `new + 1e-14 < max(min_quality, 0.85 * old)`. Return the count of
+   stop** if `new + 1e-14 < max(min_quality, 0.85 * old)`, with quality the
+   reference metric (`SurfaceOperators::triangleQuality`). Return the count of
    **accepted** iterations as `smooth_steps`. The reduction is global, so every
    rank must take the same decision — reduce, then branch on the reduced value.
 3. Skip vertices with fewer than three neighbours, as the reference does.
@@ -597,7 +761,7 @@ rejection at [src/Beatnik_Solver.hpp:829-836](../src/Beatnik_Solver.hpp#L830-L83
    interface, which shrinks the bubble — a failure that reads as excessive
    numerical dissipation rather than as the geometry bug it is.
 
-**Exit criterion:** a `unit`-tier case at ranks 1 and 4, both backends: on the
+**Exit criterion:** a `unit`-tier case at `BEATNIK_UNIT_RANKS` 1 and 4: on the
 default icosphere the enclosed volume changes by less than `1e-12` relative
 across a pass (shape preserved), the minimum quality does not fall, and the
 accept/reject guard is exercised in **both** directions — a mesh constructed so
@@ -612,12 +776,12 @@ positions **unchanged**, and a healthy mesh returns
 **Depends on:** T4d1, T4d3 (shares the flip adapter and the mask machinery), and
 T4c (landed).
 
-**Fill in:** [src/Beatnik_MeshQuality.hpp:108](../src/Beatnik_MeshQuality.hpp#L108)
-and [:177](../src/Beatnik_MeshQuality.hpp#L177); the two call sites in
+**Fill in:** [src/Beatnik_MeshQuality.hpp:111](../src/Beatnik_MeshQuality.hpp#L111)
+and [:182](../src/Beatnik_MeshQuality.hpp#L182); the two call sites in
 `Solver::advanceOneStep` — the remesh branch
-([src/Beatnik_Solver.hpp:527-547](../src/Beatnik_Solver.hpp#L527-L547)) and the
-refine branch ([:459-466](../src/Beatnik_Solver.hpp#L459-L466)); and the deletion
-of the rejection at [:769-775](../src/Beatnik_Solver.hpp#L769-L775).
+([src/Beatnik_Solver.hpp:521-541](../src/Beatnik_Solver.hpp#L521-L541)) and the
+refine branch ([:456-465](../src/Beatnik_Solver.hpp#L456-L465)); and the deletion
+of the rejection at [:759-765](../src/Beatnik_Solver.hpp#L759-L765).
 
 **Reference:** `mesh_quality.py::_valence_equalizing_flips` (44-87) and
 `::isotropic_cleanup` (146-167); the call sites at
@@ -626,12 +790,19 @@ of the rejection at [:769-775](../src/Beatnik_Solver.hpp#L769-L775).
 **Do:**
 
 1. `valenceEqualizingFlips`: a **valence-based** mask, not the gain mask. Mark the
-   shared edge of two faces iff
+   shared edge `(a,b)` of faces `f0` (opposite vertex `c`) and `f1` (opposite
+   `d`) iff
    `|v_a-7| + |v_b-7| + |v_c-5| + |v_d-5| < |v_a-6| + |v_b-6| + |v_c-6| + |v_d-6|`,
-   the opposite diagonal does not exist, both child normals satisfy `new·old > 0.2`
-   against the pre-flip face normals, and `min(q_new) >= 0.05`. Valence is the
-   face-incidence count (`np.bincount(F.ravel())`). Exit early when a pass flips
-   nothing.
+   the children `(c,d,a)` and `(d,c,b)` satisfy `n·n_f0 ≥ 0.2` and `n·n_f1 ≥ 0.2`
+   respectively on unit normals (`mesh_quality.py:76-79`), and
+   `min(q_new) >= 0.05` in the reference metric. Valence is the face-incidence
+   count (`np.bincount(F.ravel())`), which on a closed manifold is the edge
+   count Tessera's header says is local at a vertex's owner. Do **not** test
+   whether `(c,d)` exists (Read this first #6). Call `SurfaceMesh::flipEdges`
+   with the same permissive policy as T4d3. One reference pass is one
+   `flipEdges` round with the mask rebuilt from fresh valences; exit early when
+   a round flips nothing. The vertex-sharing difference is a deliberate
+   deviation — see that section and M1-R9.
 2. `isotropicCleanup` = `--isotropic-cleanup-flips` (3) valence passes, then
    `--isotropic-cleanup-relax` (2) passes of the landed `tangentialRelaxation` at
    `--isotropic-cleanup-weight` (0.4). Vertex count is unchanged and the shape is
@@ -640,7 +811,7 @@ of the rejection at [:769-775](../src/Beatnik_Solver.hpp#L769-L775).
    state inside `dynamic_remesh_state_with_material` (which re-bases the
    reference area/curvature and re-centres the potential against the new area
    weights) and **then rebuilds it again after the cleanup**
-   (`run_adaptive_mesh_bubble.py:1501-1504` constructs a fresh
+   (`run_adaptive_mesh_bubble.py:1502-1504` constructs a fresh
    `MeshPotentialZModelState`, whose `__post_init__` re-seeds both). So the
    Beatnik order is: `remesh` → `resetReferenceState` + `centerPotential` →
    `isotropicCleanup` → `resetReferenceState` + `centerPotential` →
@@ -650,13 +821,13 @@ of the rejection at [:769-775](../src/Beatnik_Solver.hpp#L769-L775).
    (`:1491`, gated on `remesh_diag is not None`) — the same gate shape the volume
    projection already uses on that branch.
 5. On the refine branch, the reference runs cleanup only when
-   `refine_diag.marked_faces > 0` (`:1439`), inside the same block as the flips
+   `refine_diag.marked_faces > 0` (`:1438`), inside the same block as the flips
    and the tangential pass, and it feeds the `repaired` gate through
    `args.isotropic_cleanup` — which
-   [src/Beatnik_Solver.hpp:497-499](../src/Beatnik_Solver.hpp#L497-L499) already
+   [src/Beatnik_Solver.hpp:491-493](../src/Beatnik_Solver.hpp#L491-L493) already
    transcribes as `_params.cleanup.enabled`. Add the call; do not touch the gate.
 
-**Exit criterion:** a `unit`-tier case at ranks 1 and 4, both backends: on a mesh
+**Exit criterion:** a `unit`-tier case at `BEATNIK_UNIT_RANKS` 1 and 4: on a mesh
 seeded with a high-valence patch the **valence histogram concentrates toward 6**
 (the count of vertices with valence ≠ 6 falls) and the enclosed volume changes by
 less than `1e-12` relative; and, in the failure direction,
@@ -671,12 +842,12 @@ only, never flip sets (R7).
 **Depends on:** T4d2.
 
 **Fill in:** the remesh cycle in
-[src/Beatnik_DynamicRemesh.hpp:995-1056](../src/Beatnik_DynamicRemesh.hpp#L995-L1056)
-and `RemeshDiagnostics` ([:141-200](../src/Beatnik_DynamicRemesh.hpp#L141-L200)).
+[src/Beatnik_DynamicRemesh.hpp:998-1056](../src/Beatnik_DynamicRemesh.hpp#L998-L1056)
+and `RemeshDiagnostics` ([:142-196](../src/Beatnik_DynamicRemesh.hpp#L142-L196)).
 
 **Reference:** `Tessera_Compact.hpp` on `compact()` versus
-`compactAndRenumberGids()`, and its statement that several Tessera paths index a
-dense host array sized to the **max gid**.
+`compactAndRenumberGids()` (`:541-570`), and its statement that several Tessera
+paths index a dense host array sized to the **max gid** (`:77-94`).
 
 **Do:** gids come from an `MPI_Exscan` onto a monotonically rising global count,
 so a long split-and-collapse run grows the gid *space* without bound even at
@@ -709,20 +880,22 @@ reference, never the flip or collapse set (R7).
 
 ### M1-T1 — register milestone 1 in the `milestone` test tier — **NOT STARTED**
 
-**Depends on:** **M0-T1** ([`milestone0.md`](completed/milestone0.md)), which **creates**
+**Depends on:** **M0-T1** (**DONE**, [`milestone0.md`](completed/milestone0.md)), which **creates**
 the tier — the CMake wiring, `beatnik_milestone_manifest.txt`, the installed-path
 gold-data rules, `scripts/tuolumne/run_milestone.flux` at ranks 1 and 4 on SERIAL
 and HIP, and the `docs/testing.md` / CLAUDE.md text saying the tier does not gate.
 Milestone 0 lands first and needs the same tier, so it owns it and this task no
 longer builds it. Nothing else here depends on M0.
 
-**Fill in:** `BEATNIK_MILESTONE_TEST_SOURCES` and the
-`_beatnik_args_Beatnik_Test_Milestone1Bubble_abs`/`_rel` pair in
-[tests/CMakeLists.txt](../tests/CMakeLists.txt), plus the `install()` rule for the
-M1-G2 gold directory.
+**Fill in:** `BEATNIK_MILESTONE_TEST_SOURCES`
+([tests/CMakeLists.txt:429](../tests/CMakeLists.txt#L429)) and the
+`_beatnik_args_Beatnik_Test_Milestone1Bubble_abs`/`_rel` pair beside milestone
+0's (`:475-513`), plus the `install()` rule for the M1-G2 gold directory beside
+milestone 0's (`:828-858`).
 
-**Reference:** whatever M0-T1 built, and the regression tier's own registration
-loop (`:309-372`) and gold-set `install()` rules (`:500-517`) that M0-T1 copied.
+**Reference:** what M0-T1 built — the milestone registration loop (`:515`) — and
+the regression tier's registration loop (`:323-385`) and gold-set `install()`
+rules (`:810-826`) that it copied.
 Read the M0-T1 entry in [`milestone0-progress-log.md`](completed/milestone0-progress-log.md)
 before starting: if M0-T1 departed from its stated plan, this is the task that
 finds out.
@@ -742,17 +915,18 @@ lists **60** cases.
 
 ### M1-T2 — the milestone comparison test — **NOT STARTED**
 
-**Depends on:** T4d1, T4d2, T4d3, T4d4, T4d5, T4d6, M1-G2, M1-T1, M1-D1.
+**Depends on:** M1-U1, T4d1, T4d2, T4d3, T4d4, T4d5, T4d6, M1-G2, M1-T1, M1-D1.
 
 **Fill in:** `tests/regression_tests/Beatnik_Test_Milestone1Bubble.cpp`,
 registered in the `milestone` tier with the gold **directory** and the comparator
 as its two arguments.
 
 **Reference:** [tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp](../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp)
-end to end — `makeParams()` (`:307-379`) for expressing a Python command line as
+end to end — `makeParams()` (`:308-378`) for expressing a Python command line as
 a `SolverParams`, `goldForStep()` (`:263-286`) for finding a step's gold file by
 its `_step%07d.npz` suffix rather than by rebuilding a filename from a time (the
-time is under test), and the `compare_output.py` subprocess wrapper (`:296-306`)
+time is under test), and the `compare_output.py` subprocess wrapper
+`runComparator()` (`:291-304`)
 which demands exit status **exactly 1** for a mismatch and not 2, so a
 mis-resolved path cannot masquerade as a pass.
 
@@ -794,7 +968,7 @@ series, and the first failing step of the full-configuration comparison. Decide,
 with the user: the milestone's compare depth; the tolerance at each compared
 step; whether steps beyond the depth are compared **structurally/statistically**
 instead (counts, valence histogram, quality distribution, volume drift, `time`
-series) or not at all; and whether the 5000-step goal in the original brief is
+series) or not at all; and whether a 5000-step comparison is
 pursued, and under what criterion.
 
 **Additional information needed, and which task answers it:** how fast the two
@@ -874,3 +1048,16 @@ often with `ambiguous cpp=0 gold=0`. *Distinguished from a real field error by:*
 `vertices` itself failing first and by the same magnitude as the other fields.
 *Do:* report it as a pairing failure and record the step; do not raise
 `--match-eps` without stating what it now cannot detect.
+
+**M1-R9 — valence flips sharing a vertex overshoot.** Two flips accepted in one
+`flipEdges` round can share a corner (deliberate deviations), and each was
+marked using that corner's valence from before the round. Two flips that each
+lower a valence-7 corner by one leave it at 5. *Presents as:* T4d5's
+valence-≠-6 count falling more slowly than the reference's on the same mesh, or
+oscillating across cleanup passes instead of falling monotonically.
+*Distinguished from* R7's ordinary edit-set difference by counting, per round,
+accepted flips that share a vertex with another accepted flip. Zero means the
+deviation is not in play. *Do:* log that count in T4d5's test output. If it is
+material, the fix is a vertex-disjoint mask, built with a coordination round
+in Beatnik or with a conflict-relation option added to Tessera, decided with
+the user.

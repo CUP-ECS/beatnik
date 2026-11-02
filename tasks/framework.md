@@ -175,12 +175,13 @@ What is still a stub:
   question that blocked all of Phase 4 is **settled** (Phase 4, *The
   editing-family question — RESOLVED*): T4b, T4c, T4e and T4f are implementable
   against Tessera as it stands, and **T4d** — coarsening, flips and isotropic
-  cleanup — no longer waits on anything either. **Tessera's G5b, G5c and G5d all
-  landed in August 2026**, so every one of the eleven M1 gaps is closed and
-  **nothing in this port is blocked upstream**. T4d is split into T4d1–T4d6 and
-  its design has **moved to [`milestone1.md`](milestone1.md)** — read that for
-  what Tessera supplies (much more than the task assumed) and for the one thing
-  it does not (a gain hook on the flip policy). T4d is also the whole remaining
+  cleanup — needs one small upstream change. **Tessera's G5b, G5c and G5d all
+  landed in August 2026**, so every one of the eleven M1 gaps is closed. T4d is
+  split into T4d1–T4d6 and its design has **moved to
+  [`milestone1.md`](milestone1.md)**. Read that for what Tessera supplies (much
+  more than the task assumed) and for what it does not. Its collapse and flip
+  policies hard-code the radius ratio as the quality metric, so task M1-U1 adds
+  a quality hook in `../tessera` before T4d2. T4d is also the whole remaining
   gap between this port and the reference's default rising-bubble configuration,
   which is what that document is scoped to.
 - **`--remesh-tight-after >= 0` is rejected.** The sixteen `--remesh-tight-*`
