@@ -1,326 +1,255 @@
 # Beatnik
 
-The Canopy FMM integration (v1) is complete. See
-[tasks/integrate_canopy.md](tasks/integrate_canopy.md) for the
-checkpoint-by-checkpoint history and the user-driven TODO list
-(smoke scaling run remains). Open optimization opportunities are
-listed under [Future optimization opportunities](#future-optimization-opportunities)
-below.
+Control document for this repository. It carries only what applies to **every**
+session; everything task-specific is in a reference doc below, to be read when
+the task calls for it.
+
+| Read this | When |
+| --- | --- |
+| `systems/<system>/claude.md` | **Before any build or run** — machine facts, per [System detection](#system-detection). |
+| [docs/environment-and-build.md](docs/environment-and-build.md) | New checkout; build mode in doubt; editing the resolver, a profile or a batch script. |
+| [docs/testing.md](docs/testing.md) | Running, adding or changing tests; tiers, the installed-path runners, CI. |
+| [docs/framework-maintenance.md](docs/framework-maintenance.md) | Adding a system; writing a system doc; changing the gate; other framework edits. |
+| [README.md](README.md) | Usage, API, examples, Known Issues, Future Optimizations. |
+| [docs/design.md](docs/design.md) | Algorithms and design decisions. |
+| `tasks/<topic>.md` | Working an ongoing multi-phase topic — read the topic file *first*, and log progress as work lands. |
 
 ## System detection
 
-Build and run commands differ by system. Before building or running anything,
-run `hostname` and match the result against the table below. Then Read the
-matching system-specific instructions file and follow it for the rest of the
-session.
+Build and run commands differ by system. **Before building or running anything,
+run `hostname`**, match it against the table below, then Read the matching
+instructions file and follow it for the rest of the session.
 
-| Hostname pattern | Instructions file              |
-| ---------------- | ------------------------------ |
-| `tuolumne*`      | `docs/claude-tuolumne.md`      |
+| Hostname pattern | Instructions file |
+| ---------------- | ------------------------------- |
+| `tuolumne*`      | `systems/tuolumne/claude.md`    |
 
-The pattern is the alphabetic prefix of the host (e.g. `dane1234` matches
-`dane*`, `lassen708` matches `lassen*`). To add support for a new system,
-create `docs/claude-<system>.md` and add a row above.
+The pattern is the alphabetic prefix of the host: `tuolumne2152` matches
+`tuolumne*`, `dane1234` would match `dane*`. This table is mirrored by the `case`
+statement in [scripts/lib/beatnik_env.sh](scripts/lib/beatnik_env.sh); the two
+must always agree. If the hostname matches no row, **stop and ask the user**; do
+not guess. See [docs/framework-maintenance.md](docs/framework-maintenance.md) to
+add a system.
 
-If the hostname does not match any row, or the matching file is missing one of
-the required sections below, ask the user to fill in the gap and update (or
-create) the doc before proceeding.
+## Build mode
 
-### Required sections in every `docs/claude-<system>.md`
+*How* the work is done in this checkout is per-instance, orthogonal to which
+system it is on, and it decides which environment to activate, where binaries
+land and how the gate runs. There are two modes: **`spack`** (the environment
+builds Beatnik itself; no build tree) and **`manual`** (the environment supplies
+dependencies only; binaries built out-of-tree into `BEATNIK_BUILD_DIR`).
 
-1. **Spack environment** — the `spack env activate ...` command that must be
-   run before compiling or running any binary from this library. When
-   setting up a new system, ask the user for **both** a development spack
-   environment (used for builds and iterative work) and a production
-   spack environment (used for large-scale runs that may sit in queue
-   for a long time, so ongoing development rebuilds cannot break a
-   queued job). Record both in the system doc, and note that batch
-   scripts under `scripts/<hostname>/` should ask the user which env to
-   activate before being written.
-2. **CMake args** — system-specific args that must be passed to `cmake` (or to
-   any helper bash script that wraps `cmake`).
-3. **Build command** — how to build a target on this system. Default:
-   `make [EXECUTABLE]` (the user specifies the target when appropriate). If
-   the system installs via spack, the build command is `spack install`
-   instead. Every `docs/claude-<system>.md` must state which of the two
-   applies.
-4. **Run command for binaries** — the command template for running a built
-   binary. Default starting point:
-   `mpirun --oversubscribe -n [num_procs] [EXECUTABLE] [EXTRA_ARGS]`. Replace
-   `mpirun` with `flux run`, `srun`, or whatever the system uses.
-5. **Job-scheduler batch template** — if the system has a scheduler (flux,
-   slurm, …), include a template batch script that can be filled in and
-   submitted (e.g. `flux batch <script>`) to run binaries when the user is
-   not inside an interactive allocation. Save concrete scripts to
-   `scripts/<hostname>/` (create the directory if it does not exist).
-6. **Running non-test binaries** — when asked to run something other than a
-   test (e.g. an `examples/` problem), ask the user for the example name and
-   args, then plug them into sections 4 and 5.
+Before building or submitting a job, resolve the mode rather than assuming it:
 
-The required tests themselves (names + MPI rank counts) are project-wide and
-live in [Minimum test set](#minimum-test-set) below, not in the per-system
-doc. The per-system doc only describes *how* to run any given test on that
-machine.
+```
+BEATNIK_ENV_DRY_RUN=1 source scripts/lib/beatnik_env.sh
+```
+
+It prints the profile and `BEATNIK_PROFILE_SOURCE`. If that is
+`profile.local.sh`, this checkout recorded its choice — use it, do not re-ask. If
+it is `profile.defaults.sh`, the checkout is on the machine-wide fallback and has
+never recorded a choice: **confirm with the user before building**, then write the
+answers to the gitignored `scripts/<system>/profile.local.sh`. Reading code is
+always safe on the fallback. Every batch script and run wrapper must source the
+resolver **first**, and resolve binaries through `beatnik_exe` rather than
+hardcoding paths.
+
+Full mechanism, resolver knobs, scopes and the runtime-env convention:
+[docs/environment-and-build.md](docs/environment-and-build.md).
 
 ## Minimum test set
 
-These tests must pass before any code change ships. Each entry lists the
-test name and the MPI rank counts it must be run at (e.g.
-`Beatnik_Test_Particle` at 1, 2, 3, 4, 5, 6 ranks). Use the run command and
-batch template from the active system's `docs/claude-<system>.md` to execute
-them.
+The gate is defined by **tier label + backend(s) + rank counts** — never by
+enumerating test names, which is how a gate silently shrinks.
 
-The minimum test set:
+> **The gate:** every test labeled **`regression`**, on the **SERIAL** backend
+> (plus **HIP** on tuolumne), at **ranks 1, 2, 3, 4, 5, 6**.
 
-- `Beatnik_Test_FmmVsExact_MPI_<DEVICE>` — at 1, 4 ranks.
-  Built only when `Beatnik_ENABLE_TESTING=ON` and
-  `Beatnik_ENABLE_CANOPY=ON` (spack: `beatnik +testing +canopy`).
-  Verifies the FMM BR solver agrees with the Exact BR solver on a
-  32×32 free-boundary case. `<DEVICE>` is the active Kokkos backend
-  (e.g. `HIP`, `OPENMP`, `SERIAL`).
+```
+ctest -L regression -R SERIAL      # project-wide gate
+ctest -L regression -R HIP         # additional gate on tuolumne
+```
 
-## Scaling single-mode runs
+In `spack` mode there is no build tree and therefore no `ctest`: run the gate
+through `scripts/<system>/run_regression_minset.<scheduler>` — on tuolumne
+[scripts/tuolumne/run_regression_minset.flux](scripts/tuolumne/run_regression_minset.flux).
+The `regression` tier currently has **five** members — the initial condition at
+0 timesteps (T1c), the direct Birkhoff-Rott sum (T2c), ten timesteps against
+the Python gold set (T2d), twenty timesteps with `splitEdges()` refinement
+(T4a), and twenty timesteps of split-only dynamic remeshing (T4b) — so on
+tuolumne the gate is **60 launches** and takes correspondingly longer to run.
+**All five are green**, the full sweep as of T4c (T4c added no member — its
+tangential relaxation is a `unit`-tier test — and re-ran the gate to show the two
+new `advanceOneStep` call sites perturb nothing).
+The grouped checkpoint output (`tasks/completed/grouped-io.md`) likewise **adds a `unit`
+member and no gate member**, so the tier still has exactly those five: it emits
+additional light data — one master XDMF temporal collection per run — and changes
+no `.h5` dataset, and it is covered by `Beatnik_Test_CheckpointSeries` in the
+`unit` tier. That sweep stamp is therefore still T4c's; no gate sweep was run for
+grouped-io.
+There is a third tier, **`milestone`** (created by M0-T1): long end-to-end runs
+against a multi-thousand-step reference gold set, at ranks **1 and 4** on SERIAL
+and HIP. On tuolumne it runs as **eight separate `pbatch` jobs**, one per
+(member, backend), each launching ranks 1 and 4, submitted from the login node by
+[scripts/tuolumne/submit_milestone_split.sh](scripts/tuolumne/submit_milestone_split.sh)
+through the runner
+[scripts/tuolumne/run_milestone.flux](scripts/tuolumne/run_milestone.flux). Run
+it split, not as one big job. **It
+is not part of the gate** and adding a member to it does not change the gate;
+**T6 added two members and the gate is unchanged — still five `regression`
+members and 60 launches.** The `milestone` tier has **four** members and
+**sixteen launches**:
 
-When creating a new single-mode `sech2` rollup deck or flux script, scale every
-geometry/IC parameter from the **64-node baseline** (`bounding_box = 1.0`,
-`magnitude = 0.1`, `period = 9.0`, `atwood = 0.15`). The shipped
-`examples/01_rocketrig/single_mode_{1024,4000,16000}.in` are worked examples,
-and README's "Scaling to large meshes" section has the long-form rationale.
+- `Beatnik_Test_Milestone0Frozen` and `Beatnik_Test_Milestone0FrozenL4`
+  (M0-T3): 2000 frozen-mesh timesteps at `--icosphere-subdivisions` 3 and 4
+  against the M0-G1 and M0-G2 gold sets, all 81 checkpointed steps at
+  `--rtol 1e-10 --atol 1e-12`. Eight launches, a measured **37.25 minutes**
+  (M0-T3's tier run, job `f3Td7rshE3y1`, all green).
+- `Beatnik_Test_Milestone0Fmm` and `Beatnik_Test_Milestone0FmmL4` (T6,
+  `tasks/canopy/add-canopy.md`): the same two levels driven through the Canopy
+  FMM at `ncrit = 8`, `order = 3`. Each asserts **two** claims in one binary —
+  a per-evaluation velocity bound (max relative error ≤ `1.5e-3`, the reference
+  treecode's own worst on the same states) at 81
+  direct-driven states, and the stability and divergence horizon of a
+  2000-step FMM-driven trajectory. They reuse the frozen members' gold
+  directories; no new gold set exists. Eight launches.
 
-Let `B = bounding_box`. Scale by mesh resolution:
+> **The FMM members may now FAIL, and that is accepted (user's ruling,
+> 2026-10-13).** canopy_profiling O1 made `FmmParams::quantize_root_half_width`
+> default `true`; these members inherit it and have **not** been re-run since.
+> It raised the worst level-4 error over O1's states from 1.099e-3 to 1.402e-3,
+> 7 % under claim A's `kTauA` = 1.5e-3. **If claim A fails, raise `kTauA`**
+> (`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp`) to cover the
+> measured worst and log it; do **not** turn quantization off and do not treat
+> it as a regression. Re-running the tier is deferred to canopy_profiling V1.
 
-- **`bounding_box = nodes / 64`** (linear in mesh). This holds the physical grid
-  spacing `dx = 2B/(nodes − 1) ≈ 0.031` constant, which is what keeps interface
-  points from getting too close together — the regime where the BR/FMM solve
-  collapses. At a *fixed* bbox the points crowd as `nodes` grows (empirically
-  64→1.0 is fine but 256 needs bbox ≥ 3.0); the `nodes/64` rule avoids that.
-- **`magnitude = 0.1 · B`** (linear). `magnitude` is the vertical amplitude.
-- **`period = 9.0 / B²`** (**inverse square**). The sech² IC is
-  `z = magnitude · sech²(period · r²)` with `r` the physical distance from the
-  domain centre (domain is `(−B..B)`), so the bump half-width is `~1/√period`.
-  To keep the bump the same *fraction* of a domain whose half-width grows
-  linearly, `period ∝ 1/B²`. Scaling `period` the wrong way collapses the bump
-  to a sub-cell spike → a flat, unevolving surface. (This inverse-square rule is
-  specific to `sech2`; the `cos` IC's `period` is a wavelength and scales
-  *linearly*.)
+**The FMM members are hours, not minutes.** T9b's split run
+(`tasks/add-canopy-t6.md`, 2026-10-09, **16/16 launches green**) measured the
+eight job walls at 236 s and 144 s (level-3 frozen, SERIAL and HIP),
+1781 s and 168 s (level-4 frozen), 9581 s and 613 s (level-3 FMM), and 15130 s
+and 3614 s (level-4 FMM). They sum to **8.69 h**, but split, the tier's
+wall-clock is the slowest job, **level-4 FMM SERIAL at 4.2 h**. Each job's `-t`
+in the wrapper is about 1.5x its measured wall. The runner's own `-t 652m`
+(about 1.25x the sum) exists only for the one-job fallback.
 
-| nodes | B = bbox | magnitude | period      |
-| ----- | -------- | --------- | ----------- |
-| 64    | 1        | 0.1       | 9.0         |
-| 256   | 4        | 0.4       | 0.5625      |
-| 512   | 8        | 0.8       | 0.140625    |
-| 1024  | 16       | 1.6       | 0.03515625  |
-| 4000  | 62.5     | 6.25      | 0.0023040   |
-| 16000 | 250      | 25.0      | 0.000144    |
-
-**Time integration.** `delta_t` is *not* the cause of the rollup failures (those
-were FMM accuracy + the NIC crash, both resolved under Known issues), but it has
-its own scaling:
-
-- Keep `delta_t` at or below the auto value `tau/50` (high order),
-  `tau = 1/√(atwood·gravity)` — independent of `B`. Do **not** inflate it to
-  "evolve faster": interface velocity grows as `v ~ √(atwood·gravity·λ)` with
-  `λ ∝ B`, so the CFL-stable step *shrinks* as `~1/√B` (≈ `auto/√B` at peak
-  velocity). An oversized `delta_t` triggers a separate CFL blowup.
-- **Timesteps to reach a full rollup grow ~linearly with `B`** (physical time
-  `∝ √B`, stable step `∝ 1/√B`). A large mesh with a small fixed step count
-  shows only early motion, not a developed rollup.
-
-**FMM solver settings for rollup runs** (validated configuration from the
-rollup debugging — see [Known issues](#known-issues)):
-
-- `P_ORDER = 10` (compile-time, [src/FmmBRSolver.hpp](src/FmmBRSolver.hpp)),
-  `fmm_mac_theta = 0.4`, `fmm_max_depth = 19`, `fmm_imbalance_tol = 0.20`,
-  `epsilon = 2`. This is the config that cleared full rollup (256², 16 ranks).
-- Keep `fmm_near_softening_factor` at its default (`4.0`) or higher — it is the
-  M2L-vs-P2P softening floor that fixed the premature far-field NaN.
-- **`fmm_ncrit = 64` beats `128` at scale (GPU).** On a 1536² (B=24) full-rollup
-  run at 256 ranks / 64 nodes, calibration measured **3.80 s/step at `ncrit=64`
-  vs 4.11 s/step at `ncrit=128`** (early-regime, 50 steps) — keep `ncrit=64`; the
-  larger-leaf GPU-throughput win does not materialize here. `fmm_max_depth = 19`
-  is the hard maximum (Canopy's `TreeBuilder` throws above 19 — Morton-key
-  storage). That run is staged in
-  [scripts/tuolumne/rocketrig1536.flux](scripts/tuolumne/rocketrig1536.flux)
-  (24 h wall sized for ~20 h full rollup; deck
-  `/p/lustre5/stewartj/beatnik/fmm/n1536_p256/single_mode.in`), with calibration
-  variants `rocketrig1536_calib_ncrit{64,128}.flux`.
-- **Watch FMM cost at production sizes (e.g. 16000):** Canopy `solve()` is ~92%
-  of per-call cost, and the softening floor widens the near-field P2P as the
-  core densifies, so cost grows through roll-up. `fmm_near_softening_factor`
-  trades far-field accuracy against that cost.
-
-## Plans
-
-When creating plans via plan mode, save plan files to `./plans/` in this
-repository, not the default plan location.
-
-## Future optimization opportunities
-
-Carried forward from the v1 Canopy FMM integration. Each is
-self-contained — pick them up in any order. See
-[tasks/integrate_canopy.md](tasks/integrate_canopy.md) for the
-detailed context behind each.
-
-- **Cache the forward `Cabana::Distributor` across Migrate-action
-  steps in `FmmBRSolver::computeInterfaceVelocity`.** Today
-  `buildForwardDistributor()` runs every call. When
-  `auto_maintain()` returns `Migrate` (no topology change), the
-  forward distributor's comm pattern is reusable. Hook the
-  returned `MaintenanceAction` into a cache-invalidation check
-  and only rebuild on `Rebalance`/`Rebuild`. Profile first: at
-  small drift (the typical RK3 step), the build is already a
-  small share of the per-call cost.
-
-- **Expose every Canopy tunable as a runtime rocketrig CLI flag.**
-  Today `ncrit`, `max_depth`, `bbox_tol`, `ncrit_tol`,
-  `replication_depth`, `imbalance_tolerance`, `mac_theta`, and
-  `softening` are baked into `Beatnik::Params` defaults. `P_ORDER`
-  is a compile-time constant (`6` in
-  [src/FmmBRSolver.hpp](src/FmmBRSolver.hpp)). Mirror the flag
-  names from
-  [Canopy/examples/03_gravity_solve/gravity_solve.cpp](../canopy/examples/03_gravity_solve/gravity_solve.cpp).
-  Surfacing `P_ORDER` at runtime requires either compile-time
-  enumeration of common values or a runtime template dispatch.
-
-- **Track header dependencies in the Beatnik INTERFACE target.**
-  Today `add_library(Beatnik INTERFACE)` in
-  [src/CMakeLists.txt](src/CMakeLists.txt) means consumer .o files
-  don't depend on `HEADERS_PUBLIC`. When only a header changes,
-  `make` sees nothing to rebuild and `spack install` reports a
-  sub-second build — the workaround is to `touch
-  examples/01_rocketrig/rocketrig.cpp` before `spack install`.
-  Fix: use `target_sources(Beatnik INTERFACE FILE_SET HEADERS
-  BASE_DIRS ${CMAKE_CURRENT_SOURCE_DIR} FILES ${HEADERS_PUBLIC})`
-  or attach a `PUBLIC_HEADER` property so consumers track them
-  as real dependencies.
-
-- **Higher profiling levels (2, 3) in FmmBRSolver.** Levels 2 and
-  3 are reserved but unused today. Natural additions: at level 2,
-  per-phase timing inside `computeInterfaceVelocity`
-  (`packGridParticles`, `buildForwardDistributor`, the migrate,
-  `auto_maintain`, `solve`, the reverse distribute, `writeZdot`);
-  at level 3, per-rank particle counts and Canopy's `Migrate`-vs-rebuild
-  cost ratio. Mirror Canopy's existing `[Canopy Diagnostics] solve()
-  phase breakdown` format.
-
-- **Switch from `setup()` every step to a more aggressive cache
-  pattern.** Today the AoSoA itself is rebuilt every call via
-  `Cabana::migrate`. If the local-grid layout never changes (the
-  common case), the destination AoSoA could be a persistent member
-  resized only on rebuild. Profile first.
-
-- **Real assertion on the multi-step trajectory in the test suite.**
-  `OneRK3StepComparison` and `FiveRK3StepsComparison` both compare
-  `z` after stepping; extending to e.g. 20 steps would catch slow
-  drift. Tolerance accumulates roughly linearly with step count;
-  raise to ~1e-2 or compute a per-step bound.
-
-## Known issues
-
-- **FMM large-scale crash: GTL dreg-cache exhaustion in the Canopy `Rebalance`
-  particle migrate (MITIGATED 2026-06-22; durable fix tracked in Canopy #22).**
-  The 256-rank / 64-node 1536² full-rollup run
-  ([scripts/tuolumne/rocketrig1536.flux](scripts/tuolumne/rocketrig1536.flux))
-  deadlocked at step 307 of 8400, during the first significant `Rebalance`, with
-  `(GTL DEBUG) dreg_evict returned NO_SPACE ... more than 10000 active memory
-  regions`. One rank's GPU comm died and the other 255 blocked in the next
-  collective, so the job hung (flux still showed it `R` for ~19 h until
-  cancelled). **Root cause:** `dreg_evict NO_SPACE` is a peak-*simultaneity*
-  failure (all 10000 GTL registration-cache entries active at once), not a leak.
-  Canopy's `RegisteredBufferPool` bounds the `solve()` exchanges (coalesced M2L
-  + P2P) to one registered region per direction, but the `Rebalance` particle
-  migration (`TreePartitioner::migrate_particles` → `Cabana::Distributor` /
-  `Cabana::migrate`) is **not** pooled — at 256 ranks the many-way scatter hands
-  O(peers) device buffers to GPU-aware MPI at once, blowing the 10000 default.
-  **Stopgap (deployed):** `export GTL_DREG_CACHE_SIZE=262144` in the
-  `rocketrig1536*.flux` scripts (≈26× headroom). Out-provisioning only; the peak
-  likely grows as the core densifies, so this may not survive to full rollup.
-  **Durable fix:** route the rebalance migrate through a pool-backed coalesced
-  exchange (one registered region per direction), mirroring the `solve()` fix —
-  **Canopy #22**. When that lands and Beatnik picks up the new Canopy, the env
-  bump becomes belt-and-suspenders.
-
-- **FMM full-rollup crash: Slingshot NIC registration exhaustion during
-  Canopy `Rebalance` (RESOLVED 2026-06-17).** In a single-mode rollup
-  driven by the FMM BR solver, once the sheet fully rolled up, Canopy's
-  `auto_maintain` went near-continuous `Rebalance` and the run aborted with
-  `cxil_map: write error` → `MPIDI_OFI_send_normal: Invalid argument`.
-  **Root cause:** GPU-aware-MPI memory *registration churn* — both halo
-  exchanges in Canopy `solve()` (`coalesced_view_exchange` for M2M/M2L/L2L,
-  and `P2P::gather_ghost_particles`) allocated a fresh device `Kokkos::View`
-  per peer every call, and each fresh device allocation is a fresh CXI NIC
-  registration; the cache accumulated until the NIC was exhausted.
-  **Fix:** `Canopy_RegisteredBufferPool.hpp` — persistent, grow-only device
-  buffers with stable base addresses; each exchange carves per-peer
-  unmanaged subviews from one registered region per direction (Canopy
-  branch `redesign`: `fac4519`, `d834034`). Validated: `FmmVsExact` green on
-  HIP/OPENMP/SERIAL at 1,4 ranks; full crash-deck run `f3F1T7e6F24F` cleared
-  the entire Rebalance-heavy tail with **0 `cxil_map` errors**. See
-  [tasks/fmm_fullrollup_crash.md](tasks/fmm_fullrollup_crash.md) for the
-  full record.
-
-- **Premature FMM NaN at full rollup (RESOLVED 2026-06-18).** Live record:
-  [tasks/fmm_premature_nan.md](tasks/fmm_premature_nan.md).
-  **Root cause:** the FMM **far-field (M2L) used the unsoftened `1/r` Laplace
-  kernel** — the Plummer softening (`eps = sqrt(epsilon) ≈ 1.414`) was applied
-  only in the near-field P2P. At full roll-up the core collapses so cells shrink
-  to `~3e-3` and "geometrically far" M2L pairs sit at `rho ≈ 0.03–0.4 ≪ eps`,
-  where the softened kernel is nearly flat but the unsoftened multipole `1/r` is
-  ~35× larger → a spurious single-node velocity that seeds a runaway (bbox
-  escape → `Rebuild` on an exploding box → NaN at step 1364). The exact solver
-  sums the softened kernel directly, so it stays bounded. Confirmed: at
-  `softening=0` the FMM matches an unsoftened all-pairs reference to machine
-  precision; the error is P-independent (`P_ORDER` 10→16 byte-identical, ruling
-  out truncation), depth-dependent, and far-field-only.
-  **Fix:** Canopy `CommunicationPlan::mac_satisfied` now forces any pair closer
-  than `near_softening_factor · eps` to the softened P2P path instead of M2L —
-  a runtime knob `FmmConfig::near_softening_factor` (default `4.0`), settable
-  from a rocketrig `.in` deck as `fmm_near_softening_factor` — the parser wiring
-  in `InputFile.hpp` was completed in `db6a956`; before that commit the key was
-  rejected as "unknown" and only the compile-time `4.0` default applied. Plus a
-  secondary fix to the L2P
-  gradient finite-difference step (fixed `h=1e-5` → `h=1e-5·w_self`). Canopy
-  branch `debug-nan`: `f484cbc` + knob/README follow-ups.
-  **Validation:** `FmmVsExact` green on HIP/OPENMP/SERIAL at 1,4 ranks (job
-  `f3FZycxsexw1`); full crash-deck run (16 ranks/4 nodes, job `f3Fa1vABnaHu`)
-  completed **all 1400 steps, 0 NaN, 0 bbox-escape Rebuilds**
-  (`Migrate=1180 Rebalance=3019 Rebuild=0`).
-  - Repro config: single-mode `sech2`, 256×256 (B=4), `P_ORDER=10`,
-    `fmm_max_depth=19`, `fmm_mac_theta=0.4`, `fmm_imbalance_tol=0.20`,
-    `epsilon=2`, `delta_t=0.0006`, 16 ranks / 4 nodes.
-  - Temporary `CANOPY_NAN_DEBUG` / snapshot-dump diagnostics removed (the
-    `04_nan_replay` FMM-vs-exact harness is kept; the snapshot dump is now the
-    OFF-by-default `Beatnik_ENABLE_FMM_SNAPSHOT` option). `FmmVsExact` re-run
-    green on the clean build (job `f3FnQ2sgDZUK`); `debug-nan` merged into
-    `develop-canopy` (Beatnik) and `redesign` (Canopy).
-  - **Watch:** the softening floor widens P2P at full roll-up (more near-field
-    pairs in the dense core), so keep an eye on FMM cost at production mesh
-    sizes (e.g. 16000); `fmm_near_softening_factor` trades far-field accuracy
-    against that cost.
-  - Earlier, already FIXED: the *premature* FMM NaN at rollup *onset* was a
-    separate accuracy problem, resolved by raising `P_ORDER` 6→10 and
-    tightening `fmm_mac_theta` 0.6→0.4.
+**`BEATNIK_TEST_SCRATCH`
+must name a path on a parallel filesystem**, not a node-local one: the
+checkpoints go through MPI-IO, so a node-local scratch fails every launch that
+spans more than one node. Tiers, the installed-path runners and CI:
+[docs/testing.md](docs/testing.md).
 
 ## General guidelines
 
-- **Checkpoint commits in plans.** When planning a large code change, include
-  explicit checkpoints in the plan file where progress should be committed.
-  If a later step fails (test failure, performance regression), we can roll
-  back to the nearest checkpoint and retry.
-- **Follow `.clang-format`.** If `.clang-format` exists at the repo root,
-  follow its formatting rules for any C/C++ code you write or edit. If it
-  does not exist, ignore this rule.
-- **Keep `README.md` in sync.** When a public-facing API changes, or when the
-  arguments accepted by an example problem change, update `README.md` in the
-  same change so its documentation stays accurate.
+- **Build the way the active mode says, and never mix modes.** In `spack` mode
+  that means activating the environment and running `spack install`, never a
+  hand-rolled `cmake`/`make`; in `manual` mode it means `cmake --build`, never
+  `spack install`. A stale hand-built tree alongside an installed binary is how
+  you end up testing something other than what you changed. Check the mode first.
+- **Never launch a job interactively from a login node — submit a batch script.**
+  On a login node there is no allocation to run in, so an interactive launch
+  (`flux run`, `srun`, …) does not fail: it **blocks forever** waiting for
+  resources that will never be granted, and the session hangs until it is killed.
+  This includes "quick" one-off invocations and `--help`-adjacent smoke tests.
+  Write the invocation into a batch script under `scripts/<system>/`, submit it
+  (`flux batch …` on tuolumne), and read the `.log` file it writes. The
+  interactive launch template in a system doc is only valid **inside** an
+  allocation you already hold.
+- **Never run the formatter — that is the user's job.** [.clang-format](.clang-format),
+  [clangformat.sh](clangformat.sh) and the `cabana-format` CMake target all stay,
+  and the user runs them by hand when they choose to. Do **not** invoke
+  clang-format, `clangformat.sh` or `cabana-format` in a session, and do not
+  reformat a file as part of another change; write and edit C/C++ in the style of
+  the surrounding code and leave formatting alone. Running it unasked has mangled
+  files here before, and it buries the real diff.
+- **Match the license/header convention.** Every new source and script file
+  carries the project's BSD-3-Clause header block with
+  `SPDX-License-Identifier: BSD-3-Clause`, in the comment style of that file
+  type, exactly as existing files do.
+- **Describe the code as it is now, never how it used to be.** Comments,
+  docstrings, error messages, the README and `docs/` say what the code does at
+  present. Do not narrate history: no "X CHANGE" or "X CORRECTION" notes, and
+  no "used to", "previously", "is gone", "no longer", "has since landed" or
+  "the old version". When you edit a passage that already does this, rewrite it
+  in the present tense. Task IDs are fine where they name pending work ("task
+  T4d, not yet implemented"). History belongs in git and in the
+  `tasks/*-progress-log.md` files, which are chronological by design and exempt.
+- **Keep `README.md` in sync.** When a public API changes, **or when an example's
+  accepted arguments change**, update the README in the same change.
+- **Track optimization opportunities.** When you notice one, ask the user before
+  adding it to README "Future Optimizations".
+- **Record known issues** in README "Known Issues": what fails, how it
+  reproduces, and whether it is a regression from current work or pre-existing.
 - **Finalize the production env before submitting big jobs (any HPC system).**
-  On any system with a separate production spack env (insulated from dev
-  rebuilds), make "production env up to date + built" a gate *before* `flux
-  batch`/`srun`/`sbatch` of a large or long-running job: pull the dependency
-  source clones (e.g. canopy and beatnik) to the intended commits and run the
-  install (`spack install`) *first*, so the binary reflects them. **Never run
-  the install against the production env while a production job is live** — a
-  `spack install` overwrites the binary on disk in place, and a running job
-  whose executable pages change underneath it takes a SIGBUS (Bus error,
-  rc=135) and dies. (This bit us on 2026-06-24: a reinstall during a live
-  64-node run SIGBUS-killed it.)
+  On any system with a separate production env, make "prod env up to date +
+  built" a gate *before* `flux batch`/`sbatch`/`srun` of a large or long-running
+  job: pull the dependency source clones (e.g. canopy and beatnik) to the
+  intended commits and run `spack install` **first**, so the binary reflects
+  them. **Never run `spack install` against the production env while a production
+  job is live** — it overwrites the binary in place, and a running job whose
+  executable pages change underneath it takes a SIGBUS (rc=135) and dies. This
+  bit us on 2026-06-24: a reinstall during a live 64-node run SIGBUS-killed it.
+  Reinstalling the *dev* env while a prod job runs is fine — they are separate
+  install prefixes.
+
+## Math in markdown
+
+**The destination decides the syntax.** Math written *into a file* under this
+repo follows the KaTeX rules below. Math written *in a session reply* follows
+[Math in a session reply](#math-in-a-session-reply) instead — the two renderers
+have nothing in common, and using file syntax in chat produces unreadable output
+for the user.
+
+### Math in a markdown file
+
+Write math with KaTeX delimiters, not Doxygen ones:
+- Inline: `$ ... $`  — NOT `\f$ ... \f$`
+- Display: `$$ ... $$` on their own lines, blank line above and below — NOT `\f[ ... \f]`
+
+`\f[`/`\f$` are Doxygen-only. In a plain markdown reader (VSCode preview,
+GitHub, mdBook) they don't open a math region, so the body is parsed as prose
+and CommonMark strips the backslash from every escaped punctuation character —
+`\;` becomes `;`, `\,` becomes `,`, `\_` disappears — leaving unreadable output.
+
+KaTeX delimiter rules worth respecting:
+- No space just inside the delimiters: `$x + y$`, not `$ x + y $`.
+- Don't put a digit immediately after a closing `$`.
+- Keep inline math on one line.
+- For a literal dollar sign in prose, escape it: `\$`.
+
+### Math in a session reply
+
+Session replies are rendered as **GitHub-flavored markdown with no math
+extension**. There is no KaTeX, no MathJax, no `$`-delimited math region. A `$`
+is a literal dollar sign and everything between the dollars is shown verbatim,
+backslashes and all — so `$b_\emptyset, b_{e_a}$` reaches the user as exactly
+those characters, which is worse than having written nothing.
+
+**Write math in a session reply as plain Unicode text.** Do not use `$`, `$$`,
+`\f$`, `\f[`, `\(`, or any LaTeX macro.
+
+- Use the Unicode character, not its macro: `∂ ∇ Σ Π ∫ ≈ ≠ ≤ ≥ × ⋅ ⊗ ± → ∞ √ ∈`,
+  and Greek directly (`α β γ δ ε θ λ μ π ρ σ τ φ ω Δ Ω`). `…` for `\ldots`,
+  `∅` for `\emptyset`.
+- Superscripts have Unicode forms — `⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻ⁿ` — so `r²`, `w⁻¹`, `10⁻¹⁰`.
+  Subscripts are patchier (`₀₁₂₃₄₅₆₇₈₉₊₋ₐₑᵢⱼₖₗₘₙₚₛₜ` exist; most letters do
+  not), so fall back to an underscore inside backticks: `` `b_{p+q}` ``.
+- When Unicode runs out — a fraction, an exponent that is itself an expression,
+  a multi-line derivation — put the whole expression in a **fenced code block**
+  with no language tag. Monospace and preserved spacing carry more meaning than
+  a mangled LaTeX string, and nothing inside a fence is reinterpreted:
+
+  ```
+  φ(r) = (|r|² + b)^(-1/2),   K(r) = -∇φ(r)
+  ∂_a P_m = -(2m+1) r_a P_{m+1},   P_m = w^(-(2m+1)/2)
+  ℓ_p^A = Σ_q (-1)^|q| b_{p+q}(R) · M_q^B
+  ```
+- **Backtick any identifier containing `_` or `*` when it appears in prose.**
+  Outside a fence, GFM reads `M_q^B ... c_B` as an italic span and eats both
+  underscores. This is the most common way plain-text math gets silently
+  corrupted in a reply.
+- Numbers with exponents: `2.0e-2` or `2.0×10⁻²`, never `$2\times10^{-2}$`.
+
+The same rule applies when quoting math *out of* a repo file into a reply:
+translate the KaTeX to Unicode rather than pasting the delimiters through. And
+when writing math *into* a file, use KaTeX even if the reply that describes the
+change spells it in Unicode.

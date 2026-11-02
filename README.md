@@ -7,35 +7,105 @@ Beatnik is a benchmark for global communication based on Pandya and Shkoller's 3
   1. Understand the performance characteristics of different parallel decompositions of the Z-Model based on both a 2D decomposition based on logical mesh location location and a space-filling curve mesh decomposition.
   1. Provide a working prototype parallel implementation of the fluid interface model that other codes can use to create multi-scale models and codes.
 
-Beatnik uses a simple mesh-based representation of the surface manifold as a Cabana grid 2D mesh in I/J space and a regular block 2D decomposition of this manifold. The physical position of each element in the mesh is stored as a separate vector in the nodes of the mesh. This design results in simple and efficient computation and communication strategies for surface normals, artificial viscosity, and Fourier transforms elements. However, it complicates methods where the data decomposition and communication is based on the spatial location of manifold points, requiring them to either maintain a separate spatial decomposition of the surface or to continually construct a spatial decomposition. A surface mesh that decomposed the mesh by spatial location would be an interesting alternative but would have the opposite issue - communication for surface calculations would be more complex but the (expensive) far force methods that rely on spatial decompositions (e.g. distance sort and spatial tree methods like the fast multi-pole method) would be less expensive.
+> **Note on the current state of the repository.** The `rising-bubble-redesign`
+> branch is rebuilding the solver from scratch: commit `89ec015` removed the
+> previous `src/` solver headers, its only end-to-end test, and the run scripts
+> that drove them. The build/run/test framework, the dependency set, and the
+> documentation below are current; the solver internals they describe are being
+> rewritten. Sections that document code that does not presently compile say so
+> explicitly. See [Known Issues](#known-issues).
 
-## Building Beatnik
+## Documentation and design reference
 
-Beatnik relies on multiple external packages to build, including:
-  * ECP CoPA's Cabana/Grid particle and mesh framework [2]
-  * UT-Knoxville's HeFFTe fast fourier transform library [3]
-  * A high-performance GPU-aware MPI implementation such as OpenMPI, MPICH, or MVAPICH
+Detailed descriptions of the algorithms and design decisions used in this
+repository — data structures, parallel decomposition, numerical choices, and why
+each was picked — live in **[docs/design.md](docs/design.md)**.
 
-To ease building Beatnik, the configs/ directory includes Spack configuration files for building in spack environments on multiple systems and test case run scripts for a variety of systems. In addition, the latest version of Spack includes a package description for directly building Beatnik. More information on building Beatnik can be found in the README.md file in the configs/ directory.
+This README covers what Beatnik is, how to build it, and how to run it. Anything
+about *how and why the implementation works* belongs in `docs/design.md`, so the
+two do not drift into duplicates. Machine-specific build and run instructions are
+in `systems/<system>/claude.md`, and the build/run/test workflow itself is in
+[CLAUDE.md](CLAUDE.md).
 
-## Running Beatnik
+## Usage
 
-By default, Beatnik solves a multi-mode rocket rig problem sized for a single serial CPU core with about 4GB of memory. All run-time parameters — mesh size, initial condition, physics constants, solver choice, I/O frequency, weak-scaling factor, and the FMM tunables — are read from a single input file passed to `rocketrig` as its only argument. Setting these parameters accurately generally requires expertise in fluid interface models, so we ship two examples drawn from the Z-Model papers as starting points.
+Beatnik is a **header-only CMake INTERFACE library** (target `Beatnik::Beatnik`,
+installed with a `BeatnikConfig.cmake`), plus example driver programs under
+`examples/` that use it. Consuming it from another CMake project:
 
-The node-level parallelism / accelerator backend is selected at compile time based on which Kokkos backends are enabled in the build (priority: CUDA/HIP/SYCL > OpenMP > Threads > Serial). The selected backend is printed in the banner when `rocketrig` runs.
+```cmake
+find_package(Beatnik REQUIRED)
+target_link_libraries(my_app PRIVATE Beatnik::Beatnik)
+```
 
-### Invocation
+`Beatnik_Config.hpp` is generated at configure time and reports which optional
+features the build has — most importantly `BEATNIK_ENABLE_CANOPY`. Diagnostics
+are controlled by `BEATNIK_ENABLE_PROFILING` / `BEATNIK_PROFILING_LEVEL`; see
+[src/Profiling.hpp](src/Profiling.hpp).
+
+The public entry points and key types are in flux while the solver is rewritten.
+This section will document them (the solver object, problem manager, mesh types,
+and the minimal end-to-end call sequence) as they land; it deliberately does not
+describe the removed pre-redesign API. The previous API surface is in git history
+at `89ec015^:src/`.
+
+The node-level parallelism / accelerator backend is selected at compile time from
+the Kokkos backends the build enables (priority: CUDA/HIP/SYCL > OpenMP > Threads
+> Serial). Which backends are available is a per-system fact — see
+`systems/<system>/claude.md`.
+
+### Minimal end-to-end example
+
+The intended shape of a run: build with examples enabled, then launch an example
+driver under MPI with an input deck.
+
+```
+# build (spack mode; see systems/<system>/claude.md for your machine)
+spack env activate ~/spack_envs/tuolumne_beatnik
+spack install
+
+# run
+mpirun -n 4 rocketrig examples/01_rising_bubble/multi_mode.in
+```
+
+On a scheduled machine, replace `mpirun -n 4` with that system's launcher — on
+tuolumne, `flux run --ntasks=4 --nodes=1 ...`. Do not hand-roll the launch: use
+the run command in `systems/<system>/claude.md` §4, or a batch script from
+[scripts/tuolumne/test_template.flux](scripts/tuolumne/test_template.flux), which
+sources the resolver so the required runtime environment is set for you.
+
+### Examples and their accepted arguments
+
+Examples are built only with `Beatnik_ENABLE_EXAMPLES=ON` (spack: `+examples`).
+One example per ordered `examples/NN_name/` directory; shared helpers go in
+[examples/common/](examples/common/).
+
+#### `01_rising_bubble` — `rocketrig`
+
+> **Does not currently build.** `rocketrig.cpp` and `InputFile.hpp` include
+> `BoundaryCondition.hpp` (and `rocketrig.cpp` also `Solver.hpp`), which do not
+> exist in `src/`. They are kept as the starting material for the rising-bubble
+> driver, behind an explicit opt-in (`-DBeatnik_EXAMPLES_ALLOW_BROKEN=ON`). The argument documentation below
+> describes what the retained parser accepts and is carried forward with it.
+
+All run-time parameters — mesh size, initial condition, physics constants, solver
+choice, I/O frequency, weak-scaling factor, and the FMM tunables — are read from a
+single input file passed as the only positional argument.
 
 ```
 rocketrig <input_file>          # run with the supplied input file
 rocketrig --help                # print the full input-file schema
 ```
 
-To run under MPI, prepend the usual launcher (`mpirun -n N`, `flux run`, `srun`, …) — `rocketrig` itself still takes exactly one positional argument.
+To run under MPI, prepend the usual launcher (`mpirun -n N`, `flux run`, `srun`,
+…) — `rocketrig` itself still takes exactly one positional argument.
 
-### Input file format
-
-Plain text, `key = value` per line. `#` starts a comment to end-of-line. Blank lines are OK. Missing keys keep their built-in defaults, so a near-empty file is valid — override only what you care about. Unknown keys, malformed lines, and bad enum values all error with the file path, line number, key, offending value, and (for enums) the full list of accepted values, e.g. `rocketrig.in:21: invalid value for 'br_solver': 'magic' (expected one of: exact, cutoff, fmm)`.
+**Input file format.** Plain text, `key = value` per line. `#` starts a comment to
+end-of-line. Blank lines are OK. Missing keys keep their built-in defaults, so a
+near-empty file is valid — override only what you care about. Unknown keys,
+malformed lines, and bad enum values all error with the file path, line number,
+key, offending value, and (for enums) the full list of accepted values, e.g.
+`rocketrig.in:21: invalid value for 'br_solver': 'magic' (expected one of: exact, cutoff, fmm)`.
 
 Run `rocketrig --help` for the full schema. The key groups are:
 
@@ -48,60 +118,504 @@ Run `rocketrig --help` for the full schema. The key groups are:
 | Solver | `solver_order` (`low`/`medium`/`high`), `br_solver` (`exact`/`cutoff`/`fmm`), `cutoff_distance`, `heffte_configuration`, `mu`, `epsilon` |
 | FMM tunables (when `br_solver = fmm`) | `fmm_ncrit`, `fmm_max_depth`, `fmm_mac_theta`, `fmm_replication_depth`, `fmm_imbalance_tol`, `fmm_ncrit_tol`, `fmm_{x,y,z}{min,max}_tol`, `fmm_near_softening_factor` |
 
-`br_solver = fmm` requires Beatnik to be built with Canopy support (`Beatnik_ENABLE_CANOPY=ON`).
+`br_solver = fmm` requires Beatnik to be built with Canopy support
+(`Beatnik_ENABLE_CANOPY=ON`).
 
 `fmm_near_softening_factor` (default `4.0`) guards the FMM far field against the
 Plummer softening (`eps = sqrt(epsilon)`): pairs closer than
 `fmm_near_softening_factor · eps` are evaluated by the softened near-field (P2P)
-rather than the unsoftened multipole far-field (M2L). This prevents a premature
-blow-up at full roll-up, where the rolled-up core shrinks below `eps` and the
-unsoftened far field would otherwise produce a spurious, far-too-large velocity.
-Larger values are more accurate but push more pairs into the costlier P2P path;
-`0` disables the floor. See Canopy's `near_softening_factor` for details.
+rather than the unsoftened multipole far-field (M2L). This prevents a blow-up at
+full roll-up, where the rolled-up core shrinks below `eps` and the unsoftened far
+field would otherwise produce a spurious, far-too-large velocity. Larger values
+are more accurate but push more pairs into the costlier P2P path; `0` disables the
+floor. See Canopy's `near_softening_factor` for details.
 
-### Example 1: periodic multi-mode rocket rig
+The shipped deck [examples/01_rising_bubble/multi_mode.in](examples/01_rising_bubble/multi_mode.in)
+is a periodic multi-mode rocket rig: a cosine-distributed initial interface,
+periodic boundaries, low-order Z-model with the exact BR solver. To explore
+variations, copy it and edit the keys you care about — e.g. `nodes = 512` for a
+larger mesh, or `weak_scale = 16` with `write_frequency = 0` to scale up 16× and
+skip I/O.
 
-The default test case is a cosine-distributed initial interface, periodic boundaries, low-order Z-model with the exact BR solver. The shipped [examples/01_rocketrig/multi_mode.in](examples/01_rocketrig/multi_mode.in) reproduces this configuration:
+A second shipped case, a non-periodic single-mode `sech2` Gaussian rollup
+recreating sections 2.3–2.4 of Pandya and Shkoller (high-order Z-model, free
+boundaries, `atwood 0.15`, `mu = 2`, `epsilon = 2`, `magnitude 0.1`,
+`period 9.0`, `nodes 64`), was removed along with its pre-scaled 1024/4000/16000
+variants in `89ec015`; the decks are recoverable from
+`89ec015^:examples/01_rocketrig/`. It is compute-intensive and works best on a GPU
+accelerator. Its scaling rules are documented under
+[Scaling to large meshes](#design-limitation-scaling-to-large-meshes) below.
+
+#### `02_adaptive_mesh_bubble` — the adaptive-triangle z-model bubble
+
+> **Builds and runs, but every solver body is a stub.** `--help` prints the full
+> schema and a real invocation parses its arguments, echoes the resolved
+> configuration, and then exits with a `std::logic_error` naming the first
+> unimplemented routine. That is the intended state of the framework — see
+> [tasks/framework.md](tasks/framework.md) and
+> [Known Issues](#known-issues).
+
+A C++/Kokkos/MPI port of `zmodel3d-amr`'s `examples/run_adaptive_mesh_bubble.py`.
+It evolves a closed triangulated interface under the higher-order 3D z-model with
+adaptive remeshing.
 
 ```
-mpirun -n 4 bin/rocketrig examples/01_rocketrig/multi_mode.in
+adaptive_mesh_bubble [OPTIONS]     # run
+adaptive_mesh_bubble --help        # print the full option schema
+mpirun -n 4 adaptive_mesh_bubble --steps 20 --checkpoint-dir out
 ```
 
-To explore variations, copy `multi_mode.in` and edit the keys you care about — e.g. set `nodes = 512` for a larger mesh, or `weak_scale = 16` with `write_frequency = 0` to scale up by 16× and skip I/O.
-
-### Example 2: non-periodic single-mode Gaussian rollup
-
-A single-mode `sech2` rollup that recreates the Gaussian perturbation results in Pandya and Shkoller's paper (sections 2.3 and 2.4). High-order Z-model on free boundaries; works best on a GPU accelerator since the exact high-order BR solver is compute-intensive. An input file for this case (n=64, sech2, free, atwood 0.15, μ=2, ε=2, magnitude 0.1, period 9.0):
+Or, on tuolumne, using the system's launcher (see
+`systems/tuolumne/claude.md` §4):
 
 ```
-nodes              = 64
-initial_condition  = sech2
-magnitude          = 0.1
-period             = 9.0
-atwood             = 0.15
-boundary           = free
-solver_order       = high
-mu                 = 2.0
-epsilon            = 2.0
+flux run --ntasks=4 --nodes=1 --exclusive --gpus-per-task=1 --cores-per-task=24 \
+    "$(beatnik_exe adaptive_mesh_bubble)" --steps 20 --checkpoint-dir out
 ```
 
-The shipped [examples/01_rocketrig/single_mode.in](examples/01_rocketrig/single_mode.in) is this 64-node case driven by the Canopy FMM BR solver (`br_solver = fmm`) instead of the exact solver, with several FMM tunables nudged off their defaults — useful as a starting point when configuring an FMM run. The larger pre-scaled variants [single_mode_1024.in](examples/01_rocketrig/single_mode_1024.in), [single_mode_4000.in](examples/01_rocketrig/single_mode_4000.in), and [single_mode_16000.in](examples/01_rocketrig/single_mode_16000.in) take the same problem to bigger meshes — see [Scaling to large meshes](#scaling-to-large-meshes-timestep-stability-and-step-count-caveats) for the rules they follow and the caveats that come with them.
+##### Checkpoint output: open `<prefix>.xmf`, with the *temporal* reader
 
-### Scaling to large meshes (timestep stability and step-count caveats)
+A `--checkpoint-dir out` run that takes N checkpoints leaves, for the default
+`--checkpoint-prefix checkpoint`:
 
-Running the single-mode rollup at large `nodes` is not just a matter of raising the mesh resolution. The intended way to grow the problem is to scale `bounding_box` **linearly** with `nodes` (e.g. `bounding_box = nodes / 64`, taking the 64-node `bounding_box = 1.0` case as the baseline). This keeps the physical grid spacing `dx = 2·bounding_box/(nodes-1)` roughly constant, which is what stops interface points from getting pathologically close together — the regime where the BR/FMM velocity evaluation blows up. The scaled example inputs `single_mode_1024.in`, `single_mode_4000.in`, and `single_mode_16000.in` follow this rule.
+| File | What it is |
+| --- | --- |
+| N x `out/checkpoint_t<timekey>_step<step>.h5` | the frames; one restartable checkpoint each |
+| N x `out/checkpoint_t<timekey>_step<step>.xmf` | per-frame sidecars, so a single frame stays individually openable |
+| `out/checkpoint.xmf` | **the master** — one XDMF temporal collection over every frame |
+| `out/checkpoint.xmfindex` | Tessera's frame/time record, for a future series reopen |
+| `out/checkpoint_latest.{h5,xmf}` | symlinks to the newest **frame**; `--restart-from` consumes the `.h5` |
+
+**Open `out/checkpoint.xmf` in Paraview and choose the `Xdmf3ReaderT` reader.**
+Only the *temporal* XDMF3 reader walks a temporal collection; the plain
+`Xdmf3ReaderS` opens the same file and shows a single timestep, which looks like
+a broken file and is not one. If the time slider has one stop, check the file
+before the writer:
+
+```
+grep -c '<Time Value=' out/checkpoint.xmf     # == number of distinct checkpoints
+```
+
+If that count is N, the light data is right and the reader choice was wrong. The
+count is over *distinct* checkpoints: the final state is written twice at the same
+time and step (once by the last step, once at shutdown) and appears in the master
+once. No CLI option controls any of this, and the per-frame `.h5` layout is
+unchanged — `tests/regression_tests/compare_output.py` reads the same datasets it
+always did. Emitted and asserted by
+`tests/unit_tests/Beatnik_Test_CheckpointSeries.cpp`; the reasoning lives in the
+`GROUPED OUTPUT` section of
+[src/Beatnik_IOInterface.hpp](src/Beatnik_IOInterface.hpp).
+
+**The option names and defaults match the Python script exactly**, with one
+deliberate exception — `--br-treecode-order`, whose default is 3 here against the
+Python's 2 for the reason given under
+[Birkhoff-Rott approximation](#birkhoff-rott-approximation) below — so one command
+line drives both the Python gold-file run and this one — which is what makes the
+gold-file comparison in `tests/regression_tests/` possible. The full list is in
+`adaptive_mesh_bubble --help`; the groups are:
+
+| Group | Representative options |
+| --- | --- |
+| Base mesh | `--mesh-kind` (`icosphere`/`latlon`), `--icosphere-subdivisions`, `--n-theta`, `--n-phi`, `--radius`, `--center-z` |
+| Initial shape | `--initial-shape` (`sphere`/`oblate`/`mushroom-seed`/`skirt-seed`), `--horizontal-scale`, `--vertical-scale`, `--rim-*`, `--skirt-*`, `--azimuthal-*`, `--polar-mode`, `--polar-amp` |
+| Initial vorticity | `--initial-potential-strength`, `--initial-vorticity-mode`, `--initial-vorticity-center/-width/-radial-power` |
+| Time stepping | `--steps`, `--t-end`, `--dt`, `--adaptive-dt`/`--no-adaptive-dt`, `--min-dt`, `--dt-edge-power`, `--dt-switch-time`, `--dt-after-switch`, `--max-sheet-dt-product` |
+| Physics | `--A`, `--g`, `--eps`, `--mu`, `--sigma`, `--sigma-radius`, `--sigma-center`, `--viscosity-mode`, `--kernel-blob-mode`, `--forcing-sign`, `--br-sign` |
+| Birkhoff-Rott | `--br-approximation`, `--source-quadrature`, `--velocity-mode`, `--bernoulli-scalar-mode`, `--br-treecode-theta/-order/-ncrit`, `--no-preserve-volume` |
+| Indicator AMR (only with `--no-dynamic-remesh`) | `--area-threshold`, `--curvature-change-threshold`, `--curvature-resolution-threshold`, `--max-faces`, `--max-refine-fraction`, `--refine-neighbor-rings`, `--refine-every`, `--transition-quality-*`, `--min-refine-edge`, `--no-balance-refinement` |
+| Dynamic remeshing | `--dynamic-remesh`/`--no-dynamic-remesh`, `--remesh-every`, `--remesh-passes`, `--remesh-sagitta-tolerance`, `--remesh-h-min/-h-max`, `--remesh-split-factor`, `--remesh-collapse-factor`, `--remesh-min-quality`, `--remesh-max-splits/-collapses`, `--remesh-target-gradation-*` |
+| Nonlocal proximity | `--remesh-proximity`, `--remesh-proximity-fraction`, `--remesh-proximity-activation-*`, `--remesh-proximity-exclusion-rings`, `--remesh-proximity-material-exclusion-*`, `--remesh-surgical-proximity*` |
+| Tight remeshing | `--remesh-tight-after`, and `--remesh-tight-*` counterparts of the remesh options |
+| Isotropic cleanup | `--isotropic-cleanup`/`--no-isotropic-cleanup`, `--isotropic-cleanup-flips/-relax/-weight` |
+| State and filtering | `--state-model` (`potential`/`sheet-vector`), `--smooth-iters`, `--smooth-relaxation`, `--redistribute-every`, `--field-filter-*`, `--flip-passes` |
+| Checkpoint / restart | `--checkpoint-dir`, `--checkpoint-prefix`, `--checkpoint-every-steps`, `--checkpoint-every-time`, `--restart-from` |
+| Diagnostics | `--progress-time-interval`, `--exact-gap-diagnostics` |
+
+Options may also be supplied in a `key = value` deck (same names with `-`
+replaced by `_`), parsed through the same setter table.
+
+**Accepted and ignored.** Video and plotting options — `--output`, `--no-video`,
+`--fps`, `--stride`, `--surface-alpha`, `--wire-width`, `--wire-alpha`,
+`--plot-half`, `--plot-half-origin`, `--view-elev`, `--view-azim`,
+`--section-axis`, `--section-origin`, `--section-panel` — are **accepted and
+ignored**, each emitting one `warning:` line to stderr. They are not rejected,
+because the same command line has to work for both codes. The same applies to
+`--br-cluster-count`, `--br-near-radius` and `--br-near-factor`, which tune the
+Python's `local`/`clustered` approximations that this port does not have.
+
+##### Source quadrature: only `vertex` is implemented
+
+`--source-quadrature` accepts all three of the Python's values — `face`,
+`triangle3`, and `vertex` (the default in both codes) — so a Python command
+line parses. **Only `vertex` needs to be implemented in the C++ port**; `face` and
+`triangle3` are selectable and throw from
+[src/Beatnik_SourceQuadrature.hpp](src/Beatnik_SourceQuadrature.hpp) when
+generation is attempted.
+
+`vertex` places one source at each vertex, weighted by the lumped vertex area,
+with the strength built from the area-averaged per-vertex potential gradient. It
+is the cheapest of the three (\(N_v\) sources rather than \(3N_f \approx 6N_v\))
+and its sources coincide with the targets, which makes the direct \(O(N^2)\) sum
+a single symmetric kernel and simplifies validating the FMM against it.
+
+Note the three rules are **not** just different sampling of one field: under the
+potential state model `face` and `triangle3` use the exact per-face gradient
+while `vertex` uses the area-averaged per-vertex one, so they differ at \(O(h)\)
+on an irregular mesh. A gold file generated with `face` or `triangle3` is
+therefore not directly comparable to a `vertex` run — generate gold files with
+`--source-quadrature vertex` (the default; passing it explicitly guards against
+an older Python checkout whose default was `face`).
+
+##### Birkhoff-Rott approximation
+
+The Python offers `direct | local | clustered | treecode` (default `treecode`).
+Beatnik offers **`direct`** and **`fmm`** (Canopy fast multipole), and maps
+`local`, `clustered` and `treecode` onto `fmm` with a warning so a Python command
+line runs. The first round of testing uses `direct` only: it is easier to
+implement and it isolates bugs in the rest of the code from the far-field solver.
+
+> **`fmm` is the default. Its per-evaluation accuracy is measured; its
+> trajectory accuracy is not.**
+> `ZModelParams::br_approximation` defaults to `Fmm`
+> ([src/Beatnik_Params.hpp:107](src/Beatnik_Params.hpp#L107)) because the Python
+> default is `treecode` and Beatnik maps that onto `fmm` — so a command line
+> that names no `--br-approximation` gets the FMM.
+>
+> What *is* measured is one velocity evaluation against `BRSolverDirect` on the
+> same state — see [FMM accuracy](#fmm-accuracy-measured) below for the figure
+> and its full qualification list. What is **not** measured is what a
+> multi-thousand-step FMM-driven trajectory does: a $5\times10^{-4}$
+> perturbation injected at every evaluation decorrelates from the direct
+> trajectory long before step 2000, so the FMM path has no gold-file comparison
+> at any rung the direct path passes, and none is coming — the milestone claims
+> for it are a per-evaluation bound plus a stability-and-divergence-horizon
+> measurement. Task T6 (`tasks/canopy/add-canopy.md`) **has written those two
+> claims** into the `milestone`-tier members `Beatnik_Test_Milestone0Fmm` and
+> `Beatnik_Test_Milestone0FmmL4` — max relative velocity error $\le 1.5\times10^{-3}$
+> over 81 direct-driven states, plus the divergence horizon of a 2000-step
+> FMM-driven trajectory. Task T9b (`tasks/add-canopy-t6.md`, 2026-10-09) ran
+> the full tier as eight per-(member, backend) jobs and **all 16 launches
+> passed**, both backends at ranks 1 and 4. The worst claim-A errors were about
+> $3.1\times10^{-4}$ at level 3 and $1.26\times10^{-3}$ at level 4. The tier
+> costs 8.69 h of node time and 4.2 h of wall-clock when split.
+> **Pass `--br-approximation direct` for any run that must reproduce the
+> reference**, and read the figures below before using `fmm`
+> for one that must merely be accurate. The Riesz-scalar half of the FMM path
+> (`--bernoulli-scalar-mode surface-riesz`) is not implemented at all and
+> throws.
+
+###### FMM tunables
+
+The three `--br-treecode-*` options are the only CLI surface on the FMM path; the
+rest of Canopy's configuration is defaulted in `FmmParams`
+([src/Beatnik_Params.hpp](src/Beatnik_Params.hpp)) and has no CLI option by
+design. **A treecode number and an FMM number of the same name are not
+interchangeable**, and the three differ in *how* they fail to transfer:
+
+| CLI option | `FmmParams` member | Default | Transfers from the treecode? |
+| --- | --- | --- | --- |
+| `--br-treecode-theta` | `mac_theta` | 0.3 | **Yes.** Same opening angle; the Python's value is kept. |
+| `--br-treecode-order` | `order` | **3** (Python: 2) | **Quantity yes, accuracy no** — see below. Only the built orders are accepted; see *Which basis and order are built*. |
+| `--br-treecode-ncrit` | `ncrit` | 64 | **Yes**, but only at production vertex counts — see below. |
+
+`order` is the one place the "names and defaults match exactly" promise breaks.
+The reference treecode has no target-side expansion, so its order-2 *velocity*
+carries the truncation order of an FMM's order-2 *potential*. An FMM gets its
+gradient by differentiating a local expansion, and the gradient of a degree-$p$
+Taylor local is degree $p-1$ — so an FMM's order-2 gradient is one order short of
+where the treecode's order-2 velocity sits, and Beatnik reads only the gradient.
+Order 3 here is the *counterpart* of the reference's 2, not an upgrade of it. The
+default is set from measurement rather than from that argument: measured against
+the reference on the same sheet, order 3 matches its accuracy and order 2 is an
+order worse — $5.01\times10^{-4}$ and $5.97\times10^{-3}$ against the
+reference's $4.8\times10^{-4}$ at a smooth state, and a worst of
+$1.26\times10^{-3}$ at order 3 against the reference's $1.50\times10^{-3}$ over a
+full roll-up (see [FMM accuracy](#fmm-accuracy-measured)). Passing
+`--br-treecode-order 2` explicitly still yields 2.
+
+`mac_theta` and `ncrit` need no such correction — both denote the same quantity in
+both algorithms. `ncrit` carries a separate caveat that is about the mesh, not the
+mapping: under Canopy's acceptance criterion the near field reaches
+$\sqrt3/\theta$ cell widths, which on a 2-manifold covers about 105 occupied
+leaves at $\theta=0.3$, so a far field that carries any of the field at all needs
+$N \gg 105\cdot\texttt{ncrit}$ — that is $N \gg 6720$ at these defaults. Below
+that the FMM is a direct sum with FMM bookkeeping around it: it agrees with the
+direct solver to round-off, at any order, silently.
+
+The FMM-only members, none of which has a CLI option:
+
+| `FmmParams` member | Default | Canopy `FmmConfig` member | What it is |
+| --- | --- | --- | --- |
+| `basis` | `FarFieldBasis::CartesianTaylor` | none (a template parameter) | Which far-field basis the adapter instantiates. `CartesianTaylor` expands the desingularized kernel directly and is the **validated** production path — see [FMM accuracy](#fmm-accuracy-measured). `SolidHarmonic` expands the bare $1/r$ and carries a kernel bias no order removes, and is built at order 3 only; it exists as the negative control that proves the selector is live, and it measures **9.4x worse** than `CartesianTaylor` at the same order on a smooth sphere. |
+| `max_depth` | 10 | `max_depth` | Hard **cap** on tree depth, not a target — the tree stops at `ncrit` occupancy well before it. Canopy bounds it at 19. **Measured inert** on a milestone-0 sheet: the velocity error, the pair counts and the realized operator-key count are identical to all 17 digits at `max_depth` 5, 6, 8, 10 and 12, so the cap never binds there and lowering it changes nothing. |
+| `near_softening_factor` | **0** | `near_softening_factor` (4.0) | Multiple of the softening length inside which pairs are forced out of the far field. Meaningful only under `SolidHarmonic`; under `CartesianTaylor` the far field already carries the blob, so a non-zero floor only moves work into the near-field sum. |
+| `ncrit_tol` | 0.10 | `ncrit_tol` (0.10) | Coarsening hysteresis on `ncrit`, as a fraction of it: children merge only below `ncrit · (1 - ncrit_tol)`. Damps split/merge thrashing on a surface that deforms every RK stage. |
+| `replication_depth` | 3 | `replication_depth` (1) | Cells at or above this depth are replicated on every rank. 3 caps the replicated set at 585 cells and sits inside the 2-4 range Canopy documents as typical. |
+| `imbalance_tolerance` | 0.10 | `imbalance_tolerance` (0.05) | Zoltan2 partition imbalance accepted, as a fraction. Looser than Canopy's default because the partitioner runs essentially every RK stage. |
+| `xmin_tol` … `zmax_tol` | 0.10 each | `xmin_tol` … `zmax_tol` (0.0) | Per-face padding on the global root box, each a fraction of that axis's width, giving particles room to move before leaving the box. It does **not** stabilize the box: Canopy recomputes the box from the particles on every maintenance path, so a padded box drifts with it. `quantize_root_half_width` (below) makes the root *width* stable within an octave; the box centre still drifts. |
+| `m2l_op_table_byte_budget` | 2 GiB | `m2l_op_table_byte_budget` (2 GiB) | Per-rank byte budget for Canopy's hashed M2L operator table. Deliberately non-binding: the column-count cap `m2l_op_count_cap` binds first at every order this path supports, and under `CartesianTaylor` at order 3 (3200 B per column) 2 GiB buys 671088 columns against that cap's 32768 — a factor of 20. |
+| `m2l_op_count_cap` | 32768 | `m2l_op_count_cap` (32768) | Per-rank cap on the **number** of columns in the same table, and the constraint that actually binds: under `CartesianTaylor` the operator keys carry the tree level, so occupied depth multiplies the key count at a fixed per-key cost. Measured demand at `--icosphere-subdivisions` 4 is 37678 keys worst-observed (1.150x this default, 115 MiB of table). Keys past the cap are not an error — they take a per-pair translate that is slower and bitwise different from the table path. **0 is legal** and admits no column; a negative value is rejected by Canopy inside the solver constructor rather than clamped. |
+| `quantize_root_half_width` | **`true`** | `quantize_root_half_width` (`false`) | Rounds the root cell's half-width **up to a power of two** at every tree build, keeping its centre. Under `CartesianTaylor` the M2L operators depend on the root width and Canopy empties its operator cache on any change of it; without quantization the drifting box changes the width at essentially every evaluation, so the table is rebuilt three times per RK3 step. With it the width is bit-identical within an octave and the cache survives. Measured (canopy_profiling O1, `ncrit 8`, cap 65536): retention ≥ 0.99 per evaluation after the first, **zero** octave crossings and zero cap-overflow clears over 1200 steps at level 4, 300 at level 5 and 250 at level 6; the operator build falls from 30–53 % of the HIP step (4–13 % on SERIAL) to under 0.1 %, and the summed HIP step wall falls 47–53 % at level 4, 22–36 % at level 5 and 21 % at level 6 (SERIAL 7–21 %). **The cost:** the root cell grows up to 2x the bounding box, adding one level at the top of the tree (no `max_depth` 10 contact, no dropped pairs), and the far-field error moves. The worst error over the measured states rose at level 4 (1.10e-3 to 1.40e-3, under τ_A = 1.5e-3) and fell at levels 5 (1.63e-3 to 1.21e-3) and 6 (2.77e-3 to 2.25e-3); the default is on by ruling for that trade-off. **Caveat:** a cache that survives across trees accumulates keys, so a long run can hit `m2l_op_count_cap` and empty the whole cache (counted in `FarFieldDiagnostics::op_cache_overflow_clears`); none occurred at cap 65536 in O1, but the level-4 np1 cache reached 33534 keys by step 1200, already past this member's default cap of 32768. |
+| `device_op_table_assembly` | `true` | `device_op_table_assembly` (`true`) | Assembles Canopy's per-tree M2L operator table on the device: the operator cache keeps a device copy, only the columns built since the last interaction-list build are uploaded, and the table is gathered there by column index. Off copies every column into a host mirror and uploads the whole table at every build, which `quantize_root_half_width`'s surviving cache made almost entirely redundant. The table is bitwise identical either way, so this moves cost and never a velocity; it exists as a switch for canopy_profiling O8's same-job comparison. Measured (O8, `ncrit 8`, cap 65536, with `quantize_root_half_width` on): the table copy falls 91–98 % and the summed HIP step wall 38–49 % at level 4 and 22–31 % at level 5, with the far-field error bit-identical at every state. On SERIAL "on" gathers straight from the host cache and keeps no second copy; its step wall is unchanged within noise, but that gather is 3–5 % slower than the old host loop at np 1 (about 0.5 % of the step). |
+| `indexed_comm_plan` | `true` | `indexed_comm_plan` (`true`) | Builds Canopy's communication plan through per-cell index arrays: its dual-tree traversal reads children, owners and subtree relevance from arrays instead of a hash lookup at every step, and groups and de-duplicates its output once instead of inserting each send, receive and ghost into a `std::set`. The plan is rebuilt at every rebalance, which Canopy's `auto_maintain` picks on 77–98 % of evaluations. The plan is identical either way, so this moves cost and never a velocity; it exists as a switch for canopy_profiling O5's same-job comparison. |
+| `dense_key_classify` | `true` | `dense_key_classify` (`true`) | De-duplicates the M2L operator keys in stage 3 of Canopy's interaction-list build through one dense table indexed by the key, which each pair claims in first-occurrence order, instead of a `std::unordered_map` per host thread merged afterwards. Both admit the keys in the same order, so the interaction list, the operator table and every velocity are identical either way; this moves cost only, and exists as a switch for canopy_profiling O9's same-job comparison. Measured (O9, `ncrit 8`, cap 65536, the three knobs above on): stage 3 falls 58–72 % per run and the summed HIP step wall 13–32 % at level 4 and 23–28 % at level 5, with the far-field error bit-identical at every state; SERIAL's step is unchanged within noise. The table is 3.0 M four-byte slots per rank under `CartesianTaylor` at `max_depth` 10, of which a build touches only its own keys' slots. |
+| `forward_route_from_reverse` | `true` | none (Beatnik adapter only) | Routes each evaluation's forward migrate, which sends every owned row to the rank on which Canopy holds its tuple, from the ranks the previous evaluation's reverse migrate returned each row from. Nothing moves Canopy's tuples between the two, so those are the ranks. Off recovers them at every evaluation through a claims handshake: a second distributor and migrate that send each tuple's index back to its owner. The record is used only when the previous evaluation completed with every row returned once and the owned row count is unchanged, exactly the cases in which the claims validate; otherwise both paths rebuild the tree with `setup()`. The destinations are identical either way, so this moves cost and never a velocity; it exists as a switch for canopy_profiling O6's same-job comparison. Measured (O6, `ncrit 8`, cap 65536, the knobs above on): the forward distribute falls 74–80 % per HIP run and the adapter's phases 18–24 % at np 4, about 2–3 % of the HIP np 4 step; on SERIAL np 4 the forward distribute falls 47 % and the step 26 %. The far-field error is bit-identical at every state. Recording the route costs 0.1–0.3 ms per evaluation. |
+| `parallel_p2p_pair_count` | `false` | none (Beatnik adapter only) | Splits the adapter's near-field pair count (`FarFieldDiagnostics::global_p2p_pair_count`, and from it `p2p_pair_fraction`), one hash lookup per near-field neighbour of every owned leaf, over the host threads. Off does every lookup on one thread. The count is an integer sum, identical either way, so this moves cost only; it exists as a switch for canopy_profiling O6's same-job comparison. **Off by default, because it is slower** (O6): the adapter's diagnostics phase rose 10–101 % per run on HIP and SERIAL with it on, so the serial lookup loop is not that phase's cost. See "Future Optimizations". |
+
+There is deliberately **no** `softening` member. Canopy's `FmmConfig::softening`
+is a length while `--eps` and `ZModelParams::blob()` are a squared length, so the
+adapter passes `sqrt(blob())` at its one call site rather than keeping a second
+source of truth. It must be explicitly positive: Canopy's default of $-1$ selects
+distribution-based auto-softening, which is a different kernel rather than a
+fallback, and which additionally disables `near_softening_factor`.
+
+`fmm_*` deck keys are a different, older parameter set belonging to
+`01_rising_bubble` (`rocketrig`) and documented separately above; they do not
+reach `FmmParams`.
+
+###### Which basis and order are built
+
+Canopy's basis and order are C++ *template* parameters, not configuration
+fields, so the adapter
+([src/Beatnik_FarFieldInterface.hpp](src/Beatnik_FarFieldInterface.hpp)) can
+only offer an explicitly enumerated set of instantiations. Six are built:
+
+| `basis` | `order` | Why it is built |
+| --- | --- | --- |
+| `cartesian-taylor` | 0 | Monopole-only negative control. |
+| `cartesian-taylor` | 2 | One order below production. |
+| `cartesian-taylor` | **3** | **The production path**, and the default. |
+| `cartesian-taylor` | 4, 5 | **Scan-only.** Measurable, but above the order at which Canopy's derivative ladder is validated, so neither may be adopted as the production order. |
+| `solid-harmonic` | 3 | Contrast arm, at equal order to the production path. |
+
+Any other pair — `--br-treecode-order 1`, `6`, or a `solid-harmonic` run at
+anything but 3 — throws at solver construction with a message naming the
+supported set. Nothing is silently rounded and no basis is silently
+substituted. Each arm instantiates Canopy's entire pipeline in every
+translation unit that creates a BR solver, so the set is deliberately small;
+on tuolumne the six roughly **2.6x** the project's compile CPU time
+(78 against 30 CPU-minutes over 29 translation units).
+
+###### FMM accuracy (measured)
+
+The far-field error is a **truncation** in `order`, not a floor, and the two
+fields it is quoted on differ by a full order: a Cartesian-Taylor expansion at
+order $p$ leaves $\sim(cw/R)^{p+1}$ on the potential and $\sim(cw/R)^{p}$ on
+the gradient, because the gradient comes from differentiating the local
+expansion. **Beatnik's velocity is the gradient**, so the gradient column is
+the one that binds.
+
+**The validated parameter set**, and the figure it achieves:
+
+| Quantity | Value |
+| --- | --- |
+| `basis` | `cartesian-taylor` |
+| `order` | **3** |
+| `mac_theta` | 0.3 |
+| `ncrit` | 8 *for this measurement*; the shipped default of 64 is right at production vertex counts — see below |
+| `max_depth` | 10 (inert; identical results at 5-12) |
+| `near_softening_factor` | 0 |
+| `softening` | 0.025 ( $=\sqrt{b}$ at `--eps 0.025` under `--kernel-blob-mode length`) |
+| Source distribution | milestone-0 icosphere, subdivision level 4, 2562 vertices, 5 `direct` timesteps from the initial condition |
+| Backends / ranks | HIP at 1 and 4 ranks, Serial at 1 rank |
+| Realized P2P pair fraction | **0.2537** — three quarters of the pairs go through M2L |
+| **Max relative velocity (gradient) error** | **$5.01\times10^{-4}$** |
+| Max relative potential error | $3.73\times10^{-5}$ |
+
+Both figures are `max|fmm − direct|` over owned rows, over the direct field's
+own max magnitude. The realized operator table is 10902 keys of Canopy's 32768
+per-rank cap and its fallback pair count is **zero**, so the number is one code
+path and not a mixture of two.
+
+**Every figure here is unreadable without its P2P pair fraction**, which is why
+it is in the table. A solve whose far field never engaged is a direct sum with
+FMM bookkeeping around it: it agrees with `BRSolverDirect` to round-off at
+*every* order and reads as a success. That is not hypothetical — at 642
+vertices with the shipped `ncrit = 64` the measured M2L pair count is **0** and
+the measured "error" is $2.1\times10^{-15}$.
+
+The order curve at the parameters above, measured on the sheet against the
+model $(\theta/2\sqrt3)^{p}$ that was fitted on a volumetric cloud:
+
+| `order` | gradient | model | gradient/model | potential |
+| --- | --- | --- | --- | --- |
+| 0 | $4.07\times10^{-1}$ | — | — | $5.70\times10^{-2}$ |
+| 2 | $5.97\times10^{-3}$ | $7.5\times10^{-3}$ | 0.80 | $6.83\times10^{-4}$ |
+| **3** | $\mathbf{5.01\times10^{-4}}$ | $6.5\times10^{-4}$ | 0.77 | $3.73\times10^{-5}$ |
+| 4 | $5.61\times10^{-5}$ | $5.6\times10^{-5}$ | 1.00 | $1.97\times10^{-6}$ |
+| 5 | $8.38\times10^{-6}$ | $4.9\times10^{-6}$ | 1.72 | $5.12\times10^{-7}$ |
+
+The table above is one smooth state. Over the 81 checkpointed states of the
+level-4 sheet's 2000-step roll-up (the `Beatnik_Test_Milestone0FmmL4` member's
+claim A, HIP at 1 and 4 ranks, two independent runs each), the error at order
+3 grows with the geometry, and so does the reference treecode's on the same
+states, through the reference's own direct sum and its defaults (order 2,
+$\theta=0.3$, `ncrit` 64):
+
+| Over the roll-up | Beatnik, order 3 | Reference treecode, order 2 |
+| --- | --- | --- |
+| Worst max relative velocity error | $1.247\times10^{-3}$ to $1.256\times10^{-3}$, at step 1375 | $1.499\times10^{-3}$ at step 1550 |
+| States over $10^{-3}$ (of 80 non-zero-field) | 4–6 | 19 |
+| Smooth early state (step 25) | $5.06\times10^{-4}$ | $5.83\times10^{-4}$ |
+
+The two peak at different states, because each method's error is set by where
+its own MAC boundaries fall on the roll-up; the comparison is worst against
+worst. The milestone members therefore bound the per-evaluation error at
+$\tau_A=1.5\times10^{-3}$ — the reference's own worst, rounded up — and Beatnik
+order 3 clears it by 1.19x at level 4 and 4.8x at level 3.
+
+**Order 3 is the production order** because it matches the reference's
+accuracy: order 2 is an order worse (a factor of 12 at the smooth state) and
+order 4 is not adoptable — it reaches derivative degree $|k|=8$ and Canopy's derivative
+ladder is validated only to $|k|=6$, so an arithmetic error there would be
+indistinguishable from the truncation it would be attributed to. Orders 4 and 5
+are measurable and reported; raising the default past 3 is an upstream request
+for another degree of oracle, not a Beatnik change.
+
+`ncrit` is what decides whether any of this is being measured at all. The
+liveness inequality $N \gg \pi(\sqrt3/\theta)^2\,\texttt{ncrit}$ is confirmed
+in the direction that matters — the M2L share falls to zero below it — but the
+threshold is softer than the inequality suggests, because coarse cell pairs are
+accepted where leaf pairs are not:
+
+| vertices | `ncrit` | M2L share of pairs | gradient error |
+| --- | --- | --- | --- |
+| 642 | 64, 32 | **0.0%** | $2.1\times10^{-15}$ (no far field; not a measurement) |
+| 642 | 16, 8 | 14.5% | $1.70\times10^{-4}$ |
+| 642 | 4 | 58.5% | $4.11\times10^{-4}$ |
+| 2562 | 64, 32 | 14.6% | $1.75\times10^{-4}$ |
+| 2562 | 16 | 56.6% | $4.38\times10^{-4}$ |
+| 2562 | **8** | **74.6%** | $\mathbf{5.01\times10^{-4}}$ |
+| 2562 | 4 | 89.2% | $6.39\times10^{-4}$ |
+
+Read that table the right way round: the error *rises* as the far field takes
+over, because a larger M2L share means more of the field is approximated. A
+configuration low in that table is not worse code, and a configuration high in
+it is not better accuracy — it is less measurement.
+
+The `--br-treecode-theta` dependence is **steeper than the model**: a
+least-squares fit over $\theta \in \{0.2, 0.3, 0.4, 0.5, 0.7\}$ at order 3
+gives an exponent of **3.8** on the gradient against the model's 3, and 4.3 on
+the potential against its 4. The model's constant is right to within 25%
+through order 4; its exponent in $\theta$ is not, and the per-order gain decays
+above order 3 (11.9x from 2 to 3, then 8.9x and 6.7x) rather than holding at
+the model's 11.5x.
+
+The FMM path additionally requires **`--source-quadrature vertex`**, and
+rejects any other rule at the first evaluation. The round trip that maps
+Beatnik's mesh decomposition onto Canopy's own carries one integer per source,
+which is only well defined while source, target and output row are the same
+row — true for the vertex rule and for no other.
+
+## Dependencies and Build Notes
+
+Beatnik depends on the following packages in all configurations:
+
+  1. ECP CoPA's Cabana/Grid particle and mesh framework [2], version 0.7.0 or newer, built **with MPI and Grid support** (both are hard-enforced at configure time)
+  1. Kokkos 4.0 or newer
+  1. A HeFFTe version compatible with Cabana [3] (tested with 2.4.0)
+  1. LLNL Silo 4.11.1 or newer, configured with MPI support
+  1. A high-performance **GPU-aware** MPI implementation such as OpenMPI, MPICH, or MVAPICH
+  1. GTest 1.10+ when `Beatnik_ENABLE_TESTING=ON`
+  1. **Tessera**, which provides the unstructured triangle surface and its HDF5 mesh I/O. Required by the adaptive-mesh solver.
+  1. **Canopy**, which provides the fast multipole far-field solver. Optional: `Beatnik_ENABLE_CANOPY` follows `Beatnik_REQUIRE_CANOPY`, which defaults to whether Canopy was found, so `-DBeatnik_REQUIRE_CANOPY=OFF` (spack `~canopy`) genuinely compiles it out even on a machine that has it installed. Without it `--br-approximation fmm` is refused at run time with a clear message while `direct` still works.
+  1. Python 3 with `numpy` and `h5py`, only for the gold-file regression comparison (`tests/regression_tests/compare_output.py`). Absent, those two ctest cases are skipped with a status message.
+
+### Tessera and Canopy
+
+The adaptive-mesh solver depends on two external libraries, and **no Beatnik code
+names a type from either one outside three thin adapter headers**:
+
+| Library | Provides | Adapter |
+| --- | --- | --- |
+| **Tessera** (`../tessera`) | the distributed unstructured triangle surface, its adjacency, and the topological edits refinement and remeshing perform | [src/Beatnik_MeshInterface.hpp](src/Beatnik_MeshInterface.hpp) |
+| **Tessera** (HDF5) | checkpoint read and write | [src/Beatnik_IOInterface.hpp](src/Beatnik_IOInterface.hpp) |
+| **Canopy** (`../canopy`) | fast-multipole summation of the regularized Birkhoff-Rott kernel | [src/Beatnik_FarFieldInterface.hpp](src/Beatnik_FarFieldInterface.hpp) |
+
+Swapping in a real library, or a different one, is meant to touch only those
+three files. Each carries its contract and its expected interface at the top.
+
+**Build with spack.** The beatnik spack package enforces these requirements, so
+use it for both installation (`spack install` / `spack env create`) and
+development (`spack develop` in an environment) — that also lets you develop
+Beatnik's *dependencies* the same way (`spack develop cabana && spack concretize -f`).
+See the [Spack developer-workflow documentation](https://spack-tutorial.readthedocs.io/en/latest/tutorial_developer_workflows.html).
+On systems with a site spack install, upstreaming to it is advisable.
+
+Per-system environments, build commands and their gotchas are **not** in this
+file. Run `hostname` and read the matching `systems/<system>/claude.md`; the
+committed spack environment snapshots live beside it. The build/run profile
+mechanism (build modes and the resolver) is documented in
+[docs/environment-and-build.md](docs/environment-and-build.md), and the gate in
+[CLAUDE.md](CLAUDE.md#minimum-test-set). The pre-redesign `configs/` directory that used to hold
+per-system spack files for UNM Hopper and LLNL Tioga was removed in `89ec015`;
+those files are at `89ec015^:configs/` if either machine is revived.
+
+Non-obvious build constraints:
+
+- **Header-only rebuilds can be missed.** `Beatnik` is a CMake INTERFACE library
+  that does not track `HEADERS_PUBLIC` as dependencies, so a header-only change
+  can produce a sub-second no-op `spack install`. Workaround: `touch` a consumer
+  `.cpp` first. See [Future Optimizations](#future-optimizations).
+- **`-march`** defaults to `native` in Release builds; override with
+  `Beatnik_BUILD_MARCH` on a platform where that fails.
+- **`Beatnik_PROFILING_LEVEL` is gated by `Beatnik_ENABLE_PROFILING`.** With the
+  kill switch OFF, any level you set resolves to 0.
+- **ASan and MSan are mutually exclusive** (`WITH_ASAN` / `WITH_MSAN`); enabling
+  both is a hard configure error.
+
+### Design limitation: mesh representation trade-off
+
+Beatnik uses a simple mesh-based representation of the surface manifold as a Cabana grid 2D mesh in I/J space and a regular block 2D decomposition of this manifold. The physical position of each element in the mesh is stored as a separate vector in the nodes of the mesh. This design results in simple and efficient computation and communication strategies for surface normals, artificial viscosity, and Fourier transforms elements. However, it complicates methods where the data decomposition and communication is based on the spatial location of manifold points, requiring them to either maintain a separate spatial decomposition of the surface or to continually construct a spatial decomposition. A surface mesh that decomposed the mesh by spatial location would be an interesting alternative but would have the opposite issue - communication for surface calculations would be more complex but the (expensive) far force methods that rely on spatial decompositions (e.g. distance sort and spatial tree methods like the fast multi-pole method) would be less expensive.
+
+This is a deliberate, long-standing design choice rather than a defect. See
+[docs/design.md](docs/design.md) for the full discussion.
+
+### Design limitation: scaling to large meshes
+
+Running the single-mode rollup at large `nodes` is not just a matter of raising the mesh resolution. The intended way to grow the problem is to scale `bounding_box` **linearly** with `nodes` (e.g. `bounding_box = nodes / 64`, taking the 64-node `bounding_box = 1.0` case as the baseline). This keeps the physical grid spacing `dx = 2·bounding_box/(nodes-1)` roughly constant, which is what stops interface points from getting pathologically close together — the regime where the BR/FMM velocity evaluation blows up.
 
 When you scale the domain this way, two things must change with it, and a third becomes an unavoidable cost:
 
 1. **Initial-condition geometry must be re-scaled.** For the `sech2` IC the height is `magnitude · sech²(period · r²)` with `r` the physical distance from the domain center, so:
    - `magnitude` (the vertical amplitude) scales **linearly** with `bounding_box`.
-   - `period` scales as the **inverse square** of `bounding_box`. `period` sets an inverse width (larger `period` ⇒ *narrower* bump), so leaving it unscaled — or worse, scaling it up — collapses the bump to a sub-cell spike and you get a flat, unevolving surface.
+   - `period` scales as the **inverse square** of `bounding_box`. `period` sets an inverse width (larger `period` ⇒ *narrower* bump), so leaving it unscaled — or worse, scaling it up — collapses the bump to a sub-cell spike and you get a flat, unevolving surface. (This inverse-square rule is specific to `sech2`; the `cos` IC's `period` is a wavelength and scales *linearly*.)
 
 2. **`delta_t` must be kept small — do not inflate it to "evolve faster".** A geometrically larger domain has *higher* characteristic interface velocities (`v ~ sqrt(A·g·λ)` with the feature wavelength `λ ∝ bounding_box`, so `v ∝ √bounding_box`). With `dx` held fixed, the CFL-stable timestep therefore *shrinks* as `~1/√bounding_box`, roughly `delta_t_auto / √(bounding_box)` at peak velocity (where `delta_t_auto = tau/50` for the high-order solver and `tau = 1/sqrt(atwood·gravity)`). Because the initial vorticity is zero, the velocity starts near zero and grows as the instability develops — so an oversized `delta_t` will appear stable for the first several steps and then suddenly blow up *while the surface is still nearly flat*. That sudden blowup is numerical (CFL), not a physical rollup instability; the cure is a smaller `delta_t`, not more smoothing.
 
 3. **The step count to reach a rollup grows ~linearly with `bounding_box`.** Reaching a rollup needs physical time `∝ √bounding_box` (the feature timescale), integrated at a stable step `∝ 1/√bounding_box`, so the number of timesteps for a comparable rollup scales as roughly `bounding_box` relative to the small-domain case. A large-mesh run with the same modest step count as a small case will only show early, small-amplitude motion — not a developed rollup. Note that `gravity` and `atwood` do **not** provide a shortcut: with the auto `delta_t` they cancel out of the achieved evolution.
 
+Scaling table from the 64-node baseline (`bounding_box = 1.0`, `magnitude = 0.1`, `period = 9.0`, `atwood = 0.15`), with `B = bounding_box`:
+
+| nodes | B = bbox | magnitude | period      |
+| ----- | -------- | --------- | ----------- |
+| 64    | 1        | 0.1       | 9.0         |
+| 256   | 4        | 0.4       | 0.5625      |
+| 512   | 8        | 0.8       | 0.140625    |
+| 1024  | 16       | 1.6       | 0.03515625  |
+| 4000  | 62.5     | 6.25      | 0.0023040   |
+| 16000 | 250      | 25.0      | 0.000144    |
+
 In short: scale `bounding_box` with `nodes`, re-scale `magnitude` (∝ B) and `period` (∝ 1/B²) to match, keep `delta_t` at or below `tau/(50·√B)`, and budget timesteps that grow with `B`. When in doubt, verify the physics on a moderate mesh (e.g. the 1024 case) where a full rollup is cheap, then trust the scaling for the production meshes.
+
+### Design limitation: FMM tuning is coupled to run scale
+
+The FMM (Canopy) far-field path has tunables whose good values depend on the run,
+not just on correctness. The configuration validated on a full 256² roll-up was
+`fmm_mac_theta = 0.4`, `fmm_max_depth = 19`, `fmm_imbalance_tol = 0.20`,
+`epsilon = 2`, with `fmm_near_softening_factor` at its default `4.0` or higher.
+Two constraints worth knowing before tuning:
+
+- **`fmm_max_depth = 19` is a hard maximum** — Canopy's `TreeBuilder` throws above
+  19, because of Morton-key storage.
+- **`fmm_ncrit = 64` beat `128` at scale on GPU.** On a 1536² (B=24) full-rollup at
+  256 ranks / 64 nodes, calibration measured 3.80 s/step at `ncrit=64` versus
+  4.11 s/step at `ncrit=128` over the first 50 steps; the larger-leaf GPU
+  throughput win did not materialize.
+- **FMM cost grows through roll-up.** Canopy `solve()` dominates per-call cost, and
+  the softening floor widens the near-field P2P as the core densifies, so cost
+  climbs as the run develops. `fmm_near_softening_factor` trades far-field
+  accuracy against that cost.
 
 ## Planned Development Steps
 
@@ -135,6 +649,236 @@ Beatnik is being implemented in multiple distinct steps, with associated planned
     1. Support for multiple interface manifolds in a single simulation.
     2. Support for unstructured and adaptive meshes
 
+A longer list of self-contained project ideas, sized from student projects to
+thesis work, was removed in `89ec015` and is preserved at `89ec015^:PROJECTS.md`.
+
+## Future Optimizations
+
+Opportunities noticed but deliberately not taken. These are *improvements*, not
+defects — defects belong in [Known Issues](#known-issues). Ask before adding to
+this list.
+
+- **Track header dependencies in the `Beatnik` INTERFACE target.**
+  `add_library(Beatnik INTERFACE)` in [src/CMakeLists.txt](src/CMakeLists.txt)
+  means consumer object files do not depend on `HEADERS_PUBLIC`. When only a
+  header changes, `make` sees nothing to rebuild and `spack install` reports a
+  sub-second build; the workaround is to `touch` a consumer `.cpp` first. Fix:
+  use `target_sources(Beatnik INTERFACE FILE_SET HEADERS BASE_DIRS
+  ${CMAKE_CURRENT_SOURCE_DIR} FILES ${HEADERS_PUBLIC})`, or attach a
+  `PUBLIC_HEADER` property, so consumers track them as real dependencies.
+- **Higher profiling levels (1, 3).** Level 2 now times the ten phases of
+  `FarFieldSolver::evaluate` (`src/Profiling.hpp`, `ff_*` keys, read by
+  `Beatnik_Probe_FmmCost`). Level 1 still compiles no timer, and level 3 is
+  reserved. Natural additions: an unfenced per-evaluation total at level 1,
+  cheap enough for production, and per-rank particle counts per phase at level
+  3. Mirror Canopy's `[Canopy Diagnostics] solve() phase breakdown` format for
+  consistency.
+- **Find and cut the cost of the far-field adapter's diagnostics phase.**
+  `FarFieldSolver::evaluate`'s last phase (`ff_diagnostics`:
+  `readDiagnostics`, `p2pPairCountLocal` and one 9-element `MPI_Allreduce`)
+  costs 2–9 ms per evaluation on HIP at np 1 (2.7 % of the step at icosphere
+  level 4 and 5.7 % at level 5, `ncrit 8`; canopy_profiling O6). Splitting the
+  pair count's neighbour lookups over the host threads
+  (`FmmParams::parallel_p2p_pair_count`) made the phase **slower**, so those
+  lookups are not where the time goes. The other candidates are the
+  `std::unordered_map` that `p2pPairCountLocal` builds over every cell of the
+  tree on each evaluation, and `readDiagnostics`. First step: Beatnik level-2
+  sub-timers inside `ff_diagnostics`. Then, depending on what they show:
+  - drop the per-evaluation map: build the key-to-count table only when the
+    tree changes, or look up counts in the key-sorted cell list;
+  - compute the count only on evaluations whose diagnostics a caller reads.
+    The readers are FmmVsDirect, Milestone0Fmm, FmmScan, FmmKeyDemand and
+    FmmCost, so each would need a way to request it.
+
+## Known Issues
+
+Deferred *defects*: what fails, how it reproduces, and whether it is a regression
+from current work or pre-existing. Distinct from
+[Future Optimizations](#future-optimizations) and from the design-limitation
+subsections above, which are intended behavior.
+
+- **`compare_output.py`'s vertex pairing fails silently once the two files
+  disagree by more than `--match-eps`, and the FMM path crosses that threshold
+  by step 25.** *Pre-existing in the comparator; first reached by current work
+  (task T5).* Neither a Beatnik checkpoint nor a Python `.npz` records a vertex
+  correspondence, so the comparator recovers one by quantizing coordinates onto
+  a grid of cell size `--match-eps` (default `1e-9`) and lexsorting. Its
+  docstring states the precondition — the cell must be much larger than the
+  coordinate disagreement between the files. A `direct` run satisfies it by nine
+  decades (it tracks the gold set to `8.5e-13`). An **`fmm`** run does not: at
+  the measured `5.0e-4` per-evaluation velocity error the trajectories separate
+  to `1.5e-7` by step 25, 100x the cell. The files then quantize into different
+  cells and **vertices pair with the wrong partners**, reporting `max|e| ≈ 0.5`
+  on a radius-0.25 sphere where the true disagreement is `1.5e-7`.
+  **Reproduce:** run `Beatnik_Test_Milestone0Run <L> 2000 25 fmm 8 3`, then
+  `milestone0_ladder.py pair --run <dir> --ref <gold>`; it reports a
+  first-failing step of 25 at every rung while the two meshes agree to `1e-7` in
+  centroid, bounding box and radial extent, and the run's volume drift is
+  `3.3e-9`. **The failure is silent**: `n_ambiguous` stays `0`, because it counts
+  rows sharing a cell with their predecessor *within one file* and so sees a
+  within-file collision but never a cross-file mis-pairing. **Raising
+  `--match-eps` is not a fix** — each step needs a larger cell than the last and
+  by step 1000 the window between "larger than the disagreement" and "smaller
+  than the vertex spacing" has closed. Workaround in tree:
+  `tests/regression_tests/fmm_divergence_ladder.py`, which pairs by bijective
+  nearest neighbour and refuses a step whose pairing is not a bijection; it
+  reproduces `pair`'s ladder exactly on a `direct` run. A durable fix wants
+  `gid` in the gold files, or a pairing that does not go through coordinates.
+- **The FMM per-step cost grows along the trajectory, so a short probe
+  under-predicts a long run.** *Not a correctness defect; a budgeting hazard
+  that has already cost one truncated sweep plan.* At level 4 with `ncrit = 8`
+  the `fmm` path measures `0.434` s/step over the first 25 steps and `1.14`
+  s/step cumulative by step 1700 of 2000 — a factor of 2.6 — as the bubble
+  deforms and the tree deepens. Any walltime estimate taken from a 25-step probe
+  is therefore low by that factor, which is how a budget-guarded sweep ends up
+  starting a row it cannot finish. The cost model is
+  `tasks/canopy_profiling.md` task T3: at level 4 HIP np1 the `fmm` step grows
+  from 0.33 s (step 50) to 1.2–1.25 s (steps 1000–2000), 38x then 120–140x the
+  estimated `direct` step; at levels 5 and 6 it is 16–84x. There is no
+  crossover between levels 4 and 6. Numbers, and the phases the growth sits in,
+  are in `tasks/canopy_profiling-progress-log.md`, `## T3`.
+- **The FMM's velocity error grows with vertex count at fixed `ncrit`; the
+  reference treecode's does not.** *Pre-existing; found by canopy_profiling.*
+  Claim A's metric (`max|u_fmm − u_direct| / max|u_direct|`) at order 3,
+  θ 0.3, on early states of the frozen-mesh bubble: at `ncrit 8` it is 5.1e-4
+  at level 4, **1.6e-3 at level 5 and 2.7e-3 at level 6**, past the milestone
+  bound τ_A = 1.5e-3, which was set at level 4. At production `ncrit 64` it is
+  1.7e-4, 5.4e-4 and 1.5e-3. The Python reference treecode (order 2, θ 0.3,
+  `ncrit 64`) holds 5e-4, 9.2e-4 and 9.3e-4 on the same states. Most of the gap
+  is leaf size; the remaining growth with N is consistent with the FMM's
+  two-sided truncation accumulating over a deeper tree, and order 4 removes it
+  (3.8e-4 at level 6, `ncrit 8`) for about 2x the cost, but order 4 waits on
+  Canopy's `tasks/02_oracle_extension.md`. **Reproduce:**
+  `scripts/tuolumne/cprof_ref_levels.flux` and
+  `scripts/tuolumne/cprof_knob_arms.flux`; numbers in
+  `tasks/canopy_profiling-progress-log.md`, "L5/L6 accuracy check". Accepted
+  for now: canopy_profiling optimizes at `ncrit 8` and guards every level
+  against regression: no optimization may raise the worst error over a
+  level's measured states. One ruled exception: O1's root-width quantization
+  (`FmmParams::quantize_root_half_width`, now default on) raised level 4's
+  worst state from 1.10e-3 to 1.40e-3 (still under τ_A) while lowering levels
+  5 and 6, and was adopted for its 1.3-2.2x HIP speedup. **Not yet
+  re-verified:** the `milestone` FMM members run at the default, so they now
+  run quantized, and their claim A (≤ 1.5e-3 at 81 states to step 2000) has
+  not been re-run; canopy_profiling V1 owns that and is deferred to the end of
+  Phase O. **They may fail, and that is accepted by ruling:** the fix is to
+  raise `kTauA` to the measured worst, not to turn quantization off.
+- **The ship gate covers everything up to a fixed-mesh timestep — there is no
+  adaptivity in it.** *Not a defect in the gate's construction; a statement of
+  how far the solver has been rebuilt.* The tier was **empty** from `89ec015`
+  (which removed
+  the pre-redesign solver and `tests/tstFmmVsExact.hpp`, its only end-to-end test)
+  until 2026-08-12, when task T1c registered
+  `tests/regression_tests/Beatnik_Test_InitialConditions.cpp` — a `--steps 0` run
+  compared against a Python gold checkpoint, passing at ranks 1-6 on SERIAL and
+  HIP. So `ctest -L regression -R SERIAL` and
+  `scripts/tuolumne/run_regression_minset.flux` no longer pass trivially. T2c
+  then added `Beatnik_Test_BirkhoffRott` (the vertex quadrature and the direct BR
+  sum), and T2d added regression test 2 (ten TVD-RK3 timesteps against the T2a
+  gold set), taking the gate to three members and 36 launches on tuolumne, all
+  green as of T2d. **T4a has since added a fourth member**
+  (`Beatnik_Test_RefineSplitEdges`, twenty timesteps with indicator-driven
+  refinement through `Tessera::splitEdges()`), and **T4b a fifth**
+  (`Beatnik_Test_DynamicRemeshSplit`, twenty timesteps of metric-driven dynamic
+  remeshing with only the split third live), taking the gate to **five members
+  and 60 launches**, all green as of T4b and **re-run green at T4c**, which
+  added no member: its tangential relaxation is covered by the `unit` tier
+  (`Beatnik_Test_TangentialRelaxation`), and the gate's role there was to show
+  that the two new `advanceOneStep` call sites perturb nothing at the gate's own
+  configuration (`--smooth-iters 0 --redistribute-every 0`) — the two sentinel
+  members' check counts, 86/86 and 377/377, are unmoved. A green gate proves that mesh
+  generation, the initial condition, the checkpoint write, the seven surface
+  operators, the direct Birkhoff-Rott sum, ten fixed-mesh timesteps and **both
+  adaptivity paths' refinement halves** reproduce the reference. What it still
+  does not cover is **coarsening**: edge collapse, quality flips and the
+  isotropic cleanup are T4d and not yet implemented in Beatnik (Tessera provides
+  the collapse, flip and compaction primitives they build on), and every
+  configuration that would reach one is rejected before the first step by name
+  and task ID. Resolves progressively as T4 lands its remaining regression
+  tests. See
+  [CLAUDE.md](CLAUDE.md#minimum-test-set) and `tasks/framework.md`.
+
+- **A restarted run's checkpoint master and its `.xmfindex` would describe
+  different frame lists.** *New with the grouped checkpoint output
+  (`tasks/completed/grouped-io.md` T1), and **latent**: unreachable today.* `CheckpointIO`
+  holds one `Tessera::MeshSeries` per process, constructed empty, so on a restart
+  the master `<prefix>.xmf` is rewritten from scratch and names only the
+  post-restart frames — while Tessera **appends** to the pre-existing
+  `<prefix>.xmfindex`, which then lists the pre-restart frames as well. The two
+  files would disagree about which frames the series contains. Nothing can reach
+  it: `CheckpointIO::read` is a throwing `BEATNIK_NOT_IMPLEMENTED` stub and
+  `RestartReader::load` throws, so `--restart-from` cannot complete. Deliberately
+  not worked around here, because the answer (reopen the series from the
+  `.xmfindex`, or start a new master under a distinct stem) belongs with the
+  restart path rather than being guessed at now: **`tasks/framework.md` T5b owns
+  it**, and it must be resolved in the same change that makes restart work — a
+  restart that completes while this is open produces a master that silently
+  under-reports the run. The per-frame `.h5` files and sidecars are unaffected
+  either way.
+
+- **The ship gate needs a shared filesystem for its scratch directory.** *Not a
+  defect in Beatnik; a launch requirement, found when T2d first ran the gate.*
+  `scripts/tuolumne/run_regression_minset.flux` writes checkpoints through
+  parallel HDF5 (MPI-IO), so `BEATNIK_TEST_SCRATCH` must be visible to every
+  rank. Pointing it at a node-local path (`/tmp` on tuolumne is a per-node
+  tmpfs) makes every launch that spans more than one node — ranks 5 and 6 — die
+  in `H5FD__mpio_open` with "File does not exist", while ranks 1-4 pass; the
+  failure therefore reads like a multi-rank solver bug and is not one. Use a
+  parallel filesystem path (`/p/lustre*/...`) or leave the default, which is the
+  submitting directory. Resolves if the wrapper ever validates the path.
+
+- **`examples/01_rising_bubble` does not build.** *Pre-existing as of the
+  redesign.* `rocketrig.cpp` includes `Solver.hpp` and `BoundaryCondition.hpp`,
+  removed in `89ec015`; `InputFile.hpp` targets the old parameter struct.
+  Reproduces with `-DBeatnik_ENABLE_EXAMPLES=ON
+  -DBeatnik_EXAMPLES_ALLOW_BROKEN=ON` (a compile error on the missing headers).
+  Without that opt-in the example is skipped with a status message, so an
+  examples-enabled build still succeeds. Resolves when the driver is ported to
+  the new solver API — and its accepted arguments must be re-synced into this
+  README at the same time.
+
+- **FMM large-scale crash: GTL dreg-cache exhaustion in the Canopy `Rebalance`
+  particle migrate (MITIGATED 2026-06-22; durable fix tracked in Canopy #22).**
+  *Pre-existing.* A 256-rank / 64-node 1536² full-rollup run deadlocked at step
+  307 of 8400 during the first significant `Rebalance`, with
+  `(GTL DEBUG) dreg_evict returned NO_SPACE ... more than 10000 active memory
+  regions`. One rank's GPU comm died and the other 255 blocked in the next
+  collective, so the job hung (flux still reported it running for ~19 h until
+  cancelled). **Root cause:** `dreg_evict NO_SPACE` is a peak-*simultaneity*
+  failure — all 10000 GTL registration-cache entries active at once — not a leak.
+  Canopy's `RegisteredBufferPool` bounds the `solve()` exchanges (coalesced M2L +
+  P2P) to one registered region per direction, but the `Rebalance` particle
+  migration (`TreePartitioner::migrate_particles` → `Cabana::Distributor` /
+  `Cabana::migrate`) is **not** pooled; at 256 ranks the many-way scatter hands
+  O(peers) device buffers to GPU-aware MPI at once, blowing the default.
+  **Stopgap (deployed):** `GTL_DREG_CACHE_SIZE=262144` (≈26× headroom), now set
+  in [scripts/tuolumne/runtime_env.sh](scripts/tuolumne/runtime_env.sh) so every
+  run on the system picks it up. This is out-provisioning only — the peak likely
+  grows as the core densifies, so it may not survive to full rollup. **Durable
+  fix:** route the rebalance migrate through a pool-backed coalesced exchange,
+  one registered region per direction, mirroring the `solve()` fix — **Canopy
+  #22**. Once that lands and Beatnik picks up the new Canopy, the env bump becomes
+  belt-and-suspenders.
+
+Two further FMM defects — a Slingshot NIC registration exhaustion during Canopy
+`Rebalance` (RESOLVED 2026-06-17) and a premature FMM NaN at full rollup
+(RESOLVED 2026-06-18, root cause: the FMM far field used the unsoftened `1/r`
+Laplace kernel while softening was applied only in the near field) — were closed
+before the redesign. Their full investigation records are at
+`89ec015^:tasks/fmm_fullrollup_crash.md` and
+`89ec015^:tasks/fmm_premature_nan.md`.
+
+A third NIC registration exhaustion, in the **direct** Birkhoff-Rott solver, was
+RESOLVED 2026-10-14 in `b416c15`. `BRSolverDirect::ringAccumulate` allocated four
+fresh device views per call and handed them to GPU-aware MPI, so every rank
+registered ~63k short-lived regions over a long run. It reproduced as the level-3
+rising bubble (`adaptive_mesh_bubble`, `--br-approximation direct`, 16 ranks)
+dying at step ~5270 (t = 3.49) with thousands of `cxil_map: write error` lines
+and then `OFI tagged recv failed` in a tag-1401 `MPI_Sendrecv`. The ring buffers
+are now persistent, grow-only members. The same run reaches t = 5.30 and stops at a
+physical, nonfinite mesh state, with no `cxil_map` lines, and the
+per-step cost dropped about 6x.
+
 ## Acknowledgment, Contributors, and Copyright Information
 
 Beatnik is primarily available as open source under a 3-Clause BSD License. It is being developed at the University of New Mexico, Tennessee Tech University, and the University of Alabama under funding the U.S. Department of Energy's Predictive Science Academic Alliance Partnership III (PSAAP-III) program. Contributors to Beatnik development include:
@@ -145,7 +889,7 @@ Beatnik is primarily available as open source under a 3-Clause BSD License. It i
   * Jacob McCullough (jmccullough12@unm.edu)
   * Jason Stewart (jastewart@unm.edu)
 
-The general structure of Beatnik and the rocketrig examples were taken from the ExaMPM proxy application (https://github.com/ECP-copa/ExaMPM) developed by the ECP Center for Particle Applications (CoPA), which was also available under a 3-Clause BSD License when used for creating application structure. 
+The general structure of Beatnik and the rocketrig examples were taken from the ExaMPM proxy application (https://github.com/ECP-copa/ExaMPM) developed by the ECP Center for Particle Applications (CoPA), which was also available under a 3-Clause BSD License when used for creating application structure. The CMake organization, macros, and test harness setup are copied from the Cabana library.
 
 ## References
 
@@ -154,3 +898,5 @@ The general structure of Beatnik and the rocketrig examples were taken from the 
 1. https://github.com/ECP-copa/Cabana/
 
 1. Innovative Computing Laboratory. "heFFTe." URL: https://icl.utk.edu/fft/
+
+1. Spack developer workflows: https://spack-tutorial.readthedocs.io/en/latest/tutorial_developer_workflows.html
