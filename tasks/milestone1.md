@@ -174,7 +174,8 @@ Each changes an implementation, not just a comment:
 
 Tessera's collapse and flip each run a geometric test of their own, configured by
 a policy struct. Neither test is the reference's at its default settings, and one
-of them cannot be made the reference's without an upstream change:
+of them cannot be made the reference's without an upstream change. Tessera line
+references in this section are against `05b5942` (M1-U2):
 
 - **The quality metric differs.** The reference's `triangle_quality` is
   `4√3·A / Σℓ²` (`dynamic_remesh.py:626-636`), which Beatnik already has as
@@ -182,7 +183,7 @@ of them cannot be made the reference's without an upstream change:
   ([src/Beatnik_MeshGeometry.hpp:305](../src/Beatnik_MeshGeometry.hpp#L305)).
   Tessera's `minQuality` thresholds the policy's `quality()`, which by default
   is the **radius ratio** `2r/R`
-  (`detail::flipRadiusRatio`, `Tessera_EdgeFlip.hpp:274-300`), which Beatnik has
+  (`detail::flipRadiusRatio`, `Tessera_EdgeFlip.hpp:305-331`), which Beatnik has
   as `SurfaceOperators::radiusRatioStats` (`:384`) and reports only as R12's
   diagnostic. The two are not monotone in one another, so no threshold on one
   reproduces a threshold on the other.
@@ -198,14 +199,14 @@ of them cannot be made the reference's without an upstream change:
   surviving incident face has `n_old·n_new > 0.1` on unit normals
   (`dynamic_remesh.py:546-549`). Tessera rejects iff
   `angle(n_old, n_new) > maxNormalRotation` over the same faces, with the two
-  dying faces skipped (`Tessera_EdgeCollapse.hpp:1000-1004`). So
+  dying faces skipped (`Tessera_EdgeCollapse.hpp:991-995`). So
   `maxNormalRotation = acos(0.1) = 1.4706289056333368` reproduces it; the two
   differ only at `n_old·n_new == 0.1` exactly, which the reference rejects and
   Tessera accepts.
 - **The flip tests need only the quad, so they belong in the mask.**
   `DefaultFlipPolicy` rejects a new face whose normal deviates more than
   0.35 rad from the area-weighted mean of the two old normals, or whose radius
-  ratio is below 0.05 (`Tessera_EdgeFlip.hpp:308-325`, `:649-686`). The
+  ratio is below 0.05 (`Tessera_EdgeFlip.hpp:352-371`, `:725-762`). The
   reference's quality flips have **no** normal test (`dynamic_remesh.py:408-457`);
   its valence flips require `dot ≥ 0.2` against each face's *own* pre-flip normal
   (`mesh_quality.py:78`). The defaults would therefore reject flips the
@@ -218,10 +219,11 @@ of them cannot be made the reference's without an upstream change:
   `rejectedDuplicateEdge`. The answer comes from the `(c,d)` coordinator,
   which has seen every owned face's edges (`Tessera_EdgeFlip.hpp:142-150`).
   A Beatnik mask cannot answer it reliably, so the mask does not try.
-- **Tessera's flip conflict relation is per face; the valence pass needs a
-  different one.** Tessera's independent set forbids two accepted flips sharing
-  a *face* and allows two sharing only a vertex
-  (`Tessera_EdgeFlip.hpp:154-177`). That is the reference's rule for its
+- **Tessera's default flip conflict relation is per face; the valence pass
+  needs a different one.** Under the default `FlipConflict::SharedFace`,
+  Tessera's independent set forbids two accepted flips sharing a *face* and
+  allows two sharing only a vertex (`Tessera_EdgeFlip.hpp:154-206`). That is the
+  reference's rule for its
   quality flips, whose `touched` set holds faces (`dynamic_remesh.py:416-421`,
   `:454`). The valence pass works differently (`mesh_quality.py:57-86`).
   - It counts valences, normals and neighbour sets **once, at the start of
@@ -233,8 +235,10 @@ of them cannot be made the reference's without an upstream change:
   The symmetric form of that rule is: *two flips conflict iff a vertex is an
   endpoint of one and any corner of the other.* It implies the face rule, since
   a second flip sharing a face has both its endpoints in the first flip's quad.
-  **M1-U2** adds it to `flipEdges` as an opt-in mode, and T4d5 runs several
-  rounds per pass to reproduce the reference's pass structure.
+  `flipEdges` has it as the opt-in mode `FlipConflict::EndpointInQuad`, set
+  through `DefaultFlipPolicy::conflict` (**M1-U2**, **DONE**, Tessera `05b5942`),
+  and T4d5 runs several rounds per pass to reproduce the reference's pass
+  structure.
 
 ## Approach
 
@@ -309,10 +313,11 @@ True at HEAD, and specific about what is *defined but wrong* versus what
   carries only split counters — nothing for `CollapseResult`'s or
   `FlipResult`'s `requested`/`accepted`/`rejected*`/`*Removed` fields. Neither
   adapter takes a Tessera policy.
-- **Absent upstream:** `flipEdges` has only the per-face conflict relation
-  (M1-U2). Tessera's collapse and flip policies do carry the `quality()` hook
-  (M1-U1, **DONE**, Tessera `279287e`), defaulting to the radius ratio; no
-  Beatnik policy uses it yet (T4d2).
+- **Present upstream, unused by Beatnik:** Tessera's collapse and flip policies
+  carry the `quality()` hook (M1-U1, **DONE**, Tessera `279287e`), defaulting to
+  the radius ratio; no Beatnik policy uses it yet (T4d2). `flipEdges` has the
+  opt-in `FlipConflict::EndpointInQuad` relation beside the default per-face one
+  (M1-U2, **DONE**, Tessera `05b5942`); no Beatnik call site sets it yet (T4d5).
 - **Defined and deliberately inert**, transcribed rather than folded away, so
   landing T4d turns them on by deleting a rejection instead of by remembering to
   add a call: `const int collapses = 0` and `diag.flips += 0; diag.smooth_steps += 0`
@@ -601,7 +606,7 @@ in** and **Do** are against the pre-change file. Log: `## M1-U1`.
 
 ---
 
-### M1-U2 — an endpoint-aware conflict mode for `flipEdges` *(upstream, in `../tessera`)* — **NOT STARTED**
+### M1-U2 — an endpoint-aware conflict mode for `flipEdges` *(upstream, in `../tessera`)* — **DONE**
 
 **Depends on:** none. M1-U1 (**DONE**, Tessera `279287e`) also edited
 `DefaultFlipPolicy`, adding `quality()`, so this task builds on it. The line
@@ -621,7 +626,7 @@ already includes (`:18`), rather than defining it twice. Add one new case to
 **Reference:** Read this first #6 for the rule and its derivation from
 `mesh_quality.py:57-86`. `collapseEdges`' vertex-coordinator independent-set
 round (`Tessera_EdgeCollapse.hpp:1156-1203`, message types `CollapseNbr`/
-`CollapseWin` at `:550-568`) is the pattern to copy.
+`CollapseWin` at `:552-567`) is the pattern to copy.
 
 **Do:**
 
@@ -645,7 +650,7 @@ round (`Tessera_EdgeCollapse.hpp:1156-1203`, message types `CollapseNbr`/
 4. `SharedFace` is the default, and its path must stay **bit-identical**.
    **Callers:** no policy other than `DefaultFlipPolicy` exists in `src/` or
    `examples/`. In `tests/` the explicit constructions are
-   `test_flip_edges.cpp:1061` and case 13's `caseQualityHook`, which builds a
+   `test_flip_edges.cpp:1067` and case 13's `caseQualityHook`, which builds a
    `DefaultFlipPolicy` and a `MeanRatioFlipPolicy` deriving from it. A derived
    policy inherits `conflict`'s `SharedFace` default, so neither changes.
    `flipEdges`' signature does not change.
@@ -672,6 +677,38 @@ endpoints and opposite corners, gathered across ranks:
   `rejectedConflict`.
 
 The accepted sets are identical at ranks 1–5.
+
+**Met.** Tessera `05b5942` on `mesh-quality`, job `f3hn6UjNexxw` (`pdebug`,
+193 s, rc 0): `100% tests passed, 0 tests failed out of 20`. All twenty cases
+ran: `flip_edges_{SERIAL,HIP}_np1`–`np5` and
+`collapse_edges_{SERIAL,HIP}_np1`–`np5`. Only the four test executables were
+built, for the reason above. Every existing case passes at its unchanged
+literals, including both M1-U1 hook cases. The `SharedFace` code is textually
+unchanged; the diff removes only comment lines from `Tessera_EdgeFlip.hpp`. The
+new case is `test_flip_edges` case 14, with the permissive policy
+`{maxNormalDeviation = π, minQuality = 0}`. It printed the same four lines in all
+twenty launches of `flip_edges`, Serial and Default spaces alike:
+
+- **Two-ring bipyramid** (V 18, E 48, F 32), three marked pairs, no pair sharing
+  a face:
+  - **Shared opposite corner**, `(2,3)+(6,7)`, sharing only the apex `T = 0`.
+    `SharedFace` and `EndpointInQuad` both accept 2.
+  - **Endpoint wins**, `(2,3)+(0,6)`. `SharedFace` accepts 2, and that set has
+    1 endpoint-in-quad violation. `EndpointInQuad` accepts `{(0,6)}` with
+    `rejectedConflict=1`.
+  - **Opposite wins**, `(2,3)+(1,10)`. `SharedFace` accepts 2, with 1
+    violation. `EndpointInQuad` accepts `{(2,3)}` with `rejectedConflict=1`.
+- **Subdivision-2 icosphere, all 480 edges marked.** `SharedFace` accepts 80 and
+  its set has 160 ordered violating pairs. `EndpointInQuad` accepts 28, with
+  `rejectedConflict=452` and 0 violations. The `MPI_COMM_SELF` reference accepts
+  28, and its flip set is identical.
+
+The violation check runs on `FlipResult::flipped`, gathered across ranks. The
+two "wins" pairs exercise the two branches of the endorsement rule. The line
+references in this entry's **Fill in**, **Reference** and **Do** are against
+`279287e`. At `05b5942`, `vertexCoordRank` is `Tessera_EdgeFlip.hpp:463-466`,
+and the step-3 round is `:764-872`. Its `EndpointInQuad` branch is `:775-827`,
+and the `SharedFace` branch is the `else` at `:828`. Log: `## M1-U2`.
 
 ---
 
@@ -712,7 +749,7 @@ type.
    `*Removed`) — the global counts, which Tessera already reduces. Then **assert
    the closed-manifold identities** Tessera's header states —
    `verticesRemoved == accepted`, `edgesRemoved == 3*accepted`,
-   `facesRemoved == 2*accepted` (`Tessera_EdgeCollapse.hpp:337-341`) — as the
+   `facesRemoved == 2*accepted` (`Tessera_EdgeCollapse.hpp:337-341` at `05b5942`) — as the
    cheapest end-to-end check that the connectivity rewrite closed. Fail loudly;
    do not log and continue.
 4. Rewrite the three doc comments as the adapters they now are. State in
