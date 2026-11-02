@@ -556,9 +556,14 @@ The full regression gate is **not** required, and Tessera's `docs/testing.md`
 symbols — the two default policies and `detail::flipRadiusRatio` — are used
 nowhere in `src/` outside `Tessera_EdgeCollapse.hpp` and `Tessera_EdgeFlip.hpp`,
 and only `test_collapse_edges.cpp` and `test_flip_edges.cpp` call
-`collapseEdges`/`flipEdges`. Every other test still includes the headers
-through `Tessera.hpp`, so the build that precedes the run must succeed; a
-compile failure anywhere fails this criterion. The task's report states this
+`collapseEdges`/`flipEdges`. Build only the four executables that run needs,
+not the whole tree:
+`make -j tessera_test_collapse_edges_SERIAL tessera_test_collapse_edges_HIP tessera_test_flip_edges_SERIAL tessera_test_flip_edges_HIP`
+in the build directory. Tessera is header-only (`add_library(Tessera INTERFACE)`,
+`../tessera/CMakeLists.txt:74`), so these four targets
+(`tessera_test_<NAME>_<BACKEND>`, `../tessera/tests/CMakeLists.txt:75`) compile
+every line the change touches. Other test executables, which include the
+headers through `Tessera.hpp`, are not built. The task's report states this
 subset and the reason. The two new cases show the hook is live in both
 directions: on a fixture where the radius ratio and `4√3·A/Σℓ²` fall on
 opposite sides of one threshold, a policy deriving from the default and
@@ -618,7 +623,8 @@ round (`Tessera_EdgeCollapse.hpp:1146-1193`, message types `CollapseNbr`/
 **Exit criterion:** the same targeted run as M1-U1, and for the same reason. Run
 `flux batch scripts/tuolumne/run_unit_tests.flux regression -R "^(collapse_edges|flip_edges)_"`
 from `../tessera` with `TESSERA_REPO` exported: SERIAL and HIP, ranks 1–5,
-build succeeding. The full regression gate is **not** required.
+after building the same four executables. The full regression gate is **not**
+required.
 `collapse_edges` stays in the set because `detail::vertexCoordRank` moves out
 of its header, and `vertexCoordRank`'s only callers are in the two headers. The
 new `flip_edges` case checks the rule from
