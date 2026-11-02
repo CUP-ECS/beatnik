@@ -216,12 +216,23 @@ of them cannot be made the reference's without an upstream change:
   `rejectedDuplicateEdge`. The answer comes from the `(c,d)` coordinator,
   which has seen every owned face's edges (`Tessera_EdgeFlip.hpp:142-150`).
   A Beatnik mask cannot answer it reliably, so the mask does not try.
-- **The flip conflict relation is per face.** Tessera's independent set forbids
-  two accepted flips sharing a *face* and allows two sharing only a vertex
-  (`Tessera_EdgeFlip.hpp:154-177`). That matches the reference's quality flips,
-  whose `touched` set holds faces (`dynamic_remesh.py:416-421`, `:454`), but not its
-  valence flips, whose `touched` set holds the four *vertices*
-  (`mesh_quality.py:62-83`). See the deliberate deviations and M1-R9.
+- **Tessera's flip conflict relation is per face; the valence pass needs a
+  different one.** Tessera's independent set forbids two accepted flips sharing
+  a *face* and allows two sharing only a vertex
+  (`Tessera_EdgeFlip.hpp:154-177`). That is the reference's rule for its
+  quality flips, whose `touched` set holds faces (`dynamic_remesh.py:416-421`,
+  `:454`). The valence pass works differently (`mesh_quality.py:57-86`).
+  - It counts valences, normals and neighbour sets **once, at the start of
+    each pass**, and never updates them within the pass.
+  - After accepting a flip it marks all four quad corners touched, and it skips
+    a later edge iff one of **its own endpoints** is touched. A later edge whose
+    *opposite* corners are touched may still flip.
+
+  The symmetric form of that rule is: *two flips conflict iff a vertex is an
+  endpoint of one and any corner of the other.* It implies the face rule, since
+  a second flip sharing a face has both its endpoints in the first flip's quad.
+  **M1-U2** adds it to `flipEdges` as an opt-in mode, and T4d5 runs several
+  rounds per pass to reproduce the reference's pass structure.
 
 ## Approach
 
@@ -230,9 +241,10 @@ Three strands, run in this order of *risk*, not of code size:
 1. **Measure the achievable comparison first** (M1-G1, M1-D1). A fixed-mesh
    600-step Python/Beatnik comparison needs no new solver code and answers the
    only question that can invalidate the milestone's premise.
-2. **Land T4d** (M1-U1, T4d1–T4d6). M1-U1 is a small upstream Tessera change
-   that T4d2 needs (Read this first #6); T4d1 is an adapter layer, T4d2–T4d5
-   are one reference function each, T4d6 is an operational decision.
+2. **Land T4d** (M1-U1, M1-U2, T4d1–T4d6). M1-U1 and M1-U2 are small upstream
+   Tessera changes that T4d2 and T4d5 need (Read this first #6); T4d1 is an
+   adapter layer, T4d2–T4d5 are one reference function each, T4d6 is an
+   operational decision.
 3. **Wire the milestone test** (M1-T1, M1-T2) and **fix the acceptance**
    (M1-A1).
 
@@ -245,7 +257,7 @@ introduces or sharpens.
 | --- | --- |
 | Task IDs | `T4d*` for work moved from framework.md (IDs are referenced from source strings); `M1-*` for work new here. `M1-G*` = human gold-file generation, `M1-D*` = measurement, `M1-T*` = code, `M1-U*` = a change made upstream in `../tessera`, `M1-A*` = a decision to be recorded. |
 | Edge-mask type | host `const std::vector<char>&`, sized `ownedEdgeCount()`, one entry per **owned** edge — T4a's convention for `splitEdges`, and exactly what Tessera's collapse and flip take. De-template the two stale `EdgeListView` signatures rather than adding an overload. |
-| Where a reference acceptance rule lives | **In the mask whenever it needs only the quad; in the Tessera policy only when it needs both endpoints' one-rings.** Flip tests (the gain test, the valence test, the valence path's normal and quality tests) and the collapse candidate predicate and normalized-length ranking are evaluated by Beatnik while building the mask, and both flip call sites pass the permissive `DefaultFlipPolicy{ maxNormalDeviation = π, minQuality = 0 }`. Collapse's geometric test needs the full one-rings, so it is a Tessera policy: `maxNormalRotation = acos(0.1)`, `minQuality = --remesh-min-quality`, and the reference quality metric through M1-U1's hook. Read this first #6 has the evidence. A marked edge may still be rejected; that shows up in the `rejected*` counters, never as a silent drop. |
+| Where a reference acceptance rule lives | **In the mask whenever it needs only the quad; in the Tessera policy only when it needs both endpoints' one-rings.** Flip tests (the gain test, the valence test, the valence path's normal and quality tests) and the collapse candidate predicate and normalized-length ranking are evaluated by Beatnik while building the mask, and both flip call sites pass the permissive `DefaultFlipPolicy{ maxNormalDeviation = π, minQuality = 0 }`, the valence call site with `conflict = FlipConflict::EndpointInQuad` (M1-U2). Collapse's geometric test needs the full one-rings, so it is a Tessera policy: `maxNormalRotation = acos(0.1)`, `minQuality = --remesh-min-quality`, and the reference quality metric through M1-U1's hook. Read this first #6 has the evidence. A marked edge may still be rejected; that shows up in the `rejected*` counters, never as a silent drop. |
 | Reference-state re-basing | every pass that moves a vertex or changes connectivity states, in its progress-log entry, whether it calls `AdaptiveMesh::resetReferenceState`, and why. A silent choice here changes every later refinement decision. |
 | Failure behavior | loud. A configuration Beatnik cannot reproduce is rejected before the first step, by method name and task ID, exactly as the four rejections this milestone deletes do. No pass may silently no-op. |
 | Diagnostics that must be numbers | per remesh pass: `splits`, `collapses`, `flips`, `smooth_steps`, `min_quality` before/after, R12's two shape signals, and (T4d6) the gid-space high-water mark. A milestone run that reports zero edits everywhere is M1-R7, not a pass. |
@@ -266,16 +278,6 @@ introduces or sharpens.
   `RemeshParams::max_collapses_per_pass`. Only `--remesh-collapse-factor 0`
   disables collapse. The deleted rejection text says so and the replacement
   diagnostics must not re-introduce the confusion.
-- **Valence flips in one round may share a vertex.** The reference's valence
-  pass forbids two flips touching the same vertex in one pass
-  (`mesh_quality.py:62-83`); Tessera forbids only two sharing a face
-  (Read this first #6). So in one `flipEdges` round two accepted flips can both
-  move the valence of a shared corner, each judged against valences taken
-  before the round. Beatnik does not build a vertex-independent mask to prevent
-  this: that needs a cross-rank coordination round Tessera does not expose, and
-  a selection the reference would make serially can't be reproduced anyway (R7).
-  `valenceEqualizingFlips` recomputes valence between rounds, as Tessera's
-  header prescribes. M1-R9 is how it would show.
 - **`SurfaceMesh::compact()` is not called from the remesh cycle.**
   `Tessera::collapseEdges` runs `compact()` as its own last step; the standalone
   adapter exists for T4d6's renumbering cadence and for tests. Its doc comment
@@ -306,7 +308,8 @@ True at HEAD, and specific about what is *defined but wrong* versus what
   `FlipResult`'s `requested`/`accepted`/`rejected*`/`*Removed` fields. Neither
   adapter takes a Tessera policy.
 - **Absent upstream:** Tessera's collapse and flip policies have no quality hook;
-  both hard-code the radius ratio (M1-U1).
+  both hard-code the radius ratio (M1-U1). `flipEdges` has only the per-face
+  conflict relation (M1-U2).
 - **Defined and deliberately inert**, transcribed rather than folded away, so
   landing T4d turns them on by deleting a rejection instead of by remembering to
   add a call: `const int collapses = 0` and `diag.flips += 0; diag.smooth_steps += 0`
@@ -544,16 +547,94 @@ shadows one member.
    (`../spack.yaml`, `develop: tessera: spec: tessera@=develop`), so a Beatnik
    `spack install` picks up the change with no version bump.
 
-**Exit criterion:** Tessera's gate passes unchanged —
-`flux batch scripts/tuolumne/run_regression_minset.flux` from `../tessera`
-(label `regression`, SERIAL and HIP, ranks 1–5; `collapse_edges` and
-`flip_edges` are members). The two new cases show the hook is live in both
+**Exit criterion:** the two affected Tessera tests pass at every rank and backend
+they are registered at (SERIAL and HIP, ranks 1–5). From the `../tessera` root,
+with `TESSERA_REPO` exported:
+`flux batch scripts/tuolumne/run_unit_tests.flux regression -R "^(collapse_edges|flip_edges)_"`.
+The full regression gate is **not** required, and Tessera's `docs/testing.md`
+("When to run the full gate") makes a targeted run the default. The changed
+symbols — the two default policies and `detail::flipRadiusRatio` — are used
+nowhere in `src/` outside `Tessera_EdgeCollapse.hpp` and `Tessera_EdgeFlip.hpp`,
+and only `test_collapse_edges.cpp` and `test_flip_edges.cpp` call
+`collapseEdges`/`flipEdges`. Every other test still includes the headers
+through `Tessera.hpp`, so the build that precedes the run must succeed; a
+compile failure anywhere fails this criterion. The task's report states this
+subset and the reason. The two new cases show the hook is live in both
 directions: on a fixture where the radius ratio and `4√3·A/Σℓ²` fall on
 opposite sides of one threshold, a policy deriving from the default and
 overriding `quality` with `4√3·A/Σℓ²` changes the verdict compared with the
 default. The changed candidate moves between `accepted` and
 `rejectedQuality` (collapse) or `rejectedGeometric` (flip). The
 default-policy result is unchanged.
+
+---
+
+### M1-U2 — an endpoint-aware conflict mode for `flipEdges` *(upstream, in `../tessera`)* — **NOT STARTED**
+
+**Depends on:** none. Independent of M1-U1, though both edit `DefaultFlipPolicy`;
+whichever lands second rebases onto the first.
+
+**Fill in:** in `../tessera/src/Tessera_EdgeFlip.hpp`: a new
+`enum class FlipConflict { SharedFace, EndpointInQuad }` and a member
+`FlipConflict conflict = FlipConflict::SharedFace;` on `DefaultFlipPolicy`
+(`:262-272`); the step-3 independent-set round (`:672-721`); the header's step-3
+and Decision 2 text (`:154-177`) and the `flipEdges` doc comment
+(`:881-885`). Move `detail::vertexCoordRank` from `Tessera_EdgeCollapse.hpp:412-419`
+into `Tessera_EdgeFlip.hpp`'s `detail` namespace, which `Tessera_EdgeCollapse.hpp`
+already includes (`:18`), rather than defining it twice. Add one new case to
+`tests/test_flip_edges.cpp`, and update Tessera's `README.md` and
+`docs/design.md` where they state the flip conflict rule.
+
+**Reference:** Read this first #6 for the rule and its derivation from
+`mesh_quality.py:57-86`. `collapseEdges`' vertex-coordinator independent-set
+round (`Tessera_EdgeCollapse.hpp:1146-1193`, message types `CollapseNbr`/
+`CollapseWin` at `:540-558`) is the pattern to copy.
+
+**Do:**
+
+1. Under `EndpointInQuad`, step 3 sends each surviving candidate to the
+   `vertexCoordRank` coordinator of each of its four quad corners, tagged with
+   the corner's **role**: *endpoint* (`lo`, `hi`) or *opposite* (`w`, `x`). Use
+   the existing priority `(len2 DESCENDING, EdgeKey ASCENDING)`. A candidate's
+   four corners are distinct, so it names each vertex once.
+2. At the coordinator of vertex `v`, let `B` be the best candidate naming `v`.
+   - If `B` names `v` as an **endpoint**, endorse only `B`.
+   - Otherwise, endorse **every** candidate naming `v` as *opposite*, and none
+     that names it as an endpoint.
+
+   A candidate is accepted iff it collects all four endorsements. This
+   accepts no conflicting pair. If accepted flips `E1` and `E2` conflicted at
+   `v`, with `v` an endpoint of `E1`, then `E1` being endorsed at `v` means
+   `B = E1` and `E1` was the only flip endorsed there, which contradicts `E2`
+   being accepted. State that argument in the header.
+3. Under `EndpointInQuad` the per-face round does not run; the new rule
+   implies it. Losers count into `rejectedConflict`, as now.
+4. `SharedFace` is the default, and its path must stay **bit-identical**.
+   **Callers:** no policy other than `DefaultFlipPolicy` exists in `src/`,
+   `tests/` or `examples/`, and the only explicit construction is
+   `test_flip_edges.cpp:1061`. `flipEdges`' signature does not change.
+5. Follow Tessera's CLAUDE.md, as M1-U1 does.
+
+**Exit criterion:** the same targeted run as M1-U1, and for the same reason. Run
+`flux batch scripts/tuolumne/run_unit_tests.flux regression -R "^(collapse_edges|flip_edges)_"`
+from `../tessera` with `TESSERA_REPO` exported: SERIAL and HIP, ranks 1–5,
+build succeeding. The full regression gate is **not** required.
+`collapse_edges` stays in the set because `detail::vertexCoordRank` moves out
+of its header, and `vertexCoordRank`'s only callers are in the two headers. The
+new `flip_edges` case checks the rule from
+`FlipResult::flipped`, whose `(old key, new key)` pairs give each accepted flip's
+endpoints and opposite corners, gathered across ranks:
+- **Success, `EndpointInQuad`:** no accepted flip's endpoint is a corner of
+  another accepted flip.
+- **Success, `EndpointInQuad`:** a fixture with two flips that share only an
+  opposite corner accepts both. This shows the mode is not plain vertex
+  disjointness.
+- **Failure direction:** on a fixture with two marked flips where one's
+  endpoint is a corner of the other but they share no face, `SharedFace`
+  accepts both and `EndpointInQuad` accepts exactly one, with the other in
+  `rejectedConflict`.
+
+The accepted sets are identical at ranks 1–5.
 
 ---
 
@@ -773,8 +854,8 @@ positions **unchanged**, and a healthy mesh returns
 
 ### T4d5 — `MeshQuality::{valenceEqualizingFlips, isotropicCleanup}` and the cleanup call site — **NOT STARTED**
 
-**Depends on:** T4d1, T4d3 (shares the flip adapter and the mask machinery), and
-T4c (landed).
+**Depends on:** T4d1, T4d3 (shares the flip adapter and the mask machinery),
+M1-U2, and T4c (landed).
 
 **Fill in:** [src/Beatnik_MeshQuality.hpp:111](../src/Beatnik_MeshQuality.hpp#L111)
 and [:182](../src/Beatnik_MeshQuality.hpp#L182); the two call sites in
@@ -799,15 +880,30 @@ of the rejection at [:759-765](../src/Beatnik_Solver.hpp#L759-L765).
    count (`np.bincount(F.ravel())`), which on a closed manifold is the edge
    count Tessera's header says is local at a vertex's owner. Do **not** test
    whether `(c,d)` exists (Read this first #6). Call `SurfaceMesh::flipEdges`
-   with the same permissive policy as T4d3. One reference pass is one
-   `flipEdges` round with the mask rebuilt from fresh valences; exit early when
-   a round flips nothing. The vertex-sharing difference is a deliberate
-   deviation — see that section and M1-R9.
-2. `isotropicCleanup` = `--isotropic-cleanup-flips` (3) valence passes, then
+   with T4d3's permissive policy plus `conflict = FlipConflict::EndpointInQuad`
+   (M1-U2).
+2. **One reference pass is several `flipEdges` rounds**, because one Tessera
+   round accepts an independent set that is not maximal, where a reference pass
+   sweeps every edge. Within a pass:
+   - Take each vertex's valence and each face's normal **once, at the start of
+     the pass**, keyed by gid. Flips preserve vertex and face gids.
+   - Keep a pass-wide set of **touched vertex gids**, and leave out of the mask
+     every owned edge with a touched endpoint.
+   - After each round, add the four corners of every accepted flip to the touched
+     set. Take them from `FlipResult::flipped`, gathered across ranks with
+     `MPI_Allgatherv` and deduplicated by old key, because `flipped` lists only
+     the flips the calling rank touches.
+   - End the pass when a round accepts nothing.
+
+   A face rewritten earlier in the pass has all its corners touched, so no later
+   edge of it is tested: the pass-start normals are never stale where they are
+   read. Run `--isotropic-cleanup-flips` (3) passes and stop early after a pass
+   that flips nothing, as `mesh_quality.py:85-86` does.
+3. `isotropicCleanup` = `--isotropic-cleanup-flips` (3) valence passes, then
    `--isotropic-cleanup-relax` (2) passes of the landed `tangentialRelaxation` at
    `--isotropic-cleanup-weight` (0.4). Vertex count is unchanged and the shape is
    preserved, so no field is touched.
-3. **The call site is two state rebuilds, not one.** The reference rebuilds the
+4. **The call site is two state rebuilds, not one.** The reference rebuilds the
    state inside `dynamic_remesh_state_with_material` (which re-bases the
    reference area/curvature and re-centres the potential against the new area
    weights) and **then rebuilds it again after the cleanup**
@@ -817,10 +913,10 @@ of the rejection at [:759-765](../src/Beatnik_Solver.hpp#L759-L765).
    `isotropicCleanup` → `resetReferenceState` + `centerPotential` →
    `projectToVolume`. Getting this wrong is invisible in a 20-step run and
    compounds over 600.
-4. The cleanup fires whenever a remesh **ran**, not whenever it changed something
+5. The cleanup fires whenever a remesh **ran**, not whenever it changed something
    (`:1491`, gated on `remesh_diag is not None`) — the same gate shape the volume
    projection already uses on that branch.
-5. On the refine branch, the reference runs cleanup only when
+6. On the refine branch, the reference runs cleanup only when
    `refine_diag.marked_faces > 0` (`:1438`), inside the same block as the flips
    and the tangential pass, and it feeds the `repaired` gate through
    `args.isotropic_cleanup` — which
@@ -828,7 +924,9 @@ of the rejection at [:759-765](../src/Beatnik_Solver.hpp#L759-L765).
    transcribes as `_params.cleanup.enabled`. Add the call; do not touch the gate.
 
 **Exit criterion:** a `unit`-tier case at `BEATNIK_UNIT_RANKS` 1 and 4: on a mesh
-seeded with a high-valence patch the **valence histogram concentrates toward 6**
+seeded with a high-valence patch, every accepted flip of a pass has no endpoint
+touched earlier in that pass (checked from the gathered `flipped` lists); the
+**valence histogram concentrates toward 6**
 (the count of vertices with valence ≠ 6 falls) and the enclosed volume changes by
 less than `1e-12` relative; and, in the failure direction,
 `--no-isotropic-cleanup` leaves the mesh byte-identical while
@@ -915,7 +1013,7 @@ lists **60** cases.
 
 ### M1-T2 — the milestone comparison test — **NOT STARTED**
 
-**Depends on:** M1-U1, T4d1, T4d2, T4d3, T4d4, T4d5, T4d6, M1-G2, M1-T1, M1-D1.
+**Depends on:** M1-U1, M1-U2, T4d1, T4d2, T4d3, T4d4, T4d5, T4d6, M1-G2, M1-T1, M1-D1.
 
 **Fill in:** `tests/regression_tests/Beatnik_Test_Milestone1Bubble.cpp`,
 registered in the `milestone` tier with the gold **directory** and the comparator
@@ -1049,15 +1147,3 @@ often with `ambiguous cpp=0 gold=0`. *Distinguished from a real field error by:*
 *Do:* report it as a pairing failure and record the step; do not raise
 `--match-eps` without stating what it now cannot detect.
 
-**M1-R9 — valence flips sharing a vertex overshoot.** Two flips accepted in one
-`flipEdges` round can share a corner (deliberate deviations), and each was
-marked using that corner's valence from before the round. Two flips that each
-lower a valence-7 corner by one leave it at 5. *Presents as:* T4d5's
-valence-≠-6 count falling more slowly than the reference's on the same mesh, or
-oscillating across cleanup passes instead of falling monotonically.
-*Distinguished from* R7's ordinary edit-set difference by counting, per round,
-accepted flips that share a vertex with another accepted flip. Zero means the
-deviation is not in play. *Do:* log that count in T4d5's test output. If it is
-material, the fix is a vertex-disjoint mask, built with a coordination round
-in Beatnik or with a conflict-relation option added to Tessera, decided with
-the user.
