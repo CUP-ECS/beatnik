@@ -363,6 +363,11 @@ names, and before reopening a question this document states flatly — a complet
 task may have changed the plan for a later one, and each entry's `**Affects:**`
 line is the index of exactly that.
 
+> Each task is reviewed with `review-task` before any task that depends on it
+> starts. A task is ready to build on when it is marked **DONE** and the log has
+> a `## <ID> review` section whose verdict is `Passed`. The document's status
+> becomes COMPLETE only when a `review-task` sweep of the whole feature passes.
+
 ## Task sequence
 
 ### M1-G1 — the fixed-mesh 600-step gold set *(reference run, no code)* — **DONE**
