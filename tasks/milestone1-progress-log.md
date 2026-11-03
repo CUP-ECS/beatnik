@@ -870,3 +870,59 @@ M1-G1's does.
    from a clone. The same fix applies.
 
 **Affects:** none
+
+## M1-U1 review
+
+**Verdict:** Passed
+**Reviewed:** Tessera `279287e^..279287e` (`mesh-quality`; one commit). The
+`## M1-U1` section has no `**Commits:**` line; the range is the single commit
+its **Met.** paragraph and **Provenance** name, and that commit touches exactly
+the six **Fill in** files (`src/Tessera_EdgeCollapse.hpp`,
+`src/Tessera_EdgeFlip.hpp`, `tests/test_collapse_edges.cpp`,
+`tests/test_flip_edges.cpp`, `README.md`, `docs/design.md`).
+**Evidence:** implementing session's job `f3hmiTasm3Ef`, output read —
+`scripts/tuolumne/run_unit_tests.flux regression -R "^(collapse_edges|flip_edges)_"`,
+output `../tessera/tessera-unit.f3hmiTasm3Ef.out`. Flux: COMPLETED, rc 0,
+submitted 13:40:49, started 13:41:41 (queue wait 52 s), run 3.04 min. The
+output ends at `=== regression tests complete (rc=0)` with
+`100% tests passed, 0 tests failed out of 20`: `flip_edges` and
+`collapse_edges`, SERIAL and HIP, np1–np5, the full registration the criterion
+names. Checks:
+- **Provenance:** the runner echoes no commit SHA. Established instead by
+  timing: `279287e` was committed at 13:40:39, ten seconds before the submit,
+  and the next Tessera commit (`05b5942`) is 14:29. Corroborated by two later
+  runs of the same 20 tests, `f3hn6UjNexxw` (at `05b5942`) and `f3hxYnUALpnB`
+  (at `33dc6b9`), both 20/20 rc 0; between `279287e` and `33dc6b9` neither
+  `quality()` body, neither call site, nor `test_collapse_edges.cpp` changed.
+- **Completion:** normal completion, rc 0, output ends where a finished run ends.
+- **Both directions:** the new cases assert, not just print, each direction.
+  Collapse case 15 increments its failure count unless the default policy gives
+  `accepted=1, rejectedQuality=0` *and* the mean-ratio policy gives
+  `accepted=0, rejectedQuality=1`; flip case 13 the mirror
+  (`rejectedGeometric=1` → `accepted=1`). Each also fails if the fixture stops
+  separating the two metrics. The passing run therefore shows the hook live in
+  both directions at every launch. Default-path bit-identity: every pre-existing
+  case passes at its unchanged literals, and by inspection the default
+  `quality()` calls `detail::flipRadiusRatio` on the same arguments the three
+  call sites passed before.
+- **Agreement:** matches the **Met.** paragraph (20/20, SERIAL and HIP,
+  ranks 1–5).
+
+Code: the three calls (`Tessera_EdgeCollapse.hpp:1005`,
+`Tessera_EdgeFlip.hpp:677-678`) are in host coordinator loops, not in a Kokkos
+functor, so a host-only `quality()` is correct. Comparison directions unchanged.
+`flipTriNormal`/`flipRadiusRatio` moved, not duplicated; no other `src/` user.
+Every doc comment and README/design passage that named the radius ratio as the
+thresholded quantity now names `quality()`. The mechanical pass found no
+candidates; no prompt file `tasks/milestone1_M1-U1.md` remains. The test-only
+`MeanRatio*Policy` and `meanRatio` are within the task's "one new case each".
+
+1. [nit] `tasks/milestone1-progress-log.md` `## M1-U1` — no `**Commits:**` or
+   `**Jobs:**` line; the commit and job are only in prose. Accepted; the review
+   records both above.
+2. [follow-up] Tessera's `scripts/tuolumne/run_unit_tests.flux` does not echo
+   the commit SHA it ran, so a reviewer must establish provenance by timing.
+   Echoing `git rev-parse HEAD` at job start would close that; it is Tessera
+   infrastructure, not this task's.
+
+**Affects:** none
