@@ -402,7 +402,7 @@ No code changed.
 
 ## M1-U3
 
-**Commits:** Tessera `33dc6b9` (`mesh-quality-auto`); Beatnik BEATNIK_SHA
+**Commits:** Tessera `33dc6b9` (`mesh-quality-auto`); Beatnik `a02631f`
 (`mesh-quality-auto`, `milestone1.md` and this section).
 
 `flipEdges` accepts at most one of several flips in one call that would create
