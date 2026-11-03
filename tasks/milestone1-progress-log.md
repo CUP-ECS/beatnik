@@ -583,3 +583,197 @@ said "Four calls" and named three places; it now says "Three places".
   not reconsidered within the call, so the multi-round pass is what picks it up.
 - **M1-T2:** a conformity failure in the cleanup flips can no longer come from a
   same-diagonal pair.
+
+## M1-G1
+
+**Commits:** Beatnik `26d3959` (gold data, scripts, README, `milestone1.md`); the
+commit that adds this section.
+
+**Jobs:** `f3hyB1FBHAym`, `scripts/tuolumne/m1g1_gold.flux` (`pdebug`,
+`-t 40m`), log `beatnik_m1g1_gold.f3hyB1FBHAym.log` in the Beatnik repo root,
+output `/p/lustre5/stewartj/beatnik/M1-G1/`. COMPLETED rc 0, 48 s job runtime;
+`flux job status` returned rc 0.
+
+**Decisions** (made before the task started; recorded here, not reopened):
+
+- **A session generates these sets, not a person**, by running the reference
+  Python through flux batch jobs on `pdebug`. The design doc's "human step"
+  heading and the Conventions row now read "reference run" and
+  "reference-run gold-file generation".
+- **Output goes to Lustre, then is copied into the repo.** The run wrote to
+  `/p/lustre5/stewartj/beatnik/M1-G1/` via `--checkpoint-dir`, not to the
+  reference's `results/`, which holds the T2a 10-step set. All 61 numbered files
+  plus `checkpoint_latest.npz` (62) were copied into
+  `tests/regression_tests/direct-solve-600-steps/gold/` with `cp -p` and verified
+  by `cmp` (0 mismatches) and `sha256sum -c` (all OK). The Lustre copy stays.
+- **Walltime `-t 40m`.** Precedent from the reference's `results3/` and
+  `results4/` timestamps: frozen level 3 (642 vertices) 0.20 s/step, frozen
+  level 4 (2562 vertices) 2.26 s/step. Level 2 was expected under 2 minutes.
+- **The command ran exactly as the task entry gives it, changing only
+  `--checkpoint-dir`.** No `--A … --eps` flags and no `--icosphere-subdivisions`;
+  the level-2 default is the point. Launched from the reference root as
+  `flux run -N 1 -n 1 /usr/tce/bin/python3 …`, as the reference's
+  `scripts/run_bubble_L3.flux` launches.
+- **The reference working tree is dirty, and that is accepted.** HEAD
+  `ec7d7bf4aaf9e84c6ac999dce3193ca1650677f1`; `git diff` is one line in
+  `examples/run_adaptive_mesh_bubble.py:221`, the `--source-quadrature` default
+  `face` → `vertex`. The command passes `--source-quadrature vertex`, so the
+  change is inert. `zmodel3d/` was clean (the script refuses otherwise). Nothing
+  in the reference repo was edited, stashed or committed, and the run wrote no
+  file there.
+- **One script per task**, running generation and the exit-criterion checks in
+  the same job; walltime and queue in its `# flux:` directives. The script also
+  refuses to run if its output directory already holds checkpoints, so a
+  resubmit cannot mix two runs.
+- **The README sits at directory level**
+  (`direct-solve-600-steps/README.md`, data in `gold/`), as
+  `direct-solve-10-steps/README.md` does.
+- **No CMake or install change.** `tests/CMakeLists.txt` lists each gold
+  directory explicitly, so this one is inert until M1-D1 / M1-T1 wire it.
+
+**Provenance.** Beatnik `8c89323` with the two scripts untracked; dev env
+(`==> In environment /g/g20/stewartj/spack_envs/tuolumne_beatnik`), no build.
+`/usr/tce/bin/python3` = Python 3.13.2, numpy 2.1.2, scipy 1.15.3. Host
+`tuolumne1040`.
+
+**Result.** All in-job checks passed (`ALL CHECKS PASS`, `checks rc=0`):
+
+- 61 numbered checkpoints, steps 0, 10, …, 600; `checkpoint_latest.npz`
+  byte-identical to the step-600 file by `cmp`.
+- Step 0 `np.array_equal` to `initial_conditions/gold.npz` on all nine keys;
+  `compare_output.py <step0> initial_conditions/gold.npz --rtol 1e-12 --atol 1e-14`
+  rc 0, `162/162 unambiguous`.
+- Self-compare of `checkpoint_t00001p314132_step0000600.npz` at the same
+  tolerances: rc 0, `matching (eps=1e-09): 162/162 unambiguous, ambiguous cpp=0
+  gold=0`.
+- `vertices (162, 3)` / `faces (320, 3)`, the nine keys, the stored `step`, and
+  finite `vertices`/`potential`/`remesh_material_position` in all 61 files.
+- No early stop: last progress line `step=  600`, `saved final finite
+  checkpoint` logged, no `stopping at step=`. `refine_events=0 flips=0
+  remesh_events=0` throughout. Final `time = 1.3141321331131375`; at step 600
+  the reference reports `minQ=0.619`, `volRel=+3.75e-09`.
+
+**Measured wall:** generation **25 s**, 0.042 s/step, for 600 steps on the
+162-vertex mesh. The job's 48 s runtime includes provenance and checks.
+
+**Only running revealed:**
+
+- `flux run -N 1 -n 1 nproc` reports **24**: the task gets the cores `flux run`
+  exposes, but the driver is a single process.
+- The driver prints `skipped video rendering for
+  results/adaptive-mesh-bubble-rhs.mp4` under `--no-video`; it names `results/`
+  but writes nothing there.
+- `checkpoint_latest.npz` is byte-identical to the last numbered file only
+  because the final save writes both in the same second: `np.savez_compressed`
+  stamps each zip entry with the current time. A content comparison is the robust
+  check if a future `cmp` disagrees.
+
+**Affects:**
+
+- **M1-D1:** its gold set is in place at `direct-solve-600-steps/gold/`, 61
+  numbered files at steps 0–600 every 10. The step-600 self-compare is fully
+  unambiguous at `--match-eps 1e-9`, so any ambiguity M1-D1 sees comes from the
+  Beatnik side or from drift, not from the mesh itself. Python takes 25 s for
+  this run, so re-generating it costs nothing.
+
+## M1-G2
+
+**Commits:** Beatnik `26d3959` (gold data, scripts, README, `milestone1.md`); the
+commit that adds this section.
+
+**Jobs:** `f3hyB1NchZz7`, `scripts/tuolumne/m1g2_gold.flux` (`pdebug`,
+`-t 60m`), log `beatnik_m1g2_gold.f3hyB1NchZz7.log` in the Beatnik repo root,
+output `/p/lustre5/stewartj/beatnik/M1-G2/`. COMPLETED rc 0, 729 s job runtime;
+`flux job status` returned rc 0. Submitted in parallel with M1-G1.
+
+**Decisions:** as `## M1-G1`, with these differences:
+
+- Output `/p/lustre5/stewartj/beatnik/M1-G2/`, copied (62 files) into
+  `tests/regression_tests/milestone1-bubble/gold/` and verified by `cmp`
+  (0 mismatches) and `sha256sum -c` (all OK). The Lustre copy stays.
+- **Walltime `-t 60m`, the `pdebug` maximum.** The mesh grows under
+  `--dynamic-remesh` with nothing bounding it but `--remesh-h-min 0.0015`, and no
+  Python dynamic-remesh run had a recorded timing.
+- The command is the task entry's (`--A 0.3 --g 1.0 --mu 0.002 --eps 0.025
+  --viscosity-mode laplace-beltrami --br-approximation direct --adaptive-dt
+  --dynamic-remesh --isotropic-cleanup --source-quadrature vertex --steps 600
+  --checkpoint-every-steps 10 --no-video`), changing only `--checkpoint-dir`.
+- The README (`milestone1-bubble/README.md`) carries the 61-row step / `time` /
+  V / F table read from the `.npz` files, and names the job log for the full
+  per-step stdout. It has no quality or volume columns, which are outside this
+  task's scope.
+- An early stop would have been allowed, and recorded as the compare-depth
+  ceiling. None happened.
+
+**Provenance:** as M1-G1; host `tuolumne1039`.
+
+**Result.** All in-job checks passed (`ALL CHECKS PASS`, `checks rc=0`):
+
+- 61 numbered checkpoints, steps 0, 10, …, 600 (`run reached step 600: no
+  early stop`); `checkpoint_latest.npz` byte-identical to the step-600 file.
+- Step 0 `np.array_equal` to `initial_conditions/gold.npz` on all nine keys;
+  the step-0 `compare_output.py` at `--rtol 1e-12 --atol 1e-14` rc 0,
+  `162/162 unambiguous`.
+- Self-compare of `checkpoint_t00000p557934_step0000600.npz` at the same
+  tolerances: rc 0, `matching (eps=1e-09): 538/538 unambiguous, ambiguous cpp=0
+  gold=0`. **Ambiguity count: 0.**
+- The nine keys, the stored `step`, valid face indices, and finite
+  `vertices`/`potential`/`remesh_material_position` in all 61 files.
+- No early stop: last progress line `step=  600`, `saved final finite
+  checkpoint` logged, no `stopping at step=`. Final
+  `time = 0.55793412422180344`.
+
+**Measured wall:** generation **707 s**, **1.18 s/step**. This is the first
+measurement of Python dynamic-remesh cost. It is 28x M1-G1's per-step cost for a
+mesh 3.35x larger in faces. That is above the ~11x that direct-sum F² scaling
+alone predicts, so part of the cost is per-step remesh work and the adaptive
+time step. It is still well inside the 60-minute cap.
+
+**Face-count trajectory:**
+
+- **Start:** `320` faces / `162` vertices at step 0 (the level-2 icosphere).
+- **Step 1:** the progress line already reads `V=462 F=920`, `remesh_events=390`.
+- **Peak:** `1090` faces / `547` vertices at **step 10**, the first
+  checkpoint after step 0.
+- It then coarsens to `1080` (steps 30–50) and `1074` by step 60. From step 60
+  to step 600 it stays in `1072`–`1076`.
+- **Final:** `1072` faces / `538` vertices at step 600.
+
+The cumulative `remesh_events` reads 631 at step 60 and 639 at step 600, so
+nearly all mesh editing happens in the first 60 steps. `refine_events=0` and
+`flips=0` throughout. `V = F/2 + 2` holds in all 61 rows. Reference `minQ` is
+0.754 at step 1, 0.852–0.855 from step 60 on, and 0.852 at step 600.
+
+**Only running revealed:**
+
+- The mesh does **not** grow over the run. It jumps to about 3.4x the IC face
+  count within the first 10 steps, then holds a near-constant ~1074 faces. The
+  `--remesh-h-min` bound never comes into play by step 600 (`minEdge` 0.0208 at
+  step 600).
+- The run covers only `t ≈ 0.558`, against M1-G1's `t ≈ 1.314` over the same 600
+  steps. Both runs use the adaptive time step (`--adaptive-dt` is the default),
+  but on the refined mesh `dt` falls from `3e-3` at step 1 to about `9e-4`,
+  against M1-G1's `3e-3`→`1.25e-3` on the level-2 mesh. A compare over 600 steps of this set therefore
+  covers less than half the physical time of M1-G1's.
+- Almost all of the divergence-relevant connectivity changes (R7/R13) happen
+  before step 60. After that the counts move by at most ±2 vertices per
+  checkpoint.
+
+**Affects:**
+
+- **M1-D1:** the mesh M1-G2 settles on is about 1074 faces, so a dynamic-remesh
+  divergence measurement in Beatnik costs about 11x per direct-sum evaluation
+  compared with M1-G1's 320 (F² scaling). Most connectivity divergence is
+  expected in steps 0–60, where nearly all `remesh_events` occur. Any Beatnik
+  topology mismatch shows up first at the step-10 checkpoint, which holds the
+  1090-face peak.
+- **M1-T2:** asserts against this README's table: peak `1090`/`547` at step 10,
+  final `1072`/`538` at step 600, and `1072`–`1076` from step 60 to 600. The
+  compare-depth ceiling is the full 600 steps. The Beatnik-side milestone run
+  sizes its walltime from ~1074 faces held for 600 steps.
+- **M1-A1:** the Python baseline is 707 s for 600 steps (1.18 s/step) at
+  ~1074 faces. Raising `--steps` toward the 1000–5000 range Read this first #2
+  discusses scales roughly linearly, at about 20 minutes per 1000 steps, unless
+  the mesh starts growing later. The `pdebug` 1-hour cap holds about 3000 steps
+  of this configuration. M1-A1 must also account for the run reaching only
+  `t ≈ 0.56` in 600 steps.
