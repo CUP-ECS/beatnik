@@ -926,3 +926,69 @@ candidates; no prompt file `tasks/milestone1_M1-U1.md` remains. The test-only
    infrastructure, not this task's.
 
 **Affects:** none
+
+## M1-U2 review
+
+**Verdict:** Passed
+**Reviewed:** Tessera `05b5942^..05b5942` (`mesh-quality`; one commit). The
+`## M1-U2` section has no `**Commits:**` line; the range is the single commit
+its **Met.** paragraph and **Provenance** name. It touches
+`src/Tessera_EdgeFlip.hpp`, `src/Tessera_EdgeCollapse.hpp` (the
+`vertexCoordRank` removal only), `tests/test_flip_edges.cpp`, `README.md` and
+`docs/design.md`, all named in **Fill in**.
+**Evidence:** implementing session's job `f3hn6UjNexxw`, output read —
+`scripts/tuolumne/run_unit_tests.flux regression -R "^(collapse_edges|flip_edges)_"`,
+output `../tessera/tessera-unit.f3hn6UjNexxw.out`. Flux: COMPLETED, rc 0,
+submitted 14:29:07, started 14:34:39 (queue wait 5.5 min), run 3.21 min. The
+output runs from its header to `=== regression tests complete (rc=0)` with
+`100% tests passed, 0 tests failed out of 20`: `flip_edges` and
+`collapse_edges`, SERIAL and HIP, np1–np5, the registration the criterion
+names. Checks:
+- **Provenance:** the runner echoes no commit SHA. Established by timing:
+  `05b5942` was committed at 14:29:02, five seconds before the submit, and the
+  next Tessera commit (`33dc6b9`) is the following day. Corroborated by
+  `f3hxYnUALpnB` at `33dc6b9`, 20/20 rc 0, which keeps case 14 and the step-3
+  round.
+- **Completion:** normal completion, rc 0, output ends where a finished run ends.
+- **Both directions:** case 14 asserts, not just prints, each one. For every
+  bipyramid pair it fails unless `SharedFace` accepts both marked edges and
+  `EndpointInQuad` accepts exactly the expected key set with
+  `rejectedConflict = 2 - accepted`, zero violations in the `EndpointInQuad`
+  set, and a `SharedFace` violation present exactly when `EndpointInQuad`
+  rejects one. So "shared opposite" shows the mode is not vertex disjointness,
+  and "endpoint wins" and "opposite wins" show the failure direction through
+  each branch of the endorsement rule. On the all-marked icosphere it fails on
+  any violation, on a vacuous `accepted = 0`, or if the `MPI_COMM_WORLD` flip
+  set or any counter differs from `MPI_COMM_SELF`'s. `SharedFace` bit-identity:
+  the `else` block is unchanged in the diff, and every pre-existing case passes
+  at its unchanged literals.
+- **Agreement:** matches the **Met.** paragraph (20/20, SERIAL and HIP,
+  ranks 1–5). The case-14 printout itself could not be re-read, because
+  `LastTest.log` was overwritten by the `33dc6b9` run; the verdict rests on
+  the assertions above, not on the printed counts.
+
+Code: the `EndpointInQuad` branch is Do step 2 as written. The best offer per
+vertex uses the step-3 priority with no gid, a vertex endorses `B` alone when
+`B.endpoint` is set and otherwise every opposite-role offer, and a candidate
+survives iff `votes == 4`. Losers go to `locConflict`. The branch runs on host,
+outside any Kokkos functor. Both `allToAllV` rounds run on every rank, and the
+branch depends only on `policy.conflict`, which a caller passes uniformly.
+`best` holds pointers into `offers.data`, which is not modified while they are
+live. `vertexCoordRank` was moved, not duplicated, and its six collapse call
+sites resolve through the include. The header proof, the
+`rejectedConflict` and `flipEdges` doc comments, `README.md` and
+`docs/design.md` all state both relations. Mechanical pass: the S4 hits on
+`vertexCoordRank` are the moved definition and its callers (a move, not a
+rename), and the one S2 hit is a bulleted comment. Both dismissed. No prompt
+file `tasks/milestone1_M1-U2.md` remains.
+
+1. [nit] `tasks/milestone1-progress-log.md` `## M1-U2` has no `**Commits:**` or
+   `**Jobs:**` line; the commit and job appear only in prose. Accepted; this
+   review records both above.
+2. [follow-up] Tessera's `scripts/tuolumne/run_unit_tests.flux` echoes no commit
+   SHA (as `## M1-U1 review` noted), and the passing run leaves the case
+   printouts only in `LastTest.log`, which the next run overwrites. Copying
+   `LastTest.log` beside the job output would keep the measured literals
+   reviewable. This is Tessera infrastructure, not this task's.
+
+**Affects:** none
