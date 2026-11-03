@@ -175,7 +175,7 @@ Each changes an implementation, not just a comment:
 Tessera's collapse and flip each run a geometric test of their own, configured by
 a policy struct. Neither test is the reference's at its default settings, and one
 of them cannot be made the reference's without an upstream change. Tessera line
-references in this section are against `05b5942` (M1-U2):
+references in this section are against `33dc6b9` (M1-U3):
 
 - **The quality metric differs.** The reference's `triangle_quality` is
   `4√3·A / Σℓ²` (`dynamic_remesh.py:626-636`), which Beatnik already has as
@@ -183,7 +183,7 @@ references in this section are against `05b5942` (M1-U2):
   ([src/Beatnik_MeshGeometry.hpp:305](../src/Beatnik_MeshGeometry.hpp#L305)).
   Tessera's `minQuality` thresholds the policy's `quality()`, which by default
   is the **radius ratio** `2r/R`
-  (`detail::flipRadiusRatio`, `Tessera_EdgeFlip.hpp:305-331`), which Beatnik has
+  (`detail::flipRadiusRatio`, `Tessera_EdgeFlip.hpp:340-366`), which Beatnik has
   as `SurfaceOperators::radiusRatioStats` (`:384`) and reports only as R12's
   diagnostic. The two are not monotone in one another, so no threshold on one
   reproduces a threshold on the other.
@@ -206,7 +206,7 @@ references in this section are against `05b5942` (M1-U2):
 - **The flip tests need only the quad, so they belong in the mask.**
   `DefaultFlipPolicy` rejects a new face whose normal deviates more than
   0.35 rad from the area-weighted mean of the two old normals, or whose radius
-  ratio is below 0.05 (`Tessera_EdgeFlip.hpp:352-371`, `:725-762`). The
+  ratio is below 0.05 (`Tessera_EdgeFlip.hpp:387-406`, `:744-777`). The
   reference's quality flips have **no** normal test (`dynamic_remesh.py:408-457`);
   its valence flips require `dot ≥ 0.2` against each face's *own* pre-flip normal
   (`mesh_quality.py:78`). The defaults would therefore reject flips the
@@ -217,15 +217,17 @@ references in this section are against `05b5942` (M1-U2):
 - **Tessera checks that the new diagonal does not already exist, exactly.** A
   flip whose diagonal `(c,d)` is an existing edge is rejected and counted in
   `rejectedDuplicateEdge`. The answer comes from the `(c,d)` coordinator,
-  which has seen every owned face's edges (`Tessera_EdgeFlip.hpp:142-150`).
-  A Beatnik mask cannot answer it reliably, so the mask does not try. The check
-  is against the pre-flip edge set only, so two flips in one call that create
-  the same diagonal are both accepted. **M1-U3** makes `flipEdges` accept at
-  most one of them, and T4d3 and T4d5 rely on that.
+  which has seen every owned face's edges (`Tessera_EdgeFlip.hpp:142-178`).
+  A Beatnik mask cannot answer it reliably, so the mask does not try. The same
+  coordinator also sees every candidate in one call that would create `(c,d)`,
+  and it accepts at most one of them: the best geometric survivor by the
+  priority `(squared length DESCENDING, EdgeKey ASCENDING)`. The others count
+  in `rejectedConflict`, under either `FlipConflict` relation (**M1-U3**,
+  **DONE**, Tessera `33dc6b9`). T4d3 and T4d5 rely on this.
 - **Tessera's default flip conflict relation is per face; the valence pass
   needs a different one.** Under the default `FlipConflict::SharedFace`,
   Tessera's independent set forbids two accepted flips sharing a *face* and
-  allows two sharing only a vertex (`Tessera_EdgeFlip.hpp:154-206`). That is the
+  allows two sharing only a vertex (`Tessera_EdgeFlip.hpp:187-239`). That is the
   reference's rule for its
   quality flips, whose `touched` set holds faces (`dynamic_remesh.py:416-421`,
   `:454`). The valence pass works differently (`mesh_quality.py:57-86`).
@@ -322,9 +324,9 @@ True at HEAD, and specific about what is *defined but wrong* versus what
   the radius ratio; no Beatnik policy uses it yet (T4d2). `flipEdges` has the
   opt-in `FlipConflict::EndpointInQuad` relation beside the default per-face one
   (M1-U2, **DONE**, Tessera `05b5942`); no Beatnik call site sets it yet (T4d5).
-- **Wrong upstream:** `flipEdges` accepts two flips that create the same
-  diagonal in one call, under either relation, and leaves two edges with one key
-  (M1-U3).
+  `flipEdges` accepts at most one of several flips in one call that would create
+  the same new diagonal, under either relation (M1-U3, **DONE**, Tessera
+  `33dc6b9`); no Beatnik call site calls `flipEdges` yet (T4d3, T4d5).
 - **Defined and deliberately inert**, transcribed rather than folded away, so
   landing T4d turns them on by deleting a rejection instead of by remembering to
   add a call: `const int collapses = 0` and `diag.flips += 0; diag.smooth_steps += 0`
@@ -719,7 +721,7 @@ and the `SharedFace` branch is the `else` at `:828`. Log: `## M1-U2`.
 
 ---
 
-### M1-U3 — no two accepted flips create the same diagonal *(upstream, in `../tessera`)* — **NOT STARTED**
+### M1-U3 — no two accepted flips create the same diagonal *(upstream, in `../tessera`)* — **DONE**
 
 **Depends on:** M1-U2 (**DONE**, Tessera `05b5942`). The line references below
 are against `05b5942`.
@@ -792,7 +794,7 @@ no new collective.
    - Most existing calls cannot contain such a pair: they mark one edge, mark
      pairs whose diagonals differ, or mark on the unedited subdivision-2
      icosphere, where two non-adjacent vertices never share four neighbours.
-   - Four calls mark on an already-edited mesh, so their counts may change:
+   - Three places mark on an already-edited mesh, so their counts may change:
      `test_flip_edges` case 9's second all-marked call (`caseEmptyAndHalo`,
      `mask2`), case 12, and the flip passes in `test_collapse_edges` case 14.
      Whatever they assert must still pass.
@@ -827,6 +829,41 @@ in every launch, showing all three of:
 - the same-diagonal pair accepts one flip under each relation;
 - the higher-priority member that fails geometry does not veto the other;
 - case 3 still reports `rejectedDuplicateEdge=1`.
+
+**Met.** Tessera `33dc6b9` on `mesh-quality-auto`, committed before the submit.
+Job `f3hxYnUALpnB` (`pdebug`, COMPLETED rc 0, 176 s) reported
+`100% tests passed, 0 tests failed out of 20`: all twenty cases ran,
+`flip_edges_{SERIAL,HIP}_np1`–`np5` and `collapse_edges_{SERIAL,HIP}_np1`–`np5`.
+Only the four test executables were built (rc 0, first try), and the only
+warnings are the 32 accepted `-Wnontrivial-memcall` ones from
+`Tessera_HaloRebuild.hpp:99`. Every existing case passes at its unchanged
+literals. Among them, case 3 printed `requested=1 rejectedDuplicateEdge=1
+accepted=0` in all twenty `flip_edges` outputs. The three calls on an
+already-edited mesh (case 9's `mask2`, case 12, `collapse_edges` case 14) pass,
+and case 14 printed the same `F=1244`/`1640` and `F=1236`/`1664` lines as at
+`05b5942`. The new case is `test_flip_edges` case 15, with
+`maxNormalDeviation = π`. It printed the same four lines in all twenty
+`flip_edges` outputs, Serial and Default spaces alike:
+
+- **Same-diagonal pair**: `flatBipyramidSoup` (V 8, E 18, F 12) with `(2,3)` and
+  `(5,6)` marked, `minQuality = 0`. Both would create the axis `(0,1)`. Under
+  `SharedFace` and `EndpointInQuad` alike: `accepted=1`, `rejectedConflict=1`,
+  flip set `{(2,3)→(0,1)}`, identical to the `MPI_COMM_SELF` run. `(2,3)` wins
+  on squared length `0.99999999999999978` against `0.99999999999999922`.
+  `checkAll` and `checkKeyTables` pass.
+- **Pushed pair**: a copy with ring vertex 5 moved to radius 2, the same two
+  edges marked, `minQuality = 0.8`. `(5,6)` has the higher priority (squared
+  length `2.9999999999999987`) but its worst new-face radius ratio is
+  `0.73625936037355844`, against `0.87969658092961811` for `(2,3)`. Under both
+  relations: `accepted=1` `{(2,3)}`, `rejectedGeometric=1`, `rejectedConflict=0`.
+  The case asserts these premises from the soup coordinates.
+
+The line references in this entry's **Fill in**, **Reference** and **Do** stay
+against `05b5942`. At `33dc6b9`, `DupQuery`, `DupStatus` and `DupReply` are
+`Tessera_EdgeFlip.hpp:444-469`, the geometric evaluation (2a) is `:744-777`, the
+duplicate and claim round (2b) is `:779-838`, the verdict attribution (2c) is
+`:840-857`, and the header's step-2 `DUPLICATE` text is `:142-178`. Log:
+`## M1-U3`.
 
 ---
 

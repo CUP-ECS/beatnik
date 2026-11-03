@@ -399,3 +399,187 @@ No code changed.
 - **T4d3, T4d5, M1-T2:** each now depends on M1-U3.
 - **T4d5:** the open question in `## M1-U2`'s **Affects:** line is settled, and
   the mask need not avoid pairs of edges whose quads share both opposite corners.
+
+## M1-U3
+
+**Commits:** Tessera `33dc6b9` (`mesh-quality-auto`); Beatnik BEATNIK_SHA
+(`mesh-quality-auto`, `milestone1.md` and this section).
+
+`flipEdges` accepts at most one of several flips in one call that would create
+the same new diagonal, under both `FlipConflict` relations. The `(w,x)`
+coordinator settles the claims inside step 2b's duplicate-edge round. One new
+case, `test_flip_edges` case 15. The header, `docs/design.md` ("The duplicate-edge
+round") and `README.md`'s `rejected*` comments describe the rule. No Beatnik
+source changed.
+
+Both repositories were checked out on `mesh-quality-auto`, not `mesh-quality` as
+the session prompt said; the two branches were at the same SHA in each
+repository. The commits are on `mesh-quality-auto`. Nothing was pushed.
+
+**Decisions, made before the session and recorded here as given:**
+
+- **The fix is in Tessera, not in any Beatnik mask.** A mask cannot see a second
+  edge with the same opposite corners on another rank, and the defect corrupts
+  the mesh for every caller.
+- **The claims are resolved at the `(w,x)` coordinator inside step 2b's existing
+  round**, with no new collective. The reply is *exists*, *free* or *claimed*
+  (the task's **Do** step 2), and a *claimed* candidate counts into
+  `rejectedConflict`.
+- **Verdict precedence stays boundary, then duplicate, then geometric, then
+  conflict.** Geometry is evaluated before 2b only so its pass/fail can travel
+  in the `DupQuery`. Only geometric survivors compete for a diagonal.
+- **The fix applies under both `SharedFace` and `EndpointInQuad`.**
+  `flipEdges`' signature and `FlipResult`'s members do not change.
+- **Tessera build profile** as recorded in the gitignored
+  `scripts/tuolumne/profile.local.sh` (`manual`, `build-tuolumne`,
+  `~/spack_envs/tuolumne_trilinos`). The tree was rebuilt incrementally, not
+  reconfigured.
+- **Build only the four test executables**,
+  `tessera_test_{collapse_edges,flip_edges}_{SERIAL,HIP}`, never a bare `make`.
+  Tessera is header-only (`CMakeLists.txt:74`). `collapse_edges` is in the set
+  because its case 14 calls `flipEdges`.
+- **Targeted run, not Tessera's full gate.** The change is confined to
+  `flipEdgesImpl` and its private message types, and only
+  `test_flip_edges.cpp` and `test_collapse_edges.cpp` call `flipEdges`.
+  Tessera's `docs/testing.md` ("When to run the full gate") makes a targeted run
+  the default for a change this narrow.
+
+**Decisions made in the session:**
+
+- **Step 2 has three labelled parts.** 2a evaluates the geometric test for every
+  boundary survivor and stores it in `Cand::geomOk`, erasing nothing. 2b is the
+  duplicate and claim round; it erases the *exists* candidates into
+  `rejectedDuplicateEdge` and records the *claimed* ones. 2c attributes the rest
+  in order: a geometric failure into `rejectedGeometric`, then a *claimed*
+  candidate into `rejectedConflict`. The geometric code is the old 2c's,
+  unchanged apart from writing `c.geomOk` instead of erasing.
+- **The coordinator's claim winner is computed over the queries it received**
+  (`asked.data`), per target, skipping askers that failed geometry and targets
+  that exist. The comparison is the step-3 priority, `len2` greater, or equal
+  `len2` and smaller `EdgeKey`, so no gid enters it.
+- **Bit-identity off the defect holds by construction.** The geometric verdict
+  is the same computation on the same inputs. A candidate is answered *claimed*
+  only when another geometric survivor asked for the same non-existing target,
+  so on any input without such a pair the replies are *exists* or *free*
+  exactly where the old boolean was 1 or 0.
+- **The flip doc comment on `flipEdges` now says** that under either relation
+  no two accepted flips create the same new edge, beside its independent-set
+  sentence.
+- **The case's failure fixture is a perturbed copy, `pushedBipyramidSoup()`**,
+  which calls `flatBipyramidSoup` and scales vertex 5's `x` and `y` by
+  `kPushOut = 2`. `flatBipyramidSoup` itself is untouched, so case 13 is
+  unaffected. A new helper, `diagonalRun`, mirrors case 14's `conflictRun` for
+  the V 8 fixtures and takes `minQuality`.
+- **The success winner is asserted, not only compared.** Besides equality with
+  the `MPI_COMM_SELF` flip set, the case predicts the winner from the soup
+  coordinates through `edgeLen2Canonical` and the priority, and asserts the
+  gathered set is `{(winner, (0,1))}`.
+
+**Signatures and message types changed.** All private to `flipEdgesImpl`:
+
+- `detail::DupQuery` gains `double len2` and `unsigned char geomOk`
+  (`Tessera_EdgeFlip.hpp:444-456`).
+- New `enum class detail::DupStatus : unsigned char { Free, Exists, Claimed }`
+  (`:458-463`).
+- `detail::DupReply::exists` (an `unsigned char` boolean) is replaced by
+  `DupStatus status` (`:465-469`). No reference to the old member remains in
+  `src/` or `tests/`.
+- The local `struct Cand` gains `bool geomOk`.
+- `flipEdges`, `FlipResult` and `DefaultFlipPolicy` are unchanged. The
+  `FlipResult::rejectedConflict` comment names the diagonal claim as a third way
+  to lose, and the header's step-2 `DUPLICATE` text (`:142-178`) states the
+  three replies, the precedence, and that the claim winner can still lose step 3
+  with the shut-out claimant not reconsidered (Decision 3).
+
+**The Python model, run before the build.** It transcribed `flatBipyramidSoup`,
+the library's `edgeLen2Canonical` and `flipRadiusRatio` in their operation order,
+and each candidate's `w`, `x` and new faces `(lo,x,w)`, `(hi,w,x)`. Its numbers
+equal the C++ printout bit for bit:
+
+| Soup | Edge | Squared length | New-face radius ratios |
+| --- | --- | --- | --- |
+| flat | `(2,3)` | `0.99999999999999978` | `0.87969658092961811`, `0.87969658092961833` |
+| flat | `(5,6)` | `0.99999999999999922` | `0.87969658092961811`, `0.87969658092961833` |
+| pushed, vertex 5 at radius 2 | `(2,3)` | `0.99999999999999978` | `0.87969658092961811`, `0.87969658092961833` |
+| pushed, vertex 5 at radius 2 | `(5,6)` | `2.9999999999999987` | `0.73625936037355844`, `0.87969658092961833` |
+
+Both edges have `w = 0`, `x = 1`, so both create `(0,1)`. Radius 1.5 was tried
+in the model first. It separates the two by only `0.829` against `0.880`, so
+radius 2 was chosen, with `minQuality = 0.8` (`0.80000000000000004`) between
+`0.736` and `0.880`.
+
+**Fixtures (identical in all twenty `flip_edges` launches, Serial and Default
+spaces):**
+
+| Fixture | `minQuality` | `SharedFace` | `EndpointInQuad` |
+| --- | --- | --- | --- |
+| flat, `(2,3)+(5,6)` | 0 | accepted 1 `{(2,3)→(0,1)}`, `rejectedConflict=1`; SELF set identical | accepted 1 `{(2,3)→(0,1)}`, `rejectedConflict=1`; SELF set identical |
+| pushed, `(2,3)+(5,6)` | 0.8 | accepted 1 `{(2,3)}`, `rejectedGeometric=1`, `rejectedConflict=0` | accepted 1 `{(2,3)}`, `rejectedGeometric=1`, `rejectedConflict=0` |
+
+`maxNormalDeviation = π` throughout, and `rejectedBoundary` and
+`rejectedDuplicateEdge` are 0 in every run. Every run passes `checkAll`,
+`checkCountersPartition` and `checkKeyTables`. Case 3 still prints
+`requested=1 rejectedDuplicateEdge=1 accepted=0`.
+
+**Existing cases.** Every `flip_edges` and `collapse_edges` case passed at its
+unchanged literals. Of the three places that flip an already-edited mesh, the
+printout of `collapse_edges` case 14 matches `## M1-U2` exactly: `final F=1244,
+1640 total edits` at np1, 3 and 5, and `final F=1236, 1664 total edits` at np2
+and 4, on both backends. Case 9's `mask2` call printed `secondAccepted=120` at
+every rank count, and case 12 passed its floor. Neither prints a line that
+`## M1-U2` recorded, so this run cannot show whether their counts moved, only
+that their assertions hold.
+
+**Bugs only running revealed.** None. The build succeeded first time (`make`
+rc 0). The run passed first time. The same-diagonal defect itself has still not
+been run against the old code; case 15's success fixture would fail
+`checkKeyTables` there, by the analysis in `## M1-U2`.
+
+**Line references refreshed.** `milestone1.md`'s Read this first #6 now states
+that its Tessera references are against `33dc6b9`:
+
+- `flipRadiusRatio`: `Tessera_EdgeFlip.hpp:305-331` → `:340-366`.
+- `DefaultFlipPolicy`: `:352-371` → `:387-406`.
+- The geometric test: `:725-762` → `:744-777` (evaluated in 2a; attributed in
+  2c at `:840-857`).
+- The duplicate-edge check: `:142-150` → `:142-178`.
+- Step 3 and Decision 2: `:154-206` → `:187-239`.
+
+The #6 duplicate-edge bullet states the same-diagonal rule as present behavior,
+and the "Current state" bullet that listed the defect as wrong upstream now lists
+the rule under "Present upstream, unused by Beatnik". The references inside the
+M1-U2 and M1-U3 entries stay against their stated commits. M1-U3's **Do** step 4
+said "Four calls" and named three places; it now says "Three places".
+
+**Provenance.**
+
+- Tessera commit tested: `33dc6b9143b977ec657e01c59ac804d611856b5d`
+  (`mesh-quality-auto`), committed before the submit.
+- `spack env status`: `==> In environment /g/g20/stewartj/spack_envs/tuolumne_trilinos`.
+- Build: `spack env activate ~/spack_envs/tuolumne_trilinos/`, then, in
+  `build-tuolumne`,
+  `make -j tessera_test_collapse_edges_SERIAL tessera_test_collapse_edges_HIP tessera_test_flip_edges_SERIAL tessera_test_flip_edges_HIP`.
+  rc 0. The only warnings are the 32 `-Wnontrivial-memcall` ones from
+  `Tessera_HaloRebuild.hpp:99`.
+- Submit, from the Tessera root with `TESSERA_REPO=$(pwd)` exported:
+  `flux batch scripts/tuolumne/run_unit_tests.flux regression -R "^(collapse_edges|flip_edges)_"`.
+  Job `f3hxYnUALpnB`, `pdebug`, COMPLETED rc 0, 176 s. `flux job status`
+  returned rc 0.
+- Result: `100% tests passed, 0 tests failed out of 20`. These are ctest tests
+  #251–260 (`flip_edges`) and #271–280 (`collapse_edges`), SERIAL and HIP,
+  np1–5. The output is `tessera-unit.f3hxYnUALpnB.out` in the Tessera root. The
+  case lines come from `build-tuolumne/Testing/Temporary/LastTest.log`.
+
+**Re-basing:** not applicable. M1-U3 touches no Beatnik pass.
+
+**Affects:**
+
+- **T4d3:** the quality flips may pass a mask with two edges whose quads share
+  both opposite corners. `flipEdges` accepts the higher-priority geometric
+  survivor and counts the other in `rejectedConflict`, so the mask need not test
+  the new diagonal.
+- **T4d5:** the same holds for the valence pass under `EndpointInQuad`; the open
+  question in `## M1-U2`'s **Affects:** line is closed. A shut-out claimant is
+  not reconsidered within the call, so the multi-round pass is what picks it up.
+- **M1-T2:** a conformity failure in the cleanup flips can no longer come from a
+  same-diagonal pair.
