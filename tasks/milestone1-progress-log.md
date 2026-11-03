@@ -992,3 +992,57 @@ file `tasks/milestone1_M1-U2.md` remains.
    reviewable. This is Tessera infrastructure, not this task's.
 
 **Affects:** none
+
+## M1-U3 review
+
+**Verdict:** Passed
+**Reviewed:** Tessera `33dc6b9^..33dc6b9` (`mesh-quality-auto`; one commit), per
+the `**Commits:**` line of `## M1-U3`. It touches `src/Tessera_EdgeFlip.hpp`,
+`tests/test_flip_edges.cpp`, `README.md` and `docs/design.md`, all named in
+**Fill in**. Beatnik `a02631f` touches only `tasks/`.
+**Evidence:** implementing session's job `f3hxYnUALpnB`, output read —
+`scripts/tuolumne/run_unit_tests.flux regression -R "^(collapse_edges|flip_edges)_"`,
+output `../tessera/tessera-unit.f3hxYnUALpnB.out`, case lines from
+`../tessera/build-tuolumne/Testing/Temporary/LastTest.log` (written 12:41, the
+job's end; not overwritten since). Flux: COMPLETED, rc 0, submitted 12:39:00,
+started 12:39:03 (queue wait 3 s), run 2.93 min. Checks:
+- **Provenance:** the runner echoes no commit SHA. `33dc6b9` was committed at
+  12:38:56, four seconds before the submit; it is Tessera's HEAD and the only
+  untracked path is `thirdparty/`, so no later change exists.
+- **Completion:** normal completion, rc 0; the output runs from its header to
+  `=== regression tests complete (rc=0)` with
+  `100% tests passed, 0 tests failed out of 20`: `flip_edges` and
+  `collapse_edges`, SERIAL and HIP, np1–np5.
+- **Both directions:** case 15 asserts, not just prints, each one. The flat
+  pair fails unless `accepted=1`, `rejectedConflict=1`, `rejectedGeometric=0`,
+  the gathered set equals the `MPI_COMM_SELF` set and the priority's predicted
+  `{(winner,(0,1))}`, and `checkKeyTables` passes. The pushed pair fails unless
+  `accepted=1`, `rejectedGeometric=1`, `rejectedConflict=0` with set `{(2,3)}`,
+  and the case fails if its own premise (`(5,6)` longer, threshold between the
+  two radius ratios) does not hold. `LastTest.log` holds the premise line 20
+  times, the pair line 40 times (both relations × 20 launches), all identical,
+  and case 3's `requested=1 rejectedDuplicateEdge=1 accepted=0` 20 times.
+- **Agreement:** matches the **Met.** paragraph.
+
+Code: 2a evaluates the unchanged geometric test into `Cand::geomOk` without
+erasing; 2b's coordinator picks, per non-existing target, the best `geomOk`
+asker by `(len2 DESC, EdgeKey ASC)` with no gid, and answers Exists / Free /
+Claimed as **Do** step 2 states; 2c attributes geometric failures before
+claims, so precedence is boundary, duplicate, geometric, conflict. `claim`
+holds pointers into `asked.data`, which is not modified while they are live,
+and `claim.at()` is only reached for a `geomOk` asker of a non-existing target,
+which is always present. Both `allToAllV` rounds stay unconditional on every
+rank; no collective was added. All on host, outside any Kokkos functor. Off the
+defect, replies are Exists/Free exactly where the old boolean was 1/0, so the
+default path is unchanged. `DupReply::exists` has no remaining reference. The
+header, `FlipResult::rejectedConflict` comment, `flipEdges` doc comment,
+`docs/design.md` and `README.md` state the rule in the present tense.
+Mechanical pass: the S4 hits on `exists` are the English word and the
+unchanged `exists` edge set, and the one S2 hit is the case-15 header comment;
+all dismissed. No prompt file `tasks/milestone1_M1-U3.md` remains.
+
+1. [follow-up] As `## M1-U1 review` and `## M1-U2 review` noted, Tessera's
+   `run_unit_tests.flux` echoes no commit SHA, so provenance again rests on
+   timing. Tessera infrastructure, not this task's.
+
+**Affects:** none
