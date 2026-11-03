@@ -432,18 +432,35 @@ library code.
 launch interactively from a login node), and a table of measured numbers in
 `milestone1-progress-log.md`.
 
-**Reference:** the existing runner
-[scripts/tuolumne/run_regression_minset.flux](../scripts/tuolumne/run_regression_minset.flux)
-for the resolver-sourcing, `beatnik_exe` and scratch conventions;
-`Beatnik_Test_DirectSolve10Steps.cpp:263-304` for the `goldForStep` +
-`compare_output.py` subprocess pattern.
+**Reference:** M0-D1 made the same measurement for milestone 0, and its two
+artifacts are this task's tools, used unchanged:
+
+- The driver
+  [tests/regression_tests/Beatnik_Test_Milestone0Run.cpp](../tests/regression_tests/Beatnik_Test_Milestone0Run.cpp),
+  installed as `Beatnik_Test_Milestone0Run_MPI_{SERIAL,HIP}` in no test tier and
+  resolved through `beatnik_exe`. Its `makeParams()` (`:174-260`) is the M1-G1
+  command field for field once the positionals are `2 600 10`: subdivision level
+  2, 600 steps, a checkpoint every 10. It asserts the global vertex and face
+  counts every step and that the step budget was reached.
+  `examples/02_adaptive_mesh_bubble` cannot serve: it fixes
+  `Kokkos::DefaultExecutionSpace` (`adaptive_mesh_bubble.cpp:212`) and the
+  installed binary is `+rocm`, so it runs HIP only.
+- The offline tabulator
+  [tests/regression_tests/milestone0_ladder.py](../tests/regression_tests/milestone0_ladder.py):
+  `pair` for the confirmed per-rung first-failing step and the per-field table,
+  `growth` for full-precision `max|e|` series, `series` for volume drift and
+  minimum quality. Its `RUNGS` (`:105`) are step 2's five tolerances.
+- [scripts/tuolumne/milestone0_divergence.flux](../scripts/tuolumne/milestone0_divergence.flux)
+  is the batch-script shape to follow: resolver sourcing, provenance block, the
+  rank-to-GPU binding, one freshly-created scratch directory per run, the
+  FD-3 row loop, and the refusal to run under `BEATNIK_USE_PROD=1`. This task's
+  script uses the **dev** spack env for the same reason.
 
 **Do:**
 
-1. Run `examples/02_adaptive_mesh_bubble` with the M1-G1 command's Beatnik
-   equivalent for 600 steps, checkpointing every 10, at ranks 1 and 4 on SERIAL
-   and HIP, into `BEATNIK_TEST_SCRATCH` (**a parallel filesystem** — a node-local
-   scratch fails every multi-node launch, CLAUDE.md).
+1. Run `Beatnik_Test_Milestone0Run_MPI_<BACKEND> 2 600 10` at ranks 1 and 4 on
+   SERIAL and HIP, into `BEATNIK_TEST_SCRATCH` (**a parallel filesystem** — a
+   node-local scratch fails every multi-node launch, CLAUDE.md).
 2. For each of the 61 steps, run `compare_output.py` at each of
    `--rtol 1e-12/1e-10/1e-8/1e-6/1e-4` (with `--atol` two decades below) and
    record the first step at which each fails, plus `max|e|` per field per step.
