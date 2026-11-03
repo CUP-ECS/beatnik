@@ -1,6 +1,8 @@
 # Milestone 1 — the reference's default rising-bubble configuration
 
-**Status:** NOT STARTED
+**Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1 and M1-G2 are **DONE**
+(M1-G1 and M1-G2 reviewed, Passed). **M1-D1 next**. T4d1–T4d6, M1-T1, M1-T2 and
+M1-A1 are NOT STARTED.
 
 ## Problem
 
