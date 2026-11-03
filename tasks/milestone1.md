@@ -267,7 +267,7 @@ introduces or sharpens.
 
 | Convention | Choice |
 | --- | --- |
-| Task IDs | `T4d*` for work moved from framework.md (IDs are referenced from source strings); `M1-*` for work new here. `M1-G*` = human gold-file generation, `M1-D*` = measurement, `M1-T*` = code, `M1-U*` = a change made upstream in `../tessera`, `M1-A*` = a decision to be recorded. |
+| Task IDs | `T4d*` for work moved from framework.md (IDs are referenced from source strings); `M1-*` for work new here. `M1-G*` = reference-run gold-file generation, `M1-D*` = measurement, `M1-T*` = code, `M1-U*` = a change made upstream in `../tessera`, `M1-A*` = a decision to be recorded. |
 | Edge-mask type | host `const std::vector<char>&`, sized `ownedEdgeCount()`, one entry per **owned** edge — T4a's convention for `splitEdges`, and exactly what Tessera's collapse and flip take. De-template the two stale `EdgeListView` signatures rather than adding an overload. |
 | Where a reference acceptance rule lives | **In the mask whenever it needs only the quad; in the Tessera policy only when it needs both endpoints' one-rings.** Flip tests (the gain test, the valence test, the valence path's normal and quality tests) and the collapse candidate predicate and normalized-length ranking are evaluated by Beatnik while building the mask, and both flip call sites pass the permissive `DefaultFlipPolicy{ maxNormalDeviation = π, minQuality = 0 }`, the valence call site with `conflict = FlipConflict::EndpointInQuad` (M1-U2). Collapse's geometric test needs the full one-rings, so it is a Tessera policy: `maxNormalRotation = acos(0.1)`, `minQuality = --remesh-min-quality`, and the reference quality metric through M1-U1's hook. Read this first #6 has the evidence. A marked edge may still be rejected; that shows up in the `rejected*` counters, never as a silent drop. |
 | Reference-state re-basing | every pass that moves a vertex or changes connectivity states, in its progress-log entry, whether it calls `AdaptiveMesh::resetReferenceState`, and why. A silent choice here changes every later refinement decision. |
@@ -363,7 +363,7 @@ line is the index of exactly that.
 
 ## Task sequence
 
-### M1-G1 — the fixed-mesh 600-step gold set *(human step, no code)* — **NOT STARTED**
+### M1-G1 — the fixed-mesh 600-step gold set *(reference run, no code)* — **DONE**
 
 **Depends on:** none.
 
@@ -387,11 +387,30 @@ python examples/run_adaptive_mesh_bubble.py --steps 600 \
 bitwise identical to `initial_conditions/gold.npz` as T2a's was, and that the key
 set matches so `FIELD_MAP` needs no edit.
 
-**Exit criterion:** 61 `.npz` files present;
+**Exit criterion:** 61 numbered `_step%07d.npz` checkpoints present (steps 0,
+10, …, 600). The `checkpoint_latest.npz` the reference writes beside them does not
+count: it duplicates the last numbered step and is inert to `goldForStep`, which
+matches only the `_step%07d.npz` suffix. Also:
 `python tests/regression_tests/compare_output.py <gold>/…_step0000000.npz tests/regression_tests/initial_conditions/gold.npz --rtol 1e-12 --atol 1e-14`
 exits 0, and a self-compare of the step-600 file against itself at the same
 tolerances exits 0 with zero ambiguous vertices (the check that
 `--match-eps 1e-9` still resolves this mesh at step 600).
+
+**Met.** Job `f3hyB1FBHAym` (`scripts/tuolumne/m1g1_gold.flux`, `pdebug`) ran
+the command above verbatim except `--checkpoint-dir`, in 25 s. 61 numbered
+checkpoints, `_step0000000` through `_step0000600` every 10, plus the
+`checkpoint_latest.npz` that does not count (byte-identical to the step-600 file
+by `cmp`), copied into `gold/` and verified by `cmp` and `sha256sum`. No early
+stop: the last progress line is `step=  600`, `saved final finite checkpoint` is
+logged, there is no `stopping at step=`, and every field is finite in all 61
+files. `vertices (162, 3)` / `faces (320, 3)` and the same nine keys as
+`initial_conditions/gold.npz` in every file, so `FIELD_MAP` needs no edit. Step 0
+is `np.array_equal` to `initial_conditions/gold.npz` on all nine keys, and the
+step-0 `compare_output.py` at `--rtol 1e-12 --atol 1e-14` exits 0. The
+self-compare of `checkpoint_t00001p314132_step0000600.npz` at the same
+tolerances exits 0 with `matching (eps=1e-09): 162/162 unambiguous, ambiguous
+cpp=0 gold=0`. Final `time = 1.3141321331131375`. The command and provenance are
+in [the README](../tests/regression_tests/direct-solve-600-steps/README.md).
 
 ---
 
@@ -435,7 +454,7 @@ such rather than absorbed into the trend.
 
 ---
 
-### M1-G2 — the milestone gold set *(human step, no code)* — **NOT STARTED**
+### M1-G2 — the milestone gold set *(reference run, no code)* — **DONE**
 
 **Depends on:** none. Independent of M1-D1 — generate it in parallel.
 
@@ -467,11 +486,28 @@ vertex counts, the `time` series, and whether the run stopped early
 and what M1-A1 reasons about; a gold set whose face count is not recorded forces
 the next session to re-derive it from 61 files.
 
-**Exit criterion:** 61 `.npz` files present (fewer only if the reference itself
-stopped early, in which case the stop step is recorded in the `README.md` and
-becomes the compare depth ceiling); a self-compare of the last file at
+**Exit criterion:** 61 numbered `_step%07d.npz` checkpoints present (fewer only if
+the reference itself stopped early, in which case the stop step is recorded in the
+`README.md` and becomes the compare depth ceiling). The `checkpoint_latest.npz`
+beside them does not count, as in M1-G1. Also: a self-compare of the last file at
 `--rtol 1e-12 --atol 1e-14` exits 0; step 0 is bitwise identical to
 `initial_conditions/gold.npz`.
+
+**Met.** Job `f3hyB1NchZz7` (`scripts/tuolumne/m1g2_gold.flux`, `pdebug`) ran
+the command above verbatim except `--checkpoint-dir`, in 707 s (1.18 s/step).
+61 numbered checkpoints through `_step0000600`, plus the `checkpoint_latest.npz`
+that does not count (byte-identical to the step-600 file by `cmp`), copied into
+`gold/` and verified by `cmp` and `sha256sum`. **No early stop**: the last
+progress line is `step=  600`, `saved final finite checkpoint` is logged, there
+is no `stopping at step=`, and every field is finite in all 61 files, so the
+compare-depth ceiling is the full 600 steps. The same nine keys in every file.
+Step 0 is `np.array_equal` to `initial_conditions/gold.npz` on all nine keys. The
+self-compare of `checkpoint_t00000p557934_step0000600.npz` at `--rtol 1e-12
+--atol 1e-14` exits 0 with `matching (eps=1e-09): 538/538 unambiguous,
+ambiguous cpp=0 gold=0`. Face count: `320` at step 0, a peak of `1090` at step
+10, then `1072`–`1076` from step 60 to the end, finishing at `1072` (`538`
+vertices). Final `time = 0.55793412422180344`. The 61-row step / `time` / V / F
+table is in [the README](../tests/regression_tests/milestone1-bubble/README.md).
 
 ---
 
