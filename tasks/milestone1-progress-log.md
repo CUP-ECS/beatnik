@@ -777,3 +777,96 @@ nearly all mesh editing happens in the first 60 steps. `refine_events=0` and
   the mesh starts growing later. The `pdebug` 1-hour cap holds about 3000 steps
   of this configuration. M1-A1 must also account for the run reaching only
   `t ≈ 0.56` in 600 steps.
+
+## M1-G1 review
+
+**Verdict:** Passed
+**Reviewed:** `26d3959^..26d3959` (`0106752`, which adds the log section, touches
+only `tasks/`)
+**Evidence:** the exit criterion is a check on committed files, so it was re-run
+directly against `tests/regression_tests/direct-solve-600-steps/gold/` at
+`0106752`, with no job. The implementing session's job `f3hyB1FBHAym`
+(`scripts/tuolumne/m1g1_gold.flux`, log `beatnik_m1g1_gold.f3hyB1FBHAym.log`)
+was read in full: COMPLETED rc 0, 0 s queue wait, 48 s runtime, Beatnik
+`8c89323` with the script untracked. The log ends `ALL CHECKS PASS`,
+`checks rc=0`. The re-run gave:
+
+- 62 tracked files, 61 numbered at steps 0, 10, …, 600. All 62 are
+  byte-identical to the Lustre originals in `/p/lustre5/stewartj/beatnik/M1-G1/`,
+  so the committed data is the job's output. `checkpoint_latest.npz` is
+  byte-identical to the step-600 file.
+- Step 0 `np.array_equal` to `initial_conditions/gold.npz` on all nine keys.
+  `compare_output.py` step 0 against the IC gold at `--rtol 1e-12 --atol 1e-14`
+  exits 0, `162/162 unambiguous`.
+- The step-600 self-compare at the same tolerances exits 0,
+  `matching (eps=1e-09): 162/162 unambiguous, ambiguous cpp=0 gold=0`.
+- Every file has the nine keys, a stored `step` equal to its suffix, finite
+  float fields and `V = F/2 + 2`. Every undirected edge is used by exactly two
+  faces. `time` rises strictly to `1.3141321331131375`.
+- Failure direction: the step-600 file compared against the step-590 file exits
+  **1**, so the comparator rejects a genuinely different checkpoint and the
+  rc-0 results above are not vacuous.
+
+The mechanical pass over the range found no candidates. The two scripts are
+outside **Fill in**, but they follow from it: CLAUDE.md requires a batch script
+under `scripts/<system>/`, and `## M1-G1` records the one-script-per-task
+decision. Both carry the BSD-3-Clause header and source the resolver before
+any work. The prompt file is deleted.
+
+1. [nit] `tests/regression_tests/direct-solve-600-steps/README.md:16-17` names
+   `beatnik_m1g1_gold.f3hyB1FBHAym.log` "in the Beatnik repository root" as the
+   source of the per-step stdout. `*.log` is gitignored (`.gitignore:6`), so the
+   file exists only in the checkout that ran the job, and a clone has a dangling
+   reference. The README itself records everything the exit criterion and
+   M1-D1 need, so no fact is lost. The fix: say the log is not committed, or
+   commit it beside `gold/` with `git add -f`.
+2. [follow-up] Pre-existing in the design, not caused by this task: the M1-G2
+   entry says `--source-quadrature vertex` is "already" the `parse_args`
+   default. At reference `ec7d7bf` the committed default is `face`. Only the
+   reference's uncommitted working-tree change makes it `vertex`, as this
+   task's provenance capture shows. Both gold commands pass the option
+   explicitly, so neither set is affected. The sentence is wrong for anyone
+   who runs the reference from a clean checkout, and it should say so.
+
+**Affects:** none
+
+## M1-G2 review
+
+**Verdict:** Passed
+**Reviewed:** `26d3959^..26d3959` (`0106752` touches only `tasks/`)
+**Evidence:** as `## M1-G1 review`, re-run directly against
+`tests/regression_tests/milestone1-bubble/gold/` at `0106752`. The implementing
+session's job `f3hyB1NchZz7` (`scripts/tuolumne/m1g2_gold.flux`, log
+`beatnik_m1g2_gold.f3hyB1NchZz7.log`) was read in full: COMPLETED rc 0, 4 s
+queue wait, 12.14 min runtime, Beatnik `8c89323` with the script untracked. The
+log ends `ALL CHECKS PASS`, `checks rc=0`. Its echoed command is the task
+entry's, except `--checkpoint-dir`. The re-run gave:
+
+- 62 tracked files, 61 numbered at steps 0, 10, …, 600, so there was no early
+  stop and the compare-depth ceiling is 600. All 62 are byte-identical to
+  `/p/lustre5/stewartj/beatnik/M1-G2/`. `checkpoint_latest.npz` is
+  byte-identical to the step-600 file.
+- Step 0 `np.array_equal` to the IC gold on all nine keys. The
+  `compare_output.py` step-0 check exits 0, `162/162 unambiguous`.
+- The step-600 self-compare at `--rtol 1e-12 --atol 1e-14` exits 0,
+  `matching (eps=1e-09): 538/538 unambiguous, ambiguous cpp=0 gold=0`.
+- Every file has the nine keys, a matching stored `step`, finite float fields,
+  valid face indices with no unreferenced vertex, `V = F/2 + 2`, and every edge
+  shared by exactly two faces. Every remeshed checkpoint is therefore a closed
+  2-manifold. `time` rises strictly to `0.55793412422180344`.
+- The README's 61-row step / `time` / V / F table is identical to the table the
+  job printed from the `.npz` files. Peak `547`/`1090` at step 10, final
+  `538`/`1072`.
+- Failure direction: step 600 compared against step 590 exits **1**.
+
+The mechanical pass found no candidates. The script follows from **Fill in** as
+M1-G1's does.
+
+1. [nit] `tests/regression_tests/milestone1-bubble/README.md:19-22` cites the
+   gitignored job log, as M1-G1 review finding 1 describes. Here it matters
+   slightly more: the README quotes facts from that log's progress lines that
+   no `.npz` holds — `remesh_events` 631/639, `refine_events=0`, `flips=0`,
+   step 1 `V=462 F=920`. The quoted values stand, but they cannot be re-checked
+   from a clone. The same fix applies.
+
+**Affects:** none
