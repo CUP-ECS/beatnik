@@ -137,9 +137,11 @@ pass for the wrong reason.
 > the gate was vacuous; it is not any more. **But it covers only what exists** —
 > both adaptivity paths are covered for their *refinement* halves only, and only
 > for the structural and shape claims those two tests make. Nothing in the gate
-> coarsens: collapse, quality flips and the isotropic cleanup are T4d and not
-> yet implemented, and any configuration reaching one is rejected before the
-> first step. See `tasks/framework.md`.
+> coarsens. Collapse is implemented (T4d2, covered by the `unit` member
+> `Beatnik_Test_MeshEdits`) but the `Solver` rejects
+> `--remesh-collapse-factor > 0` at setup until T4d6; quality flips and the
+> isotropic cleanup are T4d and not yet implemented, and any configuration
+> reaching one is rejected before the first step. See `tasks/framework.md`.
 
 ## CI
 

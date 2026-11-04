@@ -790,11 +790,13 @@ subsections above, which are intended behavior.
   generation, the initial condition, the checkpoint write, the seven surface
   operators, the direct Birkhoff-Rott sum, ten fixed-mesh timesteps and **both
   adaptivity paths' refinement halves** reproduce the reference. What it still
-  does not cover is **coarsening**: edge collapse, quality flips and the
-  isotropic cleanup are T4d and not yet implemented in Beatnik (Tessera provides
-  the collapse, flip and compaction primitives they build on), and every
-  configuration that would reach one is rejected before the first step by name
-  and task ID. Resolves progressively as T4 lands its remaining regression
+  does not cover is **coarsening**. Edge collapse
+  (`DynamicRemesh::collapseShortEdges`, T4d2) is implemented and covered by the
+  `unit` member `Beatnik_Test_MeshEdits`, but the `Solver` still rejects
+  `--remesh-collapse-factor > 0` at setup until task T4d6; quality flips and
+  the isotropic cleanup are T4d and not yet implemented. Every configuration
+  that would reach collapse, a flip or the cleanup in a run is rejected before
+  the first step by name and task ID. Resolves progressively as T4 lands its remaining regression
   tests. See
   [CLAUDE.md](CLAUDE.md#minimum-test-set) and `tasks/framework.md`.
 

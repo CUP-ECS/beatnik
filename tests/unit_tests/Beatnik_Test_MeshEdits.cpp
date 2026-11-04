@@ -11,11 +11,12 @@
 /**
  * @file Beatnik_Test_MeshEdits.cpp
  * @brief `unit`-tier test of the three `SurfaceMesh` edit adapters over
- *        Tessera: `collapseEdges`, `flipEdges` and `compact`.
+ *        Tessera — `collapseEdges`, `flipEdges` and `compact` — and of the
+ *        collapse pass built on them, `DynamicRemesh::collapseShortEdges`.
  *
- * THIS IS T4d1's EXIT CRITERION, MECHANIZED (`tasks/milestone1.md`). Its rank
- * sweep is `scripts/tuolumne/t4d1_mesh_edits.flux`, ranks 1-6 in one job; the
- * tier registers it at one rank like every other member.
+ * THIS IS T4d1's AND T4d2's EXIT CRITERIA, MECHANIZED (`tasks/milestone1.md`).
+ * Its rank sweep is `scripts/tuolumne/t4d1_mesh_edits.flux`, ranks 1-6 in one
+ * job; the tier registers it at one rank like every other member.
  *
  * WHAT IT ASSERTS
  * ---------------
@@ -49,6 +50,23 @@
  * in its counts and face gids. Marking it together with a valid antipodal
  * edge accepts exactly the valid one, and the identities hold.
  *
+ * Case 3, **T4d2**, each part on a fresh default icosphere whose vertices are
+ * moved radially by a smooth function of position, so that no two collapse
+ * ratios tie:
+ *
+ *   - **3a, the failure direction.** `collapse_factor = 0` returns 0 with no
+ *     candidates, and V/E/F, the face gids, every local position and the mesh
+ *     generation are unchanged — the path the `Solver` runs until task T4d6.
+ *   - **3b.** An artificially large `collapse_factor` at
+ *     `max_collapses_per_pass = 0`, which is **unlimited**: the candidate and
+ *     collapse counts are fixed literals, faces fall by `2 * collapses`, and
+ *     `V - E + F == 2`.
+ *   - **3c.** The same at a binding cap: exactly the cap's count is handed to
+ *     Tessera, and the collapse count is a fixed literal.
+ *   - **3d.** `remesh()`, splitting disabled by an unreachable split factor,
+ *     collapses exactly 3b's count; at `collapse_factor = 0` it changes
+ *     nothing.
+ *
  * NAMING EDGES WITHOUT GIDS
  * -------------------------
  * Gids are not on the adapter's public surface, so an edge is named
@@ -63,7 +81,10 @@
  * (`Beatnik_TestAssert.hpp`). The test writes no files.
  */
 
+#include <Beatnik_DynamicRemesh.hpp>
 #include <Beatnik_MeshInterface.hpp>
+#include <Beatnik_Params.hpp>
+#include <Beatnik_SurfaceState.hpp>
 #include <Beatnik_Types.hpp>
 
 #include "Beatnik_TestAssert.hpp"
@@ -107,6 +128,24 @@ const double kFlipPerturb[3] = { 0.031, -0.017, 0.023 };
 const double kVertexDir[3] = { 0.21, 0.37, 0.9 };
 const double kSpokeDir[3] = { 0.53, -0.29, 0.11 };
 const double kRingEdgeDir[3] = { -0.17, 0.44, 0.61 };
+
+// Case 3's controls. On the unit sphere the curvature target
+// sqrt(8 * 0.004 / kappa) exceeds the default h_max, so every vertex target is
+// h_max = 0.05 and an edge is a candidate iff it is shorter than
+// kCollapseFactor * 0.05 = 0.3, which is inside the subdivision-2 edge-length
+// range: some edges qualify and some do not. The radial perturbation
+// amplitude breaks the icosphere's length ties. kCap is below the candidate
+// count, so the cap binds.
+constexpr double kPerturbAmp = 0.02;
+constexpr double kCollapseFactor = 6.0;
+constexpr int kCap = 25;
+// Measured, identical at ranks 1-6; see tasks/milestone1-progress-log.md
+// `## T4d2`. Tessera's one independent set per call accepts only the
+// candidates that are shortest in both endpoints' one-rings, which on this
+// smoothly perturbed mesh is 4 of 240, and the same 4 survive the cap.
+constexpr long long kCandidates = 240;
+constexpr int kCollapsesUnlimited = 4;
+constexpr int kCollapsesCapped = 4;
 
 Point unit( const double* d )
 {
@@ -653,6 +692,198 @@ void caseLinkCondition( Beatnik::Test::Recorder& rec )
     }
 }
 
+//---------------------------------------------------------------------------//
+// Case 3 -- DynamicRemesh::collapseShortEdges (T4d2).
+//---------------------------------------------------------------------------//
+
+/// A fresh default icosphere with every owned vertex moved radially by a
+/// smooth function of its own position, then halo-exchanged. The icosphere's
+/// symmetry makes many edge lengths, and so many collapse ratios, exactly
+/// equal; the perturbation breaks those ties so the cap's threshold search
+/// has a unique answer. It is a function of position alone, so it is
+/// bit-identical at every rank count.
+template <class ExecSpace, class MeshType>
+void makePerturbedIcosphere( MeshType& mesh )
+{
+    const Real center[3] = { 0.0, 0.0, 0.0 };
+    mesh.generateIcosphere( kSubdivisions, 1.0, center );
+    auto pos = mesh.positions();
+    const double amp = kPerturbAmp;
+    Kokkos::parallel_for(
+        "beatnik_t4d2_perturb", Kokkos::RangePolicy<ExecSpace>(
+                                    0, mesh.ownedVertexCount() ),
+        KOKKOS_LAMBDA( const int i ) {
+            const double s =
+                1.0 + amp * Kokkos::sin( 3.0 * pos( i, 0 ) +
+                                                 5.0 * pos( i, 1 ) +
+                                                 7.0 * pos( i, 2 ) );
+            for ( int d = 0; d < 3; ++d )
+                pos( i, d ) = s * pos( i, d );
+        } );
+    Kokkos::fence();
+    mesh.haloExchange();
+}
+
+template <class ExecSpace, class MeshType>
+void caseCollapseShortEdges( Beatnik::Test::Recorder& rec )
+{
+    using remesh_type =
+        Beatnik::DynamicRemesh<ExecSpace, typename MeshType::memory_space>;
+    using state_type =
+        Beatnik::SurfaceState<ExecSpace, typename MeshType::memory_space>;
+
+    state_type state( Beatnik::StateModel::Potential );
+
+    auto runPass = [&]( MeshType& mesh, const Beatnik::RemeshParams& p,
+                        Beatnik::RemeshDiagnostics& diag )
+    {
+        remesh_type dr( p );
+        typename remesh_type::scalar_view target( "beatnik_t4d2_target",
+                                                  mesh.totalVertexCount() );
+        dr.vertexTargetEdgeLength( mesh, state, target );
+        return dr.collapseShortEdges( mesh, state, target, diag );
+    };
+
+    Beatnik::RemeshParams base;
+    base.collapse_factor = kCollapseFactor;
+    base.max_collapses_per_pass = 0;
+
+    // 3a. The failure direction: collapse_factor = 0 returns 0 before any
+    //     mutation -- counts, face gids, every local position and the
+    //     generation are unchanged.
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        const MPI_Comm comm = mesh.comm();
+        makePerturbedIcosphere<ExecSpace>( mesh );
+        const HostMesh before = snapshot<ExecSpace>( mesh );
+        const auto gids_before = sortedFaceGids( mesh );
+        const std::size_t gen_before = mesh.generation();
+
+        Beatnik::RemeshParams p = base;
+        p.collapse_factor = 0.0;
+        Beatnik::RemeshDiagnostics diag;
+        const int collapses = runPass( mesh, p, diag );
+        rec.note( "case 3a collapse_factor=0: collapses=" +
+                  std::to_string( collapses ) + " candidates=" +
+                  std::to_string( diag.collapse_candidates ) );
+        BEATNIK_CHECK_EQ( rec, collapses, 0 );
+        BEATNIK_CHECK_EQ( rec, diag.collapse_candidates, 0 );
+        BEATNIK_CHECK_EQ( rec, diag.collapse_requested, 0 );
+        BEATNIK_CHECK_TRUE( rec, !diag.collapse_capped );
+        BEATNIK_CHECK_EQ( rec, mesh.globalVertexCount(), kV0 );
+        BEATNIK_CHECK_EQ( rec, mesh.globalEdgeCount(), kE0 );
+        BEATNIK_CHECK_EQ( rec, mesh.globalFaceCount(), kF0 );
+        BEATNIK_CHECK_TRUE(
+            rec, globalAll( comm, mesh.generation() == gen_before ) );
+        BEATNIK_CHECK_TRUE(
+            rec, globalAll( comm, sortedFaceGids( mesh ) == gids_before ) );
+        const HostMesh after = snapshot<ExecSpace>( mesh );
+        BEATNIK_CHECK_TRUE( rec, globalAll( comm, after.pos == before.pos ) );
+    }
+
+    // 3b. An artificially large factor, at max_collapses_per_pass = 0, which
+    //     is UNLIMITED and does not disable the pass. Faces fall by
+    //     2 * collapses, by the same literal at every rank count.
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        makePerturbedIcosphere<ExecSpace>( mesh );
+        Beatnik::RemeshDiagnostics diag;
+        const int collapses = runPass( mesh, base, diag );
+        rec.note( "case 3b collapse_factor=" + std::to_string( kCollapseFactor ) +
+                  " max_collapses=0: candidates=" +
+                  std::to_string( diag.collapse_candidates ) + " requested=" +
+                  std::to_string( diag.collapse_requested ) + " accepted=" +
+                  std::to_string( collapses ) + " rejectedConflict=" +
+                  std::to_string( diag.collapse_rejected_conflict ) +
+                  " capped=" + std::to_string( diag.collapse_capped ) );
+        rec.note( vefLine( "case 3b after", mesh ) );
+        BEATNIK_CHECK_EQ( rec, diag.collapse_candidates, kCandidates );
+        BEATNIK_CHECK_EQ( rec, diag.collapse_requested, kCandidates );
+        BEATNIK_CHECK_TRUE( rec, !diag.collapse_capped );
+        BEATNIK_CHECK_EQ( rec, collapses, kCollapsesUnlimited );
+        BEATNIK_CHECK_TRUE( rec, collapses > 0 );
+        BEATNIK_CHECK_EQ( rec, kF0 - mesh.globalFaceCount(),
+                          2LL * collapses );
+        BEATNIK_CHECK_EQ( rec, kV0 - mesh.globalVertexCount(),
+                          static_cast<long long>( collapses ) );
+        BEATNIK_CHECK_EQ( rec, kE0 - mesh.globalEdgeCount(),
+                          3LL * collapses );
+        BEATNIK_CHECK_EQ( rec, mesh.globalEulerCharacteristic(), 2 );
+    }
+
+    // 3c. The cap binds: the smallest-ratio kCap candidates are handed to
+    //     Tessera, and the threshold is reported.
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        makePerturbedIcosphere<ExecSpace>( mesh );
+        Beatnik::RemeshParams p = base;
+        p.max_collapses_per_pass = kCap;
+        Beatnik::RemeshDiagnostics diag;
+        const int collapses = runPass( mesh, p, diag );
+        rec.note( "case 3c max_collapses=" + std::to_string( kCap ) +
+                  ": candidates=" + std::to_string( diag.collapse_candidates ) +
+                  " requested=" + std::to_string( diag.collapse_requested ) +
+                  " accepted=" + std::to_string( collapses ) +
+                  " rejectedConflict=" +
+                  std::to_string( diag.collapse_rejected_conflict ) +
+                  " capped=" + std::to_string( diag.collapse_capped ) );
+        rec.note( vefLine( "case 3c after", mesh ) );
+        BEATNIK_CHECK_EQ( rec, diag.collapse_candidates, kCandidates );
+        BEATNIK_CHECK_TRUE( rec, diag.collapse_capped );
+        BEATNIK_CHECK_TRUE( rec, diag.collapse_ratio_threshold > 0.0 );
+        BEATNIK_CHECK_EQ( rec, diag.collapse_requested,
+                          static_cast<Beatnik::GlobalIndex>( kCap ) );
+        BEATNIK_CHECK_EQ( rec, collapses, kCollapsesCapped );
+        BEATNIK_CHECK_TRUE( rec, collapses > 0 );
+        BEATNIK_CHECK_EQ( rec, kF0 - mesh.globalFaceCount(),
+                          2LL * collapses );
+        BEATNIK_CHECK_EQ( rec, mesh.globalEulerCharacteristic(), 2 );
+    }
+
+    // 3d. The pass loop: `remesh()` with splitting switched off by an
+    //     unreachable split factor recomputes the sizing field and collapses
+    //     exactly what 3b collapsed; at collapse_factor = 0 it changes
+    //     nothing.
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        makePerturbedIcosphere<ExecSpace>( mesh );
+        Beatnik::RemeshParams p = base;
+        p.split_factor = 1.0e6;
+        remesh_type dr( p );
+        const Beatnik::RemeshDiagnostics d = dr.remesh( mesh, state );
+        rec.note( "case 3d remesh(): splits=" + std::to_string( d.splits ) +
+                  " collapses=" + std::to_string( d.collapses ) +
+                  " faces " + std::to_string( d.old_faces ) + " -> " +
+                  std::to_string( d.new_faces ) );
+        BEATNIK_CHECK_EQ( rec, d.splits, 0 );
+        BEATNIK_CHECK_EQ( rec, d.collapses, kCollapsesUnlimited );
+        BEATNIK_CHECK_EQ( rec, static_cast<long long>( d.new_faces ),
+                          kF0 - 2LL * kCollapsesUnlimited );
+        BEATNIK_CHECK_EQ( rec, mesh.globalEulerCharacteristic(), 2 );
+    }
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        const MPI_Comm comm = mesh.comm();
+        makePerturbedIcosphere<ExecSpace>( mesh );
+        const auto gids_before = sortedFaceGids( mesh );
+        Beatnik::RemeshParams p = base;
+        p.split_factor = 1.0e6;
+        p.collapse_factor = 0.0;
+        remesh_type dr( p );
+        const Beatnik::RemeshDiagnostics d = dr.remesh( mesh, state );
+        rec.note( "case 3d remesh(), collapse_factor=0: collapses=" +
+                  std::to_string( d.collapses ) + " faces " +
+                  std::to_string( d.old_faces ) + " -> " +
+                  std::to_string( d.new_faces ) );
+        BEATNIK_CHECK_EQ( rec, d.splits, 0 );
+        BEATNIK_CHECK_EQ( rec, d.collapses, 0 );
+        BEATNIK_CHECK_EQ( rec, d.collapse_candidates, 0 );
+        BEATNIK_CHECK_EQ( rec, static_cast<long long>( d.new_faces ), kF0 );
+        BEATNIK_CHECK_TRUE(
+            rec, globalAll( comm, sortedFaceGids( mesh ) == gids_before ) );
+    }
+}
+
 template <class ExecSpace, class MemSpace>
 void runChecks( Beatnik::Test::Recorder& rec )
 {
@@ -664,6 +895,7 @@ void runChecks( Beatnik::Test::Recorder& rec )
 
     caseCollapseFlipCompact<ExecSpace, mesh_type>( rec );
     caseLinkCondition<ExecSpace, mesh_type>( rec );
+    caseCollapseShortEdges<ExecSpace, mesh_type>( rec );
 }
 
 } // namespace

@@ -1381,10 +1381,12 @@ class SurfaceMesh
      * Topology-preserving: does **not** bump `generation()`, so handles taken
      * before it stay valid.
      *
-     * @pre The halo plans must be live. **They always are**: `splitEdges()`
-     *      calls `rebuildHalo()` itself, at the recorded depth, before
-     *      returning, so there is no window in which this is a silent no-op on
-     *      an empty plan.
+     * @pre The halo plans must be live. **They always are**: every topological
+     *      edit ends in a halo rebuild at the recorded depth before returning
+     *      — `splitEdges()` calls `rebuildHalo()` itself, `flipEdges()` ends
+     *      with Tessera's `rebuildHalo`, and `collapseEdges()` and `compact()`
+     *      end with Tessera's `compact()`, which is a halo rebuild — so there
+     *      is no window in which this is a silent no-op on an empty plan.
      */
     void haloExchange() { Tessera::haloExchange( _mesh, _halo ); }
 
