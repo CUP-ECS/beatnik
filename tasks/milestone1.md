@@ -1041,10 +1041,18 @@ the mesh goes to V 161 E 477 F 318. Log: `## T4d1`.
 
 **Fill in:** [src/Beatnik_DynamicRemesh.hpp:892](../src/Beatnik_DynamicRemesh.hpp#L892);
 the sizing-field recompute and the `const int collapses = 0` placeholder inside
-the pass loop at [:1020-1032](../src/Beatnik_DynamicRemesh.hpp#L1020-L1032);
-and the deletion of the rejection at
-[src/Beatnik_Solver.hpp:797-817](../src/Beatnik_Solver.hpp#L797-L817), comment
-included.
+the pass loop at [:1020-1032](../src/Beatnik_DynamicRemesh.hpp#L1020-L1032).
+
+**The `Solver` rejection stays.** The collapse rejection at
+[src/Beatnik_Solver.hpp:797-817](../src/Beatnik_Solver.hpp#L797-L817) is deleted
+by T4d6, not here. So after this task `collapseShortEdges` is reachable from
+`DynamicRemesh::remesh` but not from a `Solver` run with
+`collapse_factor > 0`. The only `Solver` configuration that reaches it has
+`collapse_factor <= 0`, which the T4b regression member
+`Beatnik_Test_DynamicRemeshSplit` runs (`makeParams`,
+[tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp:350](../tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp#L350)).
+On that path the pass must return 0 before any mutation, so the gate trajectory
+is unchanged.
 
 **Reference:** `dynamic_remesh.py::collapse_short_edges` (361-405), its two
 safety predicates (509-516, 519-549), and the cycle's *second* sizing-field
@@ -1080,7 +1088,8 @@ new member) shows, at `BEATNIK_UNIT_RANKS` 1 and 4 (conventions table): the glob
 amount at both rank counts**; `V - E + F == 2` after the pass; and the failure
 direction — `--remesh-collapse-factor 0` produces `collapses == 0` with no
 mutation, and `--remesh-max-collapses 0` does **not** disable the pass (it means
-unlimited), asserted so the deleted rejection's warning cannot be re-lost.
+unlimited), asserted so the rejection's warning about that lever is carried by a
+test of the pass itself.
 
 ---
 
@@ -1276,7 +1285,17 @@ only, never flip sets (R7).
 
 **Fill in:** the remesh cycle in
 [src/Beatnik_DynamicRemesh.hpp:998-1056](../src/Beatnik_DynamicRemesh.hpp#L998-L1056)
-and `RemeshDiagnostics` ([:142-196](../src/Beatnik_DynamicRemesh.hpp#L142-L196)).
+and `RemeshDiagnostics` ([:142-196](../src/Beatnik_DynamicRemesh.hpp#L142-L196));
+and the deletion of the collapse rejection at
+[src/Beatnik_Solver.hpp:797-817](../src/Beatnik_Solver.hpp#L797-L817), comment
+included, which T4d2 leaves in place. Deleting it breaks the collapse
+`checkRejected` case in the regression member
+[tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp:696-698](../tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp#L696-L698),
+which expects `solve()` to throw naming `collapseShortEdges`. Delete that case in
+the same change, and correct the file's header comment at `:21-40`, which says
+collapse is unimplemented and that any other collapse factor is rejected. The
+recorded reference command at `:183-186` describes the gold run and stays as it
+is.
 
 **Reference:** `Tessera_Compact.hpp` on `compact()` versus
 `compactAndRenumberGids()` (`:541-570`), and its statement that several Tessera
