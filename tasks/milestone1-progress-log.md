@@ -1507,3 +1507,55 @@ so its caller need not), T4d3 and T4d5 (pass `flip_policy_type` with
 `conflict = flip_conflict_type::EndpointInQuad` for the valence pass; exchange
 positions before flipping if they moved), T4d6 (`compact()` reports the gid
 space; `compactAndRenumberGids` still needs an adapter).
+
+## T4d1 review
+
+**Verdict:** Passed
+**Reviewed:** `14764a5^..14764a5` (the one code commit; `83e034e` after it
+touches only `tasks/`). It touches exactly the **Fill in**:
+`src/Beatnik_MeshInterface.hpp`, `tests/unit_tests/Beatnik_Test_MeshEdits.cpp`,
+its `BEATNIK_UNIT_TEST_SOURCES` entry, and `scripts/tuolumne/t4d1_mesh_edits.flux`.
+**Evidence:** implementing session's job `f3iArVXa12CF`, output read.
+`scripts/tuolumne/t4d1_mesh_edits.flux`, log
+`beatnik_t4d1_mesh_edits.f3iArVXa12CF.log`, Flux `COMPLETED` rc 0. It was
+submitted and started at 14:44:28 (no queue wait) and ran for 1.134 min. The job
+echoed commit `14764a5`. The binary's mtime predates the commit by 91 s, but the
+installed `Beatnik_MeshInterface.hpp` in the dev view is byte-identical to the
+file at `14764a5`, and no later commit touches `src/`, `tests/` or `scripts/`.
+So the binary is the reviewed code. The log shows `PASS np=1` … `PASS np=6` and
+`SUMMARY: PASS (6/6 rank counts)`. It has exactly 21 `[PASS]
+Beatnik_Test_MeshEdits (86/86 checks)` lines (1+2+…+6 ranks), all on HIP, and no
+`FAIL`, abort or exception. The passing direction: the six permissive collapses
+remove `6/18/12` (V 156 E 462 F 308, χ 2), the eight flips are accepted with
+V/E/F and face gids unchanged, and `compact()` removes `0/0/0` with gid space
+962/962 against 926 live entities. The failure direction (d): the
+link-condition edge alone gives `accepted=0 rejectedLinkCondition=1` and the
+mesh is unchanged. Marked beside the antipodal edge, it gives `accepted=1
+rejectedLinkCondition=1` and removes `1/3/2`. The strict-policy collapse
+(`rejectedQuality=6`) shows that the policy is forwarded. Every count is
+identical at every rank count, and every one agrees with the **Met.** paragraph.
+
+Mechanical pass (`review_checks.py --old-names EdgeListView`): four K4 and three
+M3 candidates, all in the test, all dismissed. The K4 hits are one-off host
+snapshots, not a per-step loop. The device copy is fenced before the mirror. The
+M3 buffers are host `std::vector`s, not Views. `EdgeListView` is gone from the
+tree. Every Tessera counter is mapped to its `MeshEditReport` field: all seven
+`CollapseResult` counters plus the three `*Removed`, all six `FlipResult`
+counters, and all five `CompactStats` fields. Tessera's `flipEdges` bumps the
+generation (`setOwnedCounts`, then `rebuildHalo`), so the adapter's
+generation-keyed caches cannot go stale across a flip. The identity check throws
+on global counters, so it is rank-uniform, and the test's one early return
+(`ring.size() != 3`) is on gathered data, so it is rank-uniform too. The header
+is BSD-3-Clause, and the script resolves the binary through `beatnik_exe` after
+sourcing the resolver. No prompt file remains under `tasks/`. The log section
+records the departures from **Do** (halo exchange inside `collapseEdges`, the
+three policy aliases, the new runner).
+
+1. [nit] `src/Beatnik_MeshInterface.hpp`, `haloExchange()`'s `@pre` (about
+   `:1384`): it still argues that the halo plans are always live because
+   "`splitEdges()` calls `rebuildHalo()` itself". The claim holds, since
+   `collapseEdges`, `flipEdges` and `compact` also end in a halo rebuild, but
+   the comment names only the split. It can be folded into T4d2's touch of this
+   file. No fix task is needed.
+
+**Affects:** none
