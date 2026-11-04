@@ -959,7 +959,15 @@ duplicate and claim round (2b) is `:779-838`, the verdict attribution (2c) is
 [:1518-1543](../src/Beatnik_MeshInterface.hpp#L1518-L1543),
 [:1545-1567](../src/Beatnik_MeshInterface.hpp#L1545-L1567),
 [:1569-1584](../src/Beatnik_MeshInterface.hpp#L1569-L1584), and
-`MeshEditReport` ([:373-391](../src/Beatnik_MeshInterface.hpp#L373-L391)).
+`MeshEditReport` ([:373-391](../src/Beatnik_MeshInterface.hpp#L373-L391));
+the new unit member `tests/unit_tests/Beatnik_Test_MeshEdits.cpp`; and
+`scripts/tuolumne/t4d1_mesh_edits.flux`, a two-node batch script modeled on
+[scripts/tuolumne/t4_fmm_vs_direct.flux](../scripts/tuolumne/t4_fmm_vs_direct.flux)
+and carrying `# flux: --bank=unm`, that runs `Beatnik_Test_MeshEdits` at ranks
+1, 2, 3, 4, 5 and 6 in one job. `scripts/tuolumne/unit_tests.flux` cannot serve:
+it allocates one node (`:3`) while each launch asks for `ceil(n/4)` nodes, so 5
+and 6 ranks cannot launch (`t4_fmm_vs_direct.flux:22-38`), and it carries no
+`--bank` directive.
 
 **Reference:** `Tessera::{collapseEdges, flipEdges, compact,
 compactAndRenumberGids}` and their policies and result structs, in the three
@@ -1001,8 +1009,8 @@ type.
 `tests/unit_tests/Beatnik_Test_MeshEdits.cpp`, registered in
 `BEATNIK_UNIT_TEST_SOURCES`
 ([tests/unit_tests/CMakeLists.txt:42](../tests/unit_tests/CMakeLists.txt#L42)), passes at
-each of `BEATNIK_UNIT_RANKS=1` through `6` via
-`flux batch scripts/tuolumne/unit_tests.flux`: on the default
+ranks 1, 2, 3, 4, 5 and 6 in one job of `scripts/tuolumne/t4d1_mesh_edits.flux`
+(this task sweeps 1–6 rather than the Conventions table's 1-and-4 default): on the default
 icosphere it collapses a named edge set, flips another, and compacts, and checks
 (a) the three V/E/F identities, (b) `V - E + F == 2` globally afterwards,
 (c) gid preservation across `compact()`, and (d) the **failure direction** — a
