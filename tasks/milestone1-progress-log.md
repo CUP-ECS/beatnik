@@ -1690,3 +1690,69 @@ M1-A1 and for the T4d exit criterion's statistics comparison.
   subset of the candidates.
 - **T4d3, T4d5:** `RatioKeep` / `applyRatioThreshold` exist if a flip mask
   ever needs a cap.
+
+## T4d2 review
+
+**Verdict:** Passed
+**Reviewed:** `848e009^..848e009` (the one code commit; `fb9d75f` after it
+touches only `tasks/`). It touches `src/Beatnik_DynamicRemesh.hpp` (the
+**Fill in**), the test `tests/unit_tests/Beatnik_Test_MeshEdits.cpp`,
+`haloExchange()`'s `@pre` in `src/Beatnik_MeshInterface.hpp` (the T4d1 review
+nit, folded in as that review proposed), and the README Known Issues and
+`docs/testing.md` lines that CLAUDE.md requires to stay in sync.
+**Evidence:** implementing session's job `f3iBGQsreZPm`, output read.
+`scripts/tuolumne/t4d1_mesh_edits.flux`, log
+`beatnik_t4d1_mesh_edits.f3iBGQsreZPm.log`, Flux `COMPLETED` rc 0. It was
+submitted at 15:36:56, started at 15:36:57 (1 s queue wait) and ran for
+1.097 min. The job echoed commit `848e009` with no source file dirty, and the
+dev-view binary's mtime (15:20:08) is after the commit (15:18:08). The log has
+`PASS np=1` … `PASS np=6`, `SUMMARY: PASS (6/6 rank counts)`, and exactly 21
+`[PASS] Beatnik_Test_MeshEdits (122/122 checks)` lines, all on HIP, with no
+`FAIL`, abort or exception. Each case-3 note appears 21 times with identical
+values, so the counts are the same at ranks 1 and 4 (and at 2, 3, 5 and 6). The
+passing direction: 3b, at factor 6 with `max_collapses_per_pass = 0`, finds 240
+candidates, requests 240 and accepts 4 (236 `rejectedConflict`), leaving
+V 158 E 468 F 312 with χ 2. So the pass runs, and the zero cap means unlimited.
+3c, at cap 25, requests 25, reports capped, and accepts 4. 3d's `remesh()`
+collapses 4 with 0 splits, so F goes 320 → 312. The failure direction: 3a, at
+factor 0, reports 0 candidates and 0 collapses, and asserts that counts, face
+gids, every local position and the generation are unchanged. 3d at factor 0
+leaves 320 faces and the gids unchanged. Every number agrees with the **Met.**
+paragraph.
+
+Mechanical pass (`review_checks.py`): no candidates. Read against the reference
+(`dynamic_remesh.py:158-165, 361-405, 509-549`):
+- The candidate predicate, the 1e-300-floored ratio key and the min-of-endpoints
+  target all match.
+- `max_collapses_per_pass <= 0` is unlimited, as the driver maps it.
+- The `Smallest` bisection brackets `[0, hi]`. `fits(0)` is true because the
+  ratios are non-negative, and `fits(hi)` is false whenever the cap binds. It
+  returns `lo`, and `applyRatioThreshold` keeps `ratio < lo`. The `Largest` path
+  is unchanged.
+- `ReferenceCollapsePolicy::quality` is the formula of `triangleQuality`.
+  Tessera takes the policy as a template parameter
+  (`Tessera_EdgeCollapse.hpp:1501`) and calls `policy.quality` at `:996`, so the
+  shadowing member is the one called. No virtual dispatch is needed.
+- `minQuality`, `maxNormalRotation = acos(0.1)` and `t = 0.5` are set
+  explicitly.
+- Every branch before `collapseEdges` is on a parameter or on a global count, so
+  every rank reaches the same collectives.
+
+The old `const int collapses = 0` placeholder and the `BEATNIK_NOT_IMPLEMENTED`
+call are gone. `searchRatioThreshold` has no caller left on the old signature,
+and the split pass's inline cap kernel is replaced by `applyRatioThreshold`.
+Nothing is made dead. No prompt file remains under `tasks/`. The Solver
+rejection text that still says "not yet implemented" is the recorded decision
+(it is deleted whole at T4d6) and is not a finding.
+
+1. [follow-up] `tests/unit_tests/Beatnik_Test_MeshEdits.cpp` case 3: no
+   sub-case shows `ReferenceCollapsePolicy` *rejecting* a collapse.
+   `rejectedQuality` and `rejectedNormalFlip` are 0 in every case-3 run, and all
+   236 losses are `rejectedConflict`. The hook's dispatch is confirmed by
+   reading, and T4d1's case 1 shows that a forwarded policy's `minQuality` is
+   honored. But the reference metric itself, as against Tessera's radius ratio,
+   is never discriminated by a test. The exit criterion does not ask for this.
+   A candidate check for T4d6 or M1-T1 is a fixture where the two metrics
+   disagree.
+
+**Affects:** none
