@@ -1117,34 +1117,60 @@ that it is unaffected. Log: `## T4d2`.
 **Depends on:** T4d1, M1-U3 (two quality flips in one round must not create the same diagonal).
 
 **Fill in:** `DynamicRemesh::flipEdgesForQuality`
-([src/Beatnik_DynamicRemesh.hpp:914](../src/Beatnik_DynamicRemesh.hpp#L914)),
+([src/Beatnik_DynamicRemesh.hpp:1112](../src/Beatnik_DynamicRemesh.hpp#L1112)),
 `MeshQuality::improveConnectivityByFlips`
 ([src/Beatnik_MeshQuality.hpp:210](../src/Beatnik_MeshQuality.hpp#L210)), the
-`diag.flips += 0` placeholder ([src/Beatnik_DynamicRemesh.hpp:1044-1046](../src/Beatnik_DynamicRemesh.hpp#L1044-L1046)),
-the `const int flips = 0` on the refine branch
-([src/Beatnik_Solver.hpp:456-465](../src/Beatnik_Solver.hpp#L456-L465)), and the deletion
-of two rejections ([:746-751](../src/Beatnik_Solver.hpp#L746-L751),
-[:828-837](../src/Beatnik_Solver.hpp#L828-L837)).
+`diag.flips += 0` placeholder ([src/Beatnik_DynamicRemesh.hpp:1244-1246](../src/Beatnik_DynamicRemesh.hpp#L1244-L1246)),
+and the `const int flips = 0` on the refine branch
+([src/Beatnik_Solver.hpp:456-465](../src/Beatnik_Solver.hpp#L456-L465)).
+
+**The two `Solver` flip rejections stay.** The rejections at
+[src/Beatnik_Solver.hpp:746-751](../src/Beatnik_Solver.hpp#L746-L751)
+(`--flip-passes > 0` under `--refine-every`) and
+[:828-837](../src/Beatnik_Solver.hpp#L828-L837)
+(`--remesh-flip-min-gain < 1e12` under `--dynamic-remesh`) are deleted by T4d6,
+together with the two `regression`-tier cases that assert them. So after this
+task both passes are wired into their call sites but a `Solver` run reaches them
+only at their disabling values: the refine branch at `--flip-passes 0`, where
+`improveConnectivityByFlips` returns 0 before any mutation
+(`mesh_solver.py:1713-1715`), and the remesh pass loop at
+`flip_min_gain = kFlipsDisabledMinGain`
+([src/Beatnik_Params.hpp:615](../src/Beatnik_Params.hpp#L615)), which the T4b
+member `Beatnik_Test_DynamicRemeshSplit` runs
+([tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp:354](../tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp#L354)).
+On those paths the gate trajectory must be unchanged.
 
 **Reference:** `dynamic_remesh.py::flip_edges_for_quality` (408-457) for the
-criterion; `mesh_solver.py::improve_mesh_connectivity_by_edge_flips` (1704-1772)
-for the second entry point's pass structure and its `reset_reference` argument.
+remesh criterion and its single sweep; `mesh_solver.py::improve_mesh_connectivity_by_edge_flips`
+(1704-1772) for the second entry point's criterion, its `max_passes` sweeps and
+its `reset_reference` argument.
 
 **Do:**
 
-1. Write the **gain predicate once** and give both call sites the mask it
-   produces: mark an edge iff its quad `(a,b,c,d)` yields
-   `min(q_new) >= min_quality` **and** `min(q_new) > min(q_old) * (1 + gain)`,
-   with `q` the reference metric (`SurfaceOperators::triangleQuality`, not the
-   radius ratio) and `gain` = `--remesh-flip-min-gain`. The reference has no
-   normal test here, only a re-orientation of the children against the old
-   faces' summed normal (`dynamic_remesh.py:434-443`), which Tessera's
-   orientation-preserving rewrite already guarantees. The quad comes from
-   `SurfaceMesh::faceAdjacency()`
-   ([src/Beatnik_MeshInterface.hpp:1278](../src/Beatnik_MeshInterface.hpp#L1278)).
+1. Write the **gain predicate once**, with the quality floor as a parameter, and
+   give both call sites the mask it produces: mark an edge iff its quad
+   `(a,b,c,d)` yields finite `q_new`, `min(q_new) >= floor` where a floor is
+   given, **and** `min(q_new) > min(q_old) * (1 + gain)`, with `q` the reference
+   metric (`SurfaceOperators::triangleQuality`, not the radius ratio).
+   - `flipEdgesForQuality` passes `floor = min_quality`
+     ([src/Beatnik_Params.hpp:654](../src/Beatnik_Params.hpp#L654), 0.18) and
+     `gain = --remesh-flip-min-gain` (`:658`), as `dynamic_remesh.py:446-451`
+     does.
+   - `improveConnectivityByFlips` passes **no** floor: the reference's second
+     entry point has only the gain test (`mesh_solver.py:1755-1758`). Its gain
+     is the `min_gain` argument. The refine-branch call site passes `1e-3` as a
+     named constant citing `mesh_solver.py:1708`'s default, because the
+     reference's call site (`run_adaptive_mesh_bubble.py:1440-1444`) passes no
+     gain and no CLI option sets one.
+
+   The reference has no normal test here, only a re-orientation of the children
+   against the old faces' summed normal (`dynamic_remesh.py:434-443`), which
+   Tessera's orientation-preserving rewrite already guarantees. The quad comes
+   from `SurfaceMesh::faceAdjacency()`
+   ([src/Beatnik_MeshInterface.hpp:1349](../src/Beatnik_MeshInterface.hpp#L1349)).
    Reading the neighbour face's positions makes this a *geometric* consumer, so
    it must check `non_resident == 0` rather than assume halo depth 2 supplies
-   the quad ([:586-596](../src/Beatnik_MeshInterface.hpp#L586-L596)), and throw
+   the quad ([:656-670](../src/Beatnik_MeshInterface.hpp#L656-L670)), and throw
    if it does not hold.
 2. **Do not test whether `(c,d)` already exists** — Tessera rejects that flip
    exactly, into `rejectedDuplicateEdge` (Read this first #6).
@@ -1152,23 +1178,41 @@ for the second entry point's pass structure and its `reset_reference` argument.
    `Tessera::DefaultFlipPolicy{ maxNormalDeviation = π, minQuality = 0 }`. Do
    **not** express the gain through the policy — the policy offers absolute
    admissibility only, and its priority is longest-edge-first, not gain-ordered.
-   Tessera's conflict relation (two flips may not share a face) is the
-   reference's here (`dynamic_remesh.py:416-421`), so loop
-   `flipEdges` while `accepted > 0`, rebuilding the mask each round.
-4. Answer T4c's deferred question — **does the flip path re-base the AMR
+   Tessera's default conflict relation (two flips may not share a face) is the
+   reference's here (`dynamic_remesh.py:416-421`).
+4. **One reference sweep is several `flipEdges` rounds**, because one Tessera
+   round accepts an independent set that is not maximal, where a reference sweep
+   tests every edge of one edge-map snapshot and never tests a face it already
+   rewrote. Within a sweep:
+   - Keep a sweep-wide set of **touched faces**, and leave out of the mask every
+     owned edge with a touched incident face.
+   - After each round, add the two faces of every accepted flip to the touched
+     set. Take the flips from `FlipResult::flipped`, gathered across ranks with
+     `MPI_Allgatherv` and deduplicated by old key, because `flipped` lists only
+     the flips the calling rank touches.
+   - End the sweep when a round accepts nothing.
+
+   A new diagonal's two faces are both touched, so no edge created in the sweep
+   is tested in it. `flipEdgesForQuality` runs **one** sweep
+   (`dynamic_remesh.py:408-457`). `improveConnectivityByFlips` runs up to
+   `max_passes` sweeps, each with a fresh touched set, and stops after a sweep
+   that flips nothing (`mesh_solver.py:1720-1768`). Do **not** loop rounds with
+   a fresh mask until `accepted == 0`: that re-tests faces flipped earlier in the
+   sweep and flips more than the reference.
+5. Answer T4c's deferred question — **does the flip path re-base the AMR
    reference state?** The reference passes `reset_reference=(smooth_iters == 0)`
    at the refine call site (`run_adaptive_mesh_bubble.py:1440-1445`) and nothing
    at the remesh one. Record the decision and its reasoning in the log; the
    comment at [src/Beatnik_MeshQuality.hpp:200-209](../src/Beatnik_MeshQuality.hpp#L200-L209)
    is where T4c parked it.
-5. `--flip-passes` is **0** in the milestone configuration, so
+6. `--flip-passes` is **0** in the milestone configuration, so
    `improveConnectivityByFlips` has no milestone caller. Implement it anyway —
-   the rejection at [src/Beatnik_Solver.hpp:746](../src/Beatnik_Solver.hpp#L746) is being deleted, so
-   the path becomes reachable — and say in the log that it is unexercised by any
+   T4d6 deletes the rejection at [src/Beatnik_Solver.hpp:746](../src/Beatnik_Solver.hpp#L746), and the
+   path then becomes reachable — and say in the log that it is unexercised by any
    milestone run (the standing `relaxTangential` situation from T4c).
 
 **Exit criterion:** a `unit`-tier case at `BEATNIK_UNIT_RANKS` 1 and 4 shows the
-global minimum triangle quality **rises or holds** across a pass and never falls,
+global minimum triangle quality **rises or holds** across a sweep and never falls,
 and the count of faces below `--remesh-min-quality` does not increase.
 **Statistics are compared, never flip sets** (R7). Failure direction:
 `--remesh-flip-min-gain 1e12` yields `flips == 0` and a byte-identical mesh,
@@ -1300,7 +1344,8 @@ only, never flip sets (R7).
 
 ### T4d6 — the gid-renumbering cadence — **NOT STARTED**
 
-**Depends on:** T4d2.
+**Depends on:** T4d2, T4d3, T4d4, T4d5. It is the last T4d task because it
+deletes the `Solver` rejections that T4d2 and T4d3 leave in place.
 
 **Fill in:** the remesh cycle in
 [src/Beatnik_DynamicRemesh.hpp:998-1056](../src/Beatnik_DynamicRemesh.hpp#L998-L1056)
@@ -1315,6 +1360,27 @@ the same change, and correct the file's header comment at `:21-40`, which says
 collapse is unimplemented and that any other collapse factor is rejected. The
 recorded reference command at `:183-186` describes the gold run and stays as it
 is.
+
+Also delete the two flip rejections that T4d3 leaves in place:
+[src/Beatnik_Solver.hpp:746-751](../src/Beatnik_Solver.hpp#L746-L751)
+(`--flip-passes > 0` under `--refine-every`, naming
+`improveConnectivityByFlips`) and
+[:828-837](../src/Beatnik_Solver.hpp#L828-L837) (`--remesh-flip-min-gain < 1e12`,
+naming `flipEdgesForQuality`). Each breaks a `regression`-tier case that expects
+`solve()` to throw:
+- the flip `checkRejected` case in
+  [tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp:702-704](../tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp#L702-L704).
+  Delete it with the collapse case, and correct the same header comment, which
+  says the flip third is unimplemented;
+- `checkFailureDirection` in
+  [tests/regression_tests/Beatnik_Test_RefineSplitEdges.cpp:379-417](../tests/regression_tests/Beatnik_Test_RefineSplitEdges.cpp#L379-L417),
+  which sets `--flip-passes 2`, together with the header's check 6 (`:72-77`).
+  It is that member's only failure direction.
+
+**Additional information needed:** what replaces `RefineSplitEdges`' failure
+direction once `--flip-passes > 0` runs. T4d5 deletes the isotropic-cleanup
+rejection too, so no T4d rejection is left on that branch to retarget the case
+to. Settle this before T4d6 starts.
 
 **Reference:** `Tessera_Compact.hpp` on `compact()` versus
 `compactAndRenumberGids()` (`:541-570`), and its statement that several Tessera
