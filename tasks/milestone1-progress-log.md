@@ -1046,3 +1046,285 @@ all dismissed. No prompt file `tasks/milestone1_M1-U3.md` remains.
    timing. Tessera infrastructure, not this task's.
 
 **Affects:** none
+
+## M1-D1
+
+**Commits:** the commit that adds this section (the script
+`scripts/tuolumne/milestone1_divergence.flux`, `milestone1.md`, this log).
+
+**Jobs:** `f3hypK87UYCo`, `scripts/tuolumne/milestone1_divergence.flux`
+(`pdebug`, `-t 20m`, `--bank=unm`), log `beatnik_m1d1.f3hypK87UYCo.log` in the
+Beatnik repo root. Run output is under
+`/p/lustre5/stewartj/beatnik/M1-D1/scratch/sub2_<BACKEND>_np<N>_steps600/sub2_<space>_np<N>/`
+and analysis artifacts under `/p/lustre5/stewartj/beatnik/M1-D1/analysis/`.
+COMPLETED rc 0, 62.8 s job runtime, 40 s of launches, and `flux job status` rc 0.
+It showed the **passing direction** of the exit criterion: step 0 matches at
+`1e-12` in all four runs, so the measurement is valid and no regression was
+found.
+
+**Decisions** (given to the task and not reopened):
+
+- **The driver is `Beatnik_Test_Milestone0Run_MPI_{SERIAL,HIP} 2 600 10`**,
+  resolved through `beatnik_exe`, with no source change. At those positionals its
+  `makeParams()` is the M1-G1 command field for field.
+  `examples/02_adaptive_mesh_bubble` is HIP-only (`adaptive_mesh_bubble.cpp:212`),
+  so it could not cover SERIAL.
+- **Every comparison goes through `tests/regression_tests/milestone0_ladder.py`,
+  unchanged**, at its five `RUNGS`. It lacked nothing the exit criterion needed.
+- **The dev spack env.** The script refuses `BEATNIK_USE_PROD=1` and sources
+  the resolver before any work, and the resolver printed `spack_env = … (dev)`.
+- The script is a trimmed copy of `milestone0_divergence.flux`. It keeps the
+  same preamble, provenance block, binding (`--gpus-per-task=1
+  --cores-per-task=24 --setopt=mpibind=verbose:1`, with `/usr/bin/time -v`
+  inside `flux run`), FD-3 row loop, and fresh scratch directory per run. It also
+  keeps the per-row deadline guard. It adds `# flux: --bank=unm`, because the
+  loop's wrapper requires an account directive.
+
+**Departure — submission.** The job was submitted with plain
+`flux batch scripts/tuolumne/milestone1_divergence.flux` from the repo root, not
+through `$TASKLOOP_SUBMIT`. The wrapper
+(`~/.claude/skills/run-tasks/scripts/hpc_submit.py:192`) hardcodes
+`flux batch --flags=waitable`, and this system instance refuses that with
+`flux-batch: ERROR: only the instance owner can submit with FLUX_JOB_WAITABLE`.
+That is the same refusal `## M1-U1` records. The task loop's own attempt
+(`.taskloop/milestone1/steps/005-implement-M1-D1.json`) stopped on it. The user
+approved a plain `flux batch` from an interactive session, and the waiting used
+`flux job status`, which works on a non-waitable job. The task was finished by a
+second session from the handoff `tasks/complete_M1-D1.md`.
+
+**Provenance.** Dev env, beatnik **`ckhvawf`**
+(`beatnik@develop%cce@20.0.0`), canopy `hdvkqdz`, tessera `aikc55n`, installed
+by `spack -e ~/spack_envs/tuolumne_beatnik install` with `HIPCC_*_APPEND`
+cleared, from HEAD **`70fda7c`**. The install log is at
+`/p/lustre5/stewartj/beatnik/m1d1_spack_install.log`. The job echoed commit
+`70fda7c1158e2216c1ccebe3ee68686ee7a1b258`, with only untracked files and
+`.claude/settings.json` dirty, so nothing compiled was dirty. It also echoed Cray
+clang 20.0.0 and host `tuolumne1041`. No commit landed between the install and
+the tabulation.
+
+**In-job checks**, all four runs: `[PASS] Beatnik_Test_Milestone0Run (6/6
+checks)` on every rank, 61 checkpoints per run, a `LAUNCH_WALL` line per run, and
+the closing `launched=4 skipped=0`. The log has no `FAIL`, `STOPPED EARLY` or
+`ENTITY COUNTS CHANGED`. Every progress line reads `V=162 F=320 refine_events=0
+flips=0 remesh_events=0`.
+
+### Step-0 gate — **passes, all four runs**
+
+`compare_output.py <run>/…_step0000000.h5 direct-solve-600-steps/gold/…_step0000000.npz --rtol 1e-12 --atol 1e-14`:
+rc 0, `RESULT: match` for HIP np1, HIP np4, SERIAL np1 and SERIAL np4. All four
+show `162/162 unambiguous, ambiguous cpp=0 gold=0`, `faces: 320/320 triangles
+identical`, `vertices` `max|e|` = `5.55111512312578270e-17` (`max|e|/|g|`
+`2.916908e-15`) and `potential` `max|e|` = `0`. These are the level-2 numbers
+M0-D1 step 1 recorded.
+
+### The tolerance ladder against Python — derived / confirmed
+
+First failing checkpointed step, from `pair --run <run> --ref
+direct-solve-600-steps/gold`. Artifacts are `analysis/<tag>_vs_py.{txt,json}`.
+`None` means the comparator's bounds never permitted a failure at that rung
+(derived `None`), so there was nothing to confirm (0 invocations).
+
+| backend, ranks | `1e-12`/`1e-14` | `1e-10`/`1e-12` | `1e-8`/`1e-10` | `1e-6`/`1e-8` | `1e-4`/`1e-6` |
+| --- | --- | --- | --- | --- | --- |
+| SERIAL, 1 | None / **None** | None / **None** | None / None | None / None | None / None |
+| SERIAL, 4 | None / **None** | None / **None** | None / None | None / None | None / None |
+| HIP, 1 | None / **None** | None / **None** | None / None | None / None | None / None |
+| HIP, 4 | None / **None** | None / **None** | None / None | None / None | None / None |
+
+**No (backend, rank) combination fails at any rung through step 600, not even
+the tightest.** The binding constraint is `vertices` against the `1e-14` `atol`.
+Its `max|e|/|g|` reaches `3.307733e+03` at step 150 because some coordinates are
+near zero, so `rtol` never rescues it, and only `max|e| <= atol` keeps the rung
+from being permitted. Peak `vertices` `max|e|` is `9.88098491916389321e-15`
+(HIP np4, step 580), about 1.2 % under `1e-14`. The level-2 frozen-mesh `1e-12`
+horizon therefore lies **just beyond step 600**, not comfortably beyond it. The
+growth series below rises about `1.5e-17` per step on average, so the
+`1e-14` `atol` would be crossed within a few tens of steps of 600 if the trend
+held. That is an extrapolation, not a measurement, and no step past 600 was
+run. For comparison, M0-D1 measured level 3 at
+derived 450–475 and confirmed 1325–1350.
+
+The `potential` `max|e|/|g|` spikes (`9.200553e-12` at step 370 and
+`7.065909e-12` at step 420 for SERIAL np1) exceed `rtol 1e-12`, but `max|e|`
+stays under `atol`, so those steps cannot fail either.
+
+### The attribution — rank 1 against rank 4
+
+`pair --run <np1> --ref <np4>` and `growth` likewise. Artifacts are
+`analysis/{serial,hip}_np1_vs_np4{,_growth}.{txt,json}`. Two Beatnik `.h5` sides
+share `sheet_vector`, which the gold `.npz` lacks, so the full-field horizon is
+measured over a larger set than the Python one.
+
+| backend | full set `1e-12`, derived / **confirmed** | shared subset (`vertices`, `potential`) `1e-12`, derived | other rungs | field that binds |
+| --- | --- | --- | --- | --- |
+| SERIAL | 530 / **None** (8 invocations) | None / None | None / None | `sheet_vector` (530) |
+| HIP | 420 / **None** (19 invocations) | None / None | None / None | `sheet_vector` (420) |
+
+- **Confirmed, full field set:** no checkpointed step fails at any rung on
+  either backend. The `1e-12` derivation is permitted only by `sheet_vector`,
+  and the confirming invocations at that rung found no failing step.
+- **Derived, shared subset:** `vertices` and `potential` never permit a failure
+  at any rung. That is the number to set beside the Python horizon, which is also
+  `None` at every rung. The two horizons are therefore equal ("beyond 600"), and
+  `max|e|` is what separates them.
+
+**Cross-rank disagreement stays below the Python disagreement at every
+checkpointed step** (steps 10–600, both shared fields, both backends, against
+both the np1 and np4 Python comparisons). The smallest Python/cross-rank ratio at
+any single step is 2.128x (SERIAL `vertices`, np4 side) and 1.500x (SERIAL
+`potential`, np4 side). For HIP the minima are 4.000x and 2.167x. So Do step 3's
+"first step at which two Beatnik runs at different rank counts disagree by more
+than the Python comparison does" is **none through 600**. R2's cross-rank noise
+does not set the horizon, and what grows is Python-versus-Beatnik drift. Peak
+ratios, as M0-D1 step 4 reported them:
+
+| backend | field | peak vs Python (np1) | peak rank1-vs-rank4 | ratio |
+| --- | --- | --- | --- | --- |
+| SERIAL | `vertices` | `9.07607322631065472e-15` | `4.10782519111307920e-15` | **2.21x** |
+| SERIAL | `potential` | `4.38538094726936833e-15` | `1.37390099297363122e-15` | **3.19x** |
+| HIP | `vertices` | `9.71445146547011973e-15` | `2.05391259555653960e-15` | **4.73x** |
+| HIP | `potential` | `4.21884749357559485e-15` | `9.43689570931383059e-16` | **4.47x** |
+
+At level 3 M0-D1 measured 10x–22x. The gap is narrower at level 2, but it is the
+same sign everywhere.
+
+Cross-rank `max|e|` at selected steps (`growth`, 17 digits):
+
+| step | SERIAL `vertices` | SERIAL `potential` | SERIAL `sheet_vector` | HIP `vertices` | HIP `potential` | HIP `sheet_vector` |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | `0` | `0` | `0` | `0` | `0` | `0` |
+| 10 | `1.78039804133946247e-21` | `1.73472347597680709e-18` | `1.30104260698260532e-17` | `3.33643077449107971e-21` | `8.67361737988403547e-19` | `1.21430643318376497e-17` |
+| 100 | `1.38777878078144568e-16` | `4.16333634234433703e-17` | `3.05311331771918049e-16` | `8.32667268468867405e-17` | `3.46944695195361419e-17` | `4.23272528138340931e-16` |
+| 200 | `2.22044604925031308e-16` | `9.71445146547011973e-17` | `6.24500451351650554e-16` | `1.66533453693773481e-16` | `8.32667268468867405e-17` | `7.49400541621980665e-16` |
+| 300 | `1.11022302462515654e-15` | `1.94289029309402395e-16` | `2.47284831500493851e-15` | `5.55111512312578270e-16` | `2.49800180540660222e-16` | `2.10942374678779743e-15` |
+| 400 | `1.49880108324396133e-15` | `3.88578058618804789e-16` | `4.99600361081320443e-15` | `1.22124532708767219e-15` | `4.99600361081320443e-16` | `9.21485110438879929e-15` |
+| 420 | `1.55431223447521916e-15` | `3.33066907387546962e-16` | `4.55191440096314182e-15` | `1.24900090270330111e-15` | `4.44089209850062616e-16` | `1.09912079437890498e-14` |
+| 500 | `2.83106871279414918e-15` | `7.70217223333702350e-16` | `8.54871728961370536e-15` | `1.33226762955018785e-15` | `5.82867087928207184e-16` | `1.12548859121375244e-14` |
+| 530 | `3.27515792264421179e-15` | `9.99200722162640886e-16` | `1.07691633388640184e-14` | `1.38777878078144568e-15` | `7.49400541621980665e-16` | `1.24900090270330111e-14` |
+| 600 | `4.10782519111307920e-15` | `1.37390099297363122e-15` | `1.56541446472147072e-14` | `2.05391259555653960e-15` | `7.77156117237609578e-16` | `1.34284944275364637e-14` |
+
+### The growth series against Python (`growth`, 17 digits)
+
+`max|e|` through the comparator's own vertex pairing. Artifacts are
+`analysis/<tag>_vs_py_growth.{txt,json}`. Those files hold all 61 steps, and
+every 50th is reproduced here.
+
+`vertices`:
+
+| step | SERIAL 1 | SERIAL 4 | HIP 1 | HIP 4 |
+| --- | --- | --- | --- | --- |
+| 0 | `5.55111512312578270e-17` | `5.55111512312578270e-17` | `5.55111512312578270e-17` | `5.55111512312578270e-17` |
+| 10 | `3.33066907387546962e-16` | `3.33066907387546962e-16` | `3.33066907387546962e-16` | `3.33066907387546962e-16` |
+| 50 | `7.77156117237609578e-16` | `7.77156117237609578e-16` | `7.77156117237609578e-16` | `7.77156117237609578e-16` |
+| 100 | `1.44328993201270350e-15` | `1.44328993201270350e-15` | `1.44328993201270350e-15` | `1.44328993201270350e-15` |
+| 150 | `1.94289029309402395e-15` | `1.94289029309402395e-15` | `1.94289029309402395e-15` | `1.94289029309402395e-15` |
+| 200 | `2.77555756156289135e-15` | `2.77555756156289135e-15` | `2.77555756156289135e-15` | `2.77555756156289135e-15` |
+| 250 | `2.77555756156289135e-15` | `2.77555756156289135e-15` | `2.77555756156289135e-15` | `2.77555756156289135e-15` |
+| 300 | `3.27515792264421179e-15` | `3.27515792264421179e-15` | `3.27515792264421179e-15` | `3.27515792264421179e-15` |
+| 350 | `4.21884749357559485e-15` | `4.21884749357559485e-15` | `4.21884749357559485e-15` | `4.21884749357559485e-15` |
+| 400 | `4.88498130835068878e-15` | `4.88498130835068878e-15` | `4.88498130835068878e-15` | `4.88498130835068878e-15` |
+| 450 | `5.93969318174458749e-15` | `5.93969318174458749e-15` | `5.93969318174458749e-15` | `5.93969318174458749e-15` |
+| 500 | `7.32747196252603317e-15` | `7.32747196252603317e-15` | `7.32747196252603317e-15` | `7.32747196252603317e-15` |
+| 550 | `8.60422844084496319e-15` | `8.65973959207622102e-15` | `8.65973959207622102e-15` | `8.65973959207622102e-15` |
+| 600 | `9.07607322631065472e-15` | `8.74300631892310776e-15` | `8.99280649946376798e-15` | `9.49240686054508842e-15` |
+
+Peaks: SERIAL 1 `9.07607322631065472e-15` (step 600), SERIAL 4
+`9.38138455808257277e-15` (580), HIP 1 `9.71445146547011973e-15` (580), HIP 4
+`9.88098491916389321e-15` (580).
+
+`potential`:
+
+| step | SERIAL 1 | SERIAL 4 | HIP 1 | HIP 4 |
+| --- | --- | --- | --- | --- |
+| 0 | `0` | `0` | `0` | `0` |
+| 10 | `4.33680868994201774e-18` | `4.33680868994201774e-18` | `4.33680868994201774e-18` | `4.33680868994201774e-18` |
+| 50 | `4.51028103753969845e-17` | `4.85722573273505986e-17` | `4.33680868994201774e-17` | `5.20417042793042128e-17` |
+| 100 | `1.31838984174237339e-16` | `1.31838984174237339e-16` | `1.35308431126190953e-16` | `1.45716771982051796e-16` |
+| 150 | `3.05311331771918049e-16` | `2.98372437868010820e-16` | `3.12250225675825277e-16` | `3.53883589099268647e-16` |
+| 200 | `4.99600361081320443e-16` | `4.85722573273505986e-16` | `4.71844785465691530e-16` | `4.85722573273505986e-16` |
+| 250 | `6.80011602582908381e-16` | `7.35522753814166208e-16` | `6.80011602582908381e-16` | `7.91033905045424035e-16` |
+| 300 | `1.08246744900952763e-15` | `1.16573417585641437e-15` | `9.99200722162640886e-16` | `1.24900090270330111e-15` |
+| 350 | `1.49880108324396133e-15` | `1.47104550762833242e-15` | `1.33226762955018785e-15` | `1.60982338570647698e-15` |
+| 400 | `2.13717932240342634e-15` | `2.02615701994091069e-15` | `2.02615701994091069e-15` | `2.19269047363468417e-15` |
+| 450 | `2.66453525910037570e-15` | `2.55351295663786004e-15` | `2.63677968348474678e-15` | `2.83106871279414918e-15` |
+| 500 | `3.16413562018169614e-15` | `2.80331313717852026e-15` | `2.91433543964103592e-15` | `3.16413562018169614e-15` |
+| 550 | `3.77475828372553224e-15` | `3.44169137633798528e-15` | `3.55271367880050093e-15` | `3.83026943495679006e-15` |
+| 600 | `4.38538094726936833e-15` | `3.80251385934116115e-15` | `4.21884749357559485e-15` | `4.24660306919122377e-15` |
+
+The step-600 value is the peak for all four runs.
+
+**The growth is roughly linear, not exponential.** `vertices` climbs from one
+ulp at step 0 to about 9e-15 at step 600, so about 1.5e-17 per step, with no
+acceleration as `minQ` falls from 0.977 to 0.619. The `vertices` series is
+bit-identical across all four (backend, rank) combinations at most steps. The
+first disagreement is at step 160, then sporadic at 440, 490 and 520, and
+continuous from 540. After that the four series spread by up to about 9 % (step
+580: `9.0483e-15` to `9.8810e-15`). `time |e|` against Python peaks at
+`9.10382880192628363e-15` (HIP np1). Beatnik's final times are
+`1.3141321331131461` (HIP 1), `…459` (HIP 4), `…448` (SERIAL 4) and `…437`
+(SERIAL 1), against Python's `1.3141321331131375`.
+
+### Ambiguity (M1-R8) — **none**
+
+At `--match-eps 1e-9`, **no comparison reported `ambiguous cpp>0` or `gold>0` at
+any step**. That covers the 366 `pair` scan invocations (6 comparisons × 61
+steps, each with `matched = n_paired = 162`, status 0, and empty
+`pairing_problems`), the 366 `growth` rows (`amb` = 0 throughout) and the 4
+step-0 gates. `--match-eps` was not raised. With the worst position disagreement
+at about 1e-14, five decades below the cell size, the pairing has ample margin on
+this mesh at 600 steps.
+
+### Cost (M1-R6)
+
+| backend, ranks | solve `MPI_Wtime` (s) | s/step | `LAUNCH_WALL` (s) | `/usr/bin/time` elapsed | peak RSS per rank (kB) |
+| --- | --- | --- | --- | --- | --- |
+| HIP, 1 | `2.56339` | `0.00427232` | 10 | 0:09.72 | 862360 |
+| HIP, 4 | `3.34126` | `0.00556876` | 10 | 0:09.58–0:09.59 | 1002328 / 1002332 / 1002492 / 1003816 |
+| SERIAL, 4 | `6.35231` | `0.0105872` | 13 | 0:12.15 | 706480 / 706936 / 707316 / 707368 |
+| SERIAL, 1 | `3.06415` | `0.00510691` | 7 | 0:06.07 | 704104 |
+
+**Face-count trajectory: constant 320 faces / 162 vertices at every step** of all
+four runs. The driver asserts it every step, and `pair`'s count table reads
+`(162, 320): 61 step(s)` for every comparison. On this path cost is flat in the
+step index, so M1-R6 cannot bite here. It is a property of the dynamic-remesh
+path (M1-T2). Python took 25 s for the same run (`## M1-G1`), so Beatnik is
+4–10x faster at 162 vertices.
+
+### Only running revealed
+
+- **SERIAL np4 is twice as slow as SERIAL np1** (6.35 s against 3.06 s). At 162
+  vertices the direct sum is too small to amortize the halo and all-gather, and
+  `/usr/bin/time` shows about 985 000 involuntary context switches per rank at np4
+  against 142 000 at np1. HIP np4 is likewise slower than HIP np1. Neither is a
+  correctness concern, and both are expected to flip at larger N.
+- **The SERIAL np1 `initial_volume` differs from gold by one ulp**
+  (`6.32350731246694997e-02` against `6.32350731246695136e-02`, `|e|`
+  `1.387779e-17`). The other three runs match the gold bit-for-bit. It is a
+  reduction-order effect inside the step-0 tolerance. The driver's own echo shows
+  it too (`initial_volume 0.0632350731246695`).
+- **The tightest rung is decided by `vertices`' `atol`, not `rtol`.** Near-zero
+  coordinates make `max|e|/|g|` reach up to `3.3e3`. Any compare depth past about
+  600 at `1e-12` therefore rests on `atol 1e-14` alone, and `potential` stays at
+  about half of `vertices`' `max|e|` throughout.
+- The deadline guard's estimates were padded 6–17x. All four launches together
+  took 40 s of the 1080 s budget, so `-t 20m` could be cut to `-t 5m` for a rerun.
+
+**Affects:**
+
+- **M1-A1:** the frozen-mesh level-2 horizon is **beyond step 600 at every rung**
+  on both backends and both rank counts. The connectivity-frozen comparison
+  supports the milestone's 600-step premise even at `1e-12`/`1e-14`, but with
+  only about 1.2 % of `atol` headroom on `vertices` at step 580. Any divergence
+  M1-T2 sees before step 600 at `1e-10` or looser is therefore **not**
+  floating-point drift on a fixed mesh. It is edit-set divergence (M1-R2) or
+  something the remesh path adds. M1-R1 did not fire. Cross-rank noise is
+  2–5x below the Python drift, so a single tolerance can serve both rank counts.
+  The cost of a frozen 600-step run is negligible (at most 6.4 s solve, at most
+  1.0 GB per rank).
+- **M1-T2:** the `vertices` `max|e|` series above is the floor its comparison
+  sits on. At any step where M1-T2's `max|e|` is far above that floor with equal
+  face counts, the cause is the remesh path, not R2. The pairing is unambiguous
+  at `--match-eps 1e-9` throughout on the frozen mesh, so any ambiguity M1-T2
+  reports comes from remeshing (M1-R8), not drift. A test asserting `1e-12` must
+  use the `atol` (`1e-14`) with the measured `max|e|` beside it, because `rtol`
+  never governs `vertices`.

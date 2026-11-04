@@ -1,8 +1,8 @@
 # Milestone 1 — the reference's default rising-bubble configuration
 
-**Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1 and M1-G2 are **DONE**
-(M1-G1 and M1-G2 reviewed, Passed). **M1-D1 next**. T4d1–T4d6, M1-T1, M1-T2 and
-M1-A1 are NOT STARTED.
+**Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1, M1-G2 and M1-D1 are
+**DONE** (M1-U1–U3, M1-G1 and M1-G2 reviewed, Passed; M1-D1 awaiting review).
+T4d1–T4d6, M1-T1, M1-T2 and M1-A1 are NOT STARTED.
 
 ## Problem
 
@@ -421,7 +421,7 @@ in [the README](../tests/regression_tests/direct-solve-600-steps/README.md).
 
 ---
 
-### M1-D1 — measure the fixed-mesh divergence horizon — **NOT STARTED**
+### M1-D1 — measure the fixed-mesh divergence horizon — **DONE**
 
 **Depends on:** M1-G1.
 
@@ -475,6 +475,29 @@ the `max|e|` growth series for `vertices` and `potential`. The measurement
 **fails** if step 0 does not match at `1e-12` — that would be a regression in an
 already-validated path, not a divergence measurement, and must be reported as
 such rather than absorbed into the trend.
+
+**Met.** Job `f3hypK87UYCo` (`scripts/tuolumne/milestone1_divergence.flux`,
+`pdebug`, dev env, beatnik `ckhvawf` built from `70fda7c`) ran
+`Beatnik_Test_Milestone0Run_MPI_<B> 2 600 10` at HIP np1/np4 and SERIAL np4/np1.
+It completed with rc 0 and `launched=4 skipped=0`. Each launch wrote 61
+checkpoints, and every rank printed `[PASS] Beatnik_Test_Milestone0Run (6/6
+checks)`. The log has no `FAIL`, `STOPPED EARLY` or `ENTITY COUNTS CHANGED`.
+**Step-0 gate passed** for all four runs at `--rtol 1e-12 --atol 1e-14`
+(`RESULT: match`, rc 0). **Against Python, no rung fails at any checkpointed step
+through 600**, for all four (backend, rank) combinations, not even
+`1e-12`/`1e-14`. Every rung reads derived `None` / confirmed `None`. Peak
+`vertices` `max|e|` is `9.88098491916389321e-15` (HIP np4, step 580), within 1.2 %
+of the tightest rung's `atol`. **Rank 1 against rank 4** never fails on the
+shared fields (`vertices`, `potential`) at any rung, derived or confirmed. Over
+the full field set, `sheet_vector` permits a `1e-12` failure from step 420 (HIP)
+or 530 (SERIAL), and confirmation finds no failing step. Cross-rank `max|e|` stays
+below the Python comparison's at every step on both shared fields (peak ratio
+Python/cross-rank 2.21x–4.73x), so the drift is Python-versus-Beatnik, not
+decomposition noise. The quantized pairing reported **no ambiguity** at
+`--match-eps 1e-9` in any of the 366 scan invocations or the 366 growth rows.
+Counts stay at 162 vertices / 320 faces throughout. Solve walls are 2.56–6.35 s,
+and peak RSS is at most 1003816 kB per rank. The 17-digit tables are in
+[`milestone1-progress-log.md`](milestone1-progress-log.md) `## M1-D1`.
 
 ---
 
