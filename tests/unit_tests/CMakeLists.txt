@@ -63,6 +63,12 @@ set(BEATNIK_UNIT_TEST_SOURCES
   # of the loop (risk R1). Writes to BEATNIK_TEST_SCRATCH, which must name a
   # parallel filesystem: the frames go through MPI-IO.
   Beatnik_Test_CheckpointSeries.cpp
+  # The three SurfaceMesh edit adapters over Tessera -- collapseEdges,
+  # flipEdges, compact: the V/E/F identities, V-E+F == 2, gid preservation
+  # across compact(), and a link-condition-violating collapse rejected rather
+  # than applied. Every check is a global reduction; ITS RANK SWEEP (1-6) IS
+  # scripts/tuolumne/t4d1_mesh_edits.flux. Writes no files.
+  Beatnik_Test_MeshEdits.cpp
   )
 
 # The registered ctest entry runs at ONE rank; the rank sweep is the
