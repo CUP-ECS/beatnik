@@ -1,8 +1,8 @@
 # Milestone 1 — the reference's default rising-bubble configuration
 
-**Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1, M1-G2 and M1-D1 are
-**DONE** (M1-U1–U3, M1-G1 and M1-G2 reviewed, Passed; M1-D1 awaiting review).
-T4d1–T4d6, M1-T1, M1-T2 and M1-A1 are NOT STARTED.
+**Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1, M1-G2, M1-D1 and T4d1
+are **DONE** (M1-U1–U3, M1-G1, M1-G2 and M1-D1 reviewed, Passed; T4d1 awaiting
+review). T4d2–T4d6, M1-T1, M1-T2 and M1-A1 are NOT STARTED.
 
 ## Problem
 
@@ -303,10 +303,6 @@ True at HEAD, and specific about what is *defined but wrong* versus what
 *throws*:
 
 - **Throws** (`BEATNIK_NOT_IMPLEMENTED`), so a run cannot reach them silently:
-  `SurfaceMesh::{collapseEdges, flipEdges, compact}`
-  ([src/Beatnik_MeshInterface.hpp:1538](../src/Beatnik_MeshInterface.hpp#L1538),
-  [:1562](../src/Beatnik_MeshInterface.hpp#L1562),
-  [:1581](../src/Beatnik_MeshInterface.hpp#L1581));
   `DynamicRemesh::{collapseShortEdges, flipEdgesForQuality, tangentialSmooth}`
   ([src/Beatnik_DynamicRemesh.hpp:892](../src/Beatnik_DynamicRemesh.hpp#L892),
   [:914](../src/Beatnik_DynamicRemesh.hpp#L914),
@@ -315,12 +311,14 @@ True at HEAD, and specific about what is *defined but wrong* versus what
   ([src/Beatnik_MeshQuality.hpp:111](../src/Beatnik_MeshQuality.hpp#L111),
   [:182](../src/Beatnik_MeshQuality.hpp#L182),
   [:210](../src/Beatnik_MeshQuality.hpp#L210)).
-- **Shaped for the wrong result:** `SurfaceMesh::flipEdges` returns `int`, and
-  `MeshEditReport`
-  ([src/Beatnik_MeshInterface.hpp:373-391](../src/Beatnik_MeshInterface.hpp#L373-L391))
-  carries only split counters — nothing for `CollapseResult`'s or
-  `FlipResult`'s `requested`/`accepted`/`rejected*`/`*Removed` fields. Neither
-  adapter takes a Tessera policy.
+- **Implemented, with no caller outside the test** (T4d1, **DONE**):
+  `SurfaceMesh::{collapseEdges, flipEdges, compact}` take a host
+  `std::vector<char>` mask sized `ownedEdgeCount()` and a trailing policy
+  defaulted to `collapse_policy_type` / `flip_policy_type`, and return
+  `MeshEditReport`, which carries Tessera's global collapse, flip and compact
+  counters beside the split ones. `collapseEdges` exchanges the halo first and
+  throws if the V/E/F identities fail. Covered by the `unit` member
+  `Beatnik_Test_MeshEdits`.
 - **Present upstream, unused by Beatnik:** Tessera's collapse and flip policies
   carry the `quality()` hook (M1-U1, **DONE**, Tessera `279287e`), defaulting to
   the radius ratio; no Beatnik policy uses it yet (T4d2). `flipEdges` has the
@@ -950,7 +948,7 @@ duplicate and claim round (2b) is `:779-838`, the verdict attribution (2c) is
 
 ---
 
-### T4d1 — the three `SurfaceMesh` adapters — **NOT STARTED**
+### T4d1 — the three `SurfaceMesh` adapters — **DONE**
 
 **Depends on:** none.
 
@@ -1017,6 +1015,23 @@ icosphere it collapses a named edge set, flips another, and compacts, and checks
 mask marking a boundary-of-nothing/link-condition-violating edge is *rejected*
 and shows up in `rejectedLinkCondition`, with `accepted` unchanged, rather than
 producing a torn mesh.
+
+**Met.** Commit `14764a5`, job `f3iArVXa12CF` (`pdebug`, two nodes, COMPLETED
+rc 0, 68 s): `[t4d1] SUMMARY: PASS (6/6 rank counts)`, and every one of the 21
+launched ranks across np 1–6 printed `[PASS] Beatnik_Test_MeshEdits (86/86
+checks)` on the HIP execution space, with identical counts. On the
+subdivision-2 icosphere (V 162, E 480, F 320), six named collapses are first
+all rejected into `rejected_quality` under a `minQuality = 1.1` policy (the
+policy is forwarded), then all accepted under the permissive one: removed
+V/E/F `6/18/12`, mesh V 156 E 462 F 308 — (a) holds both on the report and on
+the global counts, (b) `V - E + F = 2`. Eight named flips are all accepted with
+V/E/F and owned face gids unchanged. (c) `compact()` removes `0/0/0` with the
+gid space `962` before and after against 926 live entities, and owned face
+gids are identical. (d) After two spoke flips bring a vertex to valence 3, the
+ring edge `(x,y)` whose endpoints share 3 neighbours (asserted) is rejected
+alone with `rejectedLinkCondition=1`, `accepted=0` and the mesh unchanged; with
+a valid antipodal edge beside it, `accepted=1`, `rejectedLinkCondition=1`, and
+the mesh goes to V 161 E 477 F 318. Log: `## T4d1`.
 
 ---
 

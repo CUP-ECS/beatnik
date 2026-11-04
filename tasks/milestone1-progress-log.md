@@ -1377,3 +1377,133 @@ submission departure (plain `flux batch`, user-approved) is recorded in
    measurements.
 
 **Affects:** none
+
+## T4d1
+
+**Commits:** `14764a5` (the adapters, `MeshEditReport`, the test, its CMake
+registration and `scripts/tuolumne/t4d1_mesh_edits.flux`), and the commit that
+adds this section (`milestone1.md`, this log).
+
+**Jobs:** `f3iArVXa12CF`, `scripts/tuolumne/t4d1_mesh_edits.flux` (`pdebug`,
+two nodes, `-t 15m`, `--bank=unm`), log
+`beatnik_t4d1_mesh_edits.f3iArVXa12CF.log` in the Beatnik repo root. COMPLETED
+rc 0, 68 s, `flux job status` rc 0. It echoed commit `14764a5` and the dev-env
+binary `.spack-env/view/share/Beatnik/tests/Beatnik_Test_MeshEdits` (mtime
+14:42:42, from this task's `spack install`). It showed **both directions** of
+the criterion: the passing one (a)–(c), and the failure one (d), at every rank
+count: `PASS np=1` … `PASS np=6`, `SUMMARY: PASS (6/6 rank counts)`, and all 21
+ranks printed `[PASS] Beatnik_Test_MeshEdits (86/86 checks)` on HIP.
+
+**Decision** (given to the task and not reopened): the rank sweep runs through
+the new `scripts/tuolumne/t4d1_mesh_edits.flux`, not
+`scripts/tuolumne/unit_tests.flux`, which allocates one node while each launch
+asks for `ceil(n/4)` and carries no `--bank`. The new script copies
+`t4_fmm_vs_direct.flux`'s shape and binding, adds `--bank=unm`, defaults to
+ranks `1 2 3 4 5 6` in one job, echoes `spack env status`, the compiler, the
+commit and `git status --short`, the binary and each launch command, and exits
+non-zero if any rank count fails. `unit_tests.flux` is untouched.
+
+**Final signatures** (`src/Beatnik_MeshInterface.hpp`):
+
+```
+template <class CollapsePolicy = collapse_policy_type>
+MeshEditReport collapseEdges( const std::vector<char>& edgeMask,
+                              const CollapsePolicy& policy = CollapsePolicy{} );
+template <class FlipPolicy = flip_policy_type>
+MeshEditReport flipEdges( const std::vector<char>& edgeMask,
+                          const FlipPolicy& policy = FlipPolicy{} );
+MeshEditReport compact();
+```
+
+`SurfaceMesh` gains three aliases, `collapse_policy_type`
+(`Tessera::DefaultCollapsePolicy`), `flip_policy_type`
+(`Tessera::DefaultFlipPolicy`) and `flip_conflict_type`
+(`Tessera::FlipConflict`), so a caller can name and derive from the policies
+without spelling a Tessera type, per the file's adapter contract. The policy is
+forwarded verbatim. `MeshEditReport` gains `requested`, `accepted`,
+`rejected_{boundary, link_condition, normal_flip, quality, duplicate_edge,
+geometric, conflict}`, `{vertices,edges,faces}_removed` and
+`gid_space_{before,after}`, all Tessera's global counts, not re-reduced; the
+split fields are unchanged. Its doc comment lists which edit fills which field.
+`compact()` wraps `Tessera::compact` only; `compactAndRenumberGids` stays
+unwrapped for T4d6.
+
+**Halo-exchange placement: inside the adapter.** `collapseEdges` calls
+`haloExchange()` before `Tessera::collapseEdges`. Tessera's header states the
+precondition (vertex positions and user fields halo-consistent on entry,
+`Tessera_EdgeCollapse.hpp` "ENTRY PRECONDITION ON VERTEX DATA" and the
+`collapseEdges` doc comment) but does not make it the adapter's caller's
+obligation in a way the adapter cannot meet, so the adapter meets it itself:
+one collective, and the call is correct after any position update. The doc
+comment says so and contrasts it with `splitEdges()`. `flipEdges` does not
+exchange: it reads the four quad corners' positions and changes no vertex
+data; its comment states that positions must be halo-consistent on entry, as
+for every kernel that reads ghosts.
+
+**The V/E/F check** throws `std::runtime_error` naming accepted and the
+removed counts. The counters are global, so every rank throws or none does;
+the code comment says so. It never fired.
+
+**Test fixtures** (`tests/unit_tests/Beatnik_Test_MeshEdits.cpp`). Gids are
+not on the adapter's surface, so edges are named geometrically: the owned edge
+whose midpoint direction has the largest dot product with a fixed generic
+vector, chosen by one global `MPI_MAX`. Each selection asserts exactly one edge
+was marked globally. Case 1 uses six collapse targets near ±x, ±y, ±z and eight
+flip targets near the cube diagonals. **The link-condition fixture (d)** is
+built by editing, as the prompt suggested: take the valence-5 vertex `v`
+furthest along `(0.21, 0.37, 0.9)`, flip twice the spoke whose far end is
+furthest along `(0.53, -0.29, 0.11)` (one per call, each `accepted=1`), so `v`
+reaches valence 3 with ring `{x, y, z}`; mark the ring edge closest to
+`(-0.17, 0.44, 0.61)`. The test gathers the one-rings and asserts the premise:
+`valence(v)=3` and `|link(x) ∩ link(y)| = 3` (v, z and the far opposite
+corner). The log prints `valence(x)=6 valence(y)=7` on 15 ranks and `7`/`6` on
+6. That is only the order in which `v`'s gathered ring lists `x` and `y`, which
+depends on the partition; the edge and the result are the same.
+
+**Measured counts** (identical at every rank of np 1–6):
+
+| Step | requested | accepted | rejected | removed V/E/F | mesh after |
+| --- | --- | --- | --- | --- | --- |
+| start | | | | | V 162 E 480 F 320, χ 2 |
+| collapse 6, `minQuality = 1.1` | 6 | 0 | `rejectedQuality=6` | 0/0/0 | unchanged |
+| collapse 6, permissive (`maxNormalRotation = π`, `minQuality = 0`) | 6 | 6 | 0 | 6/18/12 | V 156 E 462 F 308, χ 2 |
+| flip 8, permissive (`maxNormalDeviation = π`, `minQuality = 0`) | 8 | 8 | 0 | — | unchanged V/E/F, face gids preserved |
+| `compact()` | | | | 0/0/0 | gid space 962 → 962 (live V+E+F 926), face gids preserved |
+| case 2: bad edge alone, default policy | 1 | 0 | `rejectedLinkCondition=1` | 0/0/0 | V 162 E 480 F 320, face gids unchanged |
+| case 2: bad + antipodal, permissive | 2 | 1 | `rejectedLinkCondition=1` | 1/3/2 | V 161 E 477 F 318, χ 2 |
+
+The gid-space premise in (c) — 962 against 926 live entities — is what makes a
+renumbering `compact()` observable; the test asserts it.
+
+**Nothing only running revealed.** The build and the job passed first time.
+
+**Session notes.**
+- The first `spack install` was killed with rc 137 by the session's ten-minute
+  command timeout; the rerun, in the background, finished in 11m19s, rc 0. The
+  full `spack install` rebuilds every test and example; the user confirmed that
+  is the build to keep. `spack env activate` is blocked by the loop's guard, so
+  the install ran as `spack -e ~/spack_envs/tuolumne_beatnik install` after
+  unsetting `HIPCC_*_FLAGS_APPEND`.
+- The build log carries 70 warnings, all `-Wpass-failed` occupancy notes from
+  Canopy's FMM kernels; none is in a file this task touched.
+- After a resume, `$TASKLOOP_SUBMIT` was unset in the shell. The job was
+  submitted through the same wrapper (`run-tasks/scripts/hpc_submit.py`), with
+  `TASKLOOP_POLICY`, `TASKLOOP_DIR` and `TASKLOOP_STEP` exported to this loop's
+  values. It accepted the script, rc 0.
+- Cosmetic: `splitEdges()`'s brief claimed it was "the only topological edit
+  Beatnik performs"; it now says it is the only one the solver calls until
+  T4d2–T4d5 wire the others in. The file header and the topological-edits
+  banner no longer say the three adapters are unwritten.
+- `README.md` documents none of these signatures; no change.
+
+**Re-basing:** the adapters do not touch the AMR reference state
+(`/faces/u0..u2`); collapse, flip and compact carry face user fields verbatim.
+Whether to call `AdaptiveMesh::resetReferenceState` after an edit is the
+caller's decision (T4d2, T4d3, T4d5).
+
+**Affects:** T4d2 (derive the collapse policy from
+`mesh_type::collapse_policy_type`; `collapseEdges` already exchanges the halo,
+so its caller need not), T4d3 and T4d5 (pass `flip_policy_type` with
+`conflict = flip_conflict_type::EndpointInQuad` for the valence pass; exchange
+positions before flipping if they moved), T4d6 (`compact()` reports the gid
+space; `compactAndRenumberGids` still needs an adapter).
