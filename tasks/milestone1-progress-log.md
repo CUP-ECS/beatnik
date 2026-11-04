@@ -1328,3 +1328,52 @@ path (M1-T2). Python took 25 s for the same run (`## M1-G1`), so Beatnik is
   reports comes from remeshing (M1-R8), not drift. A test asserting `1e-12` must
   use the `atol` (`1e-14`) with the measured `max|e|` beside it, because `rtol`
   never governs `vertices`.
+
+## M1-D1 review
+
+**Verdict:** Passed
+**Reviewed:** `cff5193^..cff5193` (the only commit outside `tasks/` is
+`scripts/tuolumne/milestone1_divergence.flux`, the task's **Fill in**)
+**Evidence:** implementing session's job `f3hypK87UYCo`, output read —
+`scripts/tuolumne/milestone1_divergence.flux`, log
+`beatnik_m1d1.f3hypK87UYCo.log`, Flux `COMPLETED` rc 0, submitted
+15:20:17, started 15:29:06 (queue wait about 9 min), runtime 1.047 min. The job
+echoed commit `70fda7c`; the one commit after it, `cff5193`, adds only the batch
+script and `tasks/` files, so the installed binary it ran is the reviewed code.
+The log reads `[PASS] Beatnik_Test_Milestone0Run (6/6 checks)` on every rank of
+all four launches, `checkpoints written: 61` each, `launched=4 skipped=0`, and
+no `FAIL`, `STOPPED EARLY` or `ENTITY COUNTS CHANGED`. Re-checked on the login
+node with `compare_output.py` against the run's lustre output (read-only):
+HIP np4 step 0 at `--rtol 1e-12 --atol 1e-14` gives `RESULT: match`, `vertices`
+`max|e|` `5.551115e-17`, `potential` `0`, `162/162 unambiguous` — the passing
+direction of the step-0 gate. HIP np4 step 580 at the same tolerances matches
+with `vertices` `max|e|` `9.880985e-15`, the logged peak. The failure direction:
+the same step-580 pair at `--rtol 1e-16 --atol 1e-16` exits 1 with
+`vertices: 449 of 486 entries outside` and `potential: 157 of 162`, so the
+comparator does detect the drift the ladder reports as within tolerance. The
+`ladder` arrays of all six `analysis/*_vs_{py,np4}.json` files agree with the
+log's tables (all `null` against Python; cross-rank `1e-12` derived 420 HIP /
+530 SERIAL, confirmed `null`, 19 / 8 invocations), with `structural_ok` true
+and empty `pairing_problems` throughout.
+
+Mechanical pass (`review_checks.py`): no candidates. The script follows
+`milestone0_divergence.flux`'s preamble, provenance block, binding, FD-3 loop
+and per-run scratch on lustre, carries the BSD-3-Clause header, refuses
+`BEATNIK_USE_PROD=1`, and resolves the driver through `beatnik_exe`. The
+submission departure (plain `flux batch`, user-approved) is recorded in
+`## M1-D1`. No prompt file remains under `tasks/`.
+
+1. [follow-up] `tasks/milestone1-progress-log.md` `## M1-D1`, "The tolerance
+   ladder against Python" — the reading that the level-2 `1e-12` horizon lies
+   "just beyond step 600" and that the `1e-14` `atol` "would be crossed within a
+   few tens of steps" describes when the ladder's *derived* bound first permits
+   a failure, not when a comparison fails. The comparator's test is elementwise
+   `|e| <= atol + rtol·|g|`, and step 580 HIP np4 still matches at
+   `--rtol 1e-12 --atol 1e-15`, an `atol` an order below the peak `max|e|`. So
+   "`rtol` never governs `vertices`" holds for the derived bound only; the
+   confirmed horizon is likely well past the derived one, as M0-D1 found at
+   level 3 (derived 450–475, confirmed 1325–1350). M1-A1 should read the
+   headroom in the derived sense when it sets the ladder. No change to M1-D1's
+   measurements.
+
+**Affects:** none
