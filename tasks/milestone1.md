@@ -1,8 +1,8 @@
 # Milestone 1 — the reference's default rising-bubble configuration
 
-**Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1, M1-G2, M1-D1 and T4d1
-are **DONE** (M1-U1–U3, M1-G1, M1-G2 and M1-D1 reviewed, Passed; T4d1 awaiting
-review). T4d2–T4d6, M1-T1, M1-T2 and M1-A1 are NOT STARTED.
+**Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1, M1-G2, M1-D1, T4d1 and
+T4d2 are **DONE** (M1-U1–U3, M1-G1, M1-G2, M1-D1 and T4d1 reviewed, Passed; T4d2
+awaiting review). T4d3–T4d6, M1-T1, M1-T2 and M1-A1 are NOT STARTED.
 
 ## Problem
 
@@ -303,15 +303,23 @@ True at HEAD, and specific about what is *defined but wrong* versus what
 *throws*:
 
 - **Throws** (`BEATNIK_NOT_IMPLEMENTED`), so a run cannot reach them silently:
-  `DynamicRemesh::{collapseShortEdges, flipEdgesForQuality, tangentialSmooth}`
-  ([src/Beatnik_DynamicRemesh.hpp:892](../src/Beatnik_DynamicRemesh.hpp#L892),
-  [:914](../src/Beatnik_DynamicRemesh.hpp#L914),
-  [:940](../src/Beatnik_DynamicRemesh.hpp#L940));
+  `DynamicRemesh::{flipEdgesForQuality, tangentialSmooth}`
+  ([src/Beatnik_DynamicRemesh.hpp:1112](../src/Beatnik_DynamicRemesh.hpp#L1112),
+  [:1138](../src/Beatnik_DynamicRemesh.hpp#L1138));
   `MeshQuality::{valenceEqualizingFlips, isotropicCleanup, improveConnectivityByFlips}`
   ([src/Beatnik_MeshQuality.hpp:111](../src/Beatnik_MeshQuality.hpp#L111),
   [:182](../src/Beatnik_MeshQuality.hpp#L182),
   [:210](../src/Beatnik_MeshQuality.hpp#L210)).
-- **Implemented, with no caller outside the test** (T4d1, **DONE**):
+- **Implemented, reachable from `DynamicRemesh::remesh` but not from a `Solver`
+  run** (T4d2, **DONE**): `DynamicRemesh::collapseShortEdges`, called once per
+  pass after a second sizing-field recompute, through
+  `ReferenceCollapsePolicy` (the reference metric on M1-U1's hook). The `Solver`
+  still rejects `--remesh-collapse-factor > 0`
+  ([src/Beatnik_Solver.hpp:797-817](../src/Beatnik_Solver.hpp#L797-L817)) until
+  T4d6, so a run reaches it only at factor 0, where it returns before any
+  mutation. Covered by case 3 of `Beatnik_Test_MeshEdits`.
+- **Implemented** (T4d1, **DONE**), with `collapseEdges` called by T4d2 and
+  `flipEdges` and `compact` called only by the test:
   `SurfaceMesh::{collapseEdges, flipEdges, compact}` take a host
   `std::vector<char>` mask sized `ownedEdgeCount()` and a trailing policy
   defaulted to `collapse_policy_type` / `flip_policy_type`, and return
@@ -321,7 +329,7 @@ True at HEAD, and specific about what is *defined but wrong* versus what
   `Beatnik_Test_MeshEdits`.
 - **Present upstream, unused by Beatnik:** Tessera's collapse and flip policies
   carry the `quality()` hook (M1-U1, **DONE**, Tessera `279287e`), defaulting to
-  the radius ratio; no Beatnik policy uses it yet (T4d2). `flipEdges` has the
+  the radius ratio; T4d2's `ReferenceCollapsePolicy` shadows it. `flipEdges` has the
   opt-in `FlipConflict::EndpointInQuad` relation beside the default per-face one
   (M1-U2, **DONE**, Tessera `05b5942`); no Beatnik call site sets it yet (T4d5).
   `flipEdges` accepts at most one of several flips in one call that would create
@@ -329,16 +337,11 @@ True at HEAD, and specific about what is *defined but wrong* versus what
   `33dc6b9`); no Beatnik call site calls `flipEdges` yet (T4d3, T4d5).
 - **Defined and deliberately inert**, transcribed rather than folded away, so
   landing T4d turns them on by deleting a rejection instead of by remembering to
-  add a call: `const int collapses = 0` and `diag.flips += 0; diag.smooth_steps += 0`
+  add a call: `diag.flips += 0; diag.smooth_steps += 0`
   inside the pass loop
-  ([src/Beatnik_DynamicRemesh.hpp:1009-1048](../src/Beatnik_DynamicRemesh.hpp#L1009-L1048)),
+  ([src/Beatnik_DynamicRemesh.hpp:1233-1247](../src/Beatnik_DynamicRemesh.hpp#L1233-L1247)),
   and `const int flips = 0` on the refine branch
-  ([src/Beatnik_Solver.hpp:465](../src/Beatnik_Solver.hpp#L465)). Note the
-  **sizing-field recompute before the collapse pass is absent**, not merely
-  unused — the comment at
-  [:1020-1031](../src/Beatnik_DynamicRemesh.hpp#L1020-L1031) records that it is
-  load-bearing the moment collapse lands, because without it the collapse pass
-  undoes the split pass.
+  ([src/Beatnik_Solver.hpp:465](../src/Beatnik_Solver.hpp#L465)).
 - **Missing entirely from the remesh branch:** the `isotropic_cleanup` call site
   and the *second* state rebuild that follows it
   ([src/Beatnik_Solver.hpp:521-541](../src/Beatnik_Solver.hpp#L521-L541) has a
@@ -1035,7 +1038,7 @@ the mesh goes to V 161 E 477 F 318. Log: `## T4d1`.
 
 ---
 
-### T4d2 — `DynamicRemesh::collapseShortEdges` — **NOT STARTED**
+### T4d2 — `DynamicRemesh::collapseShortEdges` — **DONE**
 
 **Depends on:** T4d1, M1-U1.
 
@@ -1090,6 +1093,22 @@ direction — `--remesh-collapse-factor 0` produces `collapses == 0` with no
 mutation, and `--remesh-max-collapses 0` does **not** disable the pass (it means
 unlimited), asserted so the rejection's warning about that lever is carried by a
 test of the pass itself.
+
+**Met.** Commit `848e009`, job `f3iBGQsreZPm` (`pdebug`, two nodes, COMPLETED
+rc 0, 66 s, `scripts/tuolumne/t4d1_mesh_edits.flux` at its default ranks 1–6,
+which covers 1 and 4): `SUMMARY: PASS (6/6 rank counts)`, and all 21 ranks
+printed `[PASS] Beatnik_Test_MeshEdits (122/122 checks)` on HIP with identical
+counts. Case 3 works on a radially perturbed subdivision-2 icosphere (V 162,
+E 480, F 320), which breaks length ties. At `collapse_factor = 0` it finds no
+candidates and changes nothing: V/E/F, face gids, every local position and the
+mesh generation are the same afterwards. At factor 6 with
+`max_collapses_per_pass = 0` (unlimited) it finds 240 candidates and requests
+all 240. It accepts 4 (236 `rejected_conflict`), F falls 320 → 312, V − E + F =
+2. With the cap at 25 it requests exactly 25, reports capped, and accepts 4.
+`remesh()` with splitting switched off collapses the same 4. At factor 0 it
+leaves 320 faces. All of these are literals asserted in the test. The
+regression gate was not re-run; the factor-0 no-mutation check is the evidence
+that it is unaffected. Log: `## T4d2`.
 
 ---
 

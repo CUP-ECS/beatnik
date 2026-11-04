@@ -1559,3 +1559,134 @@ three policy aliases, the new runner).
    file. No fix task is needed.
 
 **Affects:** none
+
+## T4d2
+
+**Commits:** `848e009` (`collapseShortEdges`, `ReferenceCollapsePolicy`, the
+generalized cap search, the pass-loop wiring, the `RemeshDiagnostics` fields,
+case 3 of `Beatnik_Test_MeshEdits`, the `haloExchange()` `@pre` nit, README and
+`docs/testing.md`), and the commit that adds this section (`milestone1.md`,
+this log).
+
+**Jobs:**
+- `f3iBGQsreZPm`, the exit criterion: `scripts/tuolumne/t4d1_mesh_edits.flux`
+  at its default ranks 1 2 3 4 5 6 (`pdebug`, two nodes, `-t 15m`,
+  `--bank=unm`). Log `beatnik_t4d1_mesh_edits.f3iBGQsreZPm.log` in the repo
+  root. COMPLETED rc 0, 66 s, `flux job status` rc 0. It echoed commit
+  `848e009` with only unrelated files dirty, and the dev-view binary (mtime
+  15:20:08, from this task's second `spack install`). It shows both directions:
+  the pass removes faces, and factor 0 is a no-op. `PASS np=1` … `PASS np=6`,
+  and all 21 ranks printed `[PASS] Beatnik_Test_MeshEdits (122/122 checks)` on
+  HIP.
+- `f3iB782W4h4B`, a measurement run of the same script before the three count
+  literals were known. The test held `-1` sentinels, so it FAILED by design on
+  exactly the 7 checks that read them (115/122 passed). It printed the counts
+  below, identical on all 21 ranks. Log
+  `beatnik_t4d1_mesh_edits.f3iB782W4h4B.log`, kept.
+
+**Decisions given to the task, recorded as given:**
+- **The `Solver` collapse rejection stays**
+  (`src/Beatnik_Solver.hpp:797-817`), and so does the T4b `checkRejected`
+  case. T4d6 deletes both. A `Solver` run therefore reaches
+  `collapseShortEdges` only at `collapse_factor <= 0`, where it returns 0 as its
+  first statement: no `countMask`, no `collapseEdges`, no halo exchange, no
+  compaction. The pass loop computes the second sizing field unconditionally,
+  into a fresh local View. That costs the T4b gate path one extra
+  `vertexTargetEdgeLength` (its gradation halo exchanges and reductions) per
+  remesh, and mutates nothing. The rejection's message still says "not yet
+  implemented"; it is deleted whole at T4d6, so it was left untouched.
+- **The cap mirrors the split pass's.** `searchRatioThreshold` takes a
+  `RatioKeep { Largest, Smallest }`. `Largest` (split) keeps `ratio > t` and
+  returns the smallest fitting `t`, bit-identical to the old code path.
+  `Smallest` (collapse) keeps `ratio < t` and returns the largest fitting `t`,
+  with bracket `[0, max·(1+1e-12)+1e-300]` and the same fixed 60 probes. A new
+  helper, `applyRatioThreshold`, clears the mask in either direction and
+  replaces the split pass's inline kernel. Ties at the threshold are all
+  dropped, so a capped pass may request fewer than the cap. On the perturbed
+  test mesh it requested exactly 25 of 25.
+- **One `collapseEdges` call per pass**, no `while (accepted > 0)`: the
+  reference walks its list once.
+- **Policy values:** `ReferenceCollapsePolicy` derives from
+  `mesh_type::collapse_policy_type` and shadows `quality()` with `4√3·A/Σℓ²` on
+  host 3-vectors. It returns 0 for a zero edge-length sum or a non-finite value,
+  matching the reference's `np.isfinite` rejection. `t = 0.5`,
+  `minQuality = _params.min_quality` and `maxNormalRotation = std::acos( 0.1 )`
+  are each set explicitly. No `Tessera::detail::` name is used.
+
+**Decisions made in the session:**
+- `collapseShortEdges` gains a trailing `RemeshDiagnostics&`, as
+  `splitLongEdges` has. It had no caller before this task.
+- New `RemeshDiagnostics` fields, accumulated over passes as the split ones
+  are: `collapse_candidates` (before the cap), `collapse_requested` (Tessera's
+  `requested`), `collapse_rejected_conflict`, `collapse_capped` and
+  `collapse_ratio_threshold`. With `collapses` (Tessera's `accepted`) and the
+  cap parameter, they give M1-R3's requested, accepted and cap per pass;
+  `passes` is 1 by default.
+- No halo exchange after the collapse. Tessera's `collapseEdges` ends in
+  `compact()` and returns a fully haloed mesh (`Tessera_EdgeCollapse.hpp`,
+  doc comment near `:1490`), and the adapter exchanges before.
+- **Test fixture:** each sub-case uses a fresh subdivision-2 icosphere whose
+  owned vertices are scaled radially by `1 + 0.02·sin(3x+5y+7z)`, then
+  halo-exchanged. This breaks the icosphere's length ties so that the cap's
+  answer is unique. The target is `h_max = 0.05` everywhere on this sphere, so
+  `collapse_factor = 6` makes an edge a candidate iff it is shorter than 0.3.
+
+**Re-basing:** `collapseShortEdges` does **not** call
+`AdaptiveMesh::resetReferenceState`. The `Solver` remesh branch already calls it
+after every remesh that ran (`src/Beatnik_Solver.hpp:521-541`), followed by
+`centerPotential`. That is the reference's own place for it:
+`dynamic_remesh_state_with_material` rebuilds the state after the whole cycle,
+not after each pass. A per-pass re-base would also drag the AMR header into
+`DynamicRemesh`.
+
+**Measured counts** (integers; no real-valued quantity is asserted), identical
+on all 21 ranks at np 1–6:
+
+| Sub-case | candidates | requested | accepted | rejectedConflict | mesh after |
+| --- | --- | --- | --- | --- | --- |
+| 3a, factor 0 | 0 | 0 | 0 | 0 | V 162 E 480 F 320; gids, positions, generation unchanged |
+| 3b, factor 6, cap 0 (unlimited) | 240 | 240 | 4 | 236 | V 158 E 468 F 312, χ 2 |
+| 3c, factor 6, cap 25 | 240 | 25 | 4 | 21 | V 158 E 468 F 312, χ 2, capped |
+| 3d, `remesh()`, split off | — | — | 4 | — | F 320 → 312, 0 splits |
+| 3d, `remesh()`, factor 0 | 0 | — | 0 | — | F 320, face gids unchanged |
+
+**Only running revealed:** **one `collapseEdges` call accepts very few
+candidates when they are dense.** Of 240 candidates, all of which passed the
+link, fold and quality tests, only 4 were accepted. The other 236 lost
+Tessera's one-round independent set, which accepts an edge only if it is the
+shortest candidate in both endpoints' one-rings. On a smoothly varying mesh
+there are few such local minima. The reference's serial walk would accept every
+candidate whose endpoints no earlier collapse removed, which here is plausibly
+tens. With the per-pass single call decided above, Beatnik's collapse counts
+will therefore lag the reference far more than M1-R3's "diverges when the cap
+binds" anticipates. This is not a fault in the pass. It is information for
+M1-A1 and for the T4d exit criterion's statistics comparison.
+
+**Session notes:**
+- Two `spack install`s, both rc 0: 12m18s, then 2m14s incremental. Each ran
+  after unsetting `HIPCC_*_FLAGS_APPEND`. The build carries the same 70
+  warnings, all Canopy `-Wpass-failed`; none is in a file this task touched.
+- The first resubmit was refused (exit 4) by the loop wrapper. It named the two
+  finished jobs `f3iArVXa12CF` and `f3iB782W4h4B` as active. On Flux 0.90.0,
+  `flux jobs --filter=active <ids>` warns `Filtering options ignored with
+  jobid list` and lists inactive jobs too, and `taskloop_common.py::job_states`
+  counts them. After the loop restarted, the submit was accepted.
+- Cosmetic corrections made: `DynamicRemesh.hpp`'s header table, the pass-loop
+  comment and the collapse doc comment now state the code as it is; the
+  collapse citation is `:361-405`. README Known Issues and `docs/testing.md:140`
+  say collapse is implemented and still rejected at setup until T4d6.
+  `haloExchange()`'s `@pre` names every edit that rebuilds the halo (the T4d1
+  review nit). `milestone1.md`'s Current-state line references were refreshed.
+
+**Affects:**
+- **T4d6:** it deletes the `Solver` collapse rejection and the T4b
+  `checkRejected` collapse case, as planned. After that, the T4b member's
+  `collapse_factor` (0) still keeps its trajectory unchanged. Gid space: each
+  accepted collapse leaves holes, and T4d1 measured 962 against 926 live
+  entities after six collapses. T4d2 adds no renumbering, so the leak is live
+  the moment the rejection goes.
+- **M1-A1 / the T4d exit criterion:** see "Only running revealed". Compare
+  collapse statistics knowing one call per pass accepts a small independent
+  subset of the candidates.
+- **T4d3, T4d5:** `RatioKeep` / `applyRatioThreshold` exist if a flip mask
+  ever needs a cap.
