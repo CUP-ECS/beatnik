@@ -1938,3 +1938,94 @@ np 1–6:
 - **M1-A1 / the T4d exit criterion:** compare flip statistics knowing one round
   accepts about three quarters of a dense candidate set (44 of 59 here) and the
   sweep needs a second round.
+
+## T4d3 review
+
+**Verdict:** Passed
+**Reviewed:** `5fa0488^..5fa0488` (the one code commit; `c60f9e7` after it
+touches only `tasks/`). It touches the **Fill in** (`src/Beatnik_DynamicRemesh.hpp`,
+`src/Beatnik_MeshQuality.hpp`, `src/Beatnik_Solver.hpp`), what Do step 4
+requires to reach `FlipResult::flipped` (`FlippedEdge`,
+`MeshEditReport::flipped` and `SurfaceMesh::vertexGids()` in
+`src/Beatnik_MeshInterface.hpp`, recorded under "Decisions made in the
+session"), the `kFlipsDisabledMinGain` comment in `src/Beatnik_Params.hpp`
+(recorded as a cosmetic correction), the test
+`tests/unit_tests/Beatnik_Test_MeshEdits.cpp` and its CMake comment, and the
+README Known Issues and `docs/testing.md` lines CLAUDE.md requires to stay in
+sync. Nothing out of scope.
+**Evidence:** implementing session's job `f3iL4TUfQCCX`, output read.
+`scripts/tuolumne/t4d1_mesh_edits.flux`, log
+`beatnik_t4d1_mesh_edits.f3iL4TUfQCCX.log`, Flux `COMPLETED` rc 0. Submitted
+10:15:41, started 10:15:42 (1 s queue wait), ran 1.053 min. It echoed commit
+`5fa0488` with no source file dirty (only `.claude/settings.json`,
+`tasks/milestone1.md` and untracked files), and the dev-view binary's mtime
+(10:15:14) precedes the commit by 23 s with no source edit between. The log
+has `PASS np=1` … `PASS np=6`, `SUMMARY: PASS (6/6 rank counts)` and exactly
+21 `[PASS] Beatnik_Test_MeshEdits (177/177 checks)` lines, all on HIP, with no
+`FAIL`, abort or exception. Every case-4 note appears 21 times with identical
+values, so the statistics agree at ranks 1 and 4 (and 2, 3, 5, 6). The passing
+direction: 4b's single `flipEdgesForQuality` sweep runs 2 rounds, requests 59,
+accepts 44 (15 `rejectedConflict`); minimum quality 0.0775 → 0.2128, faces
+below 0.18 3 → 0, V 162 E 480 F 320 χ 2. The test asserts `min_q` after ≥
+before and `below` after ≤ before, which is the criterion, and compares only
+statistics, never flip sets (R7). 4c's `remesh()` flips the same 44 in 2
+rounds through the repair gate; 4d's `improveConnectivityByFlips` at three
+passes flips 44 + 10 + 2 = 56, minimum 0.2963. The failure direction: 4a and
+4c at gain 1e12 report `flip_rounds = 0`, `flips = 0`, and generation, face
+gids, every local position and V/E/F unchanged; 4d at `max_passes = 0` returns
+0 with no sweep and the same checks. Every number agrees with the **Met.**
+paragraph.
+
+Mechanical pass (`review_checks.py`): candidates only, all dismissed. K4 (host
+mirrors in `qualityFlipSweep`, `vertexGids()`) is the designed host mask pass,
+once per round, not per step. M3 (`MPI_Allgather`/`MPI_Allgatherv` in
+`gatherNewDiagonals`) hands host `std::vector` data, not View data. S2 at
+`src/Beatnik_Solver.hpp:452` is prose. Read against the reference and the task:
+- `QualityFlips::accepts` is written once, with the floor as
+  `QualityFlipCriterion::has_floor`; the remesh path passes `min_quality` and
+  `flip_min_gain`, the refine path no floor and `Solver::kRefineFlipMinGain =
+  1e-3` citing `mesh_solver.py:1708` (Do step 1). Normal-sum, finiteness,
+  floor and strict gain tests in the reference's order. It uses the reference
+  metric, and `ReferenceCollapsePolicy::quality` now shares the same host
+  function.
+- No `(c,d)`-exists test in the mask (Do step 2). The policy is
+  `{maxNormalDeviation = π, minQuality = 0, SharedFace}`, set explicitly (Do
+  step 3, Conventions "Where a reference acceptance rule lives").
+- One sweep is several rounds sharing a touched set, never a fresh mask (Do
+  step 4). Keying it by new-diagonal gid pairs is equivalent to touched faces:
+  the faces containing a newly created diagonal are exactly the two the flip
+  rewrote, since a flip onto an existing edge is rejected as a duplicate.
+- Residency: `faceAdjacency().non_resident` and an unresolved-quad count are
+  reduced together and throw on every rank or none (Do step 1).
+- Collectives: every branch in `qualityFlipSweep` is on a reduced count or on
+  Tessera's global `accepted`; `improveConnectivityByFlips` returns before
+  anything collective only on the parameter `max_passes`; the Solver's re-base
+  is under the global `flips` and a parameter. Every rank reaches the same
+  calls.
+- Re-basing (Conventions row, Do step 5): recorded in the log with reasons,
+  and the code matches it.
+- Both `Solver` rejections and their regression cases are untouched
+  (Conventions "`Solver` rejections during T4d").
+
+Stale code: the `diag.flips += 0` placeholder, the refine branch's
+`const int flips = 0` and both `BEATNIK_NOT_IMPLEMENTED` calls are gone; no
+comment in `src/`, `README.md` or `docs/` still calls either entry point
+unimplemented. `flipEdgesForQuality`'s old one-argument signature had no
+caller. Nothing is made dead. No prompt file remains under `tasks/`.
+
+1. [follow-up] `tests/unit_tests/Beatnik_Test_MeshEdits.cpp` case 4d: the
+   early stop after a sweep that flips nothing is not exercised (the fixture's
+   three sweeps flip 44, 10 and 2), as the log records. A fourth pass at the
+   same fixture, or a `max_passes` large enough to reach an empty sweep, would
+   cover it. Candidate for T4d6, which makes the path reachable.
+2. [follow-up] The refine branch's `resetReferenceState` under
+   `flips > 0 && smooth_iters == 0` (`src/Beatnik_Solver.hpp`) is unreachable
+   until T4d6 and covered by no test. T4d6, when it deletes the
+   `--flip-passes > 0` rejection, is where a run should show it fires.
+3. [follow-up] A duplicate-edge rejection is re-requested in every later round
+   of the same sweep, inflating `flip_requested` and costing one extra
+   `flipEdges` call per sweep, as the log records under "Only running
+   revealed". Correct (the reference skips those edges too), but a diagnostics
+   reader should know `flip_requested` counts requests, not distinct edges.
+
+**Affects:** none
