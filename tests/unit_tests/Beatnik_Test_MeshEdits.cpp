@@ -12,9 +12,12 @@
  * @file Beatnik_Test_MeshEdits.cpp
  * @brief `unit`-tier test of the three `SurfaceMesh` edit adapters over
  *        Tessera — `collapseEdges`, `flipEdges` and `compact` — and of the
- *        collapse pass built on them, `DynamicRemesh::collapseShortEdges`.
+ *        passes built on them: `DynamicRemesh::collapseShortEdges`,
+ *        `DynamicRemesh::flipEdgesForQuality` and
+ *        `MeshQuality::improveConnectivityByFlips`.
  *
- * THIS IS T4d1's AND T4d2's EXIT CRITERIA, MECHANIZED (`tasks/milestone1.md`).
+ * THIS IS T4d1's, T4d2's AND T4d3's EXIT CRITERIA, MECHANIZED
+ * (`tasks/milestone1.md`).
  * Its rank sweep is `scripts/tuolumne/t4d1_mesh_edits.flux`, ranks 1-6 in one
  * job; the tier registers it at one rank like every other member.
  *
@@ -67,6 +70,28 @@
  *     collapses exactly 3b's count; at `collapse_factor = 0` it changes
  *     nothing.
  *
+ * Case 4, **T4d3**, each part on a fresh default icosphere whose vertices are
+ * moved tangentially by a smooth, high-frequency field and put back on the
+ * sphere, which leaves faces below `--remesh-min-quality` (0.18) and edges
+ * whose flip improves the worse face. Statistics are compared, never flip
+ * sets (framework risk R7):
+ *
+ *   - **4a, the failure direction.** `flip_min_gain = kFlipsDisabledMinGain`
+ *     (1e12) gives `flips == 0`, no `flipEdges` call, and V/E/F, the face gids,
+ *     every local position and the generation unchanged — the path the T4b
+ *     regression member and every `Solver` run take until task T4d6.
+ *   - **4b.** At the default gain (1e-3) and floor (0.18), one sweep flips a
+ *     fixed count over more than one round, the global minimum quality rises
+ *     or holds, the count of faces below 0.18 does not increase, V/E/F and
+ *     the face gids are unchanged, and Tessera's counters partition
+ *     `requested`.
+ *   - **4c.** `remesh()` with split and collapse off reaches the flips through
+ *     its quality-repair gate and flips 4b's count; at 1e12 it changes
+ *     nothing.
+ *   - **4d.** `improveConnectivityByFlips`: `max_passes = 0` returns 0 and
+ *     changes nothing; three passes flip a fixed count over a fixed number of
+ *     sweeps, and the minimum quality rises or holds.
+ *
  * NAMING EDGES WITHOUT GIDS
  * -------------------------
  * Gids are not on the adapter's public surface, so an edge is named
@@ -83,6 +108,7 @@
 
 #include <Beatnik_DynamicRemesh.hpp>
 #include <Beatnik_MeshInterface.hpp>
+#include <Beatnik_MeshQuality.hpp>
 #include <Beatnik_Params.hpp>
 #include <Beatnik_SurfaceState.hpp>
 #include <Beatnik_Types.hpp>
@@ -97,6 +123,7 @@
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <exception>
 #include <functional>
 #include <limits>
@@ -146,6 +173,25 @@ constexpr int kCap = 25;
 constexpr long long kCandidates = 240;
 constexpr int kCollapsesUnlimited = 4;
 constexpr int kCollapsesCapped = 4;
+
+// Case 4's fixture: every vertex p moves by kTangentialAmp times the tangential
+// part of (sin(12y+1), sin(15z+2), sin(18x+3)) and is renormalized onto the
+// unit sphere. The field and amplitude were chosen with a Python model of the
+// sweep (tasks/milestone1-progress-log.md `## T4d3`): it leaves faces below
+// the 0.18 floor and no inverted face.
+constexpr double kTangentialAmp = 0.1;
+constexpr double kQualityFloor = 0.18;
+// Measured, identical at ranks 1-6; see tasks/milestone1-progress-log.md
+// `## T4d3`. The fixture's worst face is 0.0775 and three faces are below the
+// floor; one sweep flips 44 edges over two rounds and leaves none below it.
+// improveConnectivityByFlips' three sweeps flip 44, 10 and 2.
+constexpr long long kBelowBefore = 3;
+constexpr long long kBelowAfter = 0;
+constexpr int kQualityFlips = 44;
+constexpr int kQualityRounds = 2;
+constexpr int kImprovePasses = 3;
+constexpr int kImproveFlips = 56;
+constexpr int kImproveSweeps = 3;
 
 Point unit( const double* d )
 {
@@ -884,6 +930,321 @@ void caseCollapseShortEdges( Beatnik::Test::Recorder& rec )
     }
 }
 
+//---------------------------------------------------------------------------//
+// Case 4 -- the quality flips (T4d3).
+//---------------------------------------------------------------------------//
+
+/// A fresh default icosphere with every owned vertex moved tangentially by a
+/// smooth, high-frequency field and put back on the unit sphere, then
+/// halo-exchanged. A function of position alone, so bit-identical at every
+/// rank count.
+template <class ExecSpace, class MeshType>
+void makeTangentialIcosphere( MeshType& mesh )
+{
+    const Real center[3] = { 0.0, 0.0, 0.0 };
+    mesh.generateIcosphere( kSubdivisions, 1.0, center );
+    auto pos = mesh.positions();
+    const double amp = kTangentialAmp;
+    Kokkos::parallel_for(
+        "beatnik_t4d3_tangential", Kokkos::RangePolicy<ExecSpace>(
+                                       0, mesh.ownedVertexCount() ),
+        KOKKOS_LAMBDA( const int i ) {
+            const double p[3] = { pos( i, 0 ), pos( i, 1 ), pos( i, 2 ) };
+            double t[3] = { Kokkos::sin( 12.0 * p[1] + 1.0 ),
+                            Kokkos::sin( 15.0 * p[2] + 2.0 ),
+                            Kokkos::sin( 18.0 * p[0] + 3.0 ) };
+            const double tn = t[0] * p[0] + t[1] * p[1] + t[2] * p[2];
+            double w[3];
+            for ( int d = 0; d < 3; ++d )
+            {
+                t[d] -= tn * p[d];
+                w[d] = p[d] + amp * t[d];
+            }
+            const double n =
+                Kokkos::sqrt( w[0] * w[0] + w[1] * w[1] + w[2] * w[2] );
+            for ( int d = 0; d < 3; ++d )
+                pos( i, d ) = w[d] / n;
+        } );
+    Kokkos::fence();
+    mesh.haloExchange();
+}
+
+/// Global minimum reference quality over owned faces, and the global count of
+/// owned faces below `threshold`. Owned faces partition the mesh, so both are
+/// rank-count invariant.
+struct QualityStats
+{
+    double min_q = 0.0;
+    long long below = 0;
+};
+
+template <class ExecSpace, class MeshType>
+QualityStats qualityStats( MPI_Comm comm, MeshType& mesh,
+                           double threshold )
+{
+    const HostMesh h = snapshot<ExecSpace>( mesh );
+    auto fv = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(),
+                                                   mesh.faceVertices() );
+    double local_min = std::numeric_limits<double>::infinity();
+    long long local_below = 0;
+    for ( int f = 0; f < mesh.ownedFaceCount(); ++f )
+    {
+        const double q = Beatnik::QualityFlips::triangleQuality(
+            h.pos[fv( f, 0 )].data(), h.pos[fv( f, 1 )].data(),
+            h.pos[fv( f, 2 )].data() );
+        local_min = std::min( local_min, q );
+        local_below += ( q < threshold );
+    }
+    QualityStats s;
+    MPI_Allreduce( &local_min, &s.min_q, 1, MPI_DOUBLE, MPI_MIN, comm );
+    MPI_Allreduce( &local_below, &s.below, 1, MPI_LONG_LONG, MPI_SUM, comm );
+    return s;
+}
+
+std::string statsLine( const char* when, const QualityStats& s )
+{
+    char buf[64];
+    std::snprintf( buf, sizeof( buf ), "%.17g", s.min_q );
+    return std::string( when ) + ": min quality=" + buf +
+           " faces below 0.18=" + std::to_string( s.below );
+}
+
+std::string sweepLine( const char* what, int rounds, long long requested,
+                       long long accepted, long long boundary,
+                       long long duplicate, long long geometric,
+                       long long conflict )
+{
+    return std::string( what ) + ": rounds=" + std::to_string( rounds ) +
+           " requested=" + std::to_string( requested ) +
+           " accepted=" + std::to_string( accepted ) +
+           " rejectedBoundary=" + std::to_string( boundary ) +
+           " rejectedDuplicateEdge=" + std::to_string( duplicate ) +
+           " rejectedGeometric=" + std::to_string( geometric ) +
+           " rejectedConflict=" + std::to_string( conflict );
+}
+
+template <class ExecSpace, class MeshType>
+void caseQualityFlips( Beatnik::Test::Recorder& rec )
+{
+    using mem_space = typename MeshType::memory_space;
+    using remesh_type = Beatnik::DynamicRemesh<ExecSpace, mem_space>;
+    using quality_type = Beatnik::MeshQuality<ExecSpace, mem_space>;
+    using state_type = Beatnik::SurfaceState<ExecSpace, mem_space>;
+
+    state_type state( Beatnik::StateModel::Potential );
+
+    Beatnik::RemeshParams base;
+    base.min_quality = kQualityFloor;
+    base.flip_min_gain = 1.0e-3;
+
+    // A no-mutation check: counts, face gids, every local position and the
+    // generation are what they were.
+    struct Frozen
+    {
+        HostMesh h;
+        std::vector<std::uint64_t> gids;
+        std::size_t gen;
+    };
+    auto freeze = [&]( MeshType& mesh )
+    {
+        return Frozen{ snapshot<ExecSpace>( mesh ), sortedFaceGids( mesh ),
+                       mesh.generation() };
+    };
+    auto unchanged = [&]( MeshType& mesh, const Frozen& b, const char* what )
+    {
+        const MPI_Comm comm = mesh.comm();
+        const bool gen = globalAll( comm, mesh.generation() == b.gen );
+        const bool gids = globalAll( comm, sortedFaceGids( mesh ) == b.gids );
+        const bool pos =
+            globalAll( comm, snapshot<ExecSpace>( mesh ).pos == b.h.pos );
+        rec.note( std::string( what ) + ": generation " +
+                  ( gen ? "unchanged" : "CHANGED" ) + ", face gids " +
+                  ( gids ? "unchanged" : "CHANGED" ) + ", positions " +
+                  ( pos ? "unchanged" : "CHANGED" ) );
+        BEATNIK_CHECK_TRUE( rec, gen );
+        BEATNIK_CHECK_TRUE( rec, gids );
+        BEATNIK_CHECK_TRUE( rec, pos );
+        BEATNIK_CHECK_EQ( rec, mesh.globalVertexCount(), kV0 );
+        BEATNIK_CHECK_EQ( rec, mesh.globalEdgeCount(), kE0 );
+        BEATNIK_CHECK_EQ( rec, mesh.globalFaceCount(), kF0 );
+    };
+
+    // 4a. The failure direction: gain 1e12 flips nothing and calls nothing
+    //     that mutates. The fixture's premise -- no zero-quality face, which
+    //     is what makes 1e12 unsatisfiable -- is asserted first.
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        const MPI_Comm comm = mesh.comm();
+        makeTangentialIcosphere<ExecSpace>( mesh );
+        const QualityStats s0 = qualityStats<ExecSpace>( comm, mesh,
+                                                         kQualityFloor );
+        rec.note( statsLine( "case 4a fixture", s0 ) );
+        BEATNIK_CHECK_TRUE( rec, s0.min_q > 0.0 );
+        BEATNIK_CHECK_EQ( rec, s0.below, kBelowBefore );
+
+        const Frozen before = freeze( mesh );
+        Beatnik::RemeshParams p = base;
+        p.flip_min_gain = Beatnik::kFlipsDisabledMinGain;
+        remesh_type dr( p );
+        Beatnik::RemeshDiagnostics diag;
+        const int flips = dr.flipEdgesForQuality( mesh, diag );
+        rec.note( sweepLine( "case 4a flip_min_gain=1e12", diag.flip_rounds,
+                             diag.flip_requested, flips,
+                             diag.flip_rejected_boundary,
+                             diag.flip_rejected_duplicate_edge,
+                             diag.flip_rejected_geometric,
+                             diag.flip_rejected_conflict ) );
+        BEATNIK_CHECK_EQ( rec, flips, 0 );
+        BEATNIK_CHECK_EQ( rec, diag.flip_sweeps, 1 );
+        BEATNIK_CHECK_EQ( rec, diag.flip_rounds, 0 );
+        BEATNIK_CHECK_EQ( rec, diag.flip_requested, 0 );
+        unchanged( mesh, before, "case 4a after" );
+    }
+
+    // 4b. The passing direction: one sweep at the default gain and floor.
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        const MPI_Comm comm = mesh.comm();
+        makeTangentialIcosphere<ExecSpace>( mesh );
+        const QualityStats s0 = qualityStats<ExecSpace>( comm, mesh,
+                                                         kQualityFloor );
+        const auto gids_before = sortedFaceGids( mesh );
+
+        remesh_type dr( base );
+        Beatnik::RemeshDiagnostics diag;
+        const int flips = dr.flipEdgesForQuality( mesh, diag );
+        const QualityStats s1 = qualityStats<ExecSpace>( comm, mesh,
+                                                         kQualityFloor );
+        rec.note( sweepLine( "case 4b flip_min_gain=1e-3 min_quality=0.18",
+                             diag.flip_rounds, diag.flip_requested, flips,
+                             diag.flip_rejected_boundary,
+                             diag.flip_rejected_duplicate_edge,
+                             diag.flip_rejected_geometric,
+                             diag.flip_rejected_conflict ) );
+        rec.note( statsLine( "case 4b before", s0 ) );
+        rec.note( statsLine( "case 4b after", s1 ) );
+        rec.note( vefLine( "case 4b after", mesh ) );
+
+        BEATNIK_CHECK_EQ( rec, flips, kQualityFlips );
+        BEATNIK_CHECK_TRUE( rec, flips > 0 );
+        BEATNIK_CHECK_EQ( rec, diag.flip_rounds, kQualityRounds );
+        BEATNIK_CHECK_TRUE( rec, diag.flip_rounds > 1 );
+        BEATNIK_CHECK_EQ( rec, diag.flip_requested,
+                          static_cast<Beatnik::GlobalIndex>( flips ) +
+                              diag.flip_rejected_boundary +
+                              diag.flip_rejected_duplicate_edge +
+                              diag.flip_rejected_geometric +
+                              diag.flip_rejected_conflict );
+        BEATNIK_CHECK_TRUE( rec, s1.min_q >= s0.min_q );
+        BEATNIK_CHECK_TRUE( rec, s1.below <= s0.below );
+        BEATNIK_CHECK_EQ( rec, s1.below, kBelowAfter );
+        BEATNIK_CHECK_EQ( rec, mesh.globalVertexCount(), kV0 );
+        BEATNIK_CHECK_EQ( rec, mesh.globalEdgeCount(), kE0 );
+        BEATNIK_CHECK_EQ( rec, mesh.globalFaceCount(), kF0 );
+        BEATNIK_CHECK_EQ( rec, mesh.globalEulerCharacteristic(), 2 );
+        BEATNIK_CHECK_TRUE(
+            rec, globalAll( comm, sortedFaceGids( mesh ) == gids_before ) );
+    }
+
+    // 4c. The pass loop: `remesh()` with split and collapse off. The
+    //     fixture's worst face is below 0.18, so the repair gate fires and the
+    //     sweep flips exactly 4b's count; at 1e12 nothing changes, which is the
+    //     T4b regression member's path.
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        makeTangentialIcosphere<ExecSpace>( mesh );
+        Beatnik::RemeshParams p = base;
+        p.split_factor = 1.0e6;
+        p.collapse_factor = 0.0;
+        remesh_type dr( p );
+        const Beatnik::RemeshDiagnostics d = dr.remesh( mesh, state );
+        rec.note( "case 4c remesh(): splits=" + std::to_string( d.splits ) +
+                  " collapses=" + std::to_string( d.collapses ) +
+                  " flips=" + std::to_string( d.flips ) +
+                  " flip_sweeps=" + std::to_string( d.flip_sweeps ) +
+                  " flip_rounds=" + std::to_string( d.flip_rounds ) );
+        BEATNIK_CHECK_EQ( rec, d.splits, 0 );
+        BEATNIK_CHECK_EQ( rec, d.collapses, 0 );
+        BEATNIK_CHECK_EQ( rec, d.flip_sweeps, 1 );
+        BEATNIK_CHECK_EQ( rec, d.flips, kQualityFlips );
+        BEATNIK_CHECK_EQ( rec, d.flip_rounds, kQualityRounds );
+        BEATNIK_CHECK_TRUE( rec, d.min_quality_after >= d.min_quality_before );
+    }
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        makeTangentialIcosphere<ExecSpace>( mesh );
+        const Frozen before = freeze( mesh );
+        Beatnik::RemeshParams p = base;
+        p.split_factor = 1.0e6;
+        p.collapse_factor = 0.0;
+        p.flip_min_gain = Beatnik::kFlipsDisabledMinGain;
+        remesh_type dr( p );
+        const Beatnik::RemeshDiagnostics d = dr.remesh( mesh, state );
+        rec.note( "case 4c remesh(), flip_min_gain=1e12: flips=" +
+                  std::to_string( d.flips ) + " flip_sweeps=" +
+                  std::to_string( d.flip_sweeps ) + " flip_rounds=" +
+                  std::to_string( d.flip_rounds ) );
+        BEATNIK_CHECK_EQ( rec, d.flips, 0 );
+        BEATNIK_CHECK_EQ( rec, d.flip_sweeps, 1 );
+        BEATNIK_CHECK_EQ( rec, d.flip_rounds, 0 );
+        unchanged( mesh, before, "case 4c after, flip_min_gain=1e12" );
+    }
+
+    // 4d. improveConnectivityByFlips: max_passes = 0 is a no-op before
+    //     anything collective; three passes flip a fixed count.
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        makeTangentialIcosphere<ExecSpace>( mesh );
+        const Frozen before = freeze( mesh );
+        quality_type mq( Beatnik::CleanupParams{} );
+        std::vector<Beatnik::FlipSweepStats> sweeps;
+        const int flips =
+            mq.improveConnectivityByFlips( mesh, 0, 1.0e-3, &sweeps );
+        rec.note( "case 4d max_passes=0: flips=" + std::to_string( flips ) +
+                  " sweeps=" + std::to_string( sweeps.size() ) );
+        BEATNIK_CHECK_EQ( rec, flips, 0 );
+        BEATNIK_CHECK_TRUE( rec, sweeps.empty() );
+        unchanged( mesh, before, "case 4d after, max_passes=0" );
+    }
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        const MPI_Comm comm = mesh.comm();
+        makeTangentialIcosphere<ExecSpace>( mesh );
+        const QualityStats s0 = qualityStats<ExecSpace>( comm, mesh,
+                                                         kQualityFloor );
+        quality_type mq( Beatnik::CleanupParams{} );
+        std::vector<Beatnik::FlipSweepStats> sweeps;
+        const int flips = mq.improveConnectivityByFlips(
+            mesh, kImprovePasses, 1.0e-3, &sweeps );
+        const QualityStats s1 = qualityStats<ExecSpace>( comm, mesh,
+                                                         kQualityFloor );
+        long long summed = 0;
+        for ( std::size_t k = 0; k < sweeps.size(); ++k )
+        {
+            const auto& s = sweeps[k];
+            const std::string what =
+                "case 4d max_passes=3, sweep " + std::to_string( k );
+            rec.note( sweepLine( what.c_str(), s.rounds, s.requested,
+                                 s.accepted, s.rejected_boundary,
+                                 s.rejected_duplicate_edge,
+                                 s.rejected_geometric, s.rejected_conflict ) );
+            summed += s.accepted;
+        }
+        rec.note( "case 4d max_passes=3: flips=" + std::to_string( flips ) +
+                  " sweeps=" + std::to_string( sweeps.size() ) );
+        rec.note( statsLine( "case 4d before", s0 ) );
+        rec.note( statsLine( "case 4d after", s1 ) );
+        BEATNIK_CHECK_EQ( rec, flips, kImproveFlips );
+        BEATNIK_CHECK_TRUE( rec, flips > 0 );
+        BEATNIK_CHECK_EQ( rec, static_cast<long long>( flips ), summed );
+        BEATNIK_CHECK_EQ( rec, static_cast<int>( sweeps.size() ),
+                          kImproveSweeps );
+        BEATNIK_CHECK_TRUE( rec, s1.min_q >= s0.min_q );
+        BEATNIK_CHECK_EQ( rec, mesh.globalFaceCount(), kF0 );
+        BEATNIK_CHECK_EQ( rec, mesh.globalEulerCharacteristic(), 2 );
+    }
+}
+
 template <class ExecSpace, class MemSpace>
 void runChecks( Beatnik::Test::Recorder& rec )
 {
@@ -896,6 +1257,7 @@ void runChecks( Beatnik::Test::Recorder& rec )
     caseCollapseFlipCompact<ExecSpace, mesh_type>( rec );
     caseLinkCondition<ExecSpace, mesh_type>( rec );
     caseCollapseShortEdges<ExecSpace, mesh_type>( rec );
+    caseQualityFlips<ExecSpace, mesh_type>( rec );
 }
 
 } // namespace

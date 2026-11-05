@@ -88,23 +88,24 @@
  *
  * WHAT IS IMPLEMENTED, AND WHAT THROWS
  * ------------------------------------
- * The sizing field, the gradation, the **split** pass and the **collapse**
- * pass (`collapseShortEdges`, task T4d2) are implemented. The flip and
- * tangential-smoothing passes are **T4d** (tasks T4d3 and T4d4, not yet
- * implemented) and throw; the two proximity paths are **T4e** and throw.
+ * The sizing field, the gradation, the **split** pass, the **collapse** pass
+ * (`collapseShortEdges`, task T4d2) and the **quality-flip** pass
+ * (`flipEdgesForQuality`, task T4d3) are implemented. The
+ * tangential-smoothing pass is **T4d** (task T4d4, not yet implemented) and
+ * throws; the two proximity paths are **T4e** and throw.
  *
  * A `--dynamic-remesh` run is accepted by the `Solver` only when the passes
  * below are configured off **through the reference's own knobs**, so that what
  * runs there is what the reference would run, not a Beatnik-only subset of it.
- * Collapse is implemented and reachable through `remesh()` at any factor, but
- * the `Solver` still rejects `--remesh-collapse-factor > 0` until task T4d6
- * deletes that rejection:
+ * Collapse and flips are implemented and reachable through `remesh()` at any
+ * setting, but the `Solver` still rejects `--remesh-collapse-factor > 0` and
+ * `--remesh-flip-min-gain < 1e12` until task T4d6 deletes those rejections:
  *
  * | pass | configured off by | reference becomes |
  * | --- | --- | --- |
  * | collapse (rejected by the `Solver` until T4d6) | `--remesh-collapse-factor 0` | `dynamic_remesh.py:373`'s candidate predicate `length < 0 * target` is never true, so the pass returns before any mutation; `collapseShortEdges` returns 0 before building a mask |
  * | smoothing | `--remesh-smooth-iters 0` | `:463-465` returns immediately |
- * | flips | `--remesh-flip-min-gain >= 1e12` | `:449-450` `continue`s every candidate; see `kFlipsDisabledMinGain` |
+ * | flips (rejected by the `Solver` until T4d6) | `--remesh-flip-min-gain >= 1e12` | `:449-450` `continue`s every candidate of a mesh with no zero-quality face; `flipEdgesForQuality` builds an empty mask and returns before calling `flipEdges`; see `kFlipsDisabledMinGain` |
  * | cleanup | `--no-isotropic-cleanup` | `run_adaptive_mesh_bubble.py:1493` skips the whole block |
  *
  * `Solver::requireSupportedConfiguration` rejects anything else by name and by
@@ -120,6 +121,7 @@
 
 #include <Beatnik_MeshGeometry.hpp>
 #include <Beatnik_MeshInterface.hpp>
+#include <Beatnik_MeshQuality.hpp>
 #include <Beatnik_Params.hpp>
 #include <Beatnik_SurfaceState.hpp>
 #include <Beatnik_Types.hpp>
@@ -217,6 +219,23 @@ struct RemeshDiagnostics
     /// settled on (edges strictly below it are kept), `0` when it did not
     /// bind.
     Real collapse_ratio_threshold = 0.0;
+    /// Quality-flip sweeps run — one per pass whose repair gate fired.
+    /// `flips` is their accepted total; the fields below are Tessera's
+    /// verdict counts summed over every round of every sweep, so
+    /// `flip_requested == flips + Σ flip_rejected_*`. Risk M1-R7 reads these:
+    /// a run that flips nothing anywhere is a silent no-op, not agreement.
+    int flip_sweeps = 0;
+    /// `SurfaceMesh::flipEdges` calls over all sweeps (see `FlipSweepStats`).
+    int flip_rounds = 0;
+    GlobalIndex flip_requested = 0;
+    GlobalIndex flip_rejected_boundary = 0;
+    /// The new diagonal already existed — the reference's own `diagonal in
+    /// edge_map` skip (`dynamic_remesh.py:430-431`), decided by Tessera.
+    GlobalIndex flip_rejected_duplicate_edge = 0;
+    GlobalIndex flip_rejected_geometric = 0;
+    /// Passed every test and lost a round's independent set; the next round
+    /// of the same sweep may take it.
+    GlobalIndex flip_rejected_conflict = 0;
     /// **R12 signal 1** — global minimum inradius/circumradius after the call.
     Real min_radius_ratio = 0.0;
     /// **R12 signal 2** — global count of faces below \f$r/R = 0.25\f$ after
@@ -925,23 +944,7 @@ class DynamicRemesh
         double quality( const double* p0, const double* p1,
                         const double* p2 ) const
         {
-            double u[3], v[3], w[3];
-            for ( int d = 0; d < 3; ++d )
-            {
-                u[d] = p1[d] - p0[d];
-                v[d] = p2[d] - p1[d];
-                w[d] = p0[d] - p2[d];
-            }
-            const double cx = u[1] * w[2] - u[2] * w[1];
-            const double cy = u[2] * w[0] - u[0] * w[2];
-            const double cz = u[0] * w[1] - u[1] * w[0];
-            const double area = 0.5 * std::sqrt( cx * cx + cy * cy + cz * cz );
-            const double l2 = ( u[0] * u[0] + u[1] * u[1] + u[2] * u[2] ) +
-                              ( v[0] * v[0] + v[1] * v[1] + v[2] * v[2] ) +
-                              ( w[0] * w[0] + w[1] * w[1] + w[2] * w[2] );
-            if ( !( l2 > 0.0 ) )
-                return 0.0;
-            const double q = 4.0 * std::sqrt( 3.0 ) * area / l2;
+            const double q = QualityFlips::triangleQuality( p0, p1, p2 );
             return std::isfinite( q ) ? q : 0.0;
         }
     };
@@ -1099,20 +1102,66 @@ class DynamicRemesh
     /**
      * @brief Flip interior edges that improve the worst incident quality.
      *
-     * Port of dynamic_remesh.py::flip_edges_for_quality (lines 408-458)
+     * Port of dynamic_remesh.py::flip_edges_for_quality (lines 408-457)
      *
-     * A flip is accepted when
+     * A flip is accepted when the worse new face is at least
+     * `--remesh-min-quality` and
      * \f$\min(q_{\text{new}}) > \min(q_{\text{old}})\,(1+g)\f$ with \f$g\f$ =
-     * `--remesh-flip-min-gain`. The strict margin prevents a two-flip cycle
-     * that oscillates forever at equal quality.
+     * `--remesh-flip-min-gain` (`:446-451`), on the reference metric
+     * \f$4\sqrt3 A/\sum\ell^2\f$. The strict margin prevents a two-flip cycle
+     * that oscillates forever at equal quality. The test is
+     * `QualityFlips::accepts`, shared with
+     * `MeshQuality::improveConnectivityByFlips`, which has no floor.
+     *
+     * **One sweep**, as the reference walks its edge map once: that is
+     * `qualityFlipSweep`, several `flipEdges` rounds sharing a touched-face
+     * set. A flip never lowers the worse of its two faces' qualities and,
+     * with the floor, never leaves a face below it that was not, so the global
+     * minimum quality rises or holds and the count below `min_quality` does
+     * not grow.
+     *
+     * At `flip_min_gain = kFlipsDisabledMinGain` no edge of a mesh without a
+     * zero-quality face passes, so the mask is empty on every rank and the
+     * sweep returns before calling `flipEdges`: nothing is mutated and
+     * `generation()` is unchanged. That is the configuration the `Solver`
+     * accepts until task T4d6.
      *
      * This flips for **quality**, never for **valence** — which is exactly the
      * gap `Beatnik_MeshQuality.hpp::isotropicCleanup` exists to fill.
+     *
+     * Does not re-base the AMR reference state; the `Solver` calls
+     * `AdaptiveMesh::resetReferenceState` after every remesh (see `remesh`),
+     * and the reference's cycle passes no re-base flag here.
+     *
+     * @pre Vertex positions halo-consistent. In the pass loop they are: the
+     *      split wrapper exchanges after splitting and `collapseEdges` ends in
+     *      `compact()`.
+     * @param[out] diag `flip_sweeps`, `flip_rounds`, `flip_requested` and the
+     *             `flip_rejected_*` counts are accumulated here.
+     * @return Edges flipped, globally.
+     *
+     * @note MPI. Collective; see `qualityFlipSweep`.
      */
-    int flipEdgesForQuality( mesh_type& mesh ) const
+    int flipEdgesForQuality( mesh_type& mesh, RemeshDiagnostics& diag ) const
     {
-        (void)mesh;
-        BEATNIK_NOT_IMPLEMENTED( "DynamicRemesh", "flipEdgesForQuality" );
+        QualityFlipCriterion criterion;
+        criterion.has_floor = true;
+        criterion.floor = _params.min_quality;
+        criterion.min_gain = _params.flip_min_gain;
+
+        const FlipSweepStats s = qualityFlipSweep( mesh, criterion );
+        diag.flip_sweeps += 1;
+        diag.flip_rounds += s.rounds;
+        diag.flip_requested += static_cast<GlobalIndex>( s.requested );
+        diag.flip_rejected_boundary +=
+            static_cast<GlobalIndex>( s.rejected_boundary );
+        diag.flip_rejected_duplicate_edge +=
+            static_cast<GlobalIndex>( s.rejected_duplicate_edge );
+        diag.flip_rejected_geometric +=
+            static_cast<GlobalIndex>( s.rejected_geometric );
+        diag.flip_rejected_conflict +=
+            static_cast<GlobalIndex>( s.rejected_conflict );
+        return static_cast<int>( s.accepted );
     }
 
     /**
@@ -1231,19 +1280,22 @@ class DynamicRemesh
                 collapseShortEdges( mesh, state, collapse_target, diag );
             diag.collapses += collapses;
 
-            // 4. Repair, if anything changed or the worst element is poor.
-            //    Both repairs are T4d and both are configured off, so the gate
-            //    is transcribed in full rather than folded away, so
-            //    implementing T4d turns it on by deleting a rejection rather
-            //    than by remembering to add a call.
+            // 4. Repair, if anything changed or the worst element is poor
+            //    (`dynamic_remesh.py:169-175`): quality flips, then
+            //    tangential smoothing. The `Solver` accepts only
+            //    `flip_min_gain = kFlipsDisabledMinGain` until task T4d6, at
+            //    which the flip sweep returns before any mutation.
+            //    Smoothing is task T4d4 and is configured off
+            //    (`--remesh-smooth-iters 0`); its count is transcribed, not
+            //    folded away, so implementing T4d4 turns it on by deleting a
+            //    rejection rather than by remembering to add a call.
             const bool changed = ( splits > 0 ) || ( collapses > 0 );
             const bool needs_quality_repair =
                 globalMinQuality( mesh ) < _params.min_quality;
             if ( changed || needs_quality_repair )
             {
-                //   flipEdgesForQuality   T4d
-                //   tangentialSmooth      T4d
-                diag.flips += 0;
+                diag.flips += flipEdgesForQuality( mesh, diag );
+                //   tangentialSmooth      T4d4
                 diag.smooth_steps += 0;
             }
         }

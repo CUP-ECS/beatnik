@@ -139,9 +139,11 @@ pass for the wrong reason.
 > for the structural and shape claims those two tests make. Nothing in the gate
 > coarsens. Collapse is implemented (T4d2, covered by the `unit` member
 > `Beatnik_Test_MeshEdits`) but the `Solver` rejects
-> `--remesh-collapse-factor > 0` at setup until T4d6; quality flips and the
-> isotropic cleanup are T4d and not yet implemented, and any configuration
-> reaching one is rejected before the first step. See `tasks/framework.md`.
+> `--remesh-collapse-factor > 0` at setup until T4d6. Quality flips are
+> implemented (T4d3, covered by the same member) but the `Solver` rejects
+> `--remesh-flip-min-gain < 1e12` and `--flip-passes > 0` at setup until T4d6;
+> the isotropic cleanup is T4d and not yet implemented, and any configuration
+> reaching it is rejected before the first step. See `tasks/framework.md`.
 
 ## CI
 

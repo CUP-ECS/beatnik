@@ -379,17 +379,27 @@ enum : int
  *     (`Tessera::CollapseResult`).
  *   - `flipEdges()`: `requested`, `accepted`, `rejected_boundary`,
  *     `rejected_duplicate_edge`, `rejected_geometric`, `rejected_conflict`
- *     (`Tessera::FlipResult`).
+ *     and `flipped` (`Tessera::FlipResult`).
  *   - `compact()`: the three `*_removed` and the two `gid_space_*`
  *     (`Tessera::CompactStats`).
  *   - every edit: `owned_vertices_after`, `owned_faces_after`.
  *
  * **Every collapse, flip and compact counter is GLOBAL**, already summed over
  * the communicator by Tessera, so every rank holds the same value and none of
- * them may be reduced again. `split_edges_local` is the one rank-local count.
- * For collapse and flip the verdict counters partition `requested`:
- * `requested == accepted + Σ rejected_*`.
+ * them may be reduced again. `split_edges_local` and `flipped` are the
+ * rank-local members. For collapse and flip the verdict counters partition
+ * `requested`: `requested == accepted + Σ rejected_*`.
  */
+/// One accepted flip, named by **vertex gids**: the old edge's two endpoints
+/// and the new diagonal's two endpoints, each pair ascending (Tessera's
+/// `EdgeKey`). The flipped edge and its two faces keep their gids, so gids, not
+/// local indices, are what survive the call.
+struct FlippedEdge
+{
+    std::uint64_t old_v[2];
+    std::uint64_t new_v[2];
+};
+
 struct MeshEditReport
 {
     /// 2:1 mark-propagation rounds Tessera's cross-rank fixpoint executed.
@@ -442,6 +452,14 @@ struct MeshEditReport
     /// are equal unless the removal vacated the top of some kind's range.
     long long gid_space_before = 0;
     long long gid_space_after = 0;
+
+    /// The flip map (flip): every accepted flip **this rank touches** — owns
+    /// the edge or either incident face — sorted and unique by the old key
+    /// (`Tessera::FlipResult::flipped`). **Rank-local**: a flip on a rank
+    /// boundary appears on several ranks, and one far away appears on none
+    /// but its own, so a caller that needs every flip gathers it and
+    /// deduplicates by the old key.
+    std::vector<FlippedEdge> flipped;
 
     /// Owned vertex / face counts after the edit, for diagnostics.
     long long owned_vertices_after = 0;
@@ -1281,6 +1299,31 @@ class SurfaceMesh
     }
 
     /**
+     * @brief Global ids of **every local** vertex, owned then ghost, on the
+     *        host, in local index order.
+     *
+     * The vocabulary of `MeshEditReport::flipped`: a flip names its old edge
+     * and its new diagonal by vertex gids, and a caller tracking flipped
+     * edges across `flipEdges()` calls — where every local index is
+     * reassigned — resolves them through this. A host `std::vector` for the
+     * reason `ownedFaceGids()` gives; re-take it after every edit.
+     */
+    std::vector<std::uint64_t> vertexGids()
+    {
+        const std::size_t nv = static_cast<std::size_t>( totalVertexCount() );
+        Cabana::AoSoA<typename tessera_mesh_type::vertex_member_types,
+                      Kokkos::HostSpace>
+            hv( "beatnik_vertex_gids", _mesh.numVertices() );
+        Cabana::deep_copy( hv, _mesh.vertices() );
+        auto v_gid = Cabana::slice<Tessera::VertexField::Gid>( hv );
+
+        std::vector<std::uint64_t> out( nv );
+        for ( std::size_t v = 0; v < nv; ++v )
+            out[v] = static_cast<std::uint64_t>( v_gid( v ) );
+        return out;
+    }
+
+    /**
      * @brief Vertex one-ring adjacency, in local indices.
      *
      * Port of mesh.py::vertex_adjacency (lines 141-147)
@@ -1511,8 +1554,10 @@ class SurfaceMesh
 
     /**
      * @brief Split a specified set of edges at their midpoints. **The only
-     *        topological edit the solver calls** until tasks T4d2–T4d5 wire
-     *        `collapseEdges()` and `flipEdges()` into the remesh cycle.
+     *        topological edit a `Solver` run performs** until task T4d6:
+     *        `collapseEdges()` and `flipEdges()` are wired into the remesh and
+     *        refine cycles (tasks T4d2, T4d3), but the `Solver` admits them
+     *        only at the settings where they edit nothing.
      *
      * Port of dynamic_remesh.py::split_selected_edges (lines 261-298) **and**
      * of mesh.py::refine_marked_faces (lines 570-730)
@@ -1770,6 +1815,16 @@ class SurfaceMesh
         report.rejected_duplicate_edge = result.rejectedDuplicateEdge;
         report.rejected_geometric = result.rejectedGeometric;
         report.rejected_conflict = result.rejectedConflict;
+        report.flipped.reserve( result.flipped.size() );
+        for ( const auto& kv : result.flipped )
+        {
+            FlippedEdge f;
+            f.old_v[0] = static_cast<std::uint64_t>( kv.first.id[0] );
+            f.old_v[1] = static_cast<std::uint64_t>( kv.first.id[1] );
+            f.new_v[0] = static_cast<std::uint64_t>( kv.second.id[0] );
+            f.new_v[1] = static_cast<std::uint64_t>( kv.second.id[1] );
+            report.flipped.push_back( f );
+        }
         report.owned_vertices_after = ownedVertexCount();
         report.owned_faces_after = ownedFaceCount();
         return report;

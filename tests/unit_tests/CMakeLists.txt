@@ -66,7 +66,9 @@ set(BEATNIK_UNIT_TEST_SOURCES
   # The three SurfaceMesh edit adapters over Tessera -- collapseEdges,
   # flipEdges, compact: the V/E/F identities, V-E+F == 2, gid preservation
   # across compact(), and a link-condition-violating collapse rejected rather
-  # than applied. Every check is a global reduction; ITS RANK SWEEP (1-6) IS
+  # than applied -- and the passes built on them: collapseShortEdges (T4d2) and
+  # the two quality-flip entry points (T4d3). Every check is a global
+  # reduction; ITS RANK SWEEP (1-6) IS
   # scripts/tuolumne/t4d1_mesh_edits.flux. Writes no files.
   Beatnik_Test_MeshEdits.cpp
   )

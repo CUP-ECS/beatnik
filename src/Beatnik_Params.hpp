@@ -604,12 +604,13 @@ struct AmrParams
  * \f$\min(q_{\text{new}}) > \min(q_{\text{old}})(1+g)\f$; every candidate is
  * `continue`d otherwise. Triangle quality is \f$4\sqrt3 A/\sum \ell^2\f$ and
  * therefore lies in \f$[0,1]\f$, so a gain of \f$10^{12}\f$ makes the accept
- * test unsatisfiable for every pair of triangles that can exist — the pass
- * still runs and still mutates nothing.
+ * test unsatisfiable whenever both old faces have positive quality, i.e. on
+ * every mesh without a degenerate (zero-area) face — the pass still runs and
+ * still mutates nothing.
  *
- * **This is the acceptance criterion for `--dynamic-remesh`**: the flip third
- * is `DynamicRemesh::flipEdgesForQuality`, which is T4d and not yet
- * implemented, so a run is accepted only when the reference itself would flip
+ * **This is the acceptance criterion for `--dynamic-remesh`** until task T4d6:
+ * the flip third, `DynamicRemesh::flipEdgesForQuality`, is implemented, and
+ * the `Solver` still accepts a run only when the reference itself would flip
  * nothing. See `Solver::requireSupportedConfiguration`.
  */
 constexpr Real kFlipsDisabledMinGain = 1.0e12;
