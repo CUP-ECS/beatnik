@@ -1756,3 +1756,185 @@ rejection text that still says "not yet implemented" is the recorded decision
    disagree.
 
 **Affects:** none
+
+## T4d3
+
+**Commits:** `5fa0488` (the two entry points, `qualityFlipSweep` and its
+helpers, the flip map on `MeshEditReport`, `SurfaceMesh::vertexGids()`, the
+pass-loop and refine-branch wiring, the new `RemeshDiagnostics` fields, case 4
+of `Beatnik_Test_MeshEdits`, README and `docs/testing.md`), and the commit that
+adds this section (`milestone1.md`, this log).
+
+**Jobs:**
+- `f3iL4TUfQCCX`, the exit criterion, **both directions**:
+  `scripts/tuolumne/t4d1_mesh_edits.flux` at its default ranks 1 2 3 4 5 6
+  (`pdebug`, two nodes, `-t 15m`, `--bank=unm`). Log
+  `beatnik_t4d1_mesh_edits.f3iL4TUfQCCX.log` in the repo root. COMPLETED rc 0,
+  63 s, `flux job status` rc 0. It echoed commit `5fa0488` with only unrelated
+  files dirty (`.claude/settings.json`, `tasks/milestone1.md`, untracked
+  files), and the dev-view binary, mtime 10:15:14. That is 23 s before the
+  commit (10:15:37); the build ran on the exact tree that was then committed,
+  with no edit in between. `PASS np=1` … `PASS np=6`, `SUMMARY: PASS (6/6 rank
+  counts)`, and all 21 ranks printed `[PASS] Beatnik_Test_MeshEdits (177/177
+  checks)` on HIP. The rank-to-GPU binding is the script's, unchanged.
+- `f3iL2hYCLPBV`, a measurement run of the same script before the count
+  literals were known, on the uncommitted tree. The test held `-1` sentinels,
+  so it FAILED by design on exactly the 8 checks that read them (169/177
+  passed) on all 21 ranks, and printed the counts below. Log
+  `beatnik_t4d1_mesh_edits.f3iL2hYCLPBV.log`, kept.
+
+**Decisions given to the task, recorded as given:**
+- **The Solver rejections stay**, message text included: `--flip-passes > 0`
+  under `--refine-every` (now `src/Beatnik_Solver.hpp:764-769`, shifted by this
+  task's comments and constant) and `--remesh-flip-min-gain < 1e12` (now
+  `:848-856`). The regression cases asserting them are untouched. Both passes
+  are wired anyway: `diag.flips += flipEdgesForQuality( mesh, diag )` in the
+  repair gate, and the refine branch's `flips` from
+  `improveConnectivityByFlips( _mesh, _params.filter.flip_passes,
+  kRefineFlipMinGain )`.
+- **Pass structure.** One sweep is several `flipEdges` rounds sharing a
+  sweep-wide touched set; `flipEdgesForQuality` runs one sweep and
+  `improveConnectivityByFlips` up to `max_passes` with early stop after a sweep
+  that accepts nothing. Rounds never restart with a fresh mask.
+- **Predicate, written once.** `QualityFlips::accepts` with a
+  `QualityFlipCriterion { has_floor, floor, min_gain }`. The remesh path passes
+  `floor = min_quality`, `gain = flip_min_gain`; the refine path no floor and
+  `Solver::kRefineFlipMinGain = 1e-3`, citing `mesh_solver.py:1708`.
+- **Policy.** `mesh_type::flip_policy_type` with `maxNormalDeviation =
+  std::acos( -1.0 )` (π), `minQuality = 0` and `conflict = SharedFace`, each
+  set explicitly. No `Tessera::detail::` name is used.
+
+**Decisions made in the session:**
+- **Where the machinery lives.** `FlipSweepStats`, `QualityFlipCriterion`,
+  namespace `QualityFlips` (`triangleQuality`, `unitNormal`, `accepts`,
+  `gidPair`, `gatherNewDiagonals`) and the free function template
+  `qualityFlipSweep` are in `src/Beatnik_MeshQuality.hpp`, above the class.
+  `DynamicRemesh.hpp` now includes `MeshQuality.hpp`, which depends on neither
+  `DynamicRemesh` nor `AdaptiveMesh`, so there is no cycle.
+  `ReferenceCollapsePolicy::quality` now calls `QualityFlips::triangleQuality`
+  (same formula, same 0 for a non-finite value), so one host copy of the metric
+  exists.
+- **The touched set is keyed by new-diagonal vertex-gid pairs**, the second
+  option the prompt offered. A face is touched iff one of its edges is a
+  diagonal created in the sweep, which holds because a flip rewrites exactly the
+  two faces of its new diagonal and no touched face is rewritten again in the
+  sweep. This needs vertex gids, so `SurfaceMesh` gains `vertexGids()` (host,
+  every local vertex) beside `ownedFaceGids()`.
+- **The flip map crosses the adapter.** `MeshEditReport` gains
+  `std::vector<FlippedEdge> flipped` (rank-local; old and new endpoints as
+  vertex-gid pairs), filled by `flipEdges` from `FlipResult::flipped`, so no
+  caller spells a Tessera type. `gatherNewDiagonals` does one `MPI_Allgather`
+  plus one `MPI_Allgatherv`, deduplicates by old key, and throws if the distinct
+  count is not `accepted` (never fired).
+- **Residency checks.** Each round calls `faceAdjacency()` unconditionally and
+  also counts owned edges whose two resident faces or any corner is missing;
+  both counts are reduced and either nonzero throws, on every rank together.
+  Never fired. The quad itself comes from `edgeAdjacency().resident_faces`
+  (the two faces of the edge), which is what the reference reads.
+- **Empty-mask exit.** A round whose mask is empty on every rank (one
+  `MPI_Allreduce`) breaks before `flipEdges`, so 1e12 makes no edit call; it
+  still costs one `faceAdjacency()` build and one reduction per call.
+  `rounds` counts only `flipEdges` calls.
+- **New diagnostics** in `RemeshDiagnostics`, accumulated like the collapse
+  ones: `flip_sweeps`, `flip_rounds`, `flip_requested` and
+  `flip_rejected_{boundary, duplicate_edge, geometric, conflict}`.
+  `improveConnectivityByFlips` takes an optional trailing
+  `std::vector<FlipSweepStats>*` for the same per-sweep counts; the Solver
+  passes none.
+- **The normal-sum test** uses the remesh path's `‖n‖ ≤ 1e-300` for both entry
+  points; the refine path's reference tests `‖n‖ == 0` or non-finite. A sum of
+  two unit vectors is zero or far above 1e-300, so they agree on finite input.
+- **Fixture chosen with a Python model** (numpy, transcribing the reference
+  sweep and Tessera's one-round `SharedFace` set with the M1-U3 claim rule).
+  Radial and ellipsoidal perturbations gave one round only. The field
+  `(sin(12y+1), sin(15z+2), sin(18x+3))`, tangential part, amplitude 0.1,
+  renormalized, was predicted at 42 + 2 flips in 2 rounds; the C++ run gave
+  44 in 2 rounds.
+- **Cosmetic corrections:** the `kFlipsDisabledMinGain` comment
+  (`Beatnik_Params.hpp`) no longer calls the pass unimplemented and states the
+  1e12 claim exactly (unsatisfiable when both old faces have positive quality);
+  `splitEdges()`'s brief, `DynamicRemesh.hpp`'s header table, two Solver
+  comments, the unit-test CMake comment, and `milestone1.md` Current state
+  (stubs moved out of "Throws" into an "Implemented, unreachable from a
+  `Solver` run until T4d6" bullet; the inert bullet names only
+  `diag.smooth_steps += 0`). Cited lines checked against the reference:
+  the repair gate is `dynamic_remesh.py:169-175`, the duplicate skip `:430-431`.
+
+**Signatures changed:**
+- `int DynamicRemesh::flipEdgesForQuality( mesh_type&, RemeshDiagnostics& )
+  const` (was `( mesh_type& )`; it had no caller).
+- `int MeshQuality::improveConnectivityByFlips( mesh_type&, int max_passes,
+  Real min_gain, std::vector<FlipSweepStats>* sweeps = nullptr ) const`.
+- New: `SurfaceMesh::vertexGids()`, `FlippedEdge`, `MeshEditReport::flipped`,
+  `Solver::kRefineFlipMinGain`, and the `MeshQuality.hpp` free symbols above.
+
+**Re-basing:**
+- `flipEdgesForQuality` does **not** call `AdaptiveMesh::resetReferenceState`.
+  The reference's cycle passes no re-base flag, and the Solver already re-bases
+  after every remesh that ran (`src/Beatnik_Solver.hpp`, the remesh branch),
+  as T4d2 recorded.
+- `improveConnectivityByFlips` does not either; **its call site does**, under
+  the reference's exact conditions: `flips > 0 && smooth_iters == 0`
+  (`reset_reference=(smooth_iters == 0)` at
+  `run_adaptive_mesh_bubble.py:1440-1445`, and `_state_with_faces` is reached
+  only when `total_flips > 0`, `mesh_solver.py:1770-1772`). `flips` is global,
+  so the collective is entered together. The parked comment in
+  `MeshQuality.hpp` and the Solver comment that said "T4d owns the question"
+  now state this. Unreachable while `--flip-passes > 0` is rejected.
+- `improveConnectivityByFlips` is **unexercised by any milestone run**:
+  `--flip-passes` is 0 in the milestone configuration, as `relaxTangential`
+  was after T4c. Only case 4d runs it.
+
+**Measured counts** (integers asserted as literals; the two minimum qualities
+are printed, compared only as rises-or-holds), identical on all 21 ranks at
+np 1–6:
+
+| Sub-case | rounds | requested | accepted | rejDup | rejConflict | min q before → after | below 0.18 |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 4a, gain 1e12 | 0 | 0 | 0 | 0 | 0 | 0.0775, unchanged | 3; mesh, gids, positions, generation unchanged |
+| 4b, one sweep, gain 1e-3, floor 0.18 | 2 | 59 | 44 | 0 | 15 | 0.0775 → 0.2128 | 3 → 0; V/E/F, χ, gids unchanged |
+| 4c, `remesh()`, split/collapse off | 2 | — | 44 | — | — | — | 1 sweep |
+| 4c, `remesh()`, gain 1e12 | 0 | — | 0 | — | — | unchanged | 1 sweep; no mutation |
+| 4d, `max_passes = 0` | — | — | 0 | — | — | unchanged | 0 sweeps; no mutation |
+| 4d, sweep 0 (no floor) | 2 | 61 | 44 | 0 | 17 | | |
+| 4d, sweep 1 | 2 | 14 | 10 | 4 | 0 | | |
+| 4d, sweep 2 | 2 | 10 | 2 | 8 | 0 | 0.0775 → 0.2963 overall | 3 → 0 |
+
+**Only running revealed:**
+- **A duplicate-edge rejection is re-requested in every later round of the same
+  sweep.** The mask does not test whether `(c,d)` exists (Do step 2), and a
+  rejected flip touches no face, so the edge stays eligible. In 4d sweeps 1
+  and 2 the second round accepted nothing, so every edge it requested was one
+  the first round had also requested; sweep 2's 8 duplicate rejections are
+  therefore the same edges counted twice (the per-round split is not printed).
+  The sweep still ends, because a
+  round that accepts nothing ends it, and the reference skips those edges too.
+  It inflates `flip_requested` and costs one more `flipEdges` call per sweep.
+- 4d's three sweeps each accepted something (44, 10, 2), so the early stop after
+  an empty sweep is implemented but was not exercised by this fixture.
+- Nothing else: no throw, and the predicted round structure held.
+
+**Session notes:**
+- The session was interrupted mid-build; `/tmp` (node-local) was wiped with it,
+  including the Python model scripts. The model is described above; the
+  rebuild logged to a persistent path. Two `spack install`s, both rc 0
+  (12m23s, then 2m10s incremental), after unsetting `HIPCC_*_FLAGS_APPEND`.
+  The build carries the same 70 warnings, all `-Wpass-failed` from
+  `Kokkos_HIP_KernelLaunch.hpp`; none is in a file this task touched.
+- `tasks/milestone1.md` carried uncommitted edits from outside this session
+  when it resumed (a Conventions row "`Solver` rejections during T4d" and
+  T4d4/T4d5 text). They are kept and committed with this section. That row's
+  Solver line references predate this task's shifts (see above).
+- clang-format was not run.
+
+**Affects:**
+- **T4d5:** reuse `qualityFlipSweep`'s shape — the gathered `MeshEditReport::
+  flipped`, `vertexGids()`, `gatherNewDiagonals` and the empty-mask exit — with
+  a touched set of **vertices** (all four quad corners per flip) and
+  `conflict = EndpointInQuad`. Note the duplicate-edge re-request above.
+- **T4d6:** deletes the two flip rejections (now `Solver.hpp:764-769` and
+  `:848-856`) and their regression cases; after that the refine branch's
+  re-base under `flips > 0 && smooth_iters == 0` becomes reachable.
+- **M1-A1 / the T4d exit criterion:** compare flip statistics knowing one round
+  accepts about three quarters of a dense candidate set (44 of 59 here) and the
+  sweep needs a second round.
