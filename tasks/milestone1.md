@@ -1422,13 +1422,37 @@ unchanged.
    `args.isotropic_cleanup` — which
    [src/Beatnik_Solver.hpp:491-493](../src/Beatnik_Solver.hpp#L491-L493) already
    transcribes as `_params.cleanup.enabled`. Add the call; do not touch the gate.
+   Follow it with the same state rebuild as the remesh branch,
+   `resetReferenceState` + `centerPotential`, under `_params.cleanup.enabled`:
+   the reference replaces the state after the cleanup with a fresh
+   `MeshPotentialZModelState` (`run_adaptive_mesh_bubble.py:1462-1464`), whose
+   `__post_init__` (`mesh_solver.py:138-163`) re-seeds the reference area and
+   curvature and re-centres the potential. Rewrite the refine-branch comment
+   ([src/Beatnik_Solver.hpp:491-498](../src/Beatnik_Solver.hpp#L491-L498)) that
+   says nothing re-bases the reference state after the tangential pass: with
+   cleanup enabled, the rebuild after the cleanup does.
 
 **Exit criterion:** a `unit`-tier case at `BEATNIK_UNIT_RANKS` 1 and 4: on a mesh
 seeded with a high-valence patch, every accepted flip of a pass has no endpoint
 touched earlier in that pass (checked from the gathered `flipped` lists); the
 **valence histogram concentrates toward 6**
-(the count of vertices with valence ≠ 6 falls) and the enclosed volume changes by
-less than `1e-12` relative; and, in the failure direction,
+(the count of vertices with valence ≠ 6 falls); the volume is handled in T4d4's
+form:
+
+- **Flips:** the relative volume change of the valence passes is printed and
+  not bounded. A flip on a curved surface changes the enclosed volume by the
+  signed volume of its quad's tetrahedron, and the reference has no volume
+  control there; its call sites restore volume with `project_state_to_volume`.
+- **Relaxation:** each relaxation pass's displacement is tangent to the vertex
+  normals that pass used, `max|Δx·n| ≤ 1e-13·max|Δx|`, both maxima global over
+  owned vertices. The relative volume change of the relaxation passes is
+  printed, and asserted at least `1e3` times smaller in magnitude than that of
+  one *un-projected* relaxation pass at weight 0.4 on the same mesh, built in
+  the test from the same public operators (`graphLaplacianVector` without
+  `projectTangent`). The projection cancels the volume change to first order
+  only, so it is not bounded absolutely.
+
+And, in the failure direction,
 `--no-isotropic-cleanup` leaves the mesh byte-identical while
 `--isotropic-cleanup` does not, so the switch is demonstrably live. The
 `Solver` still rejects `--isotropic-cleanup` after this task, so show this at
