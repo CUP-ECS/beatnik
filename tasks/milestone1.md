@@ -1254,14 +1254,14 @@ checks are the evidence it is unaffected. Log: `## T4d3`.
 **Depends on:** none. It moves vertices and changes no connectivity; it was
 parked under T4d only because it was unreachable while the flips were.
 
-**Fill in:** [src/Beatnik_DynamicRemesh.hpp:940](../src/Beatnik_DynamicRemesh.hpp#L940)
+**Fill in:** [src/Beatnik_DynamicRemesh.hpp:1187](../src/Beatnik_DynamicRemesh.hpp#L1187)
 and the `diag.smooth_steps += 0` placeholder
-([:1047](../src/Beatnik_DynamicRemesh.hpp#L1047)), which becomes the call and
+([:1299](../src/Beatnik_DynamicRemesh.hpp#L1299)), which becomes the call and
 its count.
 
 **The `Solver` rejection stays** (Conventions, "`Solver` rejections during
 T4d"). Leave the `--remesh-smooth-iters > 0` rejection at
-[src/Beatnik_Solver.hpp:819-826](../src/Beatnik_Solver.hpp#L819-L826), message
+[src/Beatnik_Solver.hpp:838-845](../src/Beatnik_Solver.hpp#L838-L845), message
 text included, and the `tangentialSmooth` `checkRejected` case in
 [tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp:699-701](../tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp#L699-L701)
 that asserts it. T4d6 deletes both. So after this task a `Solver` run reaches
@@ -1289,13 +1289,29 @@ trajectory must be unchanged.
    interface, which shrinks the bubble — a failure that reads as excessive
    numerical dissipation rather than as the geometry bug it is.
 
-**Exit criterion:** a `unit`-tier case at `BEATNIK_UNIT_RANKS` 1 and 4: on the
-default icosphere the enclosed volume changes by less than `1e-12` relative
-across a pass (shape preserved), the minimum quality does not fall, and the
-accept/reject guard is exercised in **both** directions — a mesh constructed so
-the trial worsens quality past the `0.85` bound returns `smooth_steps == 0` with
-positions **unchanged**, and a healthy mesh returns
-`smooth_steps == smoothing_iterations`.
+**Exit criterion:** a `unit`-tier case at `BEATNIK_UNIT_RANKS` 1 and 4, on the
+default icosphere unless stated:
+
+- **Shape preserved, in T4c's form.** Each accepted iteration's displacement is
+  tangent to the vertex normals that iteration used:
+  `max|Δx·n| ≤ 1e-13·max|Δx|`, both maxima global over owned vertices. The
+  relative volume change of the pass is printed, and asserted to be at least
+  `1e3` times smaller in magnitude than that of one *un-projected* iteration at
+  the same relaxation, built in the test from the same public operators
+  (`graphLaplacianVector` without `projectTangent`), as
+  `Beatnik_Test_TangentialRelaxation` group 5 does. The volume is not bounded
+  absolutely: the projection cancels it to first order only, and the reference
+  itself changes it by `-4.338e-07` relative in one iteration at the default
+  relaxation 0.04 on this mesh.
+- **Quality.** The mean triangle quality rises, and each accepted iteration
+  satisfies the guard's own bound,
+  `min_after + 1e-14 ≥ max(min_quality, 0.85·min_before)`. The minimum is
+  printed and not required to hold: the reference lowers it on this mesh, from
+  `0.97727413140883002` to `0.97725307555529162`.
+- **The guard in both directions.** A mesh constructed so the trial worsens
+  quality past the `0.85` bound returns `smooth_steps == 0` with positions
+  **unchanged**, and a healthy mesh returns
+  `smooth_steps == smoothing_iterations`.
 
 ---
 
