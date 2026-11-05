@@ -2029,3 +2029,185 @@ caller. Nothing is made dead. No prompt file remains under `tasks/`.
    reader should know `flip_requested` counts requests, not distinct edges.
 
 **Affects:** none
+
+## T4d4
+
+**Commits:** `4041aec` (`DynamicRemesh::tangentialSmooth`, its wiring into
+the repair gate, the header and Solver comments, case 5 of
+`Beatnik_Test_MeshEdits`, README Known Issues and `docs/testing.md`), and the
+commit that adds this section (`milestone1.md`, this log).
+
+**Jobs:**
+- `f3iLqpsgPez3`, the exit criterion, **both directions of the guard** and the
+  no-op: `scripts/tuolumne/t4d1_mesh_edits.flux` at its default ranks
+  1 2 3 4 5 6 (`pdebug`, two nodes, `-t 15m`, `--bank=unm`). Log
+  `beatnik_t4d1_mesh_edits.f3iLqpsgPez3.log` in the repo root. COMPLETED rc 0,
+  1.09 min, `flux job status` rc 0. It echoed commit `4041aec` with only
+  unrelated files dirty (`.claude/settings.json`, `tasks/milestone1.md`,
+  untracked files), and the dev-view binary, mtime 11:54:40, 29 s before the
+  commit (11:55:09); no source file was edited between the build and the
+  commit. `PASS np=1` … `PASS np=6`, `SUMMARY: PASS (6/6 rank counts)`, and all
+  21 ranks printed `[PASS] Beatnik_Test_MeshEdits (232/232 checks)` on HIP.
+  The rank-to-GPU binding is the script's, unchanged. It was the only job: no
+  sentinel run was needed (see "Measured").
+
+**Decisions given to the task, recorded as given:**
+- **Shape preservation is asserted in T4c's form, not as a volume bound.**
+  Per accepted iteration, `max|Δx·n| ≤ 1e-13·max|Δx|` against the normals that
+  iteration started from, both maxima global over owned vertices. The relative
+  volume change is printed and asserted at least 1e3 times smaller in
+  magnitude than one un-projected iteration at the same relaxation, built in
+  the test from the same public operators. The reason: the projection cancels
+  the volume change to first order only, and the reference itself changes
+  volume by `-4.338e-07` relative (one iteration) and `-1.166e-06` (three) at
+  relaxation 0.04 on this mesh, so a `1e-12` bound is unmeetable by a correct
+  port.
+- **Quality is asserted through the guard, not as "the minimum does not
+  fall".** The mean must rise, and each accepted iteration must satisfy
+  `min_after + 1e-14 ≥ max(min_quality, 0.85·min_before)`. The minimum is
+  printed and not required to hold, because the reference lowers it on this
+  mesh (0.97727413140883002 → 0.97725307555529162 → … 0.97721315828587241)
+  while the mean rises (0.988529 → 0.989143). A port that held the minimum
+  would be the altered behaviour M1-R4 describes.
+- **The `Solver` rejection stays**, message text included
+  (`src/Beatnik_Solver.hpp:838-845`), and so does the `tangentialSmooth`
+  `checkRejected` case in `Beatnik_Test_DynamicRemeshSplit.cpp:699-701`. T4d6
+  deletes both. The rejection's message still says "not yet implemented"; it
+  is deleted whole at T4d6, so it was left as it is, as T4d2 did.
+
+**Decisions made in the session:**
+- **How the kernel is shared with `relaxTangential`:** `tangentialSmooth`
+  calls the three public operators `relaxTangential` is built from —
+  `MeshGeometry::compute` (vertex normals), `SurfaceOperators::
+  graphLaplacianVector` over `vertexOneRing()`, and `SurfaceOperators::
+  projectTangent` — directly. No new stencil and no new helper;
+  `relaxTangential` and T4c's test literals are untouched. The only new
+  kernels are the trial write (owned rows, skipping a row whose one-ring has
+  fewer than three entries) and the restore.
+- **The reference's three differences, as implemented:** the early return is
+  `iterations == 0 || relaxation <= 0` (`max(iterations, 0)` first);
+  `offsets(i+1) - offsets(i) < 3` leaves the trial row at `x_v`; and the guard
+  uses `globalMinQuality` (the reference metric over owned faces, finite
+  values only, `MPI_MIN`) before and after the trial. Only accepted
+  iterations are counted.
+- **Rejection restores in place.** The pre-trial owned rows are copied to a
+  View, the trial is written into `positions()`, the halo is exchanged so the
+  trial's owned faces see trial ghost corners, and on rejection the owned rows
+  are copied back and the halo exchanged again. Ghosts then hold their owners'
+  restored values, so every local row is bit-identical to entry (the test
+  compares every local position with `==`). `haloExchange()` does not bump
+  `generation()`, so a rejected call leaves the generation unchanged too.
+- **Halo exchanges:** one before the loop, one after each trial write, and one
+  after a restore. After an accepted iteration the mesh is already
+  halo-consistent from the post-trial exchange, so no exchange is added at the
+  end. At `smoothing_iterations = 0` (or relaxation ≤ 0) the function returns
+  before any exchange, reduction or allocation.
+- **`old_quality` is recomputed each iteration** rather than carried over
+  from the previous iteration's `new_quality`. The two are the same reduction
+  over the same positions; recomputing costs one reduction and keeps the code
+  a line-for-line transcription.
+- **No new `RemeshDiagnostics` field.** A rejection shows as `smooth_steps`
+  below `smoothing_iterations · passes`; the signature stays
+  `int tangentialSmooth( mesh_type& ) const`.
+- **The test is case 5 of `Beatnik_Test_MeshEdits`**, no separate member.
+  Every check is a global reduction or a bitwise all-rank comparison. Beyond
+  the criterion it compares the one- and three-iteration minimum and mean
+  quality with the reference at `1e-12` relative and the three-iteration
+  volume change at `1e-8` (T4c's two tolerances, for T4c's reasons). Those
+  literals came from calling the reference's own
+  `tangential_smooth_vertices` (`min_quality = 0.18`, relaxation 0.04) on
+  `mesh.icosphere_mesh( subdivisions=2, radius=1 )`. The model script lived in
+  node-local `/tmp` and is not kept; it is the reference function plus a
+  signed-volume sum and a guard-free trial loop.
+- **Cosmetic corrections:** the stub's doc comment rewritten to describe the
+  implementation and the guard (Doxygen math, as its neighbours use); the
+  provenance line now cites `:459-490`; `DynamicRemesh.hpp`'s header table and
+  "What is implemented" paragraph; the pass-loop comment; two `Solver.hpp`
+  comments (`:451-455`, `:787-791`) that called smoothing unimplemented;
+  README Known Issues and `docs/testing.md:140-148`. In `milestone1.md`: the
+  Status line, Current state ("Throws" now lists only the two `MeshQuality`
+  stubs; the inert bullet became an "Implemented, unreachable from a `Solver`
+  run until T4d6" bullet for `tangentialSmooth`; collapse and flip line
+  references refreshed), and the `Solver` line references in the Conventions
+  row and T4d6's rejection table (now `:764-769`, `:777-783`, `:816-836`,
+  `:838-845`, `:847-856`, comment block `:785-796`).
+- Left for T4d6, as its entry says: the header of
+  `tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp` (`:21-40`),
+  which says everything but the split third is unimplemented.
+
+**Re-basing:** `tangentialSmooth` does **not** call
+`AdaptiveMesh::resetReferenceState`. The reference's cycle passes no re-base
+flag to `tangential_smooth_vertices`, and the `Solver` remesh branch already
+re-bases after every remesh that ran, as T4d2 and T4d3 recorded.
+
+**The rejecting fixture:** the default icosphere at `min_quality = 0` and
+relaxation 5.0, three iterations. With `min_quality = 0` the bound is
+`0.85·old`, so the `0.85` branch is the one that binds. A guard-free Python
+model of one projected iteration on this mesh gave the minimum-quality ratio
+at relaxation 2, 3, 4, 5, 6 as 0.973, 0.884, 0.766, 0.636, 0.505; 5.0 leaves
+a wide margin under 0.85. The test re-measures the premise from its own
+unguarded iteration (the same operators, on a separate mesh): minimum
+0.97727413140883013 → 0.62203242443688667, ratio 0.63650, and asserts
+`trial + 1e-14 < 0.85·before` before asserting `smooth_steps == 0`.
+
+**Signatures changed:** none. `int tangentialSmooth( mesh_type& mesh ) const`
+keeps the stub's signature; its one caller is the repair gate.
+
+**Measured** (integers and bounds identical on all 21 ranks; the real values
+agree to the last digit or two across ranks, the differences being the
+atomic normal assembly and the reduction order):
+
+| Quantity | Iteration 1 | Iteration 2 | Iteration 3 |
+| --- | --- | --- | --- |
+| `smooth_steps` (single-iteration call) | 1 | 1 | 1 |
+| `max|Δx|` | 1.06304e-3 | 1.01808e-3 | 9.75202e-4 |
+| `max|Δx·n|` | 2.19e-17 | 6.85e-17 | 4.39e-17 |
+| tangency ratio | 2.06e-14 | 6.73e-14 | 4.50e-14 |
+| min quality after | 0.97725307555529173 | 0.97723275839760848 | 0.97721315828587252 |
+| guard bound | 0.830683 | 0.830665 | 0.830648 |
+| mean quality after | 0.98914296293991 | 0.98969688301295 | 0.99019655118968 |
+
+- Before: minimum 0.97727413140883013, mean 0.988528666232463.
+- One call at three iterations: `smooth_steps = 3`; it lands within
+  `4.5e-20` of the three single calls; relative volume change
+  `-1.16636709e-06` (reference `-1.16636709257544879e-06`).
+- One un-projected iteration at 0.04: `-5.37065006530e-03`; factor `4604.6`
+  over the guarded pass (asserted ≥ 1e3).
+- Case 5c: `smooth_steps = 0`, every local position bit-identical,
+  generation unchanged.
+- Case 5a: `smoothing_iterations = 0`, relaxation 0 and relaxation −0.04 each
+  return 0, positions bit-identical, generation unchanged.
+- Case 5d: `remesh()` on case 4's fixture with flips off and
+  `smoothing_iterations = 0`: `flip_sweeps = 1` (the gate fired),
+  `smooth_steps = 0`, positions bit-identical. With flips on and one
+  smoothing iteration: `flips = 44`, `smooth_steps = 1`, minimum quality
+  0.07745 → 0.26479 (the flips alone reach 0.2128, case 4b).
+
+**Only running revealed:** nothing that changed the code. The second
+iteration's tangency ratio, `6.73e-14`, sits at two thirds of the `1e-13`
+bound — less margin than T4c's sweeps had at relaxation 0.12. The bound is the
+criterion's, and the ratio is a rounding residual, but a reviewer reading a
+future failure at this check should look at the arithmetic before the
+projection. `kRemeshSmoothSteps = 1` was written down before the run, from
+the argument that after the flips (minimum 0.2128) the guard's bound is
+`max(0.18, 0.181)` and one 0.04 iteration barely moves the minimum. The run
+confirmed it, so no sentinel run was needed.
+
+**Session notes:**
+- One `spack install`, rc 0, 10m31s, a full rebuild (staging, cmake, build,
+  install), after unsetting `HIPCC_*_FLAGS_APPEND`. Logs:
+  `~/spack_envs/tuolumne_beatnik/t4d4_spack_install.log` and the build output
+  `t4d4_build_out.txt` beside it. 70 warnings, all `-Wpass-failed` (the
+  accepted Canopy and Kokkos HIP notes); none is in a file this task touched.
+- clang-format was not run.
+
+**Affects:**
+- **T4d6:** it deletes the `--remesh-smooth-iters > 0` rejection (now
+  `Solver.hpp:838-845`) and the `checkRejected` smoothing case, as planned.
+  After that, the default `--remesh-smooth-iters 1` runs this pass in every
+  remesh whose repair gate fires. The T4d6 table's line references are
+  refreshed as of this task.
+- **M1-T2 / M1-A1:** `smooth_steps` is the accepted-iteration count. A run
+  whose `smooth_steps` total is below `smoothing_iterations ×` (gate firings)
+  had the guard reject a trial; that is the reference's behaviour, not a
+  fault.
