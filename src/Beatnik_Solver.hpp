@@ -448,11 +448,11 @@ class Solver
         // globally identical (it is built from the step counter and two
         // parameters), so every rank enters the collective refiner together.
         //
-        // The filter branch (T5c) is a stub, as are the smoothing pass of the
-        // remesh branch below (T4d4) and both of its proximity paths (T4e);
-        // `requireSupportedConfiguration` rejects any configuration that
-        // would reach one, and also the collapse and flip settings that task
-        // T4d6 has yet to admit — so there is nothing to skip here and nothing
+        // The filter branch (T5c) is a stub, as are both proximity paths of
+        // the remesh branch below (T4e); `requireSupportedConfiguration`
+        // rejects any configuration that would reach one, and also the
+        // collapse, flip and smoothing settings that task T4d6 has yet to
+        // admit — so there is nothing to skip here and nothing
         // that could be silently skipped.
         if ( !_params.dynamic_remesh && _params.amr.refine_every > 0 &&
              _step % _params.amr.refine_every == 0 )
@@ -785,9 +785,9 @@ class Solver
         //-- the metric remesher's own rejections ----------------------------//
         //
         // `DynamicRemesh` implements the sizing field and the split, collapse
-        // (task T4d2) and quality-flip (task T4d3) passes of
-        // `dynamic_remesh.py`. The smoothing pass is T4d4 and the two
-        // proximity paths are T4e, all unimplemented. The collapse and flip
+        // (task T4d2), quality-flip (task T4d3) and tangential-smoothing
+        // (task T4d4) passes of `dynamic_remesh.py`. The two proximity paths
+        // are T4e and unimplemented. The collapse, smoothing and flip
         // rejections below stay until task T4d6 deletes them together. Rather
         // than invent a `--dynamic-remesh-split-only` switch, a run is
         // accepted exactly when the reference's OWN

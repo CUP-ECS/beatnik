@@ -141,8 +141,10 @@ pass for the wrong reason.
 > `Beatnik_Test_MeshEdits`) but the `Solver` rejects
 > `--remesh-collapse-factor > 0` at setup until T4d6. Quality flips are
 > implemented (T4d3, covered by the same member) but the `Solver` rejects
-> `--remesh-flip-min-gain < 1e12` and `--flip-passes > 0` at setup until T4d6;
-> the isotropic cleanup is T4d and not yet implemented, and any configuration
+> `--remesh-flip-min-gain < 1e12` and `--flip-passes > 0` at setup until T4d6.
+> Guarded tangential smoothing is implemented (T4d4, covered by the same
+> member) but the `Solver` rejects `--remesh-smooth-iters > 0` at setup until
+> T4d6; the isotropic cleanup is T4d and not yet implemented, and any configuration
 > reaching it is rejected before the first step. See `tasks/framework.md`.
 
 ## CI

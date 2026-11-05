@@ -13,10 +13,11 @@
  * @brief `unit`-tier test of the three `SurfaceMesh` edit adapters over
  *        Tessera — `collapseEdges`, `flipEdges` and `compact` — and of the
  *        passes built on them: `DynamicRemesh::collapseShortEdges`,
- *        `DynamicRemesh::flipEdgesForQuality` and
- *        `MeshQuality::improveConnectivityByFlips`.
+ *        `DynamicRemesh::flipEdgesForQuality`,
+ *        `MeshQuality::improveConnectivityByFlips` and
+ *        `DynamicRemesh::tangentialSmooth`.
  *
- * THIS IS T4d1's, T4d2's AND T4d3's EXIT CRITERIA, MECHANIZED
+ * THIS IS T4d1's, T4d2's, T4d3's AND T4d4's EXIT CRITERIA, MECHANIZED
  * (`tasks/milestone1.md`).
  * Its rank sweep is `scripts/tuolumne/t4d1_mesh_edits.flux`, ranks 1-6 in one
  * job; the tier registers it at one rank like every other member.
@@ -91,6 +92,30 @@
  *   - **4d.** `improveConnectivityByFlips`: `max_passes = 0` returns 0 and
  *     changes nothing; three passes flip a fixed count over a fixed number of
  *     sweeps, and the minimum quality rises or holds.
+ *
+ * Case 5, **T4d4**, the guarded tangential smoothing:
+ *
+ *   - **5a, off.** `smoothing_iterations = 0` (the `Solver`'s value until
+ *     task T4d6), and `relaxation` 0 and negative (the reference's
+ *     `relaxation <= 0`), each return 0 with every local position
+ *     bit-identical and the generation unchanged.
+ *   - **5b, the healthy direction**, on the default icosphere at the
+ *     default relaxation 0.04. Three single-iteration calls: each returns 1,
+ *     its displacement satisfies `max|dx.n| <= 1e-13 max|dx|` against the
+ *     normals it started from, and its minimum quality satisfies the guard's
+ *     own bound `min_after + 1e-14 >= max(min_quality, 0.85 min_before)`.
+ *     The minimum is printed and compared with the reference, never required
+ *     to hold: the reference lowers it. The mean rises. One call at three
+ *     iterations returns 3 and lands where the single calls did. Its relative
+ *     volume change is at least 1e3 times smaller than that of one
+ *     un-projected iteration, built here from the same public operators.
+ *   - **5c, the rejecting direction.** At `min_quality = 0` and relaxation
+ *     5.0 the trial loses more than 15 % of the minimum (asserted from the
+ *     test's own unguarded trial first), so the `0.85` branch rejects it:
+ *     `smooth_steps == 0` and every local position is bit-identical.
+ *   - **5d, the pass loop.** On case 4's fixture the repair gate fires; at
+ *     `smoothing_iterations = 0` with flips off `remesh()` changes nothing,
+ *     and with both on it flips 4b's count and then smooths.
  *
  * NAMING EDGES WITHOUT GIDS
  * -------------------------
@@ -192,6 +217,42 @@ constexpr int kQualityRounds = 2;
 constexpr int kImprovePasses = 3;
 constexpr int kImproveFlips = 56;
 constexpr int kImproveSweeps = 3;
+
+// Case 5's controls: the reference's default relaxation (0.04) at three
+// iterations, and an overshooting relaxation for the guard's rejecting
+// direction. At 5.0 a projected iteration on the default icosphere takes the
+// minimum quality from 0.97727 to 0.62203 (ratio 0.636), well past the
+// guard's 0.85 (Python model, tasks/milestone1-progress-log.md `## T4d4`);
+// the test re-measures that premise itself.
+constexpr double kSmoothRelaxation = 0.04;
+constexpr int kSmoothIterations = 3;
+constexpr double kRejectRelaxation = 5.0;
+// Measured, identical at ranks 1-6; see tasks/milestone1-progress-log.md
+// `## T4d4`: on case 4's fixture, `remesh()` flips 44 edges and then accepts
+// its one smoothing iteration.
+constexpr int kRemeshSmoothSteps = 1;
+// The reference, `dynamic_remesh.py::tangential_smooth_vertices` with
+// `smoothing_relaxation = 0.04`, `min_quality = 0.18`, on
+// `mesh.icosphere_mesh( subdivisions=2, radius=1 )`: minimum and mean
+// quality after one and after three iterations, and the relative volume
+// change after three. Not to be edited to make a check pass.
+constexpr double kPyMinQuality1 = 0.97725307555529173;
+constexpr double kPyMeanQuality1 = 0.989142962939909;
+constexpr double kPyMinQuality3 = 0.97721315828587241;
+constexpr double kPyMeanQuality3 = 0.99019655118968153;
+constexpr double kPyVolumeRel3 = -1.16636709257544879e-06;
+// T4c's tolerances, for T4c's reasons (Beatnik_Test_TangentialRelaxation):
+// 1e-12 relative against a reference summary scalar, 1e-8 for a volume
+// change formed by cancellation, the a-priori tangency bound, and 1e-13
+// absolute between two runs equal in exact arithmetic (the vertex normals
+// are assembled with atomics, so not bitwise).
+constexpr double kPyTolerance = 1.0e-12;
+constexpr double kPyCancellationTolerance = 1.0e-8;
+constexpr double kTangencyRatio = 1.0e-13;
+constexpr double kIdenticalPositions = 1.0e-13;
+// The exit criterion's volume separation: the guarded pass changes the
+// volume at least this many times less than one un-projected iteration.
+constexpr double kVolumeFactor = 1.0e3;
 
 Point unit( const double* d )
 {
@@ -1245,6 +1306,399 @@ void caseQualityFlips( Beatnik::Test::Recorder& rec )
     }
 }
 
+//---------------------------------------------------------------------------//
+// Case 5 -- guarded tangential smoothing (T4d4).
+//---------------------------------------------------------------------------//
+
+/// Mean and minimum reference quality over owned faces, reduced globally.
+struct QualityMeanMin
+{
+    double mean = 0.0;
+    double min_q = 0.0;
+};
+
+template <class ExecSpace, class MeshType>
+QualityMeanMin qualityMeanMin( MeshType& mesh )
+{
+    const MPI_Comm comm = mesh.comm();
+    const HostMesh h = snapshot<ExecSpace>( mesh );
+    auto fv = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(),
+                                                   mesh.faceVertices() );
+    double sum = 0.0;
+    double mn = std::numeric_limits<double>::infinity();
+    const int nf = mesh.ownedFaceCount();
+    for ( int f = 0; f < nf; ++f )
+    {
+        const double q = Beatnik::QualityFlips::triangleQuality(
+            h.pos[fv( f, 0 )].data(), h.pos[fv( f, 1 )].data(),
+            h.pos[fv( f, 2 )].data() );
+        sum += q;
+        mn = std::min( mn, q );
+    }
+    long long n = nf;
+    long long n_total = 0;
+    double sum_total = 0.0;
+    QualityMeanMin out;
+    MPI_Allreduce( &n, &n_total, 1, MPI_LONG_LONG, MPI_SUM, comm );
+    MPI_Allreduce( &sum, &sum_total, 1, MPI_DOUBLE, MPI_SUM, comm );
+    MPI_Allreduce( &mn, &out.min_q, 1, MPI_DOUBLE, MPI_MIN, comm );
+    out.mean = sum_total / static_cast<double>( n_total );
+    return out;
+}
+
+/// The global enclosed volume over owned faces.
+template <class MeshType>
+double globalVolume( MeshType& mesh )
+{
+    auto owned_faces =
+        Kokkos::subview( mesh.faceVertices(),
+                         std::make_pair( 0, mesh.ownedFaceCount() ),
+                         Kokkos::ALL() );
+    auto pos = mesh.positions();
+    double local = static_cast<double>(
+        Beatnik::SurfaceOperators::enclosedVolume( pos, owned_faces ) );
+    double total = 0.0;
+    MPI_Allreduce( &local, &total, 1, MPI_DOUBLE, MPI_SUM, mesh.comm() );
+    return total;
+}
+
+/// Host copy of the vertex normals `MeshGeometry::compute` gives at the
+/// current positions -- the normals a smoothing iteration starting here uses.
+template <class ExecSpace, class MeshType>
+std::vector<Point> hostNormals( MeshType& mesh )
+{
+    using mem_space = typename MeshType::memory_space;
+    Beatnik::MeshGeometry<ExecSpace, mem_space> geometry;
+    geometry.compute( mesh.positions(), mesh.totalVertexCount(),
+                      mesh.faceVertices() );
+    auto n = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(),
+                                                  geometry.vertex_normal );
+    std::vector<Point> out( n.extent( 0 ) );
+    for ( std::size_t i = 0; i < out.size(); ++i )
+        out[i] = { n( i, 0 ), n( i, 1 ), n( i, 2 ) };
+    return out;
+}
+
+/// `max|dx|` and `max|dx . n|` over owned vertices, reduced globally, and
+/// the largest owned-row difference between two snapshots.
+struct StepStats
+{
+    double max_step = 0.0;
+    double max_normal = 0.0;
+};
+
+StepStats stepStats( MPI_Comm comm, const HostMesh& before,
+                     const HostMesh& after, const std::vector<Point>& normals )
+{
+    double step = 0.0;
+    double normal = 0.0;
+    for ( int i = 0; i < before.owned_vertices; ++i )
+    {
+        Point dx;
+        for ( int d = 0; d < 3; ++d )
+            dx[d] = after.pos[i][d] - before.pos[i][d];
+        step = std::max( step, std::sqrt( dot( dx, dx ) ) );
+        normal = std::max( normal, std::fabs( dot( dx, normals[i] ) ) );
+    }
+    StepStats s;
+    MPI_Allreduce( &step, &s.max_step, 1, MPI_DOUBLE, MPI_MAX, comm );
+    MPI_Allreduce( &normal, &s.max_normal, 1, MPI_DOUBLE, MPI_MAX, comm );
+    return s;
+}
+
+/// One reference smoothing iteration with no guard, built in the test from
+/// the same public operators `tangentialSmooth` uses: `MeshGeometry`
+/// normals, `graphLaplacianVector` over the one-ring, and -- when `project`
+/// is set -- `projectTangent`. Owned rows with fewer than three neighbours
+/// stay put, as in the reference. With `project` false this is the
+/// un-projected failure direction, as in `Beatnik_Test_TangentialRelaxation`
+/// group 5; with it true, it is the trial the guard judges.
+template <class ExecSpace, class MeshType>
+void unguardedIteration( MeshType& mesh, double relaxation, bool project )
+{
+    using mem_space = typename MeshType::memory_space;
+    using vector_view = Kokkos::View<Real* [3], mem_space>;
+    mesh.haloExchange();
+    const int nv = mesh.totalVertexCount();
+    const int n_owned = mesh.ownedVertexCount();
+    auto pos = mesh.positions();
+    auto ring = mesh.vertexOneRing();
+    Beatnik::MeshGeometry<ExecSpace, mem_space> geometry;
+    geometry.compute( pos, nv, mesh.faceVertices() );
+    vector_view disp( "beatnik_t4d4_displacement", nv );
+    Beatnik::SurfaceOperators::graphLaplacianVector( ring, pos, disp );
+    if ( project )
+        Beatnik::SurfaceOperators::projectTangent( disp,
+                                                   geometry.vertex_normal );
+    auto offsets = ring.offsets;
+    const Real w = relaxation;
+    Kokkos::parallel_for(
+        "beatnik_t4d4_unguarded", Kokkos::RangePolicy<ExecSpace>( 0, n_owned ),
+        KOKKOS_LAMBDA( const int i ) {
+            if ( offsets( i + 1 ) - offsets( i ) < 3 )
+                return;
+            for ( int d = 0; d < 3; ++d )
+                pos( i, d ) += w * disp( i, d );
+        } );
+    Kokkos::fence();
+    mesh.haloExchange();
+}
+
+std::string g17( double x )
+{
+    char buf[40];
+    std::snprintf( buf, sizeof( buf ), "%.17g", x );
+    return buf;
+}
+
+template <class ExecSpace, class MeshType>
+void caseTangentialSmooth( Beatnik::Test::Recorder& rec )
+{
+    using mem_space = typename MeshType::memory_space;
+    using remesh_type = Beatnik::DynamicRemesh<ExecSpace, mem_space>;
+    using state_type = Beatnik::SurfaceState<ExecSpace, mem_space>;
+
+    state_type state( Beatnik::StateModel::Potential );
+    const Real center[3] = { 0.0, 0.0, 0.0 };
+
+    Beatnik::RemeshParams base;
+    base.min_quality = kQualityFloor;
+    base.smoothing_relaxation = kSmoothRelaxation;
+
+    // A rejected or skipped pass leaves every local position (owned and
+    // ghost) bit-identical and the generation unchanged.
+    auto expectFrozen = [&]( MeshType& mesh, const HostMesh& before,
+                             std::size_t gen, const std::string& what )
+    {
+        const MPI_Comm comm = mesh.comm();
+        const bool pos =
+            globalAll( comm, snapshot<ExecSpace>( mesh ).pos == before.pos );
+        const bool g = globalAll( comm, mesh.generation() == gen );
+        rec.note( what + ": positions " +
+                  ( pos ? "bit-identical" : "CHANGED" ) + ", generation " +
+                  ( g ? "unchanged" : "CHANGED" ) );
+        BEATNIK_CHECK_TRUE( rec, pos );
+        BEATNIK_CHECK_TRUE( rec, g );
+        BEATNIK_CHECK_EQ( rec, mesh.globalVertexCount(), kV0 );
+        BEATNIK_CHECK_EQ( rec, mesh.globalFaceCount(), kF0 );
+    };
+
+    // 5a. Off: iterations 0 (the `Solver`'s value until T4d6), and the
+    //     reference's `relaxation <= 0` at zero and below. Each returns 0
+    //     and changes nothing.
+    {
+        const int iters[3] = { 0, kSmoothIterations, kSmoothIterations };
+        const double relax[3] = { kSmoothRelaxation, 0.0, -kSmoothRelaxation };
+        for ( int k = 0; k < 3; ++k )
+        {
+            MeshType mesh( MPI_COMM_WORLD );
+            mesh.generateIcosphere( kSubdivisions, 1.0, center );
+            const HostMesh before = snapshot<ExecSpace>( mesh );
+            const std::size_t gen = mesh.generation();
+            Beatnik::RemeshParams p = base;
+            p.smoothing_iterations = iters[k];
+            p.smoothing_relaxation = relax[k];
+            remesh_type dr( p );
+            const int steps = dr.tangentialSmooth( mesh );
+            const std::string what =
+                "case 5a smoothing_iterations=" + std::to_string( iters[k] ) +
+                " relaxation=" + g17( relax[k] ) +
+                ": smooth_steps=" + std::to_string( steps );
+            BEATNIK_CHECK_EQ( rec, steps, 0 );
+            expectFrozen( mesh, before, gen, what );
+        }
+    }
+
+    // 5b. The healthy direction, one iteration per call so each accepted
+    //     iteration's displacement can be judged against the normals it
+    //     used and its guard bound checked; then the same three iterations
+    //     in one call.
+    QualityMeanMin q0;
+    double volume0 = 0.0;
+    HostMesh stepped;
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        const MPI_Comm comm = mesh.comm();
+        mesh.generateIcosphere( kSubdivisions, 1.0, center );
+        q0 = qualityMeanMin<ExecSpace>( mesh );
+        volume0 = globalVolume( mesh );
+        rec.note( "case 5b icosphere: min quality=" + g17( q0.min_q ) +
+                  " mean quality=" + g17( q0.mean ) );
+
+        Beatnik::RemeshParams p = base;
+        p.smoothing_iterations = 1;
+        remesh_type dr( p );
+        QualityMeanMin q = q0;
+        for ( int k = 0; k < kSmoothIterations; ++k )
+        {
+            const HostMesh before = snapshot<ExecSpace>( mesh );
+            const auto normals = hostNormals<ExecSpace>( mesh );
+            const int steps = dr.tangentialSmooth( mesh );
+            const HostMesh after = snapshot<ExecSpace>( mesh );
+            const QualityMeanMin q1 = qualityMeanMin<ExecSpace>( mesh );
+            const StepStats s = stepStats( comm, before, after, normals );
+            const double bound =
+                std::max( kQualityFloor, 0.85 * q.min_q );
+            rec.note( "case 5b iteration " + std::to_string( k + 1 ) +
+                      ": smooth_steps=" + std::to_string( steps ) +
+                      " max|dx|=" + g17( s.max_step ) + " max|dx.n|=" +
+                      g17( s.max_normal ) + " ratio=" +
+                      g17( s.max_normal / s.max_step ) + " min quality " +
+                      g17( q.min_q ) + " -> " + g17( q1.min_q ) +
+                      " (guard bound " + g17( bound ) + ") mean quality " +
+                      g17( q.mean ) + " -> " + g17( q1.mean ) );
+            BEATNIK_CHECK_EQ( rec, steps, 1 );
+            BEATNIK_CHECK_TRUE( rec, s.max_step > 0.0 );
+            BEATNIK_CHECK_TRUE( rec,
+                                s.max_normal <= kTangencyRatio * s.max_step );
+            BEATNIK_CHECK_TRUE( rec, q1.min_q + 1.0e-14 >= bound );
+            if ( k == 0 )
+            {
+                BEATNIK_CHECK_CLOSE( rec, q1.min_q, kPyMinQuality1,
+                                   kPyTolerance );
+                BEATNIK_CHECK_CLOSE( rec, q1.mean, kPyMeanQuality1,
+                                   kPyTolerance );
+            }
+            q = q1;
+        }
+        const double dv = globalVolume( mesh ) / volume0 - 1.0;
+        rec.note( "case 5b after " + std::to_string( kSmoothIterations ) +
+                  " single calls: relative volume change=" + g17( dv ) );
+        BEATNIK_CHECK_TRUE( rec, q.mean > q0.mean );
+        BEATNIK_CHECK_CLOSE( rec, q.min_q, kPyMinQuality3, kPyTolerance );
+        BEATNIK_CHECK_CLOSE( rec, q.mean, kPyMeanQuality3, kPyTolerance );
+        stepped = snapshot<ExecSpace>( mesh );
+    }
+    double dv_pass = 0.0;
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        const MPI_Comm comm = mesh.comm();
+        mesh.generateIcosphere( kSubdivisions, 1.0, center );
+        Beatnik::RemeshParams p = base;
+        p.smoothing_iterations = kSmoothIterations;
+        remesh_type dr( p );
+        const int steps = dr.tangentialSmooth( mesh );
+        const QualityMeanMin q = qualityMeanMin<ExecSpace>( mesh );
+        dv_pass = globalVolume( mesh ) / volume0 - 1.0;
+        const HostMesh after = snapshot<ExecSpace>( mesh );
+        double diff = 0.0;
+        for ( int i = 0; i < after.owned_vertices; ++i )
+            for ( int d = 0; d < 3; ++d )
+                diff = std::max( diff, std::fabs( after.pos[i][d] -
+                                                  stepped.pos[i][d] ) );
+        double diff_g = 0.0;
+        MPI_Allreduce( &diff, &diff_g, 1, MPI_DOUBLE, MPI_MAX, comm );
+        rec.note( "case 5b one call, smoothing_iterations=" +
+                  std::to_string( kSmoothIterations ) +
+                  ": smooth_steps=" + std::to_string( steps ) +
+                  " min quality=" + g17( q.min_q ) + " mean quality=" +
+                  g17( q.mean ) + " relative volume change=" + g17( dv_pass ) +
+                  " max|x - x_single_calls|=" + g17( diff_g ) );
+        BEATNIK_CHECK_EQ( rec, steps, kSmoothIterations );
+        BEATNIK_CHECK_TRUE( rec, diff_g <= kIdenticalPositions );
+        BEATNIK_CHECK_TRUE( rec, q.mean > q0.mean );
+        BEATNIK_CHECK_CLOSE( rec, dv_pass, kPyVolumeRel3,
+                           kPyCancellationTolerance );
+    }
+    {
+        // The un-projected failure direction at the same relaxation.
+        MeshType mesh( MPI_COMM_WORLD );
+        mesh.generateIcosphere( kSubdivisions, 1.0, center );
+        unguardedIteration<ExecSpace>( mesh, kSmoothRelaxation, false );
+        const double dv_raw = globalVolume( mesh ) / volume0 - 1.0;
+        rec.note( "case 5b un-projected iteration: relative volume change=" +
+                  g17( dv_raw ) + " factor over the pass=" +
+                  g17( std::fabs( dv_raw / dv_pass ) ) );
+        BEATNIK_CHECK_TRUE( rec, dv_raw != 0.0 );
+        BEATNIK_CHECK_TRUE( rec, kVolumeFactor * std::fabs( dv_pass ) <=
+                                     std::fabs( dv_raw ) );
+    }
+
+    // 5c. The rejecting direction. min_quality = 0, so the guard's bound is
+    //     0.85 * the old minimum; at kRejectRelaxation the trial overshoots
+    //     the neighbour centroids. The premise -- the trial loses more than
+    //     15 % of the minimum, so the 0.85 branch binds -- is measured on a
+    //     separate mesh from the test's own unguarded iteration first.
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        mesh.generateIcosphere( kSubdivisions, 1.0, center );
+        const QualityMeanMin before = qualityMeanMin<ExecSpace>( mesh );
+        unguardedIteration<ExecSpace>( mesh, kRejectRelaxation, true );
+        const QualityMeanMin trial = qualityMeanMin<ExecSpace>( mesh );
+        rec.note( "case 5c premise, relaxation=" + g17( kRejectRelaxation ) +
+                  ": trial min quality " + g17( before.min_q ) + " -> " +
+                  g17( trial.min_q ) + " (ratio " +
+                  g17( trial.min_q / before.min_q ) + ")" );
+        BEATNIK_CHECK_TRUE( rec, trial.min_q + 1.0e-14 <
+                                     std::max( 0.0, 0.85 * before.min_q ) );
+        BEATNIK_CHECK_TRUE( rec, 0.85 * before.min_q > 0.0 );
+    }
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        mesh.generateIcosphere( kSubdivisions, 1.0, center );
+        const HostMesh before = snapshot<ExecSpace>( mesh );
+        const std::size_t gen = mesh.generation();
+        Beatnik::RemeshParams p = base;
+        p.min_quality = 0.0;
+        p.smoothing_iterations = kSmoothIterations;
+        p.smoothing_relaxation = kRejectRelaxation;
+        remesh_type dr( p );
+        const int steps = dr.tangentialSmooth( mesh );
+        BEATNIK_CHECK_EQ( rec, steps, 0 );
+        expectFrozen( mesh, before, gen,
+                      "case 5c min_quality=0 relaxation=" +
+                          g17( kRejectRelaxation ) +
+                          ": smooth_steps=" + std::to_string( steps ) );
+    }
+
+    // 5d. The pass loop. On case 4's fixture the repair gate fires (worst
+    //     face below 0.18). With flips off and smoothing_iterations = 0 --
+    //     the `Solver`'s path until T4d6 -- nothing changes. With both on,
+    //     the flips run first and the smoothing after them.
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        makeTangentialIcosphere<ExecSpace>( mesh );
+        const HostMesh before = snapshot<ExecSpace>( mesh );
+        const std::size_t gen = mesh.generation();
+        Beatnik::RemeshParams p = base;
+        p.split_factor = 1.0e6;
+        p.collapse_factor = 0.0;
+        p.flip_min_gain = Beatnik::kFlipsDisabledMinGain;
+        p.smoothing_iterations = 0;
+        remesh_type dr( p );
+        const Beatnik::RemeshDiagnostics d = dr.remesh( mesh, state );
+        BEATNIK_CHECK_EQ( rec, d.flip_sweeps, 1 );
+        BEATNIK_CHECK_EQ( rec, d.flips, 0 );
+        BEATNIK_CHECK_EQ( rec, d.smooth_steps, 0 );
+        expectFrozen( mesh, before, gen,
+                      "case 5d remesh(), flip_min_gain=1e12 "
+                      "smoothing_iterations=0: flip_sweeps=" +
+                          std::to_string( d.flip_sweeps ) +
+                          " smooth_steps=" +
+                          std::to_string( d.smooth_steps ) );
+    }
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        makeTangentialIcosphere<ExecSpace>( mesh );
+        Beatnik::RemeshParams p = base;
+        p.split_factor = 1.0e6;
+        p.collapse_factor = 0.0;
+        p.flip_min_gain = 1.0e-3;
+        p.smoothing_iterations = 1;
+        remesh_type dr( p );
+        const Beatnik::RemeshDiagnostics d = dr.remesh( mesh, state );
+        rec.note( "case 5d remesh(), flips and smoothing_iterations=1: "
+                  "flips=" +
+                  std::to_string( d.flips ) + " smooth_steps=" +
+                  std::to_string( d.smooth_steps ) + " min quality " +
+                  g17( d.min_quality_before ) + " -> " +
+                  g17( d.min_quality_after ) );
+        BEATNIK_CHECK_EQ( rec, d.flips, kQualityFlips );
+        BEATNIK_CHECK_EQ( rec, d.smooth_steps, kRemeshSmoothSteps );
+        BEATNIK_CHECK_EQ( rec, mesh.globalFaceCount(), kF0 );
+    }
+}
+
 template <class ExecSpace, class MemSpace>
 void runChecks( Beatnik::Test::Recorder& rec )
 {
@@ -1258,6 +1712,7 @@ void runChecks( Beatnik::Test::Recorder& rec )
     caseLinkCondition<ExecSpace, mesh_type>( rec );
     caseCollapseShortEdges<ExecSpace, mesh_type>( rec );
     caseQualityFlips<ExecSpace, mesh_type>( rec );
+    caseTangentialSmooth<ExecSpace, mesh_type>( rec );
 }
 
 } // namespace

@@ -798,9 +798,12 @@ subsections above, which are intended behavior.
   `MeshQuality::improveConnectivityByFlips`, T4d3) are implemented and covered
   by the same member, but the `Solver` still rejects
   `--remesh-flip-min-gain < 1e12` and `--flip-passes > 0` at setup until task
-  T4d6; the isotropic cleanup is T4d and not yet implemented. Every configuration
-  that would reach collapse, a flip or the cleanup in a run is rejected before
-  the first step by name and task ID. Resolves progressively as T4 lands its remaining regression
+  T4d6. Guarded tangential smoothing (`DynamicRemesh::tangentialSmooth`, T4d4)
+  is implemented and covered by the same member, but the `Solver` still rejects
+  `--remesh-smooth-iters > 0` at setup until task T4d6; the isotropic cleanup
+  is T4d and not yet implemented. Every configuration that would reach
+  collapse, a flip, smoothing or the cleanup in a run is rejected before the
+  first step by name and task ID. Resolves progressively as T4 lands its remaining regression
   tests. See
   [CLAUDE.md](CLAUDE.md#minimum-test-set) and `tasks/framework.md`.
 

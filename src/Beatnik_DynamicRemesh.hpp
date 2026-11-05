@@ -89,22 +89,23 @@
  * WHAT IS IMPLEMENTED, AND WHAT THROWS
  * ------------------------------------
  * The sizing field, the gradation, the **split** pass, the **collapse** pass
- * (`collapseShortEdges`, task T4d2) and the **quality-flip** pass
- * (`flipEdgesForQuality`, task T4d3) are implemented. The
- * tangential-smoothing pass is **T4d** (task T4d4, not yet implemented) and
- * throws; the two proximity paths are **T4e** and throw.
+ * (`collapseShortEdges`, task T4d2), the **quality-flip** pass
+ * (`flipEdgesForQuality`, task T4d3) and the guarded **tangential-smoothing**
+ * pass (`tangentialSmooth`, task T4d4) are implemented; the two proximity
+ * paths are **T4e** and throw.
  *
  * A `--dynamic-remesh` run is accepted by the `Solver` only when the passes
  * below are configured off **through the reference's own knobs**, so that what
  * runs there is what the reference would run, not a Beatnik-only subset of it.
- * Collapse and flips are implemented and reachable through `remesh()` at any
- * setting, but the `Solver` still rejects `--remesh-collapse-factor > 0` and
+ * Collapse, flips and smoothing are implemented and reachable through
+ * `remesh()` at any setting, but the `Solver` still rejects
+ * `--remesh-collapse-factor > 0`, `--remesh-smooth-iters > 0` and
  * `--remesh-flip-min-gain < 1e12` until task T4d6 deletes those rejections:
  *
  * | pass | configured off by | reference becomes |
  * | --- | --- | --- |
  * | collapse (rejected by the `Solver` until T4d6) | `--remesh-collapse-factor 0` | `dynamic_remesh.py:373`'s candidate predicate `length < 0 * target` is never true, so the pass returns before any mutation; `collapseShortEdges` returns 0 before building a mask |
- * | smoothing | `--remesh-smooth-iters 0` | `:463-465` returns immediately |
+ * | smoothing (rejected by the `Solver` until T4d6) | `--remesh-smooth-iters 0` | `:463-465` returns immediately; so does `tangentialSmooth`, before any halo exchange |
  * | flips (rejected by the `Solver` until T4d6) | `--remesh-flip-min-gain >= 1e12` | `:449-450` `continue`s every candidate of a mesh with no zero-quality face; `flipEdgesForQuality` builds an empty mask and returns before calling `flipEdges`; see `kFlipsDisabledMinGain` |
  * | cleanup | `--no-isotropic-cleanup` | `run_adaptive_mesh_bubble.py:1493` skips the whole block |
  *
@@ -1165,29 +1166,138 @@ class DynamicRemesh
     }
 
     /**
-     * @brief Tangential vertex relaxation.
+     * @brief Guarded tangential vertex relaxation.
      *
-     * Port of dynamic_remesh.py::tangential_smooth_vertices (lines 459-491)
+     * Port of dynamic_remesh.py::tangential_smooth_vertices (lines 459-490)
      *
-     * \f$x_v \leftarrow x_v + \lambda\,\Pi_{\tan}\big(\mathrm{centroid}(N(v))
-     * - x_v\big)\f$, with the normal component projected out so the **shape is
-     * preserved** and only the parameterization moves. Removing the projection
-     * turns this into Laplacian smoothing of the interface itself, which
-     * shrinks the bubble — a subtle and destructive bug, because it looks like
-     * excessive numerical dissipation rather than a geometry error.
+     * Each iteration builds a **trial** position set
+     * \f$x_v' = x_v + \lambda\,\Pi_{\tan}\big(\mathrm{centroid}(N(v))
+     * - x_v\big)\f$, with \f$\lambda\f$ = `--remesh-smooth-relaxation` and
+     * the normal component projected out so the **shape is preserved** and
+     * only the parameterization moves. Removing the projection turns this
+     * into Laplacian smoothing of the interface itself, which shrinks the
+     * bubble — a subtle and destructive bug, because it looks like excessive
+     * numerical dissipation rather than a geometry error. The projection
+     * cancels the volume change to first order only; the reference itself
+     * changes the enclosed volume by about \f$-4\times10^{-7}\f$ relative per
+     * iteration at the default \f$\lambda = 0.04\f$ on the default icosphere.
      *
-     * This is task T4d and is not yet implemented. It is distinct from
-     * `MeshQuality::improveQualityTangential`, the port of
-     * `mesh_solver.py::improve_mesh_quality_tangential`: this one runs inside
-     * the same `if changed or needs_quality_repair` block as the flips, and
-     * that one has a different trigger. `--remesh-smooth-iters > 0` is
-     * rejected in `Solver::requireSupportedConfiguration` naming this method
-     * and T4d.
+     * **The quality guard.** With \f$q_{\text{old}}\f$ the global finite
+     * minimum of the reference metric \f$4\sqrt3 A/\sum\ell^2\f$ before the
+     * trial and \f$q_{\text{new}}\f$ the same over the trial, the trial is
+     * accepted unless
+     * \f[
+     *   q_{\text{new}} + 10^{-14} < \max\big(q_{\min},\ 0.85\,q_{\text{old}}\big),
+     * \f]
+     * with \f$q_{\min}\f$ = `--remesh-min-quality`. A rejected trial is
+     * discarded whole — every position is restored bit for bit — and the loop
+     * **stops**; only accepted iterations are counted. The guard does not
+     * keep the minimum from falling: within the 15 % allowance it may fall,
+     * and on the default icosphere the reference lowers it from 0.977274 to
+     * 0.977253 in one iteration while the mean rises. A port that held the
+     * minimum would smooth less than the reference (risk M1-R4).
+     *
+     * The stencil is `relaxTangential`'s: `MeshGeometry::compute` vertex
+     * normals, `SurfaceOperators::graphLaplacianVector` over
+     * `vertexOneRing()` (the unique neighbour set) and
+     * `SurfaceOperators::projectTangent`, called here directly. Three
+     * differences, each the reference's: the early return is
+     * `iterations == 0 or relaxation <= 0`; a vertex with fewer than three
+     * unique neighbours does not move; and the guard above.
+     *
+     * The update is **Jacobi**: the trial is built from the unmodified
+     * positions (the reference's `trial = vertices.copy()`). Only **owned**
+     * rows are written (risk R9); the halo is exchanged before the first
+     * stencil read, after each trial is written (the trial's owned faces read
+     * ghost corners), and after a rejected trial is restored, so the mesh is
+     * halo-consistent on return.
+     *
+     * Distinct from `MeshQuality::improveQualityTangential`, the port of
+     * `mesh_solver.py::improve_mesh_quality_tangential`, which has no guard
+     * and a different trigger: this one runs inside the same
+     * `if changed or needs_quality_repair` block as the flips, after them.
+     * `--remesh-smooth-iters > 0` is still rejected in
+     * `Solver::requireSupportedConfiguration` until task T4d6, so a `Solver`
+     * run reaches this only at `smoothing_iterations = 0`, which returns 0
+     * before any halo exchange, reduction or write.
+     *
+     * Does not re-base the AMR reference state; the `Solver` calls
+     * `AdaptiveMesh::resetReferenceState` after every remesh (see `remesh`).
+     *
+     * @pre Vertex positions halo-consistent on entry, as for
+     *      `flipEdgesForQuality`.
+     * @return Accepted iterations, identical on every rank.
+     *
+     * @note MPI. Collective: every branch after the early return is on a
+     *       globally reduced quality or on the iteration count, so every rank
+     *       reaches the same halo exchanges and reductions.
      */
     int tangentialSmooth( mesh_type& mesh ) const
     {
-        (void)mesh;
-        BEATNIK_NOT_IMPLEMENTED( "DynamicRemesh", "tangentialSmooth" );
+        // `iterations = max(int(...), 0)`; `relaxation <= 0.0` as the Python
+        // compares it, so a negative relaxation is off as well as zero.
+        const int iterations = std::max( _params.smoothing_iterations, 0 );
+        const Real relaxation = _params.smoothing_relaxation;
+        if ( iterations == 0 || relaxation <= Real( 0 ) )
+            return 0;
+
+        MeshGeometry<ExecutionSpace, MemorySpace> geometry;
+        const Real w = relaxation;
+        int accepted = 0;
+
+        mesh.haloExchange();
+        for ( int it = 0; it < iterations; ++it )
+        {
+            const Real old_quality = globalMinQuality( mesh );
+
+            const int nv = mesh.totalVertexCount();
+            const int n_owned = mesh.ownedVertexCount();
+            auto pos = mesh.positions();
+            auto ring = mesh.vertexOneRing();
+
+            geometry.compute( pos, nv, mesh.faceVertices() );
+            vector_view displacement( "beatnik_remesh_smooth_displacement",
+                                      nv );
+            SurfaceOperators::graphLaplacianVector( ring, pos, displacement );
+            SurfaceOperators::projectTangent( displacement,
+                                              geometry.vertex_normal );
+
+            // Keep the pre-trial owned rows, then write the trial in place.
+            vector_view saved( "beatnik_remesh_smooth_saved", n_owned );
+            auto offsets = ring.offsets;
+            Kokkos::parallel_for(
+                "beatnik_remesh_smooth_trial",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, n_owned ),
+                KOKKOS_LAMBDA( const int i ) {
+                    for ( int d = 0; d < 3; ++d )
+                        saved( i, d ) = pos( i, d );
+                    // `if len(nbrs) < 3: continue` -- the trial keeps x_v.
+                    if ( offsets( i + 1 ) - offsets( i ) < 3 )
+                        return;
+                    for ( int d = 0; d < 3; ++d )
+                        pos( i, d ) += w * displacement( i, d );
+                } );
+            Kokkos::fence();
+            mesh.haloExchange();
+
+            const Real new_quality = globalMinQuality( mesh );
+            if ( new_quality + Real( 1.0e-14 ) <
+                 std::max( _params.min_quality, Real( 0.85 ) * old_quality ) )
+            {
+                Kokkos::parallel_for(
+                    "beatnik_remesh_smooth_restore",
+                    Kokkos::RangePolicy<ExecutionSpace>( 0, n_owned ),
+                    KOKKOS_LAMBDA( const int i ) {
+                        for ( int d = 0; d < 3; ++d )
+                            pos( i, d ) = saved( i, d );
+                    } );
+                Kokkos::fence();
+                mesh.haloExchange();
+                break;
+            }
+            ++accepted;
+        }
+        return accepted;
     }
 
     /**
@@ -1282,21 +1392,17 @@ class DynamicRemesh
 
             // 4. Repair, if anything changed or the worst element is poor
             //    (`dynamic_remesh.py:169-175`): quality flips, then
-            //    tangential smoothing. The `Solver` accepts only
-            //    `flip_min_gain = kFlipsDisabledMinGain` until task T4d6, at
-            //    which the flip sweep returns before any mutation.
-            //    Smoothing is task T4d4 and is configured off
-            //    (`--remesh-smooth-iters 0`); its count is transcribed, not
-            //    folded away, so implementing T4d4 turns it on by deleting a
-            //    rejection rather than by remembering to add a call.
+            //    tangential smoothing. Until task T4d6 the `Solver` accepts
+            //    only `flip_min_gain = kFlipsDisabledMinGain` and
+            //    `smoothing_iterations = 0`, at which both passes return
+            //    before any mutation.
             const bool changed = ( splits > 0 ) || ( collapses > 0 );
             const bool needs_quality_repair =
                 globalMinQuality( mesh ) < _params.min_quality;
             if ( changed || needs_quality_repair )
             {
                 diag.flips += flipEdgesForQuality( mesh, diag );
-                //   tangentialSmooth      T4d4
-                diag.smooth_steps += 0;
+                diag.smooth_steps += tangentialSmooth( mesh );
             }
         }
 
