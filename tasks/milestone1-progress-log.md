@@ -2211,3 +2211,83 @@ confirmed it, so no sentinel run was needed.
   whose `smooth_steps` total is below `smoothing_iterations ×` (gate firings)
   had the guard reject a trial; that is the reference's behaviour, not a
   fault.
+
+## T4d4 review
+
+**Verdict:** Passed
+**Reviewed:** `4041aec^..4041aec` (the one code commit; `599d909` after it
+touches only `tasks/`). It touches the **Fill in** (`tangentialSmooth` and the
+`diag.smooth_steps` placeholder in `src/Beatnik_DynamicRemesh.hpp`), two
+`src/Beatnik_Solver.hpp` comments that called smoothing unimplemented
+(recorded as cosmetic corrections), the test
+`tests/unit_tests/Beatnik_Test_MeshEdits.cpp`, and the README Known Issues and
+`docs/testing.md` lines CLAUDE.md requires to stay in sync. Nothing out of
+scope; the `Solver` rejection at `src/Beatnik_Solver.hpp:838-845` and the
+`checkRejected` smoothing case in `Beatnik_Test_DynamicRemeshSplit.cpp` are
+untouched (Conventions "`Solver` rejections during T4d").
+**Evidence:** implementing session's job `f3iLqpsgPez3`, output read.
+`scripts/tuolumne/t4d1_mesh_edits.flux`, log
+`beatnik_t4d1_mesh_edits.f3iLqpsgPez3.log`, Flux `COMPLETED` rc 0. Submitted
+11:55:12, started 11:58:59 (about 3.8 min queue wait), ran 1.087 min. It
+echoed commit `4041aec` with no source file dirty (`.claude/settings.json`,
+`tasks/milestone1.md` and untracked files only), and the installed binary's
+mtime (11:54:40) precedes the commit. The log has `PASS np=1` … `PASS np=6`,
+`SUMMARY: PASS (6/6 rank counts)` and exactly 21
+`[PASS] Beatnik_Test_MeshEdits (232/232 checks)` lines on HIP, with no `FAIL`,
+abort or exception, so ranks 1 and 4 are both covered. Passing direction (5b):
+three accepted single-iteration calls with tangency ratios `2.06e-14`,
+`6.73e-14`, `4.50e-14` (asserted ≤ `1e-13`), each minimum above its guard
+bound (≈0.8307, asserted), mean 0.988529 → 0.990197 (asserted to rise);
+one call at three iterations returns 3 and matches the single calls to
+`2.7e-20`; volume change `-1.166e-06` against `-5.371e-03` un-projected, factor
+4605 (asserted ≥ 1e3); minimum, mean and volume agree with the reference's
+`tangential_smooth_vertices` literals. Failure direction (5c): the test first
+shows its own unguarded trial at relaxation 5 takes the minimum to ratio
+0.6365 < 0.85, then `tangentialSmooth` at `min_quality = 0` returns 0 with
+every local position bit-identical and the generation unchanged. The no-op
+(5a, 5d): `smoothing_iterations = 0` and relaxation ≤ 0 return 0 with
+positions bit-identical, directly and through `remesh()` with the repair gate
+firing. Every number agrees with the **Met.** paragraph.
+
+Mechanical pass (`review_checks.py`): candidates only, all dismissed. K4 (two
+host mirrors) is in test code. S2 at `Beatnik_Test_MeshEdits.cpp:225` is
+prose. Read against `dynamic_remesh.py:459-490` and the task:
+- Line-for-line transcription: `max(iterations, 0)`, the `relaxation <= 0`
+  early return before any collective, `old_quality` over the current
+  positions, normals and one-ring per iteration, Jacobi trial (`saved` copy,
+  displacement computed before the write), `< 3` neighbours keeps `x_v`, the
+  guard `new + 1e-14 < max(min_quality, 0.85·old)` with `break`, and only
+  accepted iterations counted (Do steps 2, 3).
+- Do step 1: the stencil is `relaxTangential`'s three public operators,
+  called directly; no new umbrella operator. Do step 4: `projectTangent` is
+  kept, and the test's un-projected comparison is the evidence.
+- Collectives: after the parameter-only early return, every branch is on
+  `globalMinQuality` (an `MPI_MIN`) or the loop count, so every rank reaches
+  the same halo exchanges and reductions. Only owned rows are written, the halo
+  is exchanged after each trial write and after a restore, both kernels are
+  fenced before the exchange.
+- Re-basing (Conventions row): recorded in the log with its reason; the code
+  calls no `resetReferenceState`, as recorded.
+
+Stale code: the `BEATNIK_NOT_IMPLEMENTED` stub, the `diag.smooth_steps += 0`
+placeholder and its `//   tangentialSmooth      T4d4` marker are gone; no
+comment in `src/`, `README.md` or `docs/` still calls smoothing unimplemented.
+The header of `Beatnik_Test_DynamicRemeshSplit.cpp:21-40` is left for T4d6,
+as the log and T4d6's entry say. Nothing is made dead. No prompt file remains
+under `tasks/`.
+
+1. [nit] `src/Beatnik_DynamicRemesh.hpp` `tangentialSmooth`: the
+   `displacement` and `saved` Views are allocated inside the iteration loop.
+   Harmless at `--remesh-smooth-iters 1`, but hoisting them above the loop
+   (sizes are fixed within a call) is the usual Kokkos practice.
+2. [follow-up] No test exercises a rejection *after* an accepted iteration
+   (accept, then reject and restore to the accepted state, returning 1). 5c
+   rejects on the first trial. The code path is the same restore, but a
+   fixture where the guard binds on iteration 2 or later would cover the
+   `accepted > 0` return with restored positions.
+3. [follow-up] The second iteration's tangency ratio, `6.73e-14`, is at two
+   thirds of the `1e-13` bound, as the log records under "Only running
+   revealed". A future failure of that check should be read as rounding
+   before as a projection defect.
+
+**Affects:** none
