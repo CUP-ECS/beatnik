@@ -3542,3 +3542,220 @@ prompt file remains under `tasks/`.
    formatting only; no verdict depends on them.
 
 **Affects:** none.
+
+## M1-D2
+
+**Commits:** the commit that adds this section: `scripts/tuolumne/m1d2_split_ab.flux`,
+`scripts/tuolumne/m1d2_refhooks.py`, the `[m1rem]` line in
+`tests/regression_tests/Beatnik_Test_Milestone1Run.cpp`, `milestone1.md` and this
+log.
+
+**Jobs:**
+- `f3iZ2TAcXCc7`, `scripts/tuolumne/m1d2_split_ab.flux` (part `all`, `pdebug`,
+  1 node, `-t 20m`, `--bank=unm`, dev env), log
+  `beatnik_m1d2.f3iZ2TAcXCc7.log` (repo root, copied to the output root).
+  COMPLETED rc 0, 117 s. Echoed commit `4672169`; the Beatnik binaries were the
+  dev view's `347c2ef` build, the same one M1-T2j staged
+  (`Beatnik_Test_Milestone1Bubble_MPI_HIP` sha256 `f9ba6852…` in both).
+  Reference commit `ec7d7bf`, `zmodel3d/` clean, the one-line
+  `--source-quadrature` default diff in `examples/` that M1-G2 also ran under.
+- `f3iZ84VbzTGj`, the same script with part `diag`, after the `[m1rem]` line
+  was added and the dev env rebuilt (`spack install` rc 0; beatnik `ckhvawf`;
+  install log `/p/lustre5/stewartj/beatnik/M1-D2/spack_install.log`).
+  COMPLETED rc 0, 47 s. Driver sha256 SERIAL `72629180…`, HIP `7cf113b5…`; the
+  milestone test binary is byte-identical to before (`f9ba6852…`), so the
+  rebuild changed only the driver.
+
+Output root `/p/lustre5/stewartj/beatnik/M1-D2/`: `gold/` (the reference's 11
+checkpoints plus `checkpoint_latest.npz`), `ref_params.json` (the
+`DynamicRemeshParams` and cleanup keyword arguments the reference run used),
+`beatnik/<BACKEND>_np<N>/` and `diag/<BACKEND>_np<N>/` (11 `.h5` each and
+`launch.log`), and `analysis/`: `cmp_<tag>_step<k>.txt` (44 comparator reports),
+`probe.txt`, `step1_step2_checks.py` (the login-node checks below, rerunnable
+with `python3 -I`), and `structural_stats.py` with its two JSON outputs.
+
+**Decisions:**
+- **The Beatnik driver is `Beatnik_Test_Milestone1Run_MPI_{SERIAL,HIP} 10 1 50`**,
+  a checkpoint every step through step 10, at ranks 1 and 4. Its `makeParams()`
+  is M1-G2's command line. The `[m1rem]` line (rank 0, each remeshing step,
+  that step's own `RemeshDiagnostics` selection counts) was added because the
+  first job could not separate a Tessera conflict loss from a geometric
+  rejection without it. It is a print only, in a driver that is in no tier, so
+  the gate was not re-run.
+- **The reference is instrumented by wrapping, never edited.**
+  `m1d2_refhooks.py run` wraps `split_long_edges`, `collapse_short_edges`,
+  `flip_edges_for_quality`, `tangential_smooth_vertices`,
+  `mesh_quality._valence_equalizing_flips`, `choose_step_dt` and
+  `save_state_checkpoint`, and returns each wrapped function's result
+  unchanged. Checked: this run's step-10 file is `np.array_equal` to M1-G2's
+  step-10 gold on all nine keys.
+- **The probe** (`m1d2_refhooks.py probe`) applies one reference remesh,
+  `dynamic_remesh_arrays` and then `isotropic_cleanup` with the run's exact
+  parameters, to a checkpoint and counts what the reference's rules would do.
+  The edit decisions depend only on positions and faces. The reference's flip
+  sweep and cleanup depend on vertex and face numbering, so accepted flip and
+  cleanup counts on a Beatnik file can differ by a few from what the reference
+  would do on its own numbering of the same mesh (step 0: 90 / 89 / 90 flips,
+  28 / 23 / 17 cleanup edges across three numberings of the identical
+  icosphere). Candidate counts do not depend on numbering.
+
+**Per-step trajectories.** Beatnik's are identical in all four launches. Edit
+counts are per step, not cumulative.
+
+| step | reference V/F | ref dt | ref splits (cand.) | ref collapses (cand.) | ref flips | Beatnik V/F | Beatnik dt | Beatnik splits (cand.) | Beatnik collapses (cand. / conflict) | Beatnik flips (req.) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | 462/920 | 3.000e-3 | 300 (480, capped) | 0 (0) | 90 | 462/920 | 3.000e-3 | 300 (480, capped) | 0 (0 / 0) | 60 (60) |
+| 2 | 498/992 | 1.296e-3 | 67 (67) | 31 (44) | 19 | 514/1024 | 1.298e-3 | 60 (60) | 8 (44 / 36) | 12 (12) |
+| 3 | 565/1126 | 9.824e-4 | 73 (73) | 6 (10) | 15 | 518/1032 | 9.980e-4 | 4 (4) | 0 (0 / 0) | 4 (4) |
+| 4 | 557/1110 | 7.218e-4 | 0 | 8 (21) | 1 | 518/1032 | 1.093e-3 | 0 | 0 | 0 |
+| 5 | 550/1096 | 8.823e-4 | 0 | 7 (10) | 2 | 518/1032 | 1.038e-3 | 0 | 0 | 0 |
+| 6–7 | 550/1096 | 8.67e-4, 8.01e-4 | 0 | 0 | 0 | 518/1032 | ~1.05e-3 | 0 | 0 | 0 |
+| 8 | 549/1094 | 7.620e-4 | 0 | 1 (1) | 0 | 518/1032 | 1.076e-3 | 0 | 0 | 0 |
+| 9 | 547/1090 | 8.521e-4 | 0 | 2 (3) | 1 | 518/1032 | 1.097e-3 | 0 | 0 | 0 |
+| 10 | 547/1090 | 8.521e-4 | 0 | 0 | 0 | 518/1032 | 1.116e-3 | 0 | 0 | 0 |
+
+Every Beatnik flip request was accepted: `flip_rejected_{duplicate_edge,
+geometric,conflict}` are 0 at every step, `flip_rounds` 1. Cumulative
+`cleanup_flips` is 20, 64 and 76 after steps 1, 2 and 3 and constant after. The
+reference's cleanup changed 16, 23, 17, 4, 4, 0, 0, 0, 1, 0 edges.
+
+**Step 1: equal counts, and the same split set, but different connectivity.**
+- **Counts.** The comparator gives `structure` 462/920 on both sides.
+- **The comparator's pairing fails, by M1-R8's signature.** It reports
+  `vertices` `max|e|` `4.925285e-01` with 1366 of 1386 entries outside
+  tolerance, and `faces: 827 of 920 triangles differ`. Those numbers measure
+  the pairing, not the fields.
+- **Nearest-neighbour pairing** (`step1_step2_checks.py`), both HIP np1 and
+  SERIAL np4:
+  - the map is one-to-one;
+  - distance: median `1.671e-05`, maximum `1.983e-02`, 120 vertices over 1e-4;
+  - faces: **894 / 920 identical**;
+  - `potential` `max|e|` `6.862e-08`.
+- **Same split set.** A split midpoint's potential is the average of its
+  endpoints', so a different split edge would differ at the 1e-4 scale of the
+  potential. The 6.9e-8 agreement says both codes split the same 300 edges.
+- **The cap cuts through a tie class.** The 480 candidates take only five
+  distinct normalized lengths, and the 300th and 301st are equal
+  (`1.4273650159101463`). So the split cap (M1-R3's territory, for splits)
+  binds inside a tie, and the two tie-breaks happened to choose the same
+  subset.
+- **The differing connectivity is R13.** The cap leaves 82 faces with exactly
+  two split edges.
+  - **The reference** triangulates each such quad with a diagonal fixed by the
+    face's vertex order (`dynamic_remesh.py:552-581`). That is the longer of the
+    two diagonals in **41** of the 82.
+  - **Its quality-flip sweep** has 90 individual candidates on the post-split
+    mesh and accepts all 90, no conflicts. Exactly **41** of the 90 flip one of
+    those long diagonals.
+  - **Tessera** cuts each such quad on its shorter diagonal, so Beatnik never
+    creates those 41 edges. Its mask asks for 60 flips, and all 60 are accepted.
+  - **The two sweeps end on nearly the same mesh**, 26 of 920 faces apart.
+    Positions differ at the 1e-5 level through the smoothing and the cleanup
+    relaxation, which see different neighbour sets.
+
+**Step 2: the counts part on collapse selection, with an identical candidate
+set.** Tessera's one-round independent set declines the extra collapses that
+the reference's serial walk takes.
+- **Splits match exactly.** On Beatnik's own step-1 mesh the reference's rules
+  want 60 splits, the number Beatnik made.
+- **The candidate set is the same.** The reference's rules find **44** collapse
+  candidates on Beatnik's step-1 mesh and 44 on its own. Every one passes the
+  reference's topological and geometric tests individually. The 44 edges have
+  only 48 distinct endpoints, so they come in tight clusters.
+- **Beatnik** requests all 44 and accepts 8. **36 lose Tessera's one-round
+  independent set** (`collapse_rejected_conflict=36`), and none fails a
+  geometric test (44 − 8 − 36 = 0). The cap did not bind
+  (`collapse_capped=0`).
+- **The reference's serial walk** (`dynamic_remesh.py:388-401`) skips an edge
+  only if one of its endpoints has already been removed. So several collapses
+  into one surviving vertex are allowed in a single pass: it accepts 31 on its
+  own mesh, and the probe shows 32 on Beatnik's.
+- **The resulting counts:** reference 498/992, Beatnik 514/1024.
+
+**Steps 3–10: what follows is the reference's, not Beatnik's.**
+- **The reference's aggressive collapse leaves a sliver.** Its step-2 mesh has
+  minimum quality **0.0995**, below its own `min_quality` 0.18. Beatnik's is
+  0.740.
+- **The reference then over-refines and recoarsens.** At step 3 its sizing
+  field asks for 73 splits (to 565/1126). It then recoarsens through steps 4–9
+  (21, 10, 1 and 3 collapse candidates) and settles at 547/1090 at step 9.
+- **Beatnik settles at step 3**, at 518/1032.
+- **Beatnik's mesh is a fixed point of the reference's rules from step 3 on**
+  (`probe.txt`). One reference remesh plus cleanup applied to every Beatnik
+  checkpoint changes nothing, at steps 3–10 here and at steps 10, 20, 50, 100,
+  200, 300, 400, 500 and 600 of M1-T2j's run: 0 split candidates, 0 collapse
+  candidates, 0 flips, 0 cleanup edges.
+- **At step 2 the reference's rules want, on Beatnik's mesh, exactly what
+  Beatnik did:** 4 splits, 0 collapses, 4 flips.
+- **The gold's own states** after step 10 are fixed points of the same rules
+  (0 edits at every probed step from 20 to 600). At step 10 they want 1
+  collapse.
+
+So **reading (b), a difference in the reference's rules (sizing field, split,
+collapse or flip criteria, or the cleanup), is refuted**. Wherever the two codes
+see the same mesh, the reference's rules want the edits Beatnik makes, or none.
+The parting is **reading (a)**, two selection differences between valid
+applications of the same rules:
+1. at step 1, the reference's fixed quad diagonal against Tessera's shorter one
+   (R13), which the flip sweep nearly reconciles and which leaves the counts
+   equal;
+2. at step 2, the reference's serial collapse walk against Tessera's one-round
+   independent set (R7 for collapse), which changes the counts and sets the
+   trajectory.
+
+Both selections are deterministic and independent of the rank count in
+Beatnik: the four launches agree exactly. Neither is a floating-point effect.
+
+**Structural statistics against M1-G2's 600-step run** (HIP np1 and SERIAL np4
+from M1-T2j's checkpoints, identical; `structural_stats.py`).
+- **At equal step index:**
+  - Beatnik has 3–5 % fewer faces from step 10 to 600.
+  - Its minimum triangle quality is higher: 0.840–0.870 against 0.789–0.855.
+  - Its minimum edge is longer: `0.026024` against `0.019534` at step 10.
+  - Mean edge length is `0.0411`–`0.0415` against `0.0402`–`0.0405`.
+  - Valence 5 / 6 / 7 is fixed at 72 / 394–398 / 44 from step 10 on. The gold
+    reads 84–91 / 377–384 / 66–69.
+  - Both keep `|volume drift|` at or below `4.4e-16`.
+- **The time lead follows from the minimum edge.** The reference's adaptive
+  step is `dt · min(1, h_min/h_min0)^p` (`run_adaptive_mesh_bubble.py:889-901`),
+  so a longer minimum edge gives a longer step. The ratio of minimum edges
+  (Beatnik over gold) is 1.332 at step 10, 1.401 at 50, 1.142 at 100, 1.082 at
+  400 and 1.005 at 600. That tracks `time_rel` (0.163, 0.336, 0.249, 0.146,
+  0.116).
+- **At matched physical time** (Beatnik linearly interpolated to the gold's
+  checkpoint times):
+  - **The bubble's rise** (area-weighted centroid `z` minus 0.25) differs by at
+    most `2.683e-04`. As a fraction of the rise, the difference is 0.147 at
+    t = 0.091, 0.040 at 0.187, 0.0196 at 0.282, 0.0105 at 0.376, 0.0067 at
+    0.468 and **0.0041 at t = 0.558**. The large early fractions come from a
+    rise that is itself about 1e-4.
+  - **Total area** differs by at most `1.805e-04` relative.
+
+**Only running revealed:**
+- **The step-1 split cap binds inside a tie class.** Any change to either code's
+  tie-break would change the step-1 split set outright, and with it everything
+  after.
+- **The reference's own step-2 mesh violates its `min_quality`** (0.0995 <
+  0.18). Its 1090-face peak at step 10 is the refinement that sliver drives.
+  M1-G2's "peak at step 10" is therefore a property of the serial collapse walk,
+  not of the bubble.
+
+**Affects:**
+- **M1-A1j:**
+  - **Field-wise comparison against the reference reaches step 0, and only
+    step 0.** Step 1 is not field-comparable either. Its counts agree, but 26
+    of 920 faces differ and positions differ at the 1e-5 level, so the
+    comparator's `--match-eps 1e-9` pairing fails (M1-R8).
+  - **The cause is selection, reading (a).** It cannot be tuned away by
+    tolerance, and it is not a rule defect to fix.
+  - **Any comparison beyond step 0 is structural or statistical, matched on
+    physical time rather than step index.** The time-matched rise and area
+    numbers above are the measured agreement it would assert against.
+  - **A multi-round collapse independent set** would bring Beatnik's step-2
+    collapse count toward the reference's 31–32. T4d5 already runs several
+    rounds for the valence flips. That is an option for the user, not a
+    correction.
+- **M1-A1:** none beyond M1-A1j's decision.
+- **Follow-up:** `scripts/tuolumne/m1d2_split_ab.flux`'s comparison block runs
+  `compare_output.py` at step 1, where it reports M1-R8 pairing failures. Read
+  the nearest-neighbour numbers above, not those `max|e|`s.

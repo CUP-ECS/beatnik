@@ -67,6 +67,22 @@
  *     inside `flux run`, which the batch script does. GPU memory is out of
  *     scope.
  *
+ * THE PER-STEP REMESH LINE
+ * ------------------------
+ * After every step that remeshes, **rank 0** prints one more line with that
+ * step's own (not cumulative) `RemeshDiagnostics` selection counts, the
+ * numbers that separate a candidate the reference's rules reject from one
+ * Tessera's independent set declines (task M1-D2):
+ *
+ *     [m1rem] step=<n> split_candidates= split_capped= splits=
+ *       collapse_candidates= collapse_requested= collapse_rejected_conflict=
+ *       collapse_capped= collapses= flip_rounds= flip_requested=
+ *       flip_rejected_duplicate_edge= flip_rejected_geometric=
+ *       flip_rejected_conflict= flips= smooth_steps= cleanup_flips=<cum>
+ *
+ * Every field is global; `cleanup_flips` is `Solver::cleanupFlips()`, the
+ * cumulative isotropic-cleanup flip count.
+ *
  * ARGUMENTS. Three required positionals; there is no option surface.
  *
  *   argv[1]  --steps                   600 for the cadence run, 50 for the
@@ -310,6 +326,26 @@ void runDriver( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
                    : 0.0,
             drift, min_q, cum_splits, cum_collapses, cum_flips, cum_smooth,
             procStatusKb( "VmRSS" ), procStatusKb( "VmHWM" ), elapsed );
+        if ( remeshed && rank == 0 )
+            std::printf(
+                "[m1rem] step=%d split_candidates=%lld split_capped=%d "
+                "splits=%d collapse_candidates=%lld collapse_requested=%lld "
+                "collapse_rejected_conflict=%lld collapse_capped=%d "
+                "collapses=%d flip_rounds=%d flip_requested=%lld "
+                "flip_rejected_duplicate_edge=%lld "
+                "flip_rejected_geometric=%lld flip_rejected_conflict=%lld "
+                "flips=%d smooth_steps=%d cleanup_flips=%lld\n",
+                step, static_cast<long long>( d.split_candidates ),
+                d.split_capped ? 1 : 0, d.splits,
+                static_cast<long long>( d.collapse_candidates ),
+                static_cast<long long>( d.collapse_requested ),
+                static_cast<long long>( d.collapse_rejected_conflict ),
+                d.collapse_capped ? 1 : 0, d.collapses, d.flip_rounds,
+                static_cast<long long>( d.flip_requested ),
+                static_cast<long long>( d.flip_rejected_duplicate_edge ),
+                static_cast<long long>( d.flip_rejected_geometric ),
+                static_cast<long long>( d.flip_rejected_conflict ), d.flips,
+                d.smooth_steps, solver.cleanupFlips() );
         std::fflush( stdout );
     }
     Kokkos::fence();

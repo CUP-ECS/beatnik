@@ -1,10 +1,11 @@
 # Milestone 1 — the reference's default rising-bubble configuration
 
 **Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1, M1-G2, M1-D1, T4d1,
-T4d2, T4d3, T4d4, T4d5, T4d6j and T4d6 are **DONE** and reviewed, Passed.
-M1-T2j is **DONE** and reviewed, Passed; its job `f3iYnNt9YPJP` (`pdebug`)
-finished, and M1-T2 is **DONE**, having read it: every compare launch first fails
-at step 10 on differing vertex and face counts (log `## M1-T2`). M1-A1j and
+T4d2, T4d3, T4d4, T4d5, T4d6j, T4d6, M1-T2j and M1-T2 are **DONE** and reviewed,
+Passed. M1-D2 is **DONE** and not yet reviewed: the codes part at step 2, where
+Tessera's one-round collapse independent set accepts 8 of the 44 collapse
+candidates the reference's serial walk accepts 31 of, and Beatnik's mesh obeys
+the reference's rules at every probed step after (log `## M1-D2`). M1-A1j and
 M1-A1 are NOT STARTED.
 
 ## Problem
@@ -105,8 +106,9 @@ Three recorded facts stand against that at 500 steps of a *remeshing* run:
 - **R13.** `Tessera::splitEdges` cuts a two-split-edge quad on the shorter
   diagonal; `mesh.py::refine_marked_faces` uses a fixed one. Measured at T4a: the
   two codes' face counts diverged by pass 2 (788 vs 796). Measured at T4b: they
-  did *not* diverge over 20 steps. The honest reading is that it is
-  configuration-dependent, not retired.
+  did *not* diverge over 20 steps. In this milestone's configuration it acts at
+  step 1: the reference's fixed diagonal is the longer one in 41 of 82
+  two-split quads, which its flip sweep then undoes (M1-D2).
 - **R2.** Cross-rank reduction order gives ulp-level differences in the reduced
   scalars, and a rolling-up vortex sheet amplifies them.
 
@@ -1957,9 +1959,68 @@ count and `time` series and the walls are in the log's `## M1-T2`, with an
 
 ---
 
-### M1-A1j — fix the compare depth and the tolerance ladder, and submit the confirming run — **NOT STARTED**
+### M1-D2 — where in steps 1–10 the codes part, and why — **DONE**
 
 **Depends on:** M1-T2.
+
+**Fill in:** `scripts/tuolumne/m1d2_split_ab.flux` (the job: part `all` runs the
+reference, the Beatnik launches, the per-step comparison and the probe; part
+`diag` reruns only the Beatnik launches into `<root>/diag`),
+`scripts/tuolumne/m1d2_refhooks.py` (wraps the reference's pass functions to
+print per-step counts without editing it; `probe` applies one reference remesh
+step to any checkpoint), and the rank-0 `[m1rem]` line in
+[tests/regression_tests/Beatnik_Test_Milestone1Run.cpp](../tests/regression_tests/Beatnik_Test_Milestone1Run.cpp)
+(that step's `RemeshDiagnostics` selection counts). Output
+`/p/lustre5/stewartj/beatnik/M1-D2/`.
+
+**Removes:** nothing.
+
+**Reference:** M1-G2's command at `--steps 10 --checkpoint-every-steps 1`;
+`Beatnik_Test_Milestone1Run_MPI_{SERIAL,HIP} 10 1 50` at ranks 1 and 4; the
+reference's `split_long_edges`, `collapse_short_edges`,
+`flip_edges_for_quality` and `_children_for_split_face`
+(`dynamic_remesh.py:234-258`, `:361-405`, `:408-457`, `:552-581`).
+
+**Do:** checkpoint both codes every step through step 10; record each step's
+split and collapse candidates before the cap and the accepted edits on both
+sides; compare each step's fields; apply the reference's rules to each code's
+checkpoints. A Beatnik mesh on which the reference's rules want edits that
+Beatnik does not make is a rule difference (b); identical candidate sets
+resolved to different accepted sets is a selection difference (a).
+
+**Exit criterion:** both jobs COMPLETED rc 0 with 11 checkpoints per launch; the
+instrumented reference's step-10 file is `np.array_equal` to M1-G2's; the log's
+`## M1-D2` section names the first step at which the counts differ, the pass
+that makes them differ, and (a) or (b) with the counts that decide it.
+
+**Met.** Jobs `f3iZ2TAcXCc7` (part `all`, 117 s) and `f3iZ84VbzTGj` (part `diag`,
+47 s) COMPLETED rc 0, 11 checkpoints per launch, and the instrumented step 10 is
+`np.array_equal` to M1-G2's on all nine keys. The four Beatnik launches agree
+exactly. **Reading (a).**
+- **Step 1.** Counts equal (462/920) and the same 300 split edges, the cap
+  binding inside a tie class. The reference's fixed quad diagonal (R13) is the
+  longer one in 41 of the 82 two-split faces, and 41 of its 90 quality flips
+  undo exactly those. The meshes end 26 of 920 faces apart, with positions
+  1.7e-5 apart (median).
+- **Step 2.** The counts part (reference 498/992, Beatnik 514/1024) on the
+  collapse pass alone. Both see the same 44 candidates, each admissible under
+  the reference's tests. The reference's serial walk accepts 31. Tessera's
+  one-round independent set accepts 8 and declines 36 for conflict, none for
+  geometry.
+- **Steps 3–10.** The reference's step-2 mesh falls to minimum quality 0.0995,
+  under its own 0.18, and it re-refines to 1126 faces and recoarsens to 1090.
+  Beatnik settles at 1032 faces at step 3.
+- **Beatnik's mesh obeys the reference's rules.** One reference remesh plus
+  cleanup applied to Beatnik's checkpoints wants exactly Beatnik's edits at
+  step 2 and none at any probed step from 3 to 600.
+
+The numbers are in the log's `## M1-D2`.
+
+---
+
+### M1-A1j — fix the compare depth and the tolerance ladder, and submit the confirming run — **NOT STARTED**
+
+**Depends on:** M1-T2, M1-D2.
 
 The decision is made **with the user** and *recorded*, never left implicit in a
 test's literals.
@@ -1980,25 +2041,58 @@ time is that scaled wall, recorded in M1-T2's log section. Staged directory
 
 **Removes:** nothing.
 
-**Do:** bring together M1-D1's fixed-mesh horizon, M1-G2's face-count and `time`
-series, and M1-T2's first failing steps. Decide, with the user:
-- the milestone's compare depth;
-- the tolerance at each compared step, with the measured `max|e|` beside each
-  entry in the table as a comment;
-- whether steps beyond the depth are compared **structurally or statistically**
-  instead (counts, valence histogram, quality distribution, volume drift, the
-  `time` series) or not at all;
+**Inputs, all measured:**
+- **Frozen connectivity (M1-D1).** No compared step fails at any rung through
+  step 600, on either backend or rank count. Peak `vertices` `max|e|` is
+  `9.88e-15`, growing roughly linearly at about 1.5e-17 per step, and cross-rank
+  noise is 2–5x below the Python drift.
+- **With remeshing, the codes part on selection, not floating point (M1-T2,
+  M1-D2).**
+  - **Step 1** is count-equal but 26 of 920 faces apart (R13), with positions
+    about 1e-5 apart. The comparator's `--match-eps 1e-9` pairing fails there
+    (M1-R8).
+  - **From step 2 on the counts differ.** Tessera's one-round collapse
+    independent set accepts 8 of the 44 candidates the reference's serial walk
+    accepts 31 of.
+  - **So field-wise comparison reaches step 0 only**, and no tolerance table
+    moves that.
+  - **Beatnik's mesh obeys the reference's rules** at every probed step from 2
+    to 600. The parting is reading (a), not a rule defect.
+- **Statistics at matched physical time (M1-D2's log section).**
+  - Bubble rise agrees to `2.68e-4` absolute, which is 0.41 % of the rise at
+    t = 0.558.
+  - Total area agrees to `1.8e-4` relative.
+  - Volume drift is at or below `4.4e-16` on both sides.
+  - Beatnik has 3–5 % fewer faces and a 0.5–40 % longer minimum edge. That
+    edge gives it a larger adaptive dt, and so a `time_rel` of 0.116–0.336 at
+    equal step index.
+- **Cost (M1-T2, T4d6).**
+  - **Job wall:** 230 s at 600 steps, the comparator being 26–30 s of each
+    compare launch.
+  - **Peak RSS per rank:** 0.86 GB (HIP, 1 rank), 1.00–1.02 GB (HIP, 4 ranks),
+    0.71 GB (SERIAL).
+  - **Python reference:** 1.18 s/step, so a 5000-step gold run is about
+    100 minutes in `pbatch`.
+
+**Settled:** comparisons beyond the field-wise depth match the two codes on
+**physical time, not step index**. Beatnik's series is interpolated to the
+gold's checkpoint times. At equal step index the two codes sit at different
+times (`time_rel` up to 0.336), so a step-indexed statistic measures the time
+offset rather than the physics.
+
+**Do:** decide, with the user:
+- the milestone's field-wise compare depth (step 0 is the measured ceiling) and
+  its tolerances, with the measured `max|e|` beside each entry in the table as a
+  comment;
+- which time-matched quantities are asserted beyond it, and at what tolerance
+  each: rise, area, volume drift, counts, quality, valence and edge-length
+  distributions;
+- whether Beatnik's collapse pass runs several independent-set rounds per pass,
+  as T4d5 does for the valence flips, to bring its accepted collapse count
+  toward the reference's;
 - whether a 5000-step comparison is pursued, and under what criterion.
 
 Encode the decision, build, stage and submit.
-
-**Additional information needed, and which task answers it:**
-- how fast the two codes diverge with connectivity frozen (**M1-D1**, **DONE**);
-- how much of the remaining divergence is edit-set rather than floating-point,
-  distinguished by whether the face **counts** agree at the first failing step
-  (**M1-T2**);
-- whether a 600-step milestone run is affordable at every rank count
-  (**M1-T2**'s wall times, **T4d6**'s memory numbers).
 
 **Exit criterion:** this document's `## Problem` section and this entry state the
 decided depth, the tolerances and the beyond-depth treatment as numbers. The
@@ -2052,7 +2146,10 @@ face counts. *Distinguishing measurement:* equal counts + differing connectivity
 = R7 or R13 (an edit-set or diagonal difference); **differing counts** = the two
 codes selected different mark sets, which is a step further along and cannot be
 fixed by an ordering change. Report which, with the step index, before proposing
-anything.
+anything. *Measured* (M1-D2): equal counts with 26 of 920 faces different at
+step 1 (R13); differing counts from step 2, from collapse selection (Tessera's
+one-round independent set against the reference's serial walk, on an identical
+44-candidate set).
 
 **M1-R3 — the collapse priority key differs from Tessera's.** The reference ranks
 by `length / local_target`; Tessera by `(squared length, EdgeKey)`. Beatnik's mask
