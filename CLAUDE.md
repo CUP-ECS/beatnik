@@ -89,8 +89,9 @@ no `.h5` dataset, and it is covered by `Beatnik_Test_CheckpointSeries` in the
 grouped-io.
 There is a third tier, **`milestone`** (created by M0-T1): long end-to-end runs
 against multi-thousand-step reference gold sets, at ranks **1 and 4** on SERIAL
-and HIP. On tuolumne it runs as **one `pbatch` job per (member, backend)**, each
-launching ranks 1 and 4, submitted from the login node by
+and HIP. On tuolumne it runs as **one job per (member, backend)**, each
+launching ranks 1 and 4, in `pdebug` when the row's `-t` is 45 minutes or less
+and in `pbatch` otherwise, submitted from the login node by
 [scripts/tuolumne/submit_milestone_split.sh](scripts/tuolumne/submit_milestone_split.sh)
 through the runner
 [scripts/tuolumne/run_milestone.flux](scripts/tuolumne/run_milestone.flux). Run

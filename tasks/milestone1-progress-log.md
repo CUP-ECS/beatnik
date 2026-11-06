@@ -3137,15 +3137,23 @@ commit that adds this section (`milestone1.md`, this log).
   `beatnik_regression_minset.f3iYat4nhyXd.log`. COMPLETED rc 0, 7.9 min,
   `[gate] PASS (label=regression)` over 60 launches, zero `[FAIL]` lines.
   Passing direction: the two new `cleanupFlips` sums change no trajectory.
-- `f3iYjQ4E4J8X`, `scripts/tuolumne/m1_milestone_run.flux -- /p/lustre5/stewartj/beatnik/M1-T2j/stage`
-  (`pbatch`, 1 node `--exclusive`, `-t 12m`, `--bank=unm`, dev env), stage
+- **`f3iYnNt9YPJP`** (the job M1-T2 reads), `scripts/tuolumne/m1_milestone_run.flux /p/lustre5/stewartj/beatnik/M1-T2j/stage`
+  (`pdebug`, 1 node `--exclusive`, `-t 12m`, `--bank=unm`, dev env), stage
   `/p/lustre5/stewartj/beatnik/M1-T2j/stage/` (`COMMIT` = `347c2ef…`, porcelain
   count 4: the user's `run_regression_minset.flux`, `commands.sh`,
   `milestone1.md` and the prompt file, none compiled; sha256 HIP `f9ba6852…`,
   SERIAL `1daa9626…`), output
   `/p/lustre5/stewartj/beatnik/M1-T2j/out/<tag>/` (`launch.log` plus the
-  checkpoints) and `beatnik_m1_milestone.f3iYjQ4E4J8X.log` in the repo root.
-  **Pending: read by `M1-T2`.** Accepted, state `S`, submitted 13:07.
+  checkpoints) and `beatnik_m1_milestone.f3iYnNt9YPJP.log` in the repo root.
+  **Pending: read by `M1-T2`.** Submitted 2026-11-06 by the user, same stage
+  and the same script with only its `# flux: -q` changed to `pdebug`. Ran
+  13:14-13:18 on tuolumne1013, flux state FAILED (script rc 1): all six
+  launches ran and the log ends `[milestone] SUMMARY: FAIL (2/6 launches)`. A
+  compare launch failing on a step mismatch is a measurement (the script's
+  header); M1-T2 judges it.
+- `f3iYjQ4E4J8X`, the first submission of the same job in `pbatch`, submitted
+  13:07: **cancelled by the user before it started**, so it wrote no log and no
+  output. Do not look for its output; read `f3iYnNt9YPJP`'s.
 
 **Decisions** (given to the task and not reopened):
 - **The cleanup flip count is added in `src/`.** `MeshQuality::isotropicCleanup`
@@ -3240,7 +3248,7 @@ output `m1t2j_build_out.txt` beside it. clang-tidy does not apply (spack mode);
 clang-format was not run.
 
 **Affects:**
-- **M1-T2:** read `beatnik_m1_milestone.f3iYjQ4E4J8X.log` and
+- **M1-T2:** read `beatnik_m1_milestone.f3iYnNt9YPJP.log` and
   `M1-T2j/out/<tag>/launch.log`; the line format above is the contract. First
   failing step and field are on `[m1final]`/`[m1step]`; counts agreement is
   `V_cpp`/`V_gold`/`F_cpp`/`F_gold`; M1-R8's signature is `max_e[vertices]`

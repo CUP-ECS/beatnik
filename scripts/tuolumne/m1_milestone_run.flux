@@ -4,7 +4,7 @@
 # flux: --exclusive
 # flux: -t 12m
 # flux: --output={{name}}.{{jobid}}.log
-# flux: -q pbatch
+# flux: -q pdebug
 # flux: --bank=unm
 ############################################################################
 # Copyright (c) 2025 by the Beatnik authors                                #
@@ -60,7 +60,8 @@
 # node-local scratch fails every launch that spans more than one node.
 #
 # ENVIRONMENT AND QUEUE: the DEV spack env's runtime libraries, through the
-# resolver -- BEATNIK_USE_PROD is refused -- submitted to pbatch.
+# resolver -- BEATNIK_USE_PROD is refused -- submitted to pdebug (one node,
+# under 45 minutes: systems/tuolumne/claude.md, "Choosing a queue").
 #
 # WALLTIME AND THE DEADLINE GUARD. -t 12m is about 2x the expected job: a
 # 600-step launch at the milestone defaults measured 10-20 s of wall at 1 or

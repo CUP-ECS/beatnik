@@ -28,6 +28,11 @@
 # `# flux: -t` directive. The tier's wall-clock is the slowest row, level-4
 # FMM SERIAL at 4.2 h; the eight walls sum to 8.69 h.
 #
+# QUEUE: a row whose -t is 45 minutes or less goes to `pdebug`, any longer row
+# to `pbatch` (systems/tuolumne/claude.md, "Choosing a queue"). Every job is
+# one node (the runner's `# flux: --nodes=1`), inside pdebug's 1-2 node rule.
+# The `-q` given here overrides the runner's own `# flux: -q` directive.
+#
 # A row may carry a fourth field, `pending=<task ID>`, for a member whose code
 # that task has not yet landed. A pending row is submitted only when its
 # `<member>_MPI_<backend>` line is in the installed beatnik_milestone_manifest.txt;
@@ -38,7 +43,7 @@
 #
 # Usage:  scripts/tuolumne/submit_milestone_split.sh
 #
-# Prints one `<jobid> <member> <backend> <-t>` line per submission. Each job
+# Prints one `<jobid> <member> <backend> <-t> <queue>` line per submission. Each job
 # writes beatnik_milestone_<member-short>_<backend>.<jobid>.log to the repo
 # root, and its `[milestone] label=... members=... backends=...` line and
 # provenance block show the filter it received: flux copies the submitting
@@ -116,11 +121,18 @@ for _row in "${_rows[@]}"; do
             continue
         fi
     fi
+    case "${_t}" in
+        *h) _minutes=$(( ${_t%h} * 60 )) ;;
+        *m) _minutes=${_t%m} ;;
+        *)  echo "submit_milestone_split: row -t '${_t}' is not <N>m or <N>h" >&2
+            exit 1 ;;
+    esac
+    if [ "${_minutes}" -le 45 ]; then _queue=pdebug; else _queue=pbatch; fi
     _short="${_member#Beatnik_Test_}"
     _jobid="$(BEATNIK_MILESTONE_MEMBERS="${_member}" \
               BEATNIK_MILESTONE_BACKENDS="${_backend}" \
-              flux batch -t "${_t}" \
+              flux batch -t "${_t}" -q "${_queue}" \
                   --job-name="beatnik_milestone_${_short}_${_backend}" \
                   scripts/tuolumne/run_milestone.flux)"
-    echo "${_jobid} ${_member} ${_backend} ${_t}"
+    echo "${_jobid} ${_member} ${_backend} ${_t} ${_queue}"
 done

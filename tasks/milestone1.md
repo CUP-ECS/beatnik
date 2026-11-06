@@ -2,7 +2,8 @@
 
 **Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1, M1-G2, M1-D1, T4d1,
 T4d2, T4d3, T4d4, T4d5, T4d6j and T4d6 are **DONE** and reviewed, Passed.
-M1-T2j is **DONE**, unreviewed; its job `f3iYjQ4E4J8X` is pending. M1-T2,
+M1-T2j is **DONE** and reviewed, Passed; its job `f3iYnNt9YPJP` (`pdebug`) is
+pending, and its output is M1-T2's input. M1-T2,
 M1-A1j and M1-A1 are NOT STARTED.
 
 ## Problem
@@ -1808,7 +1809,7 @@ the tier does not gate. This task adds a member and changes none of that.
   manifest, so the script needs no edit either.
 
 **Submits:** `scripts/tuolumne/m1_milestone_run.flux
-/p/lustre5/stewartj/beatnik/M1-T2j/stage`, `pbatch`, 1 node `--exclusive`,
+/p/lustre5/stewartj/beatnik/M1-T2j/stage`, `pdebug`, 1 node `--exclusive`,
 `-t 12m`, `--bank=unm`, the dev env. The job makes four comparison launches
 (SERIAL and HIP, at ranks 1 and 4), then the two failure-direction launches at
 rank 1 on HIP. Expected run time **about 6 minutes**, sized from T4d6's
@@ -1890,8 +1891,8 @@ milestone 0's twelve plus `Beatnik_Test_Milestone1Bubble_MPI_{SERIAL,OPENMP,HIP}
 `/p/lustre5/stewartj/beatnik/M1-T2j/stage/` holds both binaries, the comparator
 and the 61-file gold set, each byte-identical to the dev view's, and `COMMIT`
 names `347c2ef…` (porcelain count 4: none compiled). The scheduler accepted
-`m1_milestone_run.flux` as `f3iYjQ4E4J8X` (state `S`, `pbatch`, `-t 12m`) after
-the user approved the `pbatch` queue. The test itself has not run yet; M1-T2
+`m1_milestone_run.flux` as `f3iYnNt9YPJP` (`pdebug`, `-t 12m`); the user
+cancelled the first submission, `f3iYjQ4E4J8X` in `pbatch`, before it started. The test itself has not run yet; M1-T2
 judges it.
 
 ---
@@ -1944,9 +1945,11 @@ test's literals.
 per-step tolerance table and `--steps` in `Beatnik_Test_Milestone1Bubble.cpp`.
 
 **Submits:** `scripts/tuolumne/m1_milestone_run.flux
-/p/lustre5/stewartj/beatnik/M1-A1j/stage`, `pbatch`, 1 node `--exclusive`,
+/p/lustre5/stewartj/beatnik/M1-A1j/stage`, 1 node `--exclusive`,
 `--bank=unm`, the dev env, the same six launches as M1-T2j. Set `-t` to about
-1.5x M1-T2's measured job wall, scaled to the decided depth. The expected run
+1.5x M1-T2's measured job wall, scaled to the decided depth. The queue is
+`pdebug` when that `-t` is 45 minutes or less, `pbatch` only above it: a 1–2
+node job of 45 minutes or less always goes to `pdebug`. The expected run
 time is that scaled wall, recorded in M1-T2's log section. Staged directory
 `/p/lustre5/stewartj/beatnik/M1-A1j/stage/`. Output goes to
 `/p/lustre5/stewartj/beatnik/M1-A1j/out/<target>/` and to
