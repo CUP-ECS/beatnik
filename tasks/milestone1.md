@@ -2,7 +2,8 @@
 
 **Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1, M1-G2, M1-D1, T4d1,
 T4d2, T4d3, T4d4, T4d5, T4d6j and T4d6 are **DONE** and reviewed, Passed.
-M1-T2j, M1-T2, M1-A1j and M1-A1 are NOT STARTED.
+M1-T2j is **DONE**, unreviewed; its job `f3iYjQ4E4J8X` is pending. M1-T2,
+M1-A1j and M1-A1 are NOT STARTED.
 
 ## Problem
 
@@ -1759,7 +1760,7 @@ never below 0.6939 (`--remesh-min-quality` 0.18), and the largest |volume drift|
 
 ---
 
-### M1-T2j — the milestone comparison test, registered and submitted at 600 steps — **NOT STARTED**
+### M1-T2j — the milestone comparison test, registered and submitted at 600 steps — **DONE**
 
 **Depends on:** M1-U1, M1-U2, M1-U3, T4d1, T4d2, T4d3, T4d4, T4d5, T4d6, M1-G2,
 M1-D1, and **M0-T1** (**DONE**, [`milestone0.md`](completed/milestone0.md)). M0-T1
@@ -1808,12 +1809,14 @@ the tier does not gate. This task adds a member and changes none of that.
 
 **Submits:** `scripts/tuolumne/m1_milestone_run.flux
 /p/lustre5/stewartj/beatnik/M1-T2j/stage`, `pbatch`, 1 node `--exclusive`,
-`-t 90m`, `--bank=unm`, the dev env. The job makes four comparison launches
+`-t 12m`, `--bank=unm`, the dev env. The job makes four comparison launches
 (SERIAL and HIP, at ranks 1 and 4), then the two failure-direction launches at
-rank 1 on HIP. Expected run time **about 50 minutes, an estimate**: M1-G2's
-Python 707 s per 600-step run, times four. If T4d6's log records Beatnik's
-measured 600-step wall at the milestone defaults, size `-t` from that instead,
-at about 1.5x, and say so in the log. Staged directory
+rank 1 on HIP. Expected run time **about 6 minutes**, sized from T4d6's
+measured 600-step walls at the milestone defaults (10–20 s per launch at 1 or
+4 ranks on HIP, log `## T4d6`) plus 61 `compare_output.py` calls of about
+0.5 s per comparison launch; `-t 12m` is about 2x that, with per-launch
+deadline-guard estimates summing to 540 s of a 600 s budget (log
+`## M1-T2j`). Staged directory
 `/p/lustre5/stewartj/beatnik/M1-T2j/stage/`, holding the manifest-relative
 layout of the member's binaries, `regression_tests/<M1-G2 gold dir>/` and
 `regression_tests/compare_output.py`. Output goes to
@@ -1875,6 +1878,21 @@ the session, ends `[gate] PASS (label=regression)` over 60 launches with zero
 `[FAIL]` lines. The staged directory exists and its `COMMIT` names the commit
 holding this task's code. The scheduler accepted `m1_milestone_run.flux`, its job
 ID on the log's `**Jobs:**` line.
+
+**Met.** Dev-env `spack install` rc 0 (13m42s); every one of the build's 80
+warnings is the pre-existing Canopy HIP `-Wpass-failed` occupancy note, none in
+a changed file. The installed `beatnik_milestone_manifest.txt` lists 15 lines,
+milestone 0's twelve plus `Beatnik_Test_Milestone1Bubble_MPI_{SERIAL,OPENMP,HIP}`;
+`beatnik_gate_manifest.txt` lists 15. The installed `Beatnik_Solver.hpp` and
+`Beatnik_MeshQuality.hpp` are byte-identical to commit `347c2ef`. Gate
+`f3iYat4nhyXd` COMPLETED rc 0 in 7.9 min: `[gate] PASS (label=regression)`, 60
+`[gate] ===` launches, zero `[FAIL]` lines, 42 `[PASS]` per member. Stage
+`/p/lustre5/stewartj/beatnik/M1-T2j/stage/` holds both binaries, the comparator
+and the 61-file gold set, each byte-identical to the dev view's, and `COMMIT`
+names `347c2ef…` (porcelain count 4: none compiled). The scheduler accepted
+`m1_milestone_run.flux` as `f3iYjQ4E4J8X` (state `S`, `pbatch`, `-t 12m`) after
+the user approved the `pbatch` queue. The test itself has not run yet; M1-T2
+judges it.
 
 ---
 

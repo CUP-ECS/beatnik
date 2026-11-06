@@ -3124,3 +3124,128 @@ write under their own root, so the T4d6j output is not overwritten. No prompt
 file remains under `tasks/`. **Removes** is nothing.
 
 **Affects:** none.
+
+## M1-T2j
+
+**Commits:** `347c2ef` (the two `src/` files, the test, `tests/CMakeLists.txt`,
+`scripts/tuolumne/m1_milestone_run.flux`, `docs/testing.md`, README), and the
+commit that adds this section (`milestone1.md`, this log).
+
+**Jobs:**
+- `f3iYat4nhyXd`, `scripts/tuolumne/run_regression_minset.flux` with
+  `BEATNIK_TEST_SCRATCH=/p/lustre5/stewartj/beatnik/gate_scratch`, log
+  `beatnik_regression_minset.f3iYat4nhyXd.log`. COMPLETED rc 0, 7.9 min,
+  `[gate] PASS (label=regression)` over 60 launches, zero `[FAIL]` lines.
+  Passing direction: the two new `cleanupFlips` sums change no trajectory.
+- `f3iYjQ4E4J8X`, `scripts/tuolumne/m1_milestone_run.flux -- /p/lustre5/stewartj/beatnik/M1-T2j/stage`
+  (`pbatch`, 1 node `--exclusive`, `-t 12m`, `--bank=unm`, dev env), stage
+  `/p/lustre5/stewartj/beatnik/M1-T2j/stage/` (`COMMIT` = `347c2ef…`, porcelain
+  count 4: the user's `run_regression_minset.flux`, `commands.sh`,
+  `milestone1.md` and the prompt file, none compiled; sha256 HIP `f9ba6852…`,
+  SERIAL `1daa9626…`), output
+  `/p/lustre5/stewartj/beatnik/M1-T2j/out/<tag>/` (`launch.log` plus the
+  checkpoints) and `beatnik_m1_milestone.f3iYjQ4E4J8X.log` in the repo root.
+  **Pending: read by `M1-T2`.** Accepted, state `S`, 13:0x.
+
+**Decisions** (given to the task and not reopened):
+- **The cleanup flip count is added in `src/`.** `MeshQuality::isotropicCleanup`
+  returns `int`, the global `valenceEqualizingFlips` count (0 when disabled);
+  `Solver` sums it into `long long _cleanup_flips` at both call sites (refine
+  branch and remesh branch) and exposes `long long cleanupFlips() const`. The
+  two `Beatnik_Test_MeshEdits.cpp` callers discard the result, unchanged. The
+  README documents neither API; its T4d coverage sentence, which called this
+  test "not yet written", now names the member and `cleanupFlips()`.
+- **Queue `pbatch`**, as **Submits:** names. The wrapper's policy allows only
+  `pdebug`, so the first submission exited 3; **the user approved** submitting
+  this script unchanged to `pbatch`, once.
+
+**Signatures changed:**
+
+```
+// src/Beatnik_MeshQuality.hpp
+int MeshQuality::isotropicCleanup( mesh_type& mesh ) const;   // was void
+// src/Beatnik_Solver.hpp
+long long Solver::cleanupFlips() const;                        // new
+```
+
+**Walltime, and how it was sized** (cosmetic correction of **Submits:**, which
+said `-t 90m`, "about 50 minutes" from M1-G2's Python wall). T4d6 measured a
+600-step milestone-defaults launch at 10–20 s of wall on HIP at 1 or 4 ranks;
+SERIAL 50 steps took 1.7 s of driver wall (0.034 s/step, so about 20 s for 600);
+one `compare_output.py` call on the login node takes 0.51–0.53 s (M0-T3
+measured 0.42 s on compute nodes), 61 per comparison launch. Per comparison
+launch about 45–60 s, the job about 6 min. `-t 12m` is about 2x, not 1.5x,
+because SERIAL at 600 steps and the comparator on a compute node are
+unmeasured here; the deadline guard's row estimates (100 s per comparison
+launch and for `fail-no-cleanup`, 40 s for `fail-step0`) sum to 540 s of a
+600 s budget. **Submits:** now says so.
+
+**Implementation choices** (inside **Fill in**):
+- **Failure directions** are the test's optional third argument: `fail-step0`
+  runs 10 steps and compares the step-10 checkpoint against the step-0 gold,
+  passing iff the comparator exits exactly 1; `fail-no-cleanup` forces
+  `cleanup.enabled = false`, compares each checkpoint until one mismatches,
+  and passes iff a step exits 1 with no defect and `cleanupFlips() == 0`. The
+  manifest line passes no third argument (default `compare`).
+- **The `time` liveness bound is `|t/t_gold - 1| <= 1.0`** (`kTimeLivenessRtol`),
+  a new tolerance in a new test. T4d6's own driver output has Beatnik 0.16
+  ahead of the gold at step 10 and **0.34 at step 50** (Beatnik holds 1032
+  faces where the reference holds 1080, so its minimum edge and adaptive dt
+  differ); a fixed `--dt 0.003` is 1.72, 2.43 and 2.23 off at steps 10, 50 and
+  600. 1.0 separates the two; 0.25 would have reported a mesh difference as a
+  liveness failure. The tight `time` comparison is the comparator's, at the
+  per-step table.
+- **The tolerance table** is `toleranceForStep(step)`, every step
+  `{1e-10, 1e-12}`; M1-A1j edits it.
+- **The gold step/time/V/F table** (`kGold`, 61 rows) was read from the
+  `.npz` files at 17 digits; each step cross-checks the comparator's gold
+  counts against it.
+- **Runner output tags:** `<target>_np<N>` for comparisons and
+  `<target>_np<N>_<mode>` for failure directions, under `M1-T2j/out/` (the
+  default is the stage's sibling `out/`). The two failure-direction
+  `[milestone]` lines carry `mode=<mode>` before `in`.
+- **Gold install:** `gold/*_step*.npz` (61 files, no `checkpoint_latest.npz`)
+  and `milestone1-bubble/README.md` one level up, beside `gold/`, with its
+  `FATAL_ERROR`.
+
+**Output M1-T2 reads** (rank 0, every line one line in the output):
+
+```
+[m1traj] step= time= V= F= splits= collapses= flips= smooth_steps=
+  cleanup_flips= elapsed=                                  (every step)
+[m1step] step= verdict=<match|mismatch|DEFECT> exit= rtol= atol= time=
+  gold_time= time_rel= V_cpp= F_cpp= V_gold= F_gold= ambiguous=<c>/<g>
+  faces_identical=<k>/<F> max_e[time]= max_e[vertices]= max_e[potential]=
+  max_e[remesh_material_position]= cmp_s=                  (every 10 steps)
+[cmp <step>] <the comparator's full report for that step>
+[m1fail] direction=a|b ...                                 (failure modes)
+[m1final] mode= space= np= steps=<done>/<budget> wall= cmp_wall= run_wall=
+  s_per_step= splits= collapses= flips= smooth_steps= cleanup_flips=
+  compared= matched= mismatched= defects= first_failing_step=
+  time_liveness_failures=
+```
+
+`V_cpp`…`F_gold` are the two files' counts from the comparator's `structure:`
+line (`-1` if it printed none); a field the comparator did not reach (it stops
+at a count mismatch) has no `max_e[...]`. The four remesh counters are
+cumulative `RemeshDiagnostics` sums; `cleanup_flips` is `cleanupFlips()` and is
+not in `flips`. The job prints `[milestone] PASS|FAIL <target> np=<N>
+[mode=<mode>] in <S>s`, `LAUNCH_WALL` per launch, and `[milestone] SUMMARY:`.
+A compare launch that FAILs because a step mismatched is a measurement; the
+failure-direction launches are expected to PASS.
+
+**Session notes:** one `spack install`, rc 0, 13m42s, `HIPCC_*_FLAGS_APPEND`
+unset; log `/p/lustre5/stewartj/beatnik/M1-T2j/m1t2j_spack_install.log`, build
+output `m1t2j_build_out.txt` beside it. clang-tidy does not apply (spack mode);
+clang-format was not run.
+
+**Affects:**
+- **M1-T2:** read `beatnik_m1_milestone.f3iYjQ4E4J8X.log` and
+  `M1-T2j/out/<tag>/launch.log`; the line format above is the contract. First
+  failing step and field are on `[m1final]`/`[m1step]`; counts agreement is
+  `V_cpp`/`V_gold`/`F_cpp`/`F_gold`; M1-R8's signature is `max_e[vertices]`
+  against the other fields with `ambiguous`; wall time is `run_wall` and the
+  face-count trajectory is the `[m1traj]` `F=` column. Liveness failures are
+  `[FAIL]` lines naming a counter or `time`.
+- **M1-A1j:** edits `toleranceForStep` (or replaces it with a table) and
+  `kSteps` via `Beatnik_Milestone1Params.hpp`; `kTimeLivenessRtol` is 1.0.
