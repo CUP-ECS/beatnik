@@ -2667,3 +2667,31 @@ still called. Nothing is made dead. No prompt file remains under `tasks/`.
 
 **Affects:** T4d6j (nit 1: rewrite the `RefineSplitEdges.cpp:305-311` comment
 when it edits that file).
+
+## T4d6j open questions settled (design only)
+
+**Commits:** the commit that adds this section (`milestone1.md`, this log).
+
+T4d6j's "Additional information needed" is resolved and removed. Both answers
+now stand in the task as design:
+
+- **`RefineSplitEdges` check 6.** It asserted that `--flip-passes 2` is
+  rejected, and T4d6j deletes that rejection. No refine-branch rejection is
+  left, the only remaining general one is `--field-filter-every` (T5c), and the
+  refiner's own throws (`AdaptiveMesh.hpp:930`, `:1754`) cannot be reached from
+  `SolverParams`. Retargeting to T5c was rejected because it is unrelated to
+  refinement and would be deleted again at T5c. Dropping the check was rejected
+  because it would leave flips unguarded. The replacement is a flips liveness
+  check: a second 20-step `--flip-passes 2` solver must reach cumulative
+  `flips > 0`, with Euler and conformity after every pass.
+- **The driver.** It is the new `Beatnik_Test_Milestone1Run`, in
+  `BEATNIK_DRIVER_SOURCES`, with three positionals (steps, checkpoint cadence,
+  renumber cadence). `adaptive_mesh_bubble` is HIP-only (`:209`), and
+  `Milestone0Run` asserts a constant mesh and forbids new options. Running the
+  umbrella on HIP only was rejected because it narrows the criterion.
+  `makeParams()` goes in `Beatnik_Milestone1Params.hpp` so M1-T2j's test
+  shares it.
+
+**Affects:** T4d6j: no longer needs these questions answered, so the loop does
+not pause on it. M1-T2j: includes `Beatnik_Milestone1Params.hpp` rather than
+writing its own `makeParams()`.

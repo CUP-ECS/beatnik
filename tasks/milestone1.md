@@ -1512,7 +1512,12 @@ deletes the `Solver` rejections that T4d2–T4d5 all leave in place (Conventions
 **Fill in:** the remesh cycle in
 [src/Beatnik_DynamicRemesh.hpp:998-1056](../src/Beatnik_DynamicRemesh.hpp#L998-L1056)
 and `RemeshDiagnostics` ([:142-196](../src/Beatnik_DynamicRemesh.hpp#L142-L196));
-the new job script `scripts/tuolumne/t4d6_gid_cadence.flux`; and the deletion of
+the new driver `tests/regression_tests/Beatnik_Test_Milestone1Run.cpp`, its
+header `tests/regression_tests/Beatnik_Milestone1Params.hpp`, and its
+entry in `BEATNIK_DRIVER_SOURCES`
+([tests/CMakeLists.txt:608-634](../tests/CMakeLists.txt#L608-L634)); the new job
+script `scripts/tuolumne/t4d6_gid_cadence.flux`; the replacement of
+`RefineSplitEdges`' check 6 (see **Removes**); and the deletion of
 **all five** T4d rejections in `Solver::requireSupportedConfiguration`, comments
 included, in one change:
 
@@ -1529,15 +1534,18 @@ Also rewrite the comment block above the metric remesher's rejections
 still rejected. Line numbers are as of T4d5.
 
 **Submits:** `scripts/tuolumne/t4d6_gid_cadence.flux`, `pdebug`, 1 node
-`--exclusive`, `-t 60m`, `--bank=unm`, the dev env. Three groups of launches, in
+`--exclusive`, `-t 60m`, `--bank=unm`, the dev env. Every launch runs
+`Beatnik_Test_Milestone1Run_MPI_{SERIAL,HIP}`. Three groups of launches, in
 this order:
 1. **The cadence run:** 600 steps at the milestone defaults (no knob turned off),
-   at ranks 1 and 4, reporting the gid-space high-water mark and the global vertex
-   count every step and each rank's peak RSS (`/usr/bin/time -v` inside
-   `flux run`, as `milestone1_divergence.flux` does).
-2. **The control:** the same run at rank 1 with renumbering switched off, so the
-   high-water ratio *must* grow. The cadence is therefore a `RemeshParams` field
-   with a value meaning "never", reachable from the driver's command line.
+   at ranks 1 and 4 on HIP, reporting the gid-space high-water mark, the global
+   vertex and face counts and each rank's current RSS every step, and each
+   rank's peak RSS (`/usr/bin/time -v` inside `flux run`, as
+   `milestone1_divergence.flux` does).
+2. **The control:** the same run at rank 1 on HIP with renumbering switched off
+   (cadence `0`), so the high-water ratio *must* grow. The cadence is therefore
+   a `RemeshParams` field with `0` meaning "never", set from the driver's third
+   positional.
 3. **The T4d umbrella:** 50 steps at the milestone defaults at ranks 1 and 4 on
    SERIAL and HIP, reporting volume drift, the per-step minimum triangle quality,
    and cumulative `splits`, `collapses`, `flips` and `smooth_steps`.
@@ -1564,28 +1572,57 @@ goes to `/p/lustre5/stewartj/beatnik/T4d6j/out/` and to
   `:183-186` describes the gold run and stays as it is;
 - `checkFailureDirection` in
   [tests/regression_tests/Beatnik_Test_RefineSplitEdges.cpp:379-417](../tests/regression_tests/Beatnik_Test_RefineSplitEdges.cpp#L379-L417),
-  which sets `--flip-passes 2`, together with the header's check 6 (`:72-77`).
-  It is that member's only failure direction.
+  which asserts that `--flip-passes 2` is rejected, and the header's check 6
+  (`:72-77`) that describes it. **Replace** both with a flips liveness check, so
+  the member still guards the refine branch's flips against doing nothing
+  (R15). A second 20-step solver, built from the same `makeParams()` with
+  `flip_passes = 2`, must complete all four refinement passes with cumulative
+  `flips > 0` summed globally, and Euler and conformity
+  (`checkConformity`) must hold after every pass. It compares nothing
+  against the Python, because `--flip-passes 2` changes the mesh the `kPy*`
+  counts describe. The member's loud failure modes are then the exact integer
+  identities of checks 2 and 3. No refine-branch rejection is left to target:
+  the refiner's own throws (`balanceRedGreen`'s runaway,
+  [src/Beatnik_AdaptiveMesh.hpp:930](../src/Beatnik_AdaptiveMesh.hpp#L930);
+  the halo-residency check, `:1754`) cannot be reached from `SolverParams`.
+  If the flips count is 0 at this configuration, stop and record it: that is
+  a finding about `improveConnectivityByFlips`, not a literal to relax.
 
-**Additional information needed:**
-- What replaces `RefineSplitEdges`' failure direction once `--flip-passes > 0`
-  runs. This task also deletes the isotropic-cleanup rejection, so no T4d
-  rejection is left on that branch to retarget the case to.
-- Which binary drives the three launch groups. `adaptive_mesh_bubble`
-  (`examples/02_adaptive_mesh_bubble`, in the dev view's `bin/`) takes the full
-  command line but runs only on the build's default execution space, HIP. The
-  umbrella needs SERIAL too, and the only per-backend binaries that run
-  `--dynamic-remesh` are the `regression` members, which have fixed
-  configurations. M1-D1 faced the same choice and used a per-backend test
-  driver (`Beatnik_Test_Milestone0Run_MPI_{SERIAL,HIP}`).
-
-Settle both before T4d6j starts.
+**The driver.** `Beatnik_Test_Milestone1Run` is a measurement driver in
+`BEATNIK_DRIVER_SOURCES`, beside `Beatnik_Test_Milestone0Run`. It has no tier
+label and no manifest line, and it gets per-backend binaries the way every test
+source does. `adaptive_mesh_bubble` cannot serve, because
+`adaptive_mesh_bubble.cpp:209` pins `Kokkos::DefaultExecutionSpace` and the
+installed binary is HIP-only. `Milestone0Run` cannot serve either: it asserts a
+constant mesh every step, and its header forbids new options. The new driver:
+- its `makeParams()` is M1-G2's command line field for field (the milestone
+  defaults, `--checkpoint-every-steps 10`). It lives in a new header,
+  `tests/regression_tests/Beatnik_Milestone1Params.hpp`, which both this driver
+  and M1-T2j's test include with a quoted `#include`. The generated per-backend
+  translation unit includes each source by absolute path
+  ([tests/CMakeLists.txt:349-355](../tests/CMakeLists.txt#L349-L355)), so a
+  quoted include resolves next to the source and needs no CMake change. The
+  header carries the BSD-3-Clause block;
+- takes three positionals, documented in its file header as `Milestone0Run`
+  documents its own: `argv[1]` `--steps`, `argv[2]` `--checkpoint-every-steps`
+  (`0` = no checkpoints), `argv[3]` the gid-renumbering cadence (`0` = never);
+- prints one line per step with `step`, `time`, global `V` and `F`, the
+  gid-space high-water mark, volume drift against the initial volume, the
+  global minimum triangle quality, the cumulative `splits`, `collapses`,
+  `flips` and `smooth_steps`, and this rank's current RSS (`VmRSS` from
+  `/proc/self/status`);
+- asserts only that it reached its step budget, reporting an early non-finite
+  stop as a failure, as `Milestone0Run` does. Every judgment is T4d6's, made
+  from these lines.
 
 **Reference:** `Tessera_Compact.hpp` on `compact()` versus
 `compactAndRenumberGids()` (`:541-570`), and its statement that several Tessera
 paths index a dense host array sized to the **max gid** (`:77-94`).
 `scripts/tuolumne/milestone1_divergence.flux` for the deadline guard, the
 per-rank RSS measurement and the provenance block.
+[tests/regression_tests/Beatnik_Test_Milestone0Run.cpp](../tests/regression_tests/Beatnik_Test_Milestone0Run.cpp)
+for the driver's shape: its header, positionals, step loop and early-stop
+report.
 
 **Do:** gids come from an `MPI_Exscan` onto a monotonically rising global count,
 so a long split-and-collapse run grows the gid *space* without bound even at
@@ -1706,7 +1743,9 @@ test, read
 [tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp](../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp)
 end to end:
 - `makeParams()` (`:308-378`) expresses a Python command line as a
-  `SolverParams`.
+  `SolverParams`. For this test, include
+  `Beatnik_Milestone1Params.hpp` (T4d6j), whose `makeParams()` already is
+  M1-G2's command line.
 - `goldForStep()` (`:263-286`) finds a step's gold file by its `_step%07d.npz`
   suffix rather than by rebuilding a filename from a time, because the time is
   under test.
