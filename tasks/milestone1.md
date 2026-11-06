@@ -1,8 +1,7 @@
 # Milestone 1 — the reference's default rising-bubble configuration
 
 **Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1, M1-G2, M1-D1, T4d1,
-T4d2, T4d3, T4d4, T4d5, T4d6j and T4d6 are **DONE** (M1-U1–U3, M1-G1, M1-G2,
-M1-D1, T4d1–T4d5 and T4d6j reviewed, Passed; T4d6 not yet reviewed).
+T4d2, T4d3, T4d4, T4d5, T4d6j and T4d6 are **DONE** and reviewed, Passed.
 M1-T2j, M1-T2, M1-A1j and M1-A1 are NOT STARTED.
 
 ## Problem
@@ -1771,6 +1770,20 @@ the tier does not gate. This task adds a member and changes none of that.
 
 **Fill in:**
 - `tests/regression_tests/Beatnik_Test_Milestone1Bubble.cpp`, new.
+- The cleanup flip count, which no diagnostic carries:
+  `MeshQuality::isotropicCleanup`
+  ([src/Beatnik_MeshQuality.hpp:937-943](../src/Beatnik_MeshQuality.hpp#L937-L943))
+  returns `void` and discards the global count `valenceEqualizingFlips`
+  returns (`:652`), and the remesh `flips` diagnostic does not include the
+  valence flips. Change `isotropicCleanup` to return that count as `int`
+  (`0` when disabled). In `Solver`, add the cumulative global sum over both
+  call sites
+  ([src/Beatnik_Solver.hpp:511](../src/Beatnik_Solver.hpp#L511),
+  [:568](../src/Beatnik_Solver.hpp#L568)) and the accessor
+  `long long cleanupFlips() const`, beside `_edge_flips` (`:1113`) and
+  `edgeFlips()` (`:739`). **Callers of `isotropicCleanup`:** those two call
+  sites and `tests/unit_tests/Beatnik_Test_MeshEdits.cpp:1888` and `:2041`,
+  which discard the result and need no change.
 - In [tests/CMakeLists.txt](../tests/CMakeLists.txt): the source in
   `BEATNIK_MILESTONE_TEST_SOURCES` (`:429`); the
   `_beatnik_args_Beatnik_Test_Milestone1Bubble_abs`/`_rel` pair beside milestone
@@ -1842,7 +1855,7 @@ end to end:
    `max|e|`, plus the vertex and face counts of both files, and exit failing if
    any step failed. M1-A1j edits the table, not the structure.
 3. Assert the trajectory is *live*: cumulative `splits`, `collapses`, `flips`,
-   `smooth_steps` and cleanup flips all non-zero by the end (M1-R7), and the
+   `smooth_steps` and `Solver::cleanupFlips()` all non-zero by the end (M1-R7), and the
    per-step `time` series matches the gold's. A fixed-dt run reproduces neither.
 4. Report the wall time and the face-count trajectory in the test's output.
    They tell the next session whether a deeper compare depth is affordable.
