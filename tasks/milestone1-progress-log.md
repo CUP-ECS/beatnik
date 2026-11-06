@@ -3249,3 +3249,74 @@ clang-format was not run.
   `[FAIL]` lines naming a counter or `time`.
 - **M1-A1j:** edits `toleranceForStep` (or replaces it with a table) and
   `kSteps` via `Beatnik_Milestone1Params.hpp`; `kTimeLivenessRtol` is 1.0.
+
+## M1-T2j review
+
+**Verdict:** Passed
+**Reviewed:** `347c2ef^..347c2ef` (the one code commit; `8f40575` and
+`27dea98` after it touch only `tasks/`). It touches every file in the
+**Fill in**: the new test, `isotropicCleanup`'s return and its two `Solver`
+call sites plus `cleanupFlips()`, the `tests/CMakeLists.txt` source entry,
+argument pair and gold `install()` rule with its `FATAL_ERROR`, the new
+`scripts/tuolumne/m1_milestone_run.flux`, and the `docs/testing.md` tier
+entry; plus the README T4d coverage sentence CLAUDE.md requires to stay in
+sync. The two `Beatnik_Test_MeshEdits.cpp` callers are unchanged, as the entry
+says. Nothing out of scope.
+**Evidence:** a submit task (**Submits:** field), so verified without a
+verification job. Job `f3iYjQ4E4J8X` (`m1_milestone_run.flux --
+/p/lustre5/stewartj/beatnik/M1-T2j/stage`) is known to the scheduler, state
+`SCHED`, submitted 13:07:44; its result is M1-T2's. The stage exists; its
+`COMMIT` names `347c2ef78b70…`, porcelain count 4, none compiled. Both staged
+binaries are byte-identical to the dev view's
+`share/Beatnik/tests/Beatnik_Test_Milestone1Bubble_MPI_{HIP,SERIAL}`, and the
+dev view's installed `Beatnik_Solver.hpp` and `Beatnik_MeshQuality.hpp` are
+byte-identical to `347c2ef`'s, so the staged code is this commit's. The stage
+holds the comparator, the gold README and 61 numbered `.npz`. The script takes
+binaries, gold and comparator only from `$1`, never calls `beatnik_exe`,
+echoes `stage/COMMIT` and each binary's `sha256sum` before any launch, writes
+under `M1-T2j/out/<tag>/`, and carries the deadline guard (rows 540 s of a
+600 s budget). The installed manifests: `beatnik_milestone_manifest.txt` has
+15 entries, the member's three backend lines among them;
+`beatnik_gate_manifest.txt` has 15. The build log
+(`/p/lustre5/stewartj/beatnik/M1-T2j/m1t2j_spack_install.log`) ends
+`spack install rc=0` in 13m42s; all 80 warnings in `m1t2j_build_out.txt` are
+`-Wpass-failed`, none naming a changed file. Gate `f3iYat4nhyXd` COMPLETED
+rc 0, no queue wait, 7.92 min, as the **Met.** paragraph records.
+
+Mechanical pass (`review_checks.py`): no candidates. Read:
+- Collectives: `advanceOneStep`, `globalVertexCount`/`globalFaceCount` and the
+  `stop_now` broadcast (every `kEvery` steps and after step 0) are reached by
+  every rank on a parameter-only schedule; comparisons and `rec` checks of
+  their result are rank 0's, and `main` combines the verdict with
+  `MPI_Allreduce(MAX)`. `isotropicCleanup` returns the reduced
+  `valenceEqualizingFlips` count, so `cleanupFlips()` is identical on every
+  rank and its `CHECK` is safe everywhere.
+- The remesh counters are accumulated on `step % remesh_every == 0`, the
+  `Solver`'s own cadence condition, as the T4d6j driver does.
+- The comparator: a count mismatch returns exit 1 (`compare_output.py:555-566`,
+  `:768`), only a load error returns 2, and the `structure:` line is printed
+  before the count check (`:538`), so the parser's `V_*`/`F_*` fields are
+  present on a count mismatch. Failure direction (a) therefore tests a real
+  detected mismatch; `compareStep` checks the gold row it actually used.
+- Do steps 1–5 are each present; the departures (failure directions as a
+  third argument, `kTimeLivenessRtol`, the output tags) are recorded under
+  **Implementation choices**.
+
+Stale code: **Removes** is nothing. No caller of a changed signature was
+missed (`git grep isotropicCleanup`). The README's "not yet written" and
+`tests/CMakeLists.txt`'s "M1-T1, not yet started" are rewritten. No prompt
+file remains under `tasks/`.
+
+1. [nit] `docs/testing.md:58` says `time` is asserted "within a factor of two
+   of the gold's". The bound is `|t/t_gold - 1| <= 1.0`
+   (`Beatnik_Test_Milestone1Bubble.cpp:254`), which caps `t` at twice the
+   gold's but accepts any smaller `t`. The test's own comment states it
+   correctly; the doc sentence overstates it. Reword to "at most twice the
+   gold's" when M1-A1j next edits that entry.
+2. [follow-up] `scripts/tuolumne/run_milestone.flux:370-376` still says the
+   tier has four members and sixteen launches; it now has five and twenty.
+   The file is protected from the task loop and outside this task's
+   **Fill in**, so the user edits it, together with the
+   `submit_milestone_split.sh` re-timing M1-A1 already asks for.
+
+**Affects:** none.
