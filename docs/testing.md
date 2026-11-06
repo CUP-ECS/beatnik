@@ -14,7 +14,7 @@ does not cover.
   deliberately so: a 2000-step run in front of every change is a stall, not a
   gate. Run it on demand with `ctest -L milestone`, or through the installed-path
   runner `scripts/<system>/run_milestone.<scheduler>`. On tuolumne the tier runs
-  as **eight separate `pbatch` jobs**, one per (member, backend), each launching
+  as **one `pbatch` job per (member, backend)**, each launching
   ranks 1 and 4: submit them from the login node with
   [scripts/tuolumne/submit_milestone_split.sh](../scripts/tuolumne/submit_milestone_split.sh),
   which drives

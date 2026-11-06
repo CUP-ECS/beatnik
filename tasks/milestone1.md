@@ -2,8 +2,8 @@
 
 **Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1, M1-G2, M1-D1, T4d1,
 T4d2, T4d3, T4d4 and T4d5 are **DONE** (M1-U1–U3, M1-G1, M1-G2, M1-D1,
-T4d1–T4d4 reviewed, Passed; T4d5 awaiting review). T4d6, M1-T1, M1-T2 and
-M1-A1 are NOT STARTED.
+T4d1–T4d4 reviewed, Passed; T4d5 awaiting review). T4d6j, T4d6, M1-T2j, M1-T2,
+M1-A1j and M1-A1 are NOT STARTED.
 
 ## Problem
 
@@ -76,7 +76,7 @@ reach step 500.
 **Resolved with the user:** the milestone gold set is a **600-step** run
 checkpointing **every 10 steps** — see M1-G2 for the exact command. The
 `--checkpoint-every-steps` cadence is expected to be revisited once M1-D1 and
-M1-A1 have measured where the two codes part company.
+M1-T2 have measured where the two codes part company.
 
 ### 2. Steps 500 / 1000 / 2000 / 5000 are not a criterion this port can be assumed to meet
 
@@ -113,7 +113,7 @@ The deepest **field** agreement ever demonstrated in this port is **10 steps** a
 
 **Resolved with the user: measure first, then decide.** M1-G1/M1-D1 measure the
 divergence horizon of the *fixed-connectivity* configuration — the best case,
-isolating R2 from R7 and R13 — before any T4d work is spent. M1-A1 then sets the
+isolating R2 from R7 and R13 — before any T4d work is spent. M1-A1j then sets the
 milestone's compare depth and tolerance ladder from the measured numbers, with
 the 600-step gold set in hand. **This document does not assert that step 500,
 1000, 2000 or 5000 is reachable at `1e-10`; it makes finding out a task.**
@@ -255,13 +255,13 @@ Three strands, run in this order of *risk*, not of code size:
 1. **Measure the achievable comparison first** (M1-G1, M1-D1). A fixed-mesh
    600-step Python/Beatnik comparison needs no new solver code and answers the
    only question that can invalidate the milestone's premise.
-2. **Land T4d** (M1-U1, M1-U2, M1-U3, T4d1–T4d6). M1-U1, M1-U2 and M1-U3 are
+2. **Land T4d** (M1-U1, M1-U2, M1-U3, T4d1–T4d5, T4d6j, T4d6). M1-U1, M1-U2 and M1-U3 are
    small upstream Tessera changes that T4d2, T4d3 and T4d5 need (Read this first
    #6); T4d1 is an
-   adapter layer, T4d2–T4d5 are one reference function each, T4d6 is an
+   adapter layer, T4d2–T4d5 are one reference function each, T4d6j and T4d6 are an
    operational decision.
-3. **Wire the milestone test** (M1-T1, M1-T2) and **fix the acceptance**
-   (M1-A1).
+3. **Wire the milestone test and measure it** (M1-T2j, M1-T2), then **fix
+   the acceptance and confirm it** (M1-A1j, M1-A1).
 
 ### Conventions
 
@@ -270,15 +270,16 @@ introduces or sharpens.
 
 | Convention | Choice |
 | --- | --- |
-| Task IDs | `T4d*` for work moved from framework.md (IDs are referenced from source strings); `M1-*` for work new here. `M1-G*` = reference-run gold-file generation, `M1-D*` = measurement, `M1-T*` = code, `M1-U*` = a change made upstream in `../tessera`, `M1-A*` = a decision to be recorded. |
+| Task IDs | `T4d*` for work moved from framework.md (IDs are referenced from source strings); `M1-*` for work new here. `M1-G*` = reference-run gold-file generation, `M1-D*` = measurement, `M1-T*` = code, `M1-U*` = a change made upstream in `../tessera`, `M1-A*` = a decision to be recorded. A trailing `j` (`T4d6j`, `M1-T2j`, `M1-A1j`) marks the submit half of a long-job pair; the ID without it is the post-job half. |
 | Edge-mask type | host `const std::vector<char>&`, sized `ownedEdgeCount()`, one entry per **owned** edge — T4a's convention for `splitEdges`, and exactly what Tessera's collapse and flip take. De-template the two stale `EdgeListView` signatures rather than adding an overload. |
 | Where a reference acceptance rule lives | **In the mask whenever it needs only the quad; in the Tessera policy only when it needs both endpoints' one-rings.** Flip tests (the gain test, the valence test, the valence path's normal and quality tests) and the collapse candidate predicate and normalized-length ranking are evaluated by Beatnik while building the mask, and both flip call sites pass the permissive `DefaultFlipPolicy{ maxNormalDeviation = π, minQuality = 0 }`, the valence call site with `conflict = FlipConflict::EndpointInQuad` (M1-U2). Collapse's geometric test needs the full one-rings, so it is a Tessera policy: `maxNormalRotation = acos(0.1)`, `minQuality = --remesh-min-quality`, and the reference quality metric through M1-U1's hook. Read this first #6 has the evidence. A marked edge may still be rejected; that shows up in the `rejected*` counters, never as a silent drop. |
 | Reference-state re-basing | every pass that moves a vertex or changes connectivity states, in its progress-log entry, whether it calls `AdaptiveMesh::resetReferenceState`, and why. A silent choice here changes every later refinement decision. |
 | Failure behavior | loud. A configuration Beatnik cannot reproduce is rejected before the first step, by method name and task ID, exactly as the four rejections this milestone deletes do. No pass may silently no-op. |
-| `Solver` rejections during T4d | **Every T4d rejection in `Solver::requireSupportedConfiguration` stays until T4d6**, message text included: `--flip-passes > 0` under `--refine-every` ([src/Beatnik_Solver.hpp:778-783](../src/Beatnik_Solver.hpp#L778-L783)), `--isotropic-cleanup` ([:791-797](../src/Beatnik_Solver.hpp#L791-L797)), `--remesh-collapse-factor > 0` ([:830-850](../src/Beatnik_Solver.hpp#L830-L850)), `--remesh-smooth-iters > 0` ([:852-859](../src/Beatnik_Solver.hpp#L852-L859)) and `--remesh-flip-min-gain < 1e12` ([:861-870](../src/Beatnik_Solver.hpp#L861-L870)). So do the `regression`-tier cases that assert them: the four T4d `checkRejected` calls in [tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp:696-707](../tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp#L696-L707) and `checkFailureDirection` in [tests/regression_tests/Beatnik_Test_RefineSplitEdges.cpp:379-417](../tests/regression_tests/Beatnik_Test_RefineSplitEdges.cpp#L379-L417). T4d2–T4d5 each **wire their pass into its call site anyway** and meet their exit criterion at the `unit` tier, so after each of them a `Solver` run reaches the new pass only at the knob value that makes it a no-op, and the gate trajectory is unchanged. T4d6 deletes all five rejections and their test cases in one change. Deleting one earlier is out of scope for the task at hand, even when its pass is finished. |
-| Diagnostics that must be numbers | per remesh pass: `splits`, `collapses`, `flips`, `smooth_steps`, `min_quality` before/after, R12's two shape signals, and (T4d6) the gid-space high-water mark. A milestone run that reports zero edits everywhere is M1-R7, not a pass. |
-| Unit-tier rank and backend coverage | Unit members register at **one** rank on the build's default execution space ([tests/unit_tests/CMakeLists.txt:68-80](../tests/unit_tests/CMakeLists.txt#L68-L80)). "Ranks 1 and 4" in a T4d exit criterion means two submissions, `BEATNIK_UNIT_RANKS=1` and `BEATNIK_UNIT_RANKS=4 flux batch scripts/tuolumne/unit_tests.flux`, and the member's checks must be global reductions so one set of literals holds at both, as `Beatnik_Test_TangentialRelaxation` does. The unit tier has no SERIAL/HIP pair; the `regression` gate and the T4d umbrella run supply backend coverage. |
-| Test tier for the milestone comparison | the **`milestone`** label, at ranks **1 and 4** on SERIAL and HIP, outside the 60-launch ship gate. The tier is created by **M0-T1** in [`milestone0.md`](completed/milestone0.md); M1-T1 registers a member in it. The `regression` tier keeps exactly its five members; promoting anything into it needs the user's confirmation (CLAUDE.md "Minimum test set"). |
+| `Solver` rejections during T4d | **Every T4d rejection in `Solver::requireSupportedConfiguration` stays until T4d6j**, message text included: `--flip-passes > 0` under `--refine-every` ([src/Beatnik_Solver.hpp:778-783](../src/Beatnik_Solver.hpp#L778-L783)), `--isotropic-cleanup` ([:791-797](../src/Beatnik_Solver.hpp#L791-L797)), `--remesh-collapse-factor > 0` ([:830-850](../src/Beatnik_Solver.hpp#L830-L850)), `--remesh-smooth-iters > 0` ([:852-859](../src/Beatnik_Solver.hpp#L852-L859)) and `--remesh-flip-min-gain < 1e12` ([:861-870](../src/Beatnik_Solver.hpp#L861-L870)). So do the `regression`-tier cases that assert them: the four T4d `checkRejected` calls in [tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp:696-707](../tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp#L696-L707) and `checkFailureDirection` in [tests/regression_tests/Beatnik_Test_RefineSplitEdges.cpp:379-417](../tests/regression_tests/Beatnik_Test_RefineSplitEdges.cpp#L379-L417). T4d2–T4d5 each **wire their pass into its call site anyway** and meet their exit criterion at the `unit` tier, so after each of them a `Solver` run reaches the new pass only at the knob value that makes it a no-op, and the gate trajectory is unchanged. T4d6j deletes all five rejections and their test cases in one change. Deleting one earlier is out of scope for the task at hand, even when its pass is finished. |
+| Diagnostics that must be numbers | per remesh pass: `splits`, `collapses`, `flips`, `smooth_steps`, `min_quality` before/after, R12's two shape signals, and (T4d6j) the gid-space high-water mark. A milestone run that reports zero edits everywhere is M1-R7, not a pass. |
+| Unit-tier rank and backend coverage | Unit members register at **one** rank on the build's default execution space ([tests/unit_tests/CMakeLists.txt:68-80](../tests/unit_tests/CMakeLists.txt#L68-L80)). "Ranks 1 and 4" in a T4d exit criterion means two submissions, `BEATNIK_UNIT_RANKS=1` and `BEATNIK_UNIT_RANKS=4 flux batch scripts/tuolumne/unit_tests.flux`, and the member's checks must be global reductions so one set of literals holds at both, as `Beatnik_Test_TangentialRelaxation` does. The unit tier has no SERIAL/HIP pair; the `regression` gate and the T4d umbrella launches in T4d6j's job supply backend coverage. |
+| Long jobs | A task whose exit criterion needs a job expected to run longer than 20 minutes is a pair. `<ID>j` builds, runs anything shorter (the gate, the unit tier) in the session, stages, and submits; it ends when the scheduler accepts the job and never waits for it. `<ID>` depends only on `<ID>j`, reads the job's output and judges the original criterion; every later task depends on `<ID>`, never on `<ID>j`. The job reads only from a staged copy, `/p/lustre5/stewartj/beatnik/<ID>j/stage/`. It holds the binaries the job runs, copied from the dev view's `share/Beatnik/tests/` (where `beatnik_exe` resolves them) in their manifest-relative layout, plus the gold directories and `compare_output.py` they name, plus `COMMIT`: `git rev-parse HEAD` and the `git status --porcelain` count, taken at staging time. Beatnik, Tessera and Canopy are header-only in these binaries (`ldd` lists only Kokkos, Kokkos Kernels, heFFTe and Trilinos from the spack store), so the copied executable freezes the code under test; a dev-env `spack install` during the job cannot change it. The job echoes `stage/COMMIT`, never `git rev-parse HEAD`, and writes under `/p/lustre5/stewartj/beatnik/<ID>j/out/`. A post-job task that must resubmit restages under its own ID. |
+| Test tier for the milestone comparison | the **`milestone`** label, at ranks **1 and 4** on SERIAL and HIP, outside the 60-launch ship gate. The tier is created by **M0-T1** in [`milestone0.md`](completed/milestone0.md); M1-T2j registers a member in it. The `regression` tier keeps exactly its five members; promoting anything into it needs the user's confirmation (CLAUDE.md "Minimum test set"). |
 | Provenance comments | `// Port of <file>::<fn> (lines N-M)` against the **real** origin, per framework.md. The functions this milestone ports live in `dynamic_remesh.py` and `mesh_quality.py`; cite line ranges, not function names alone. |
 
 ### Deliberate deviations
@@ -288,7 +289,7 @@ introduces or sharpens.
   Tessera plus reduction-order pinning — was considered and rejected with the
   user: it is large, it reaches upstream, and it still cannot make a NumPy and a
   Kokkos trajectory agree over hundreds of steps. The consequence is that the
-  milestone's compare depth is an empirical quantity (M1-A1), not an assumption.
+  milestone's compare depth is an empirical quantity (M1-A1j), not an assumption.
 - **`--remesh-max-collapses 0` is not a lever.** A non-positive value maps to
   `None` = *unlimited* (`run_adaptive_mesh_bubble.py:1338`), reproduced by
   `RemeshParams::max_collapses_per_pass`. Only `--remesh-collapse-factor 0`
@@ -310,7 +311,7 @@ introduces or sharpens.
   (3 of 12) with consistent winding. Compare valence statistics accordingly.
 - **`SurfaceMesh::compact()` is not called from the remesh cycle.**
   `Tessera::collapseEdges` runs `compact()` as its own last step; the standalone
-  adapter exists for T4d6's renumbering cadence and for tests. Its doc comment
+  adapter exists for T4d6j's renumbering cadence and for tests. Its doc comment
   must say that, rather than leave a reader to infer it.
 
 ## Current state
@@ -318,7 +319,7 @@ introduces or sharpens.
 True at HEAD, and specific about what is *defined but wrong* versus what
 *throws*:
 
-- **Implemented, unreachable from a `Solver` run until T4d6** except at their
+- **Implemented, unreachable from a `Solver` run until T4d6j** except at their
   disabling values (T4d3, **DONE**): `DynamicRemesh::flipEdgesForQuality`
   ([src/Beatnik_DynamicRemesh.hpp:1146](../src/Beatnik_DynamicRemesh.hpp#L1146)),
   called from the pass loop's repair gate, and
@@ -337,7 +338,7 @@ True at HEAD, and specific about what is *defined but wrong* versus what
   `ReferenceCollapsePolicy` (the reference metric on M1-U1's hook). The `Solver`
   still rejects `--remesh-collapse-factor > 0`
   ([src/Beatnik_Solver.hpp:830-850](../src/Beatnik_Solver.hpp#L830-L850)) until
-  T4d6, so a run reaches it only at factor 0, where it returns before any
+  T4d6j, so a run reaches it only at factor 0, where it returns before any
   mutation. Covered by case 3 of `Beatnik_Test_MeshEdits`.
 - **Implemented** (T4d1, **DONE**), with `collapseEdges` called by T4d2 and
   `flipEdges` called by T4d3 and `compact` called only by the test:
@@ -356,7 +357,7 @@ True at HEAD, and specific about what is *defined but wrong* versus what
   `flipEdges` accepts at most one of several flips in one call that would create
   the same new diagonal, under either relation (M1-U3, **DONE**, Tessera
   `33dc6b9`); T4d3's quality flips rely on it.
-- **Implemented, unreachable from a `Solver` run until T4d6** except at its
+- **Implemented, unreachable from a `Solver` run until T4d6j** except at its
   disabling value (T4d4): `DynamicRemesh::tangentialSmooth`
   ([src/Beatnik_DynamicRemesh.hpp:1235](../src/Beatnik_DynamicRemesh.hpp#L1235)),
   called from the pass loop's repair gate after the flips
@@ -367,7 +368,7 @@ True at HEAD, and specific about what is *defined but wrong* versus what
   accepted-iteration count. The `Solver` still rejects
   `--remesh-smooth-iters > 0`; at 0 the pass returns before any halo exchange.
   Covered by case 5 of `Beatnik_Test_MeshEdits`.
-- **Implemented, unreachable from a `Solver` run until T4d6** except at its
+- **Implemented, unreachable from a `Solver` run until T4d6j** except at its
   disabling value (T4d5): `MeshQuality::valenceEqualizingFlips`
   ([src/Beatnik_MeshQuality.hpp:652](../src/Beatnik_MeshQuality.hpp#L652))
   and `MeshQuality::isotropicCleanup` ([:937](../src/Beatnik_MeshQuality.hpp#L937)),
@@ -565,8 +566,8 @@ suspect the two describe different physics — they do not (see the T2a entry in
 
 **Do:** generate it; record in the directory's `README.md` the per-step face and
 vertex counts, the `time` series, and whether the run stopped early
-(`stopping at step=… nonfinite …`). Those three are what M1-T2 asserts against
-and what M1-A1 reasons about; a gold set whose face count is not recorded forces
+(`stopping at step=… nonfinite …`). Those three are what M1-T2j asserts against
+and what M1-A1j reasons about; a gold set whose face count is not recorded forces
 the next session to re-derive it from 61 files.
 
 **Exit criterion:** 61 numbered `_step%07d.npz` checkpoints present (fewer only if
@@ -598,7 +599,7 @@ table is in [the README](../tests/regression_tests/milestone1-bubble/README.md).
 
 The umbrella ID that four `requireSupportedConfiguration` messages and several
 header comments name. It is **not** a task: the work is T4d1–T4d6 below, and the
-umbrella exit criterion is at the end.
+umbrella exit criterion is judged in T4d6 from T4d6j's job.
 
 ← *Python:* `dynamic_remesh.py::{collapse_short_edges (361-405),
 flip_edges_for_quality (408-457), tangential_smooth_vertices (459-490),
@@ -1036,7 +1037,7 @@ type.
    do not log and continue.
 4. Rewrite the three doc comments as the adapters they now are. State in
    `compact()`'s that the remesh cycle does **not** call it (`collapseEdges`
-   compacts internally) and that it exists for T4d6 and for tests. The
+   compacts internally) and that it exists for T4d6j and for tests. The
    `flipEdges` comment describes the reference's flip
    (`dynamic_remesh.py:408-458`), not what Tessera checks; replace it with
    Tessera's tests and point at Read this first #6.
@@ -1083,7 +1084,7 @@ the pass loop at [:1020-1032](../src/Beatnik_DynamicRemesh.hpp#L1020-L1032).
 
 **The `Solver` rejection stays.** The collapse rejection at
 [src/Beatnik_Solver.hpp:797-817](../src/Beatnik_Solver.hpp#L797-L817) is deleted
-by T4d6, not here. So after this task `collapseShortEdges` is reachable from
+by T4d6j, not here. So after this task `collapseShortEdges` is reachable from
 `DynamicRemesh::remesh` but not from a `Solver` run with
 `collapse_factor > 0`. The only `Solver` configuration that reaches it has
 `collapse_factor <= 0`, which the T4b regression member
@@ -1163,7 +1164,7 @@ and the `const int flips = 0` on the refine branch
 [src/Beatnik_Solver.hpp:746-751](../src/Beatnik_Solver.hpp#L746-L751)
 (`--flip-passes > 0` under `--refine-every`) and
 [:828-837](../src/Beatnik_Solver.hpp#L828-L837)
-(`--remesh-flip-min-gain < 1e12` under `--dynamic-remesh`) are deleted by T4d6,
+(`--remesh-flip-min-gain < 1e12` under `--dynamic-remesh`) are deleted by T4d6j,
 together with the two `regression`-tier cases that assert them. So after this
 task both passes are wired into their call sites but a `Solver` run reaches them
 only at their disabling values: the refine branch at `--flip-passes 0`, where
@@ -1242,7 +1243,7 @@ its `reset_reference` argument.
    is where T4c parked it.
 6. `--flip-passes` is **0** in the milestone configuration, so
    `improveConnectivityByFlips` has no milestone caller. Implement it anyway —
-   T4d6 deletes the rejection at [src/Beatnik_Solver.hpp:746](../src/Beatnik_Solver.hpp#L746), and the
+   T4d6j deletes the rejection at [src/Beatnik_Solver.hpp:746](../src/Beatnik_Solver.hpp#L746), and the
    path then becomes reachable — and say in the log that it is unexercised by any
    milestone run (the standing `relaxTangential` situation from T4c).
 
@@ -1289,7 +1290,7 @@ T4d"). Leave the `--remesh-smooth-iters > 0` rejection at
 [src/Beatnik_Solver.hpp:838-845](../src/Beatnik_Solver.hpp#L838-L845), message
 text included, and the `tangentialSmooth` `checkRejected` case in
 [tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp:699-701](../tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp#L699-L701)
-that asserts it. T4d6 deletes both. So after this task a `Solver` run reaches
+that asserts it. T4d6j deletes both. So after this task a `Solver` run reaches
 `tangentialSmooth` only at `smoothing_iterations = 0`, which the T4b member
 `Beatnik_Test_DynamicRemeshSplit` runs, and where the pass must return 0 before
 moving any vertex (`dynamic_remesh.py:463-465`). On that path the gate
@@ -1378,8 +1379,8 @@ T4d"). Leave the `--isotropic-cleanup` rejection at
 [src/Beatnik_Solver.hpp:791-797](../src/Beatnik_Solver.hpp#L791-L797), message
 text included, and the `isotropicCleanup` `checkRejected` case in
 [tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp:705-707](../tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp#L705-L707)
-that asserts it. T4d6 deletes both. Wire both call sites anyway, so that
-deleting the rejection is all T4d6 has to do to turn cleanup on. After this
+that asserts it. T4d6j deletes both. Wire both call sites anyway, so that
+deleting the rejection is all T4d6j has to do to turn cleanup on. After this
 task a `Solver` run reaches the call sites only with `--no-isotropic-cleanup`,
 which every `regression` member already passes, so the gate trajectory must be
 unchanged.
@@ -1502,7 +1503,7 @@ gates both call sites on; `Solver::solve` still rejects `--isotropic-cleanup`.
 
 ---
 
-### T4d6 — the gid-renumbering cadence — **NOT STARTED**
+### T4d6j — the gid-renumbering cadence, built and submitted — **NOT STARTED**
 
 **Depends on:** T4d2, T4d3, T4d4, T4d5. It is the last T4d task because it
 deletes the `Solver` rejections that T4d2–T4d5 all leave in place (Conventions,
@@ -1511,8 +1512,9 @@ deletes the `Solver` rejections that T4d2–T4d5 all leave in place (Conventions
 **Fill in:** the remesh cycle in
 [src/Beatnik_DynamicRemesh.hpp:998-1056](../src/Beatnik_DynamicRemesh.hpp#L998-L1056)
 and `RemeshDiagnostics` ([:142-196](../src/Beatnik_DynamicRemesh.hpp#L142-L196));
-and the deletion of **all five** T4d rejections in
-`Solver::requireSupportedConfiguration`, comments included, in one change:
+the new job script `scripts/tuolumne/t4d6_gid_cadence.flux`; and the deletion of
+**all five** T4d rejections in `Solver::requireSupportedConfiguration`, comments
+included, in one change:
 
 | Rejection | Lines | Left in place by |
 | --- | --- | --- |
@@ -1526,8 +1528,33 @@ Also rewrite the comment block above the metric remesher's rejections
 ([:799-810](../src/Beatnik_Solver.hpp#L799-L810)), which says which thirds are
 still rejected. Line numbers are as of T4d5.
 
-Deleting the rejections breaks the `regression`-tier cases that expect `solve()`
-to throw. Delete them in the same change:
+**Submits:** `scripts/tuolumne/t4d6_gid_cadence.flux`, `pdebug`, 1 node
+`--exclusive`, `-t 60m`, `--bank=unm`, the dev env. Three groups of launches, in
+this order:
+1. **The cadence run:** 600 steps at the milestone defaults (no knob turned off),
+   at ranks 1 and 4, reporting the gid-space high-water mark and the global vertex
+   count every step and each rank's peak RSS (`/usr/bin/time -v` inside
+   `flux run`, as `milestone1_divergence.flux` does).
+2. **The control:** the same run at rank 1 with renumbering switched off, so the
+   high-water ratio *must* grow. The cadence is therefore a `RemeshParams` field
+   with a value meaning "never", reachable from the driver's command line.
+3. **The T4d umbrella:** 50 steps at the milestone defaults at ranks 1 and 4 on
+   SERIAL and HIP, reporting volume drift, the per-step minimum triangle quality,
+   and cumulative `splits`, `collapses`, `flips` and `smooth_steps`.
+
+Expected run time **about 40 minutes, an estimate**: no Beatnik dynamic-remesh
+run has been timed. M1-G2's Python run took 707 s for 600 steps at about 1074
+faces (log `## M1-G2`), so that figure is taken as the bound for each 600-step
+launch (three launches, about 36 min), plus four 50-step launches. Beatnik's
+frozen-mesh runs are 4–10x faster than Python's (log `## M1-D1`). Carry
+`milestone1_divergence.flux`'s deadline guard so that a launch which cannot fit
+the remaining budget is skipped loudly, not killed at the wall. Staged directory
+`/p/lustre5/stewartj/beatnik/T4d6j/stage/` (Conventions, "Long jobs"). Output
+goes to `/p/lustre5/stewartj/beatnik/T4d6j/out/` and to
+`beatnik_t4d6.<jobid>.log` in the repo root.
+
+**Removes:** the five rejections above, with their comments, and the
+`regression`-tier cases that expect `solve()` to throw because of them:
 - the four T4d `checkRejected` cases in
   [tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp:696-707](../tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp#L696-L707)
   (collapse, smooth, flip, cleanup). The T4e proximity case at `:693-695` stays,
@@ -1540,156 +1567,308 @@ to throw. Delete them in the same change:
   which sets `--flip-passes 2`, together with the header's check 6 (`:72-77`).
   It is that member's only failure direction.
 
-**Additional information needed:** what replaces `RefineSplitEdges`' failure
-direction once `--flip-passes > 0` runs. This task also deletes the
-isotropic-cleanup rejection, so no T4d rejection is left on that branch to
-retarget the case to. Settle this before T4d6 starts.
+**Additional information needed:**
+- What replaces `RefineSplitEdges`' failure direction once `--flip-passes > 0`
+  runs. This task also deletes the isotropic-cleanup rejection, so no T4d
+  rejection is left on that branch to retarget the case to.
+- Which binary drives the three launch groups. `adaptive_mesh_bubble`
+  (`examples/02_adaptive_mesh_bubble`, in the dev view's `bin/`) takes the full
+  command line but runs only on the build's default execution space, HIP. The
+  umbrella needs SERIAL too, and the only per-backend binaries that run
+  `--dynamic-remesh` are the `regression` members, which have fixed
+  configurations. M1-D1 faced the same choice and used a per-backend test
+  driver (`Beatnik_Test_Milestone0Run_MPI_{SERIAL,HIP}`).
+
+Settle both before T4d6j starts.
 
 **Reference:** `Tessera_Compact.hpp` on `compact()` versus
 `compactAndRenumberGids()` (`:541-570`), and its statement that several Tessera
 paths index a dense host array sized to the **max gid** (`:77-94`).
+`scripts/tuolumne/milestone1_divergence.flux` for the deadline guard, the
+per-rank RSS measurement and the provenance block.
 
 **Do:** gids come from an `MPI_Exscan` onto a monotonically rising global count,
 so a long split-and-collapse run grows the gid *space* without bound even at
 constant mesh size, and `collapseEdges`'s internal `compact()` preserves gids.
 Choose a renumbering cadence, document **why that cadence** (it costs a second
 halo rebuild), and put the gid-space high-water mark into the remesh diagnostics
-so the leak is observable rather than inferred.
+so the leak is observable rather than inferred. Then build (`spack install`),
+run the gate, stage and submit.
 
-**Exit criterion:** a 600-step run at ranks 1 and 4 reports a gid-space
-high-water mark that is **bounded** — its ratio to the global vertex count does
-not grow monotonically with step index across the last third of the run — and the
-per-step resident memory does not grow with step count at constant face count.
-Both numbers written into the progress log. This is the first thing to suspect if
-a long run's memory grows with step count rather than with face count.
-
----
-
-### T4d exit criterion
-
-A `--dynamic-remesh` run at the **milestone defaults** (no knob turned off)
-completes 50 steps at ranks 1 and 4 on both backends; volume drift below
-`1e-10`; the minimum triangle quality stays above `--remesh-min-quality` for the
-whole run; `Solver::requireSupportedConfiguration` rejects **nothing** for that
-command line; and the run reports non-zero `splits`, `collapses`, `flips` and
-`smooth_steps` totals — a run that completes with all four at zero has not
-exercised T4d and is M1-R7, not a pass. Compare **statistics** against the
-reference, never the flip or collapse set (R7).
+**Exit criterion:** the dev-env `spack install` is rc 0 with no new warnings in
+the changed files; `BEATNIK_UNIT_RANKS=1` and `BEATNIK_UNIT_RANKS=4 flux batch
+scripts/tuolumne/unit_tests.flux` both pass; `flux batch
+scripts/tuolumne/run_regression_minset.flux`, which takes about 11 minutes and
+is waited on in the session, ends `[gate] PASS (label=regression)` over 60
+launches with zero `[FAIL]` lines, with the five rejection cases deleted; the
+staged directory exists and its `COMMIT` names the commit holding this task's
+code; and the scheduler accepted `t4d6_gid_cadence.flux`, its job ID on the log's
+`**Jobs:**` line.
 
 ---
 
-### M1-T1 — register milestone 1 in the `milestone` test tier — **NOT STARTED**
+### T4d6 — the gid space and resident memory are bounded — **NOT STARTED**
 
-**Depends on:** **M0-T1** (**DONE**, [`milestone0.md`](completed/milestone0.md)), which **creates**
-the tier — the CMake wiring, `beatnik_milestone_manifest.txt`, the installed-path
-gold-data rules, `scripts/tuolumne/run_milestone.flux` at ranks 1 and 4 on SERIAL
-and HIP, and the `docs/testing.md` / CLAUDE.md text saying the tier does not gate.
-Milestone 0 lands first and needs the same tier, so it owns it and this task no
-longer builds it. Nothing else here depends on M0.
+**Depends on:** T4d6j.
 
-**Fill in:** `BEATNIK_MILESTONE_TEST_SOURCES`
-([tests/CMakeLists.txt:429](../tests/CMakeLists.txt#L429)) and the
-`_beatnik_args_Beatnik_Test_Milestone1Bubble_abs`/`_rel` pair beside milestone
-0's (`:475-513`), plus the `install()` rule for the M1-G2 gold directory beside
-milestone 0's (`:828-858`).
+**Fill in:** the progress log's `## T4d6` section. If the output shows a defect,
+fix it inside T4d6j's **Fill in** and resubmit: restage into
+`/p/lustre5/stewartj/beatnik/T4d6/stage/` and submit `t4d6_gid_cadence.flux`
+again.
 
-**Reference:** what M0-T1 built — the milestone registration loop (`:515`) — and
-the regression tier's registration loop (`:323-385`) and gold-set `install()`
-rules (`:810-826`) that it copied.
-Read the M0-T1 entry in [`milestone0-progress-log.md`](completed/milestone0-progress-log.md)
-before starting: if M0-T1 departed from its stated plan, this is the task that
-finds out.
+**Removes:** nothing.
 
-**Do:** add the source, its two argument lists (the gold **directory** and the
-comparator) and the gold-data `install()` rule with its `FATAL_ERROR` — a
-milestone test installed without its gold set is not installed. Change nothing
-about the tier's ranks, backends or manifest format; those are M0-T1's, and
-milestone 1 has no reason to differ.
+**Reference:** the T4d6j job's log and its `out/` directory.
 
-**Exit criterion:** `ctest -N -L milestone` lists the M1-T2 member at two rank
-counts per backend alongside milestone 0's, `flux batch
-scripts/tuolumne/run_milestone.flux` runs it, and `ctest -N -L regression` still
-lists **60** cases.
+**Do:** confirm that every launch ran to its step budget (no deadline-guard skip,
+no wall kill), then judge the criterion. Write the high-water ratio series, the
+per-rank peak RSS and the umbrella's four counter totals into the log. Its
+`**Affects:**` line names M1-T2j's walltime when the measured 600-step wall
+differs from T4d6j's estimate.
+
+**Exit criterion,** judged from the T4d6j job's output:
+- **The cadence run:** at ranks 1 and 4, the ratio of the gid-space high-water
+  mark to the global vertex count does **not** grow monotonically with step
+  index across the last third of the run (steps 400–600). Per-rank resident
+  memory does not grow with step count at constant face count.
+- **The control:** the ratio **does** grow monotonically across the same third,
+  which shows the measure detects the leak this task bounds.
+- **The T4d umbrella:** all four 50-step launches complete; volume drift is below
+  `1e-10`; the minimum triangle quality stays above `--remesh-min-quality` at
+  every step; `Solver::requireSupportedConfiguration` rejects **nothing** for that
+  command line; and the cumulative `splits`, `collapses`, `flips` and
+  `smooth_steps` are each non-zero. A run that completes with all four at zero has
+  not exercised T4d and is M1-R7, not a pass. Compare **statistics** against the
+  reference, never the flip or collapse set (R7).
+
+Record both the ratio series and the RSS series in the progress log. This is the
+first thing to suspect if a long run's memory grows with step count rather than
+with face count.
 
 ---
 
-### M1-T2 — the milestone comparison test — **NOT STARTED**
+### M1-T2j — the milestone comparison test, registered and submitted at 600 steps — **NOT STARTED**
 
-**Depends on:** M1-U1, M1-U2, M1-U3, T4d1, T4d2, T4d3, T4d4, T4d5, T4d6, M1-G2, M1-T1, M1-D1.
+**Depends on:** M1-U1, M1-U2, M1-U3, T4d1, T4d2, T4d3, T4d4, T4d5, T4d6, M1-G2,
+M1-D1, and **M0-T1** (**DONE**, [`milestone0.md`](completed/milestone0.md)). M0-T1
+**created** the `milestone` tier: the CMake wiring, `beatnik_milestone_manifest.txt`,
+the installed-path gold-data rules, `scripts/tuolumne/run_milestone.flux` at
+ranks 1 and 4 on SERIAL and HIP, and the `docs/testing.md` / CLAUDE.md text saying
+the tier does not gate. This task adds a member and changes none of that.
 
-**Fill in:** `tests/regression_tests/Beatnik_Test_Milestone1Bubble.cpp`,
-registered in the `milestone` tier with the gold **directory** and the comparator
-as its two arguments.
+**Fill in:**
+- `tests/regression_tests/Beatnik_Test_Milestone1Bubble.cpp`, new.
+- In [tests/CMakeLists.txt](../tests/CMakeLists.txt): the source in
+  `BEATNIK_MILESTONE_TEST_SOURCES` (`:429`); the
+  `_beatnik_args_Beatnik_Test_Milestone1Bubble_abs`/`_rel` pair beside milestone
+  0's (`:475-513`), naming the gold **directory** and the comparator; and the
+  `install()` rule for the M1-G2 gold directory, with its `FATAL_ERROR`, beside
+  milestone 0's (`:828-858`). A milestone test installed without its gold set is
+  not installed.
+- `scripts/tuolumne/m1_milestone_run.flux`, new. It runs only
+  `Beatnik_Test_Milestone1Bubble_MPI_{SERIAL,HIP}`, from a staged directory
+  named by its first argument, at ranks 1 and 4, plus the two failure-direction
+  launches below. It is modelled on `run_milestone.flux`, including the
+  `[milestone] PASS|FAIL … np=<N> in <S>s` lines and the `SUMMARY` line.
+  `run_milestone.flux` resolves binaries from the live view, so it is not used
+  for this job.
+- The `milestone` entry in [docs/testing.md](../docs/testing.md#the-tiers): the
+  new member, what it asserts, the member count and the launch count. CLAUDE.md
+  defers the member list to that file, so it needs no edit.
+  `scripts/tuolumne/submit_milestone_split.sh` already carries the member's
+  SERIAL and HIP rows, marked `pending=M1-T2j` with an estimated `-t 40m`. They
+  are submitted as soon as `spack install` puts the member in the installed
+  manifest, so the script needs no edit either.
 
-**Reference:** [tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp](../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp)
-end to end — `makeParams()` (`:308-378`) for expressing a Python command line as
-a `SolverParams`, `goldForStep()` (`:263-286`) for finding a step's gold file by
-its `_step%07d.npz` suffix rather than by rebuilding a filename from a time (the
-time is under test), and the `compare_output.py` subprocess wrapper
-`runComparator()` (`:291-304`)
-which demands exit status **exactly 1** for a mismatch and not 2, so a
-mis-resolved path cannot masquerade as a pass.
+**Submits:** `scripts/tuolumne/m1_milestone_run.flux
+/p/lustre5/stewartj/beatnik/M1-T2j/stage`, `pbatch`, 1 node `--exclusive`,
+`-t 90m`, `--bank=unm`, the dev env. The job makes four comparison launches
+(SERIAL and HIP, at ranks 1 and 4), then the two failure-direction launches at
+rank 1 on HIP. Expected run time **about 50 minutes, an estimate**: M1-G2's
+Python 707 s per 600-step run, times four. If T4d6's log records Beatnik's
+measured 600-step wall at the milestone defaults, size `-t` from that instead,
+at about 1.5x, and say so in the log. Staged directory
+`/p/lustre5/stewartj/beatnik/M1-T2j/stage/`, holding the manifest-relative
+layout of the member's binaries, `regression_tests/<M1-G2 gold dir>/` and
+`regression_tests/compare_output.py`. Output goes to
+`/p/lustre5/stewartj/beatnik/M1-T2j/out/<target>/` and to
+`beatnik_m1_milestone.<jobid>.log` in the repo root.
+
+**Removes:** nothing.
+
+**Reference:** what M0-T1 built: the milestone registration loop
+([tests/CMakeLists.txt:515](../tests/CMakeLists.txt#L515)), plus the regression
+tier's registration loop (`:323-385`) and gold-set `install()` rules
+(`:810-826`) that it copied. Read the M0-T1 entry in
+[`milestone0-progress-log.md`](completed/milestone0-progress-log.md) first: if
+M0-T1 departed from its stated plan, this task is where that surfaces. For the
+test, read
+[tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp](../tests/regression_tests/Beatnik_Test_DirectSolve10Steps.cpp)
+end to end:
+- `makeParams()` (`:308-378`) expresses a Python command line as a
+  `SolverParams`.
+- `goldForStep()` (`:263-286`) finds a step's gold file by its `_step%07d.npz`
+  suffix rather than by rebuilding a filename from a time, because the time is
+  under test.
+- The `compare_output.py` subprocess wrapper `runComparator()` (`:291-304`)
+  demands exit status **exactly 1** for a mismatch, never 2, so a mis-resolved
+  path cannot masquerade as a pass.
 
 **Do:**
 
-1. `makeParams()` is the milestone command line — the four switches at their
-   defaults, `--checkpoint-every-steps 10`, `--steps` from M1-A1's decided depth
-   (not 600 unless M1-A1 says so).
-2. Compare every checkpointed step up to the decided depth at the decided
-   tolerances. Where the ladder is not flat, put the per-step tolerance in a
-   compiled-in table with the measured `max|e|` beside it as a comment, so a
-   later session can see the headroom rather than re-measure it.
+1. `makeParams()` is the milestone command line: the four switches at their
+   defaults, `--checkpoint-every-steps 10`, and `--steps 600`, M1-G2's full
+   depth. This run *measures* where the codes part; M1-A1j fixes the depth the
+   test asserts.
+2. Compare every checkpointed step through step 600 against a compiled-in
+   per-step tolerance table, initialized to the comparator's defaults
+   (`--rtol 1e-10 --atol 1e-12`) at every step. **Continue past a failing step.**
+   Print one line per step with the comparator's verdict and each field's
+   `max|e|`, plus the vertex and face counts of both files, and exit failing if
+   any step failed. M1-A1j edits the table, not the structure.
 3. Assert the trajectory is *live*: cumulative `splits`, `collapses`, `flips`,
    `smooth_steps` and cleanup flips all non-zero by the end (M1-R7), and the
-   per-step `time` series matches the gold's — a fixed-dt run reproduces neither.
-4. Report the wall time and the face-count trajectory in the test's output; they
-   are what tells the next session whether a deeper compare depth is affordable.
+   per-step `time` series matches the gold's. A fixed-dt run reproduces neither.
+4. Report the wall time and the face-count trajectory in the test's output.
+   They tell the next session whether a deeper compare depth is affordable.
+5. Failure direction, selected by an argument the test accepts for this purpose:
+   (a) a later step compared against the **step-0** gold exits exactly 1 from the
+   comparator, a detected mismatch rather than a load error; (b) a run with
+   `--no-isotropic-cleanup` forced fails the comparison rather than passing with
+   a different mesh.
+6. Build (`spack install`), run the gate, stage and submit.
 
-**Exit criterion:** `flux batch scripts/tuolumne/run_milestone.flux` reports PASS
-at ranks 1 and 4 on SERIAL and HIP with zero `[FAIL]` lines, and
-`ctest -L regression -R SERIAL` / `-R HIP` still pass unchanged at 60 launches
-(`flux batch scripts/tuolumne/run_regression_minset.flux`). Failure direction: the
-same test invoked against the **step-0** gold for a later step exits exactly 1
-from the comparator — a detected mismatch, not a load error — and a build with
-`--no-isotropic-cleanup` forced fails the comparison rather than passing with a
-different mesh.
+**Exit criterion:** the dev-env `spack install` is rc 0 with no new warnings in
+the changed files. The installed `beatnik_milestone_manifest.txt`
+(`share/Beatnik/tests/` in the dev view) lists the member's three backend lines
+beside milestone 0's twelve, and the installed `beatnik_gate_manifest.txt` still
+lists 15. `flux batch scripts/tuolumne/run_regression_minset.flux`, waited on in
+the session, ends `[gate] PASS (label=regression)` over 60 launches with zero
+`[FAIL]` lines. The staged directory exists and its `COMMIT` names the commit
+holding this task's code. The scheduler accepted `m1_milestone_run.flux`, its job
+ID on the log's `**Jobs:**` line.
 
 ---
 
-### M1-A1 — fix the compare depth and the tolerance ladder — **NOT STARTED**
+### M1-T2 — read the 600-step measurement — **NOT STARTED**
 
-**Depends on:** M1-D1, M1-T2.
+**Depends on:** M1-T2j.
 
-Not a coding task: the decision the user deferred until the measurements exist,
-and it must be *recorded* rather than left implicit in a test's literals.
+**Fill in:** the progress log's `## M1-T2` section. If the output shows a defect,
+fix it inside M1-T2j's **Fill in** and resubmit from
+`/p/lustre5/stewartj/beatnik/M1-T2/stage/`. Defects include a launch that did not
+run its 600 steps, a liveness counter that reads zero, and a comparator exit
+other than 0 or 1. A comparison mismatch is a measurement, not a defect.
+
+**Removes:** nothing.
+
+**Reference:** the M1-T2j job's log and its `out/` directory; M1-D1's
+`vertices` `max|e|` series (log `## M1-D1`), which is the floating-point floor
+on a frozen mesh; M1-G2's face-count table (log `## M1-G2`).
+
+**Do:** for each of the four launches, record:
+- the first failing step, or "none through 600";
+- the field that failed first and its `max|e|`, set against M1-D1's floor at the
+  same step;
+- whether the vertex and face counts agree at that step, which is M1-R2's
+  distinguishing measurement;
+- whether `vertices` failed first and by the same magnitude as every other
+  field, which is M1-R8's signature;
+- the wall time and the face-count trajectory against M1-G2's.
+
+**Exit criterion,** judged from the M1-T2j job's output:
+- all four comparison launches ran to step 600, each with its `[milestone]` line
+  and the job's `SUMMARY` line present;
+- the liveness assertions hold in every launch;
+- failure direction (a) exits exactly 1 from the comparator, and (b) fails the
+  comparison;
+- the log's `## M1-T2` section holds the per-launch record from **Do**, with an
+  `**Affects:**` line naming M1-A1j.
+
+---
+
+### M1-A1j — fix the compare depth and the tolerance ladder, and submit the confirming run — **NOT STARTED**
+
+**Depends on:** M1-T2.
+
+The decision is made **with the user** and *recorded*, never left implicit in a
+test's literals.
+
+**Fill in:** this document's `## Problem` section and this entry; and the
+per-step tolerance table and `--steps` in `Beatnik_Test_Milestone1Bubble.cpp`.
+
+**Submits:** `scripts/tuolumne/m1_milestone_run.flux
+/p/lustre5/stewartj/beatnik/M1-A1j/stage`, `pbatch`, 1 node `--exclusive`,
+`--bank=unm`, the dev env, the same six launches as M1-T2j. Set `-t` to about
+1.5x M1-T2's measured job wall, scaled to the decided depth. The expected run
+time is that scaled wall, recorded in M1-T2's log section. Staged directory
+`/p/lustre5/stewartj/beatnik/M1-A1j/stage/`. Output goes to
+`/p/lustre5/stewartj/beatnik/M1-A1j/out/<target>/` and to
+`beatnik_m1_milestone.<jobid>.log` in the repo root.
+
+**Removes:** nothing.
 
 **Do:** bring together M1-D1's fixed-mesh horizon, M1-G2's face-count and `time`
-series, and the first failing step of the full-configuration comparison. Decide,
-with the user: the milestone's compare depth; the tolerance at each compared
-step; whether steps beyond the depth are compared **structurally/statistically**
-instead (counts, valence histogram, quality distribution, volume drift, `time`
-series) or not at all; and whether a 5000-step comparison is
-pursued, and under what criterion.
+series, and M1-T2's first failing steps. Decide, with the user:
+- the milestone's compare depth;
+- the tolerance at each compared step, with the measured `max|e|` beside each
+  entry in the table as a comment;
+- whether steps beyond the depth are compared **structurally or statistically**
+  instead (counts, valence histogram, quality distribution, volume drift, the
+  `time` series) or not at all;
+- whether a 5000-step comparison is pursued, and under what criterion.
 
-**Additional information needed, and which task answers it:** how fast the two
-codes diverge with connectivity frozen (**M1-D1**); how much of the remaining
-divergence is edit-set rather than floating-point, distinguished by whether the
-face **counts** agree at the first failing step (**M1-T2**'s output); and whether
-a 600-step milestone run is affordable at all rank counts (**M1-T2**'s wall-time
-report, **T4d6**'s memory numbers).
+Encode the decision, build, stage and submit.
 
-**Exit criterion:** this document's M1-T2 entry and its `## Problem` section state
-the decided depth, tolerances and beyond-depth treatment as numbers; the test
-asserts exactly those numbers; and the progress log records the alternative that
-was rejected and why. The milestone is **accomplished** when that test is green
-at ranks 1 and 4 on both backends.
+**Additional information needed, and which task answers it:**
+- how fast the two codes diverge with connectivity frozen (**M1-D1**, **DONE**);
+- how much of the remaining divergence is edit-set rather than floating-point,
+  distinguished by whether the face **counts** agree at the first failing step
+  (**M1-T2**);
+- whether a 600-step milestone run is affordable at every rank count
+  (**M1-T2**'s wall times, **T4d6**'s memory numbers).
+
+**Exit criterion:** this document's `## Problem` section and this entry state the
+decided depth, the tolerances and the beyond-depth treatment as numbers. The
+test's `--steps` and tolerance table equal them, checked by reading. The progress
+log records the alternative that was rejected and why. The dev-env
+`spack install` is rc 0. The staged directory exists with its `COMMIT`. The
+scheduler accepted `m1_milestone_run.flux`, its job ID on the log's `**Jobs:**`
+line.
+
+---
+
+### M1-A1 — the milestone test is green at the decided numbers — **NOT STARTED**
+
+**Depends on:** M1-A1j.
+
+**Fill in:** the progress log's `## M1-A1` section. If the output shows a defect,
+fix it inside M1-T2j's or M1-A1j's **Fill in** and resubmit from
+`/p/lustre5/stewartj/beatnik/M1-A1/stage/`.
+
+**Removes:** nothing.
+
+**Reference:** the M1-A1j job's log and its `out/` directory.
+
+**Do:** judge the criterion, and record each launch pair's job wall in the
+log. Its `**Affects:**` line asks the user to set the two
+`Beatnik_Test_Milestone1Bubble` rows' `-t` in `submit_milestone_split.sh` to
+about 1.5x those walls and drop their `pending=M1-T2j` field. The task loop
+protects that file. A step that misses its decided tolerance is **not**
+a defect to fix by loosening the table. Take it back to the user with the
+measured `max|e|`, as M1-A1j's decision (M1-R1).
+
+**Exit criterion,** judged from the M1-A1j job's output: PASS at ranks 1 and 4
+on SERIAL and HIP, zero `[FAIL]` lines and the `SUMMARY` line present; failure
+direction (a) exits exactly 1 from the comparator; and (b) fails the comparison.
+The milestone is **accomplished** when this holds.
 
 ## Known risks
 
 **M1-R1 — the divergence horizon is shorter than the milestone's premise.** The
 two codes stop agreeing at `1e-10` well before step 500. *Presents as:* M1-D1
 reporting a first-failing step in the tens, on a run with no adaptivity at all.
-*Do:* this is information, not a bug — take it to M1-A1. Do **not** loosen
+*Do:* this is information, not a bug — take it to M1-A1j. Do **not** loosen
 `--rtol` to make a step pass without recording the measured `max|e|` beside it;
 an unrecorded loosening is how a comparison stops being a test.
 
@@ -1722,13 +1901,13 @@ downstream would notice.
 
 **M1-R5 — the gid-space leak.** *Presents as:* resident memory growing with step
 count at constant face count, or an allocation failure deep inside Tessera late in
-a long run. Owned by T4d6; suspect it first for any late-run memory symptom.
+a long run. Owned by T4d6j and T4d6; suspect it first for any late-run memory symptom.
 
 **M1-R6 — cost.** The direct Birkhoff-Rott sum is `O(N^2)` per RK stage, three
 stages per step, and nothing caps the face count on this path (Read this first
 #3). *Presents as:* a milestone launch that times out rather than fails. *Do:*
 M1-D1 and M1-T2 both report the face-count trajectory and wall time; if the
-trajectory is superlinear in step index, raise it at M1-A1 rather than silently
+trajectory is superlinear in step index, raise it at M1-A1j rather than silently
 lowering the step count — a quietly truncated milestone run is a gate that
 shrank.
 
@@ -1737,7 +1916,7 @@ this milestone's shape: if the sizing field never triggers a split, or
 `isotropicCleanup` never flips, the run reproduces a simpler trajectory and the
 comparison passes while testing none of T4d. *Presents as:* it does not — a green
 test and no signal. *Distinguished by:* the four cumulative edit counters and the
-cleanup flip count, asserted non-zero (T4d exit criterion, M1-T2 step 3).
+cleanup flip count, asserted non-zero (T4d6's umbrella clause, M1-T2j step 3).
 
 **M1-R8 — the quantized pairing degrades silently.** `compare_output.py` sorts
 each file's vertices *independently* at `--match-eps 1e-9`. Once positions

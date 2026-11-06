@@ -88,49 +88,28 @@ no `.h5` dataset, and it is covered by `Beatnik_Test_CheckpointSeries` in the
 `unit` tier. That sweep stamp is therefore still T4c's; no gate sweep was run for
 grouped-io.
 There is a third tier, **`milestone`** (created by M0-T1): long end-to-end runs
-against a multi-thousand-step reference gold set, at ranks **1 and 4** on SERIAL
-and HIP. On tuolumne it runs as **eight separate `pbatch` jobs**, one per
-(member, backend), each launching ranks 1 and 4, submitted from the login node by
+against multi-thousand-step reference gold sets, at ranks **1 and 4** on SERIAL
+and HIP. On tuolumne it runs as **one `pbatch` job per (member, backend)**, each
+launching ranks 1 and 4, submitted from the login node by
 [scripts/tuolumne/submit_milestone_split.sh](scripts/tuolumne/submit_milestone_split.sh)
 through the runner
 [scripts/tuolumne/run_milestone.flux](scripts/tuolumne/run_milestone.flux). Run
-it split, not as one big job. **It
-is not part of the gate** and adding a member to it does not change the gate;
-**T6 added two members and the gate is unchanged — still five `regression`
-members and 60 launches.** The `milestone` tier has **four** members and
-**sixteen launches**:
-
-- `Beatnik_Test_Milestone0Frozen` and `Beatnik_Test_Milestone0FrozenL4`
-  (M0-T3): 2000 frozen-mesh timesteps at `--icosphere-subdivisions` 3 and 4
-  against the M0-G1 and M0-G2 gold sets, all 81 checkpointed steps at
-  `--rtol 1e-10 --atol 1e-12`. Eight launches, a measured **37.25 minutes**
-  (M0-T3's tier run, job `f3Td7rshE3y1`, all green).
-- `Beatnik_Test_Milestone0Fmm` and `Beatnik_Test_Milestone0FmmL4` (T6,
-  `tasks/canopy/add-canopy.md`): the same two levels driven through the Canopy
-  FMM at `ncrit = 8`, `order = 3`. Each asserts **two** claims in one binary —
-  a per-evaluation velocity bound (max relative error ≤ `1.5e-3`, the reference
-  treecode's own worst on the same states) at 81
-  direct-driven states, and the stability and divergence horizon of a
-  2000-step FMM-driven trajectory. They reuse the frozen members' gold
-  directories; no new gold set exists. Eight launches.
+it split, not as one big job. **It is not part of the gate**: adding a member
+to it never changes the gate, which stays five `regression` members and 60
+launches. The tier's members, what each asserts, its launch count and the
+measured job walls are in [docs/testing.md](docs/testing.md#the-tiers); the
+wrapper's per-row `-t` is about 1.5x each job's measured wall. Some members
+take **hours**, not minutes, so read the walls there before submitting.
 
 > **The FMM members may now FAIL, and that is accepted (user's ruling,
 > 2026-10-13).** canopy_profiling O1 made `FmmParams::quantize_root_half_width`
-> default `true`; these members inherit it and have **not** been re-run since.
+> default `true`; `Beatnik_Test_Milestone0Fmm` and `Beatnik_Test_Milestone0FmmL4`
+> inherit it and have **not** been re-run since.
 > It raised the worst level-4 error over O1's states from 1.099e-3 to 1.402e-3,
 > 7 % under claim A's `kTauA` = 1.5e-3. **If claim A fails, raise `kTauA`**
 > (`tests/regression_tests/Beatnik_Test_Milestone0Fmm.cpp`) to cover the
 > measured worst and log it; do **not** turn quantization off and do not treat
 > it as a regression. Re-running the tier is deferred to canopy_profiling V1.
-
-**The FMM members are hours, not minutes.** T9b's split run
-(`tasks/add-canopy-t6.md`, 2026-10-09, **16/16 launches green**) measured the
-eight job walls at 236 s and 144 s (level-3 frozen, SERIAL and HIP),
-1781 s and 168 s (level-4 frozen), 9581 s and 613 s (level-3 FMM), and 15130 s
-and 3614 s (level-4 FMM). They sum to **8.69 h**, but split, the tier's
-wall-clock is the slowest job, **level-4 FMM SERIAL at 4.2 h**. Each job's `-t`
-in the wrapper is about 1.5x its measured wall. The runner's own `-t 652m`
-(about 1.25x the sum) exists only for the one-job fallback.
 
 **`BEATNIK_TEST_SCRATCH`
 must name a path on a parallel filesystem**, not a node-local one: the

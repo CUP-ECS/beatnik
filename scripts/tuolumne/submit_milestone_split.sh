@@ -28,6 +28,14 @@
 # `# flux: -t` directive. The tier's wall-clock is the slowest row, level-4
 # FMM SERIAL at 4.2 h; the eight walls sum to 8.69 h.
 #
+# A row may carry a fourth field, `pending=<task ID>`, for a member whose code
+# that task has not yet landed. A pending row is submitted only when its
+# `<member>_MPI_<backend>` line is in the installed beatnik_milestone_manifest.txt;
+# otherwise it prints a PENDING line to stderr and is not submitted. A row
+# without the field is always submitted, so a missing established member still
+# fails in the runner, exactly as before. A pending row's -t is an estimate, not
+# a measured wall: re-time it from the task's first run and drop the field.
+#
 # Usage:  scripts/tuolumne/submit_milestone_split.sh
 #
 # Prints one `<jobid> <member> <backend> <-t>` line per submission. Each job
@@ -65,10 +73,49 @@ _rows=(
     "Beatnik_Test_Milestone0Fmm       HIP     16m"   #   613 s
     "Beatnik_Test_Milestone0FmmL4     SERIAL  380m"  # 15130 s
     "Beatnik_Test_Milestone0FmmL4     HIP     91m"   #  3614 s
+    # Not yet measured. ~1.5x the M1-G2 Python bound for two 600-step launches
+    # (2 x 707 s); tasks/milestone1.md M1-T2j adds the member, M1-T2 times it.
+    "Beatnik_Test_Milestone1Bubble    SERIAL  40m  pending=M1-T2j"
+    "Beatnik_Test_Milestone1Bubble    HIP     40m  pending=M1-T2j"
 )
 
+# The installed milestone manifest, looked up only if a row is pending. The
+# resolver is sourced in a subshell so the spack env it activates does not leak
+# into the environment flux batch copies into each job.
+_manifest=""
 for _row in "${_rows[@]}"; do
-    read -r _member _backend _t <<<"${_row}"
+    case "${_row}" in
+        *pending=*)
+            _manifest="$(
+                source "${_repo}/scripts/lib/beatnik_env.sh" >/dev/null 2>&1 || exit 1
+                IFS=':'
+                for _p in ${PATH}; do
+                    if [ -f "${_p}/beatnik_milestone_manifest.txt" ]; then
+                        echo "${_p}/beatnik_milestone_manifest.txt"
+                        break
+                    fi
+                done
+            )" || true
+            if [ -z "${_manifest}" ]; then
+                echo "submit_milestone_split: a row is pending, and" \
+                     "beatnik_milestone_manifest.txt was not found on the dev env's" \
+                     "PATH to check it against. Is the dev env installed?" >&2
+                exit 1
+            fi
+            break
+            ;;
+    esac
+done
+
+for _row in "${_rows[@]}"; do
+    read -r _member _backend _t _pending <<<"${_row}"
+    if [ -n "${_pending:-}" ]; then
+        if ! grep -q "^${_member}_MPI_${_backend}\([[:space:]]\|\$\)" "${_manifest}"; then
+            echo "PENDING ${_member} ${_backend}: not in ${_manifest}" \
+                 "(${_pending}); not submitted" >&2
+            continue
+        fi
+    fi
     _short="${_member#Beatnik_Test_}"
     _jobid="$(BEATNIK_MILESTONE_MEMBERS="${_member}" \
               BEATNIK_MILESTONE_BACKENDS="${_backend}" \

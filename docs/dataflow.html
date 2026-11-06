@@ -1,0 +1,1046 @@
+<!DOCTYPE html>
+<!--
+  Copyright (c) 2025 by the Beatnik authors
+  All rights reserved.
+
+  This file is part of the Beatnik library. Beatnik is distributed under a
+  BSD 3-clause license. For the licensing terms see the LICENSE file in the
+  top-level directory.
+
+  SPDX-License-Identifier: BSD-3-Clause
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Beatnik Dataflow</title>
+<style>
+  :root { --ink:#1a1a1a; --muted:#555; --line:#cfcfcf; --gpu:#1F4E8C; --cpu:#8A4B00; --mpi:#5B2A86; --ar:#B3261E; }
+  body { margin:0; background:#fff; color:var(--ink); font:15px/1.55 -apple-system, "Segoe UI", Helvetica, Arial, sans-serif; }
+  main { max-width:1200px; margin:0 auto; padding-block:28px 96px; padding-inline:20px; }
+  h1 { font-size:28px; margin:0 0 4px; }
+  h2 { font-size:22px; margin:48px 0 10px; padding-top:12px; border-top:2px solid #222; }
+  h3 { font-size:17px; margin:28px 0 8px; }
+  p, li { max-width:72em; }
+  .lede { color:var(--muted); margin-top:0; }
+  code { font-family:ui-monospace, Menlo, Consolas, monospace; font-size:12.5px; background:#f3f3f3; padding:1px 4px; border-radius:3px; }
+  pre { font-family:ui-monospace, Menlo, Consolas, monospace; font-size:13px; background:#f6f6f6; border:1px solid #e2e2e2; padding:10px 14px; overflow-x:auto; }
+  .cite { color:#444; white-space:nowrap; }
+  figure { margin:26px 0 30px; }
+  figure .svgwrap { overflow-x:auto; border:1px solid #d9d9d9; }
+  figure svg { display:block; width:100%; height:auto; min-width:760px; }
+  figcaption { font-size:13.5px; color:#333; margin-top:8px; max-width:72em; }
+  figcaption b { color:#000; }
+  .tbl { overflow-x:auto; margin:12px 0 18px; }
+  table { border-collapse:collapse; width:100%; font-size:13.5px; }
+  th, td { border:1px solid var(--line); padding:6px 9px; vertical-align:top; text-align:left; }
+  th { background:#f2f2f2; }
+  .b { display:inline-block; font-size:11px; font-weight:700; padding:0 6px; border-radius:3px; border:1.5px solid; line-height:17px; vertical-align:1px; }
+  .ok  { border-color:#2e7d32; color:#2e7d32; }
+  .inf { border-color:#a15c00; color:#a15c00; border-style:dashed; }
+  .callout { border-left:4px solid #333; background:#f7f7f7; padding:10px 16px; margin:16px 0; }
+  .warn { border-left-color:#B3261E; }
+  nav ol { columns:2; column-gap:40px; padding-left:22px; }
+  nav a { color:#1F4E8C; }
+  .two { display:grid; grid-template-columns:repeat(auto-fit, minmax(320px, 1fr)); gap:18px; }
+  .small { font-size:13px; color:var(--muted); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>Beatnik: how data moves through one run</h1>
+<p class="lede">A traced walk through <code>examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp</code>, from <code>MPI_Init</code> to the last checkpoint, focused on MPI communication and GPU placement.
+Branch <code>profling-canopy</code> at <code>df5b917</code>, read on 2026-10-13. <code>src/Beatnik_FarFieldInterface.hpp</code> and <code>src/Beatnik_Params.hpp</code> had uncommitted edits, so their line numbers are working-tree numbers.</p>
+
+<div class="callout">
+<b>How to read the claims.</b> Every statement cites the file and line it comes from. Paths starting <code>src/</code> or <code>examples/</code> are in this repository; <code>tessera/</code>, <code>canopy/</code> and <code>cabana/</code> are the sibling source checkouts the spack environment builds from.
+<span class="b ok">confirmed</span> means the behaviour was read in the code.
+<span class="b inf">inferred</span> means it follows from code that was read but was not traced end to end, or it depends on behaviour inside a library that was not read.
+Canopy internals were read at the level of its solve phases and MPI call sites, not line by line.
+</div>
+
+<div class="callout warn">
+<b>The defaults do not run today.</b> <code>Solver::requireSupportedConfiguration</code> (<span class="cite">src/Beatnik_Solver.hpp:736-879</span>) rejects the default configuration before the first step, and the default <code>--source-quadrature face</code> throws (<span class="cite">src/Beatnik_Params.hpp:95</span>, <span class="cite">src/Beatnik_FarFieldInterface.hpp:1406-1412</span>). The production path described here is:
+<pre>--source-quadrature vertex --no-isotropic-cleanup --remesh-collapse-factor 0 \
+--remesh-smooth-iters 0 --remesh-flip-min-gain 1e12</pre>
+That is: FMM Birkhoff–Rott (<code>--br-approximation fmm</code> is the default, <span class="cite">Params.hpp:107</span>), dynamic remeshing every step (split pass only), adaptive dt, and volume preservation on.
+A frozen-topology run, with no remeshing, adds <code>--no-dynamic-remesh --refine-every 0</code> (as in <span class="cite">scripts/tuolumne/t3_fmm_velocity.flux:128-131</span>).
+</div>
+
+<nav>
+<b>Contents</b>
+<ol>
+<li><a href="#overview">Overview diagram</a></li>
+<li><a href="#setup">Stage 1: setup</a></li>
+<li><a href="#loop">Stage 2: timestepping</a></li>
+<li><a href="#mpi">Stage 3: halo exchanges and all MPI (poster topic 1)</a></li>
+<li><a href="#br">Stage 4: the Birkhoff–Rott kernel and the FMM</a></li>
+<li><a href="#io">Stage 5: I/O</a></li>
+<li><a href="#gpu">GPU usage (poster topic 2)</a></li>
+<li><a href="#libs">External libraries</a></li>
+<li><a href="#perf">Performance hooks and experiments</a></li>
+<li><a href="#ambig">Ambiguities and open questions</a></li>
+</ol>
+</nav>
+
+<!-- ===================================================================== -->
+<h2 id="overview">Overview</h2>
+
+<p>The example is a thin driver: <code>main</code> calls <code>MPI_Init</code>, then <code>Kokkos::initialize</code>, parses the command line, and runs <code>Solver::setup()</code>, <code>solve()</code> and <code>finalize()</code> (<span class="cite">examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp:162-224</span>). It instantiates the solver with <code>Kokkos::DefaultExecutionSpace</code> and its memory space (<span class="cite">:212-216</span>), which is HIP and <code>HIPSpace</code> on tuolumne. All the work is in the header-only library; the solver uses <code>MPI_COMM_WORLD</code> directly.</p>
+
+<figure>
+<div class="svgwrap">
+<svg viewBox="0 0 1200 850" role="img" aria-label="Data flow of one Beatnik run: a one-time setup that builds and partitions the mesh, a time loop whose three Runge–Kutta stages each do halo exchanges, geometry, a Birkhoff–Rott velocity evaluation through the Canopy FMM, and global reductions, followed by remeshing, and periodic collective HDF5 checkpoints." xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">
+<defs>
+  <marker id="f1-a" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#222"/></marker>
+  <pattern id="f1-h" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><rect width="8" height="8" fill="#FFF6EA"/><line x1="0" y1="0" x2="0" y2="8" stroke="#E9B877" stroke-width="2.2"/></pattern>
+</defs>
+<rect width="1200" height="850" fill="#fff"/>
+<text x="600" y="34" text-anchor="middle" font-size="21" font-weight="700" fill="#111">Beatnik adaptive_mesh_bubble: data flow through one run</text>
+<text x="600" y="58" text-anchor="middle" font-size="13" fill="#444">FMM Birkhoff–Rott, dynamic remesh every step, Kokkos HIP backend. Circled numbers are the poster stages.</text>
+
+<!-- column headers -->
+<text x="145" y="92" text-anchor="middle" font-size="15" font-weight="700" fill="#111">① SETUP (once)</text>
+<text x="580" y="92" text-anchor="middle" font-size="15" font-weight="700" fill="#111">② TIME LOOP (every step)</text>
+<text x="1035" y="92" text-anchor="middle" font-size="15" font-weight="700" fill="#111">④ BR KERNEL · ⑤ I/O</text>
+
+<!-- Column A -->
+<g font-size="13" fill="#111">
+  <rect x="20" y="104" width="250" height="50" rx="6" fill="url(#f1-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="262" y="116" text-anchor="end" font-size="10" font-weight="700" fill="#8A4B00">CPU</text>
+  <text x="32" y="124">MPI_Init, Kokkos::initialize,</text><text x="32" y="142">parse CLI → SolverParams</text>
+
+  <rect x="20" y="166" width="250" height="50" rx="6" fill="url(#f1-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="262" y="178" text-anchor="end" font-size="10" font-weight="700" fill="#8A4B00">CPU</text>
+  <text x="32" y="186">Tessera::buildIcosphere:</text><text x="32" y="204">whole global mesh on every rank</text>
+
+  <rect x="20" y="228" width="250" height="50" rx="6" fill="url(#f1-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="262" y="240" text-anchor="end" font-size="10" font-weight="700" fill="#8A4B00">CPU+MPI</text>
+  <text x="32" y="248">partition faces into z-bands;</text><text x="32" y="266">distribute: owned + 2 ghost rings</text>
+
+  <rect x="20" y="290" width="250" height="50" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="262" y="302" text-anchor="end" font-size="10" font-weight="700" fill="#1F4E8C">GPU</text>
+  <text x="32" y="310">init φ = 0, S = 0, X = x;</text><text x="32" y="328">centre φ <tspan fill="#B3261E" font-weight="700">◆AR</tspan></text>
+
+  <rect x="20" y="352" width="250" height="50" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="262" y="364" text-anchor="end" font-size="10" font-weight="700" fill="#1F4E8C">GPU</text>
+  <text x="32" y="372">coldStart: V₀ <tspan fill="#B3261E" font-weight="700">◆AR</tspan>&#160;SUM,</text><text x="32" y="390">h⁰min <tspan fill="#B3261E" font-weight="700">◆AR</tspan>&#160;MIN</text>
+
+  <rect x="20" y="414" width="250" height="50" rx="6" fill="url(#f1-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="262" y="426" text-anchor="end" font-size="10" font-weight="700" fill="#8A4B00">CPU</text>
+  <text x="32" y="434">createBRSolver → BRSolverFMM</text><text x="32" y="452">(Canopy built at 1st evaluation)</text>
+
+  <rect x="20" y="476" width="250" height="50" rx="6" fill="#fff" stroke="#333" stroke-width="1.5"/>
+  <text x="262" y="488" text-anchor="end" font-size="10" font-weight="700" fill="#333">I/O</text>
+  <text x="32" y="496">startup checkpoint</text><text x="32" y="514">(collective HDF5, see ⑤)</text>
+</g>
+<g stroke="#222" stroke-width="1.5" marker-end="url(#f1-a)">
+  <line x1="145" y1="154" x2="145" y2="164"/><line x1="145" y1="216" x2="145" y2="226"/>
+  <line x1="145" y1="278" x2="145" y2="288"/><line x1="145" y1="340" x2="145" y2="350"/>
+  <line x1="145" y1="402" x2="145" y2="412"/><line x1="145" y1="464" x2="145" y2="474"/>
+</g>
+<rect x="20" y="548" width="250" height="112" rx="6" fill="#fff" stroke="#888" stroke-width="1.2"/>
+<g font-size="12.5" fill="#111">
+  <text x="32" y="568" font-weight="700">State per rank, device memory:</text>
+  <text x="32" y="588">Vertex AoSoA: x, φ, S, X (+ ids)</text>
+  <text x="32" y="606">Edge AoSoA, Face AoSoA</text>
+  <text x="32" y="624">owned rows first, then ghosts</text>
+  <text x="32" y="642">halo plans: device index views</text>
+</g>
+<line x1="270" y1="604" x2="298" y2="604" stroke="#222" stroke-width="2" marker-end="url(#f1-a)"/>
+
+<!-- Column B: loop -->
+<rect x="300" y="104" width="560" height="652" rx="10" fill="none" stroke="#333" stroke-width="1.6" stroke-dasharray="8 5"/>
+<text x="326" y="124" font-size="13" font-weight="700" fill="#111">for step = 1 … steps   (Solver::advanceOneStep)</text>
+<path d="M318,724 H308 V150 H318" fill="none" stroke="#222" stroke-width="1.5" marker-end="url(#f1-a)"/>
+
+<g font-size="13" fill="#111">
+  <rect x="320" y="136" width="520" height="40" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="332" y="161">chooseStepSize: min owned edge (GPU reduce) → <tspan fill="#B3261E" font-weight="700">◆AR</tspan>&#160;MIN → dt</text>
+
+  <rect x="320" y="188" width="520" height="346" rx="8" fill="#F5F9FE" stroke="#1F4E8C" stroke-width="2.2"/>
+  <text x="336" y="208" font-weight="700">TVD-RK3 (Shu–Osher): this block runs 3 times per step</text>
+  <text x="828" y="210" text-anchor="end" font-size="22" font-weight="700" fill="#1F4E8C">×3</text>
+  <line x1="330" y1="222" x2="330" y2="512" stroke="#1F4E8C" stroke-width="1.5" marker-end="url(#f1-a)"/>
+
+  <rect x="340" y="220" width="480" height="40" rx="6" fill="#fff" stroke="#5B2A86" stroke-width="2" stroke-dasharray="7 4"/>
+  <text x="352" y="245">③ mesh.haloExchange(): vertex, edge, face tuples</text>
+  <text x="810" y="245" text-anchor="end" font-size="10" font-weight="700" fill="#5B2A86">MPI P2P</text>
+
+  <rect x="340" y="268" width="480" height="40" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="352" y="293">geometry (areas, normals) + sheet vector S = −n̂ × ∇ₛφ</text>
+
+  <rect x="340" y="316" width="480" height="40" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="3"/>
+  <text x="352" y="341" font-weight="700">④ Birkhoff–Rott velocity u at owned vertices</text>
+  <text x="810" y="341" text-anchor="end" font-size="10" font-weight="700" fill="#1F4E8C">→ FMM</text>
+
+  <rect x="340" y="364" width="480" height="56" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="352" y="386">u·n̂ → remove volume flux <tspan fill="#B3261E" font-weight="700">◆AR</tspan>&#160;→ Bernoulli V</text>
+  <text x="352" y="406">φ̇ = A·V + μΔₛφ → subtract area-weighted mean <tspan fill="#B3261E" font-weight="700">◆AR</tspan></text>
+
+  <rect x="340" y="428" width="480" height="40" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="352" y="453">combine: q ← a₀·qⁿ + a₁·q + c·Δt·L(q)   (owned rows)</text>
+
+  <rect x="340" y="476" width="480" height="40" rx="6" fill="#fff" stroke="#5B2A86" stroke-width="2" stroke-dasharray="7 4"/>
+  <text x="352" y="501">finishStage: ③ haloExchange → geometry → centre φ <tspan fill="#B3261E" font-weight="700">◆AR</tspan></text>
+
+  <rect x="320" y="546" width="520" height="40" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="332" y="571">allFinite: NaN scan → <tspan fill="#B3261E" font-weight="700">◆AR</tspan>&#160;LAND (a stop is a global decision)</text>
+
+  <rect x="320" y="594" width="520" height="56" rx="6" fill="url(#f1-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="332" y="616">dynamic remesh: sizing field (<tspan fill="#B3261E" font-weight="700">◆AR</tspan>&#160;×n, halo), split long edges</text>
+  <text x="332" y="636">(Tessera), rebuild halo plans, re-centre φ, volume projection</text>
+  <text x="828" y="608" text-anchor="end" font-size="10" font-weight="700" fill="#8A4B00">CPU+GPU+MPI</text>
+
+  <rect x="320" y="658" width="520" height="36" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="332" y="681">record last-finite state (device copy of x, φ, S, X)</text>
+
+  <rect x="320" y="702" width="520" height="40" rx="6" fill="#fff" stroke="#333" stroke-width="1.5"/>
+  <text x="332" y="727">checkpoint if due → ⑤  ·  progress line if due (<tspan fill="#B3261E" font-weight="700">◆AR</tspan>)</text>
+</g>
+
+<!-- Column C -->
+<rect x="890" y="236" width="290" height="250" rx="8" fill="none" stroke="#555" stroke-width="1.5" stroke-dasharray="2 4"/>
+<text x="902" y="256" font-size="12.5" font-weight="700" fill="#111">BR solver: BRSolverFMM</text>
+<g font-size="12.5" fill="#111">
+  <rect x="902" y="266" width="266" height="62" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="914" y="284">Beatnik adapter: w = A·S, pack</text><text x="914" y="300">AoSoA, Cabana::migrate into</text><text x="914" y="316">Canopy's particle ownership</text>
+  <rect x="902" y="338" width="266" height="62" rx="6" fill="#DCEBFA" stroke="#333" stroke-width="1.8" stroke-dasharray="2 3"/>
+  <text x="914" y="356" font-weight="700">Canopy FMM (external):</text><text x="914" y="372">tree, P2M/M2M, M2L,</text><text x="914" y="388">L2L/L2P, P2P → ∇ tensor</text>
+  <rect x="902" y="410" width="266" height="62" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="914" y="428">contract → u = c·curl;</text><text x="914" y="444">reverse migrate to origin;</text><text x="914" y="460">scatter to owned rows</text>
+</g>
+<g stroke="#222" stroke-width="1.5" fill="none" marker-end="url(#f1-a)">
+  <line x1="1035" y1="328" x2="1035" y2="336"/><line x1="1035" y1="400" x2="1035" y2="408"/>
+  <path d="M822,330 H872 V296 H900"/>
+  <path d="M900,441 H862 V346 H824"/>
+</g>
+<text x="866" y="290" text-anchor="middle" font-size="10.5" fill="#333">x, w</text>
+<text x="868" y="456" text-anchor="middle" font-size="10.5" fill="#333">u</text>
+
+<rect x="890" y="560" width="290" height="176" rx="8" fill="none" stroke="#333" stroke-width="1.5"/>
+<text x="902" y="580" font-size="12.5" font-weight="700" fill="#111">⑤ Checkpoint I/O</text>
+<g font-size="12.5" fill="#111">
+  <rect x="902" y="590" width="266" height="62" rx="6" fill="url(#f1-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="914" y="608">full V/E/F copy device → host;</text><text x="914" y="624">Tessera writeMesh: collective</text><text x="914" y="640">parallel HDF5 (MPI-IO)</text>
+  <rect x="902" y="662" width="266" height="62" rx="6" fill="url(#f1-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="914" y="680">rank 0: /beatnik scalars,</text><text x="914" y="696">XDMF frame + series, _latest</text><text x="914" y="712">symlinks (4 barriers)</text>
+</g>
+<g stroke="#222" stroke-width="1.5" fill="none" marker-end="url(#f1-a)">
+  <line x1="1035" y1="652" x2="1035" y2="660"/>
+  <path d="M842,722 H872 V621 H900"/>
+</g>
+<text x="1035" y="756" text-anchor="middle" font-size="12" fill="#333">→ prefix_t…_step….h5 / .xmf on a parallel FS</text>
+
+<!-- Legend -->
+<g font-size="12.5" fill="#111">
+  <rect x="20" y="790" width="26" height="16" rx="3" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/><text x="54" y="803">GPU kernel (Kokkos, HIP)</text>
+  <rect x="240" y="790" width="26" height="16" rx="3" fill="url(#f1-h)" stroke="#8A4B00" stroke-width="1.5"/><text x="274" y="803">host (CPU) work</text>
+  <rect x="420" y="790" width="26" height="16" rx="3" fill="#fff" stroke="#5B2A86" stroke-width="2" stroke-dasharray="5 3"/><text x="454" y="803">MPI point-to-point</text>
+  <text x="620" y="803" fill="#B3261E" font-weight="700">◆AR</text><text x="656" y="803">MPI_Allreduce (global sync)</text>
+  <rect x="870" y="790" width="26" height="16" rx="3" fill="none" stroke="#333" stroke-width="1.8" stroke-dasharray="2 3"/><text x="904" y="803">external library (Canopy)</text>
+  <text x="20" y="832" font-size="12" fill="#444">Loop-back arrow (left edge) = next step. Thick-bordered box = the dominant compute kernel.</text>
+</g>
+</svg>
+</div>
+<figcaption><b>Figure 1. One run, end to end.</b> Setup builds the full icosphere on every rank, cuts it into z-latitude bands, and keeps a 2-ring ghost layer. Each step then runs three SSP-RK3 stages. Every stage does a whole-mesh halo exchange, rebuilds the geometry, evaluates the Birkhoff–Rott velocity through the Canopy FMM, assembles the right-hand side with two global reductions, and finishes with a second halo exchange and a third reduction. Remeshing, the finiteness check and checkpointing follow the three stages. Sources: <span class="cite">src/Beatnik_Solver.hpp:234-604</span>, <span class="cite">src/Beatnik_TimeIntegrator.hpp:131-174</span>, <span class="cite">src/Beatnik_ZModelSolver.hpp:196-304</span>.</figcaption>
+</figure>
+
+<!-- ===================================================================== -->
+<h2 id="setup">Stage 1: setup</h2>
+
+<div class="tbl"><table>
+<tr><th>#</th><th>What happens</th><th>Data structures</th><th>Memory space</th><th>Source</th></tr>
+<tr><td>1</td><td><code>MPI_Init</code> comes first, because "Kokkos may consult the rank when selecting a GPU". Then <code>Kokkos::initialize</code>, inside a scope so that every View dies before <code>Kokkos::finalize</code>.</td><td>none</td><td>none</td><td class="cite">adaptive_mesh_bubble.cpp:161-176</td></tr>
+<tr><td>2</td><td>Parse the CLI into <code>ClArgs</code> / <code>SolverParams</code>. Rank 0 echoes the configuration.</td><td><code>SolverParams</code> (plain structs)</td><td>host</td><td class="cite">adaptive_mesh_bubble.cpp:179-208; Solver.hpp:135-161</td></tr>
+<tr><td>3</td><td>Construct <code>Solver</code> and its <code>SurfaceMesh(comm)</code>. The communicator is <code>MPI_COMM_WORLD</code>, never duplicated.</td><td><code>SurfaceMesh</code> wraps a <code>Tessera::Mesh</code> + <code>MeshHalo</code></td><td>host objects</td><td class="cite">Solver.hpp:199-205</td></tr>
+<tr><td>4</td><td><code>InitialCondition::build</code> → <code>generateIcosphere</code>. <code>Tessera::buildIcosphere</code> builds the <b>whole global mesh on every rank</b> from a host triangle soup. It is then scaled and translated on device.</td><td>Vertex/Edge/Face <code>Cabana::AoSoA</code></td><td>built on host, stored in <code>MemorySpace</code></td><td class="cite">InitialCondition.hpp:107-152; MeshInterface.hpp:796-803, 1734-1751; tessera/src/Tessera_MeshBuilder.hpp:249-255</td></tr>
+<tr><td>5</td><td><code>distributeReplicated</code>. <code>facePartitionByAxis(axis=2)</code> sorts face centroids by z and cuts the sorted list into P contiguous blocks, with no communication. <code>Tessera::distribute(…, halo_depth = 2)</code> keeps owned entities plus a 2-ring closure; a vertex or edge belongs to the lowest rank among its incident faces. Halo plans are built, then the ghosts are filled.</td><td>owned-then-ghost AoSoA rows; <code>HaloExchangePlan</code> per entity kind</td><td>sort and closure on host; result on device</td><td class="cite">MeshInterface.hpp:441, 1756-1761; tessera/src/Tessera_Distribute.hpp:117-163, 221-237, 489-508</td></tr>
+<tr><td>6</td><td>Fields: φ = 0, S = 0; centre φ (one <code>MPI_Allreduce</code>); material position X = x.</td><td>slots in Tessera's vertex user pack (<code>u0</code>, <code>u1</code>, <code>u2</code>)</td><td>device</td><td class="cite">SurfaceState.hpp:171-189, 357-425, 615-628</td></tr>
+<tr><td>7</td><td><code>coldStart</code>: initial volume V₀ (<code>allReduceSum</code>) and initial minimum edge h⁰min (<code>allReduceMin</code>), the scale dt is measured against.</td><td>scalars</td><td>device reduce → host scalar</td><td class="cite">Restart.hpp:241-263</td></tr>
+<tr><td>8</td><td>Factories build the BR solver (<code>BRSolverFMM</code>), the quadrature, the Z-model, the integrator, AMR, remesh and quality objects. Canopy itself is built lazily, on the first evaluation.</td><td>polymorphic C++ objects</td><td>host</td><td class="cite">Solver.hpp:264-273; CreateBRSolver.hpp:51-77; FarFieldInterface.hpp:1421-1427</td></tr>
+<tr><td>9</td><td><code>resetReferenceState</code> (AMR reference area and curvature; includes a halo exchange), then the startup checkpoint.</td><td>face user pack</td><td>device</td><td class="cite">Solver.hpp:300-303; AdaptiveMesh.hpp:1283</td></tr>
+</table></div>
+
+<figure>
+<div class="svgwrap">
+<svg viewBox="0 0 1200 540" role="img" aria-label="Setup decomposition: the sphere is cut into horizontal latitude bands by sorting face centroids on z. Each rank keeps its band as owned entities plus two rings of each neighbouring band as ghosts, all in device-resident Cabana arrays." xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">
+<defs>
+  <clipPath id="f2-c"><circle cx="230" cy="290" r="180"/></clipPath>
+  <pattern id="f2-g" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(45)"><rect width="7" height="7" fill="#fff"/><line x1="0" y1="0" x2="0" y2="7" stroke="#5B2A86" stroke-width="2"/></pattern>
+  <pattern id="f2-h" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><rect width="8" height="8" fill="#FFF6EA"/><line x1="0" y1="0" x2="0" y2="8" stroke="#E9B877" stroke-width="2.2"/></pattern>
+  <marker id="f2-a" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#222"/></marker>
+</defs>
+<rect width="1200" height="540" fill="#fff"/>
+<text x="600" y="34" text-anchor="middle" font-size="20" font-weight="700" fill="#111">① Setup: replicated build, z-band partition, depth-2 ghost layer</text>
+
+<!-- sphere -->
+<g clip-path="url(#f2-c)">
+  <rect x="40" y="100" width="380" height="380" fill="#F4F4F4"/>
+  <rect x="40" y="290" width="380" height="90" fill="#DCEBFA"/>
+  <rect x="40" y="262" width="380" height="28" fill="url(#f2-g)"/>
+  <rect x="40" y="380" width="380" height="28" fill="url(#f2-g)"/>
+</g>
+<circle cx="230" cy="290" r="180" fill="none" stroke="#222" stroke-width="2"/>
+<g stroke="#222" stroke-width="1.6">
+  <line x1="74" y1="200" x2="386" y2="200"/><line x1="50" y1="290" x2="410" y2="290"/><line x1="74" y1="380" x2="386" y2="380"/>
+</g>
+<g font-size="14" font-weight="700" fill="#111" text-anchor="middle">
+  <text x="230" y="160">rank 3</text><text x="230" y="240">rank 2</text>
+  <text x="230" y="341">rank 1 (owned)</text><text x="230" y="440">rank 0</text>
+</g>
+<g font-size="12" fill="#5B2A86" font-weight="700">
+  <text x="425" y="280">ghost: 2 rings of rank 2</text>
+  <text x="425" y="398">ghost: 2 rings of rank 0</text>
+</g>
+<line x1="30" y1="470" x2="30" y2="110" stroke="#222" stroke-width="1.5" marker-end="url(#f2-a)"/>
+<text x="22" y="98" font-size="12.5" fill="#111">z (sort key)</text>
+<text x="230" y="505" text-anchor="middle" font-size="12.5" fill="#333">Faces are sorted by centroid z and cut into P equal-count blocks.</text>
+<text x="230" y="523" text-anchor="middle" font-size="12.5" fill="#333">Each rank computes the same answer locally: no messages.</text>
+
+<!-- right: setup steps -->
+<g font-size="12.5" fill="#111">
+  <text x="600" y="72" font-weight="700" font-size="14">Setup sequence (all ranks, collective)</text>
+  <rect x="600" y="84" width="580" height="30" rx="5" fill="url(#f2-h)" stroke="#8A4B00"/><text x="612" y="104">1  buildIcosphere(s): host triangle soup → full mesh on every rank, O(global)</text>
+  <rect x="600" y="118" width="580" height="30" rx="5" fill="#DCEBFA" stroke="#1F4E8C"/><text x="612" y="138">2  scaleAndTranslate: x ← c + r·p</text>
+  <rect x="600" y="152" width="580" height="30" rx="5" fill="url(#f2-h)" stroke="#8A4B00"/><text x="612" y="172">3  facePartitionByAxis(z): host copy, sort centroids, P blocks</text>
+  <rect x="600" y="186" width="580" height="30" rx="5" fill="url(#f2-h)" stroke="#8A4B00"/><text x="612" y="206">4  distribute(depth 2): owned + 2-ring closure; plans via MPI_Alltoall(v)</text>
+  <rect x="600" y="220" width="580" height="30" rx="5" fill="#fff" stroke="#5B2A86" stroke-width="2" stroke-dasharray="6 3"/><text x="612" y="240">5  haloExchange: fill ghost tuples (vertex, edge, face)</text>
+  <rect x="600" y="254" width="580" height="30" rx="5" fill="#DCEBFA" stroke="#1F4E8C"/><text x="612" y="274">6  init φ, S, X; centre φ <tspan fill="#B3261E" font-weight="700">◆AR</tspan></text>
+  <rect x="600" y="288" width="580" height="30" rx="5" fill="#DCEBFA" stroke="#1F4E8C"/><text x="612" y="308">7  coldStart: V₀ <tspan fill="#B3261E" font-weight="700">◆AR</tspan>&#160;SUM, h⁰min <tspan fill="#B3261E" font-weight="700">◆AR</tspan>&#160;MIN</text>
+  <rect x="600" y="322" width="580" height="30" rx="5" fill="#DCEBFA" stroke="#1F4E8C"/><text x="612" y="342">8  createBRSolver / quadrature; resetReferenceState (+ halo)</text>
+  <rect x="600" y="356" width="580" height="30" rx="5" fill="#fff" stroke="#333"/><text x="612" y="376">9  startup checkpoint (collective parallel HDF5)</text>
+</g>
+<!-- storage layout -->
+<g font-size="12.5" fill="#111">
+  <text x="600" y="416" font-weight="700" font-size="13.5">Per-rank storage after setup (device memory, MemorySpace = HIPSpace)</text>
+  <text x="600" y="444">Vertex AoSoA</text>
+  <rect x="700" y="430" width="360" height="22" fill="#DCEBFA" stroke="#1F4E8C"/><rect x="1060" y="430" width="110" height="22" fill="url(#f2-g)" stroke="#5B2A86"/>
+  <text x="880" y="446" text-anchor="middle">owned: gid, owner, x, φ, S, X</text><text x="1115" y="446" text-anchor="middle" font-weight="700" fill="#fff" stroke="#fff" stroke-width="3" paint-order="stroke">ghost</text><text x="1115" y="446" text-anchor="middle" font-weight="700" fill="#5B2A86">ghost</text>
+  <text x="600" y="474">Edge AoSoA</text>
+  <rect x="700" y="460" width="360" height="22" fill="#DCEBFA" stroke="#1F4E8C"/><rect x="1060" y="460" width="110" height="22" fill="url(#f2-g)" stroke="#5B2A86"/>
+  <text x="880" y="476" text-anchor="middle">owned: gid, owner, level, vertex/face gids</text>
+  <text x="600" y="504">Face AoSoA</text>
+  <rect x="700" y="490" width="360" height="22" fill="#DCEBFA" stroke="#1F4E8C"/><rect x="1060" y="490" width="110" height="22" fill="url(#f2-g)" stroke="#5B2A86"/>
+  <text x="880" y="506" text-anchor="middle">owned: corner gids, closure, user pack</text>
+  <text x="600" y="530" font-size="11.5" fill="#444">Hatched (purple) = ghost rows: copies of entities owned by a neighbour rank, refreshed by haloExchange.</text>
+</g>
+</svg>
+</div>
+<figcaption><b>Figure 2. Domain decomposition.</b> The partition is geometric and static. Faces are sorted by centroid z and split into P equal-count blocks, which gives latitude bands. Ownership of vertices and edges follows the lowest-ranked incident face. Each rank stores its owned entities followed by two rings of ghosts, enough for the two-ring stencil of the right-hand side. Nothing repartitions afterwards: <code>SurfaceMesh::redistribute</code> and <code>Comm::redistribute</code> throw <code>NOT_IMPLEMENTED</code> (<span class="cite">MeshInterface.hpp:1719-1723</span>, <span class="cite">Communication.hpp:382-388</span>). Remeshing therefore leaves refined regions on whichever rank owned the parent face (<span class="cite">tessera/src/Tessera_EdgeSplit.hpp:341-342, 438</span>). The equal-height drawing of the bands is a geometric aside, not something the code states: on a uniform icosphere, equal face counts mean equal areas, and equal-area spherical zones have equal height.</figcaption>
+</figure>
+
+<p><b>Why it is built this way.</b> The replicated build makes the partition deterministic and communication-free, and it reproduces the serial Python reference exactly, which the gold-file regression tests depend on. The cost is O(global) host memory and time on every rank at setup. Tessera already provides <code>buildIcosphereDistributed</code>, which is O(F/P) per rank (<span class="cite">tessera/src/Tessera_DistributedBuilder.hpp:760-800</span>). Beatnik's own comment calls switching to it "a two-line change" (<span class="cite">MeshInterface.hpp:717-725</span>), but it has not been made. <span class="b ok">confirmed</span></p>
+
+<!-- ===================================================================== -->
+<h2 id="loop">Stage 2: timestepping</h2>
+
+<p><code>Solver::solve()</code> loops <code>local_step &lt; steps</code> and breaks early when <code>--t-end</code> is reached (<span class="cite">Solver.hpp:337-358</span>). Each iteration calls <code>advanceOneStep()</code> (<span class="cite">:417-604</span>):</p>
+<ol>
+<li><code>++step</code>, then <code>chooseStepSize</code>. With <code>--adaptive-dt</code>, dt = max(dt_min, dt₀·min(1, h_min/h⁰min)^p). h_min is a device <code>parallel_reduce</code> over owned edges followed by <code>Comm::allReduceMin</code>, so every rank gets an identical dt (<span class="cite">TimeIntegrator.hpp:228-303</span>). The optional <code>--max-sheet-dt-product</code> clamp adds a halo exchange and two reductions, but it is off by default (<span class="cite">Params.hpp:779</span>).</li>
+<li>One TVD-RK3 step (<span class="cite">TimeIntegrator.hpp:131-174</span>).</li>
+<li><code>allFinite</code>: a device NaN scan, then <code>MPI_Allreduce(LAND)</code>. Stopping is collective, so no rank leaves the loop while its peers block (<span class="cite">SurfaceState.hpp:568-597</span>; <span class="cite">Communication.hpp:309-315</span>).</li>
+<li>Dynamic remesh, every <code>--remesh-every</code> steps (default 1), then <code>resetReferenceState</code>, <code>centerPotential</code>, <code>projectToVolume</code> (2 iterations) and another <code>allFinite</code> (<span class="cite">Solver.hpp:512-569</span>; <span class="cite">VolumeProjection.hpp:219-275</span>).</li>
+<li><code>recordLastFiniteState</code>: a device copy of the four owned arrays, so <code>finalize()</code> can write the last good state (<span class="cite">Solver.hpp:906-954</span>).</li>
+<li>Checkpoint if due; progress line if due (<span class="cite">:599-602</span>).</li>
+</ol>
+
+<h3>The integration scheme</h3>
+<p>Three-stage strong-stability-preserving Runge–Kutta in Shu–Osher form, applied to q = (x, φ) with the same weights for both components (<span class="cite">TimeIntegrator.hpp:75-92, 153-173</span>):</p>
+<pre>q⁽¹⁾  = qⁿ + Δt·L(qⁿ)
+q⁽²⁾  = ¾·qⁿ + ¼·q⁽¹⁾ + ¼·Δt·L(q⁽¹⁾)
+qⁿ⁺¹ = ⅓·qⁿ + ⅔·q⁽²⁾ + ⅔·Δt·L(q⁽²⁾)</pre>
+<p>All three stages run through one <code>combine(a₀, a₁, c)</code> kernel, so the stages cannot drift apart. It updates <b>owned rows only</b>; ghosts are refreshed afterwards by <code>finishStage</code>, which does a halo exchange, recomputes the geometry and re-centres φ. Re-centring every stage is required to match the reference, because the next stage differentiates the centred field (<span class="cite">:115-129, 310-341</span>).</p>
+
+<h3>One right-hand-side evaluation L(q)</h3>
+<p><code>ZModelSolver::computeRightHandSidePotential</code> (<span class="cite">ZModelSolver.hpp:196-304</span>). Every step below is a Kokkos <code>RangePolicy&lt;ExecutionSpace&gt;</code> kernel on device, followed by <code>Kokkos::fence()</code>.</p>
+<div class="tbl"><table>
+<tr><th>Step</th><th>Work</th><th>Range</th><th>Communication</th><th>Lines</th></tr>
+<tr><td>0</td><td><code>mesh.haloExchange()</code></td><td>ghost rows</td><td>3 sequential neighbour rounds (V, E, F)</td><td class="cite">:207</td></tr>
+<tr><td>1</td><td>geometry: face and vertex areas, normals</td><td>all local faces → local vertices</td><td>none (owned rows complete, ghosts partial)</td><td class="cite">:211-212</td></tr>
+<tr><td>2</td><td>sheet vector S = −n̂ × ∇ₛφ</td><td>local</td><td>none</td><td class="cite">:217</td></tr>
+<tr><td>3</td><td><b>Birkhoff–Rott velocity</b> (see <a href="#br">stage 4</a>)</td><td>owned targets</td><td>FMM: Cabana migrates, Canopy internals, 2 Allreduces</td><td class="cite">:223-225</td></tr>
+<tr><td>4</td><td>u·n̂; velocity mode</td><td>owned</td><td>none</td><td class="cite">:230-260</td></tr>
+<tr><td>5</td><td>surface tension, if σ ≠ 0 (off by default)</td><td>owned</td><td>none</td><td class="cite">:264-265</td></tr>
+<tr><td>6</td><td>remove the volume flux</td><td>owned</td><td><code>MPI_Allreduce</code> SUM of 2 doubles</td><td class="cite">:268-270; VolumeProjection.hpp:150</td></tr>
+<tr><td>7–8</td><td>Bernoulli V; φ̇ = σ_f·A·V + μΔₛφ (cotangent Laplacian)</td><td>owned</td><td>none</td><td class="cite">:273-299</td></tr>
+<tr><td>9</td><td>subtract the area-weighted mean of φ̇</td><td>owned</td><td><code>MPI_Allreduce</code> SUM of 2 doubles</td><td class="cite">:303, 620-663</td></tr>
+</table></div>
+<p>The integrator allocates its scratch once and reuses it (<code>resizeScalar</code>/<code>resizeVector</code> reallocate only when the size changes). <code>MeshGeometry</code>, however, is constructed fresh twice per stage: once in the RHS and once in <code>finishStage</code>. The code says so at <span class="cite">TimeIntegrator.hpp:126-129</span> ("at 162 vertices is free").</p>
+
+<figure>
+<div class="svgwrap">
+<svg viewBox="0 0 1200 520" role="img" aria-label="Timeline of synchronisation points in one timestep: one Allreduce for dt, then three Runge–Kutta stages each with two whole-mesh halo exchanges, one FMM evaluation and three Allreduces, then the finiteness check, the remesh with many small Allreduces and a halo-plan rebuild, the volume projection and a second finiteness check. The halo exchange opening stages 2 and 3 is marked as likely redundant." xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">
+<defs>
+  <pattern id="f3-r" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(45)"><rect width="7" height="7" fill="#fff"/><line x1="0" y1="0" x2="0" y2="7" stroke="#bbb" stroke-width="2"/></pattern>
+  <pattern id="f3-h" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><rect width="8" height="8" fill="#FFF6EA"/><line x1="0" y1="0" x2="0" y2="8" stroke="#E9B877" stroke-width="2.2"/></pattern>
+</defs>
+<rect width="1200" height="520" fill="#fff"/>
+<text x="600" y="32" text-anchor="middle" font-size="20" font-weight="700" fill="#111">② Synchronisation points in one timestep</text>
+<text x="600" y="54" text-anchor="middle" font-size="12.5" fill="#444">FMM path, dynamic remesh every step, no checkpoint. Read left to right, top to bottom.</text>
+
+<g font-size="13" font-weight="700" fill="#111">
+  <text x="20" y="94">before RK</text><text x="20" y="149">RK stage 1</text><text x="20" y="209">RK stage 2</text><text x="20" y="269">RK stage 3</text><text x="20" y="344">after RK</text>
+</g>
+<polygon points="170,79 181,90 170,101 159,90" fill="#fff" stroke="#B3261E" stroke-width="2.2"/><text x="170" y="94" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B3261E">AR</text><text x="190" y="94" font-size="12" fill="#111">dt: min owned edge length (MIN)</text>
+
+<!-- stage rows -->
+<g font-size="12" fill="#111">
+  <!-- stage 1 -->
+  <rect x="140" y="128" width="88" height="34" rx="5" fill="#fff" stroke="#5B2A86" stroke-width="2" stroke-dasharray="6 3"/><text x="184" y="149" text-anchor="middle">halo V·E·F</text>
+  <!-- stage 2/3 openers: likely redundant -->
+  <rect x="140" y="188" width="88" height="34" rx="5" fill="url(#f3-r)" stroke="#5B2A86" stroke-width="2" stroke-dasharray="6 3"/><text x="184" y="209" text-anchor="middle" font-weight="700">halo †</text>
+  <rect x="140" y="248" width="88" height="34" rx="5" fill="url(#f3-r)" stroke="#5B2A86" stroke-width="2" stroke-dasharray="6 3"/><text x="184" y="269" text-anchor="middle" font-weight="700">halo †</text>
+</g>
+<g font-size="12" fill="#111">
+  <rect x="236" y="128" width="70" height="34" rx="5" fill="#DCEBFA" stroke="#1F4E8C"/><text x="271" y="149" text-anchor="middle">geom, S</text>
+  <rect x="314" y="128" width="200" height="34" rx="5" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="3"/><text x="414" y="149" text-anchor="middle" font-weight="700">FMM evaluation (④)</text>
+  <polygon points="538,134 549,145 538,156 527,145" fill="#fff" stroke="#B3261E" stroke-width="2.2"/><text x="538" y="149" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B3261E">AR</text><text x="538" y="174" text-anchor="middle" font-size="10">vol. flux</text>
+  <polygon points="590,134 601,145 590,156 579,145" fill="#fff" stroke="#B3261E" stroke-width="2.2"/><text x="590" y="149" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B3261E">AR</text><text x="590" y="174" text-anchor="middle" font-size="10">φ̇ mean</text>
+  <rect x="616" y="128" width="72" height="34" rx="5" fill="#DCEBFA" stroke="#1F4E8C"/><text x="652" y="149" text-anchor="middle">combine</text>
+  <rect x="696" y="128" width="88" height="34" rx="5" fill="#fff" stroke="#5B2A86" stroke-width="2" stroke-dasharray="6 3"/><text x="740" y="149" text-anchor="middle">halo V·E·F</text>
+  <rect x="792" y="128" width="56" height="34" rx="5" fill="#DCEBFA" stroke="#1F4E8C"/><text x="820" y="149" text-anchor="middle">geom</text>
+  <polygon points="872,134 883,145 872,156 861,145" fill="#fff" stroke="#B3261E" stroke-width="2.2"/><text x="872" y="149" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B3261E">AR</text><text x="872" y="174" text-anchor="middle" font-size="10">centre φ</text>
+</g>
+<g font-size="12" fill="#111" transform="translate(0,60)">
+  <rect x="236" y="128" width="70" height="34" rx="5" fill="#DCEBFA" stroke="#1F4E8C"/><text x="271" y="149" text-anchor="middle">geom, S</text>
+  <rect x="314" y="128" width="200" height="34" rx="5" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="3"/><text x="414" y="149" text-anchor="middle" font-weight="700">FMM evaluation (④)</text>
+  <polygon points="538,134 549,145 538,156 527,145" fill="#fff" stroke="#B3261E" stroke-width="2.2"/><text x="538" y="149" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B3261E">AR</text><text x="538" y="174" text-anchor="middle" font-size="10">vol. flux</text>
+  <polygon points="590,134 601,145 590,156 579,145" fill="#fff" stroke="#B3261E" stroke-width="2.2"/><text x="590" y="149" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B3261E">AR</text><text x="590" y="174" text-anchor="middle" font-size="10">φ̇ mean</text>
+  <rect x="616" y="128" width="72" height="34" rx="5" fill="#DCEBFA" stroke="#1F4E8C"/><text x="652" y="149" text-anchor="middle">combine</text>
+  <rect x="696" y="128" width="88" height="34" rx="5" fill="#fff" stroke="#5B2A86" stroke-width="2" stroke-dasharray="6 3"/><text x="740" y="149" text-anchor="middle">halo V·E·F</text>
+  <rect x="792" y="128" width="56" height="34" rx="5" fill="#DCEBFA" stroke="#1F4E8C"/><text x="820" y="149" text-anchor="middle">geom</text>
+  <polygon points="872,134 883,145 872,156 861,145" fill="#fff" stroke="#B3261E" stroke-width="2.2"/><text x="872" y="149" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B3261E">AR</text><text x="872" y="174" text-anchor="middle" font-size="10">centre φ</text>
+</g>
+<g font-size="12" fill="#111" transform="translate(0,120)">
+  <rect x="236" y="128" width="70" height="34" rx="5" fill="#DCEBFA" stroke="#1F4E8C"/><text x="271" y="149" text-anchor="middle">geom, S</text>
+  <rect x="314" y="128" width="200" height="34" rx="5" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="3"/><text x="414" y="149" text-anchor="middle" font-weight="700">FMM evaluation (④)</text>
+  <polygon points="538,134 549,145 538,156 527,145" fill="#fff" stroke="#B3261E" stroke-width="2.2"/><text x="538" y="149" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B3261E">AR</text><text x="538" y="174" text-anchor="middle" font-size="10">vol. flux</text>
+  <polygon points="590,134 601,145 590,156 579,145" fill="#fff" stroke="#B3261E" stroke-width="2.2"/><text x="590" y="149" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B3261E">AR</text><text x="590" y="174" text-anchor="middle" font-size="10">φ̇ mean</text>
+  <rect x="616" y="128" width="72" height="34" rx="5" fill="#DCEBFA" stroke="#1F4E8C"/><text x="652" y="149" text-anchor="middle">combine</text>
+  <rect x="696" y="128" width="88" height="34" rx="5" fill="#fff" stroke="#5B2A86" stroke-width="2" stroke-dasharray="6 3"/><text x="740" y="149" text-anchor="middle">halo V·E·F</text>
+  <rect x="792" y="128" width="56" height="34" rx="5" fill="#DCEBFA" stroke="#1F4E8C"/><text x="820" y="149" text-anchor="middle">geom</text>
+  <polygon points="872,134 883,145 872,156 861,145" fill="#fff" stroke="#B3261E" stroke-width="2.2"/><text x="872" y="149" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B3261E">AR</text><text x="872" y="174" text-anchor="middle" font-size="10">centre φ</text>
+</g>
+
+<!-- per-stage tally -->
+<g font-size="12" fill="#111">
+  <rect x="906" y="124" width="276" height="162" rx="6" fill="#fafafa" stroke="#999"/>
+  <text x="918" y="144" font-weight="700">Per RK stage</text>
+  <text x="918" y="164">• 2 mesh halo exchanges</text>
+  <text x="918" y="182">   = 6 Isend/Irecv/Waitall rounds</text>
+  <text x="918" y="200">• 3 Beatnik Allreduces (2 doubles each)</text>
+  <text x="918" y="218">• 1 FMM evaluation: 1–3 Cabana</text>
+  <text x="918" y="236">   Distributor + migrate pairs,</text>
+  <text x="918" y="254">   1–2 Allreduces, plus Canopy's</text>
+  <text x="918" y="272">   internal exchanges</text>
+</g>
+
+<!-- after RK -->
+<g font-size="12" fill="#111">
+  <polygon points="160,329 171,340 160,351 149,340" fill="#fff" stroke="#B3261E" stroke-width="2.2"/><text x="160" y="344" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B3261E">AR</text><text x="160" y="369" text-anchor="middle" font-size="10">allFinite</text>
+  <rect x="186" y="318" width="420" height="46" rx="5" fill="url(#f3-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="196" y="337">dynamic remesh: ≈11 diagnostic AR, ≤8 × (AR LOR + vertex halo),</text>
+  <text x="196" y="355">split (Tessera: ≥6 Alltoallv, Exscan, halo-plan rebuild), halo V·E·F</text>
+  <rect x="614" y="323" width="78" height="34" rx="5" fill="#fff" stroke="#5B2A86" stroke-width="2" stroke-dasharray="6 3"/><text x="653" y="344" text-anchor="middle">halo (ref.)</text>
+  <polygon points="712,329 723,340 712,351 701,340" fill="#fff" stroke="#B3261E" stroke-width="2.2"/><text x="712" y="344" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B3261E">AR</text><text x="712" y="369" text-anchor="middle" font-size="10">centre φ</text>
+  <polygon points="746,329 757,340 746,351 735,340" fill="#fff" stroke="#B3261E" stroke-width="2.2"/><text x="746" y="344" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B3261E">AR</text><polygon points="774,329 785,340 774,351 763,340" fill="#fff" stroke="#B3261E" stroke-width="2.2"/><text x="774" y="344" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B3261E">AR</text><text x="760" y="369" text-anchor="middle" font-size="10">vol. proj ×2</text>
+  <rect x="796" y="323" width="50" height="34" rx="5" fill="#fff" stroke="#5B2A86" stroke-width="2" stroke-dasharray="6 3"/><text x="821" y="344" text-anchor="middle">halo</text>
+  <polygon points="868,329 879,340 868,351 857,340" fill="#fff" stroke="#B3261E" stroke-width="2.2"/><text x="868" y="344" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B3261E">AR</text><text x="868" y="369" text-anchor="middle" font-size="10">allFinite</text>
+  <rect x="896" y="323" width="286" height="34" rx="5" fill="#fff" stroke="#333" stroke-dasharray="3 3"/><text x="1039" y="344" text-anchor="middle">checkpoint / progress (only if due)</text>
+</g>
+
+<!-- totals -->
+<g font-size="13" fill="#111">
+  <text x="20" y="410" font-weight="700">Per step, counted from source (time integration only):</text>
+  <text x="20" y="432">6 mesh halo exchanges (18 neighbour rounds) · 3 FMM evaluations · 16–17 Beatnik-level MPI_Allreduce calls of ≤ 9 words each ·</text>
+  <text x="20" y="452">up to 9 Cabana Distributor constructions (each an MPI_Comm_dup, a Reduce_scatter and a Barrier) and 9 migrates (each ending in a Barrier).</text>
+  <text x="20" y="476" font-size="12" fill="#444">† Likely redundant: the previous stage's finishStage has just exchanged, and centerPotential shifts ghost rows too (SurfaceState.hpp:415-423). See §3.7.</text>
+</g>
+<g font-size="12" fill="#111">
+  <rect x="20" y="490" width="24" height="16" rx="3" fill="#fff" stroke="#5B2A86" stroke-width="2" stroke-dasharray="5 3"/><text x="50" y="503">halo exchange (P2P)</text>
+  <polygon points="210,487 221,498 210,509 199,498" fill="#fff" stroke="#B3261E" stroke-width="2.2"/><text x="210" y="502" text-anchor="middle" font-size="8.5" font-weight="700" fill="#B3261E">AR</text><text x="228" y="503">MPI_Allreduce</text>
+  <rect x="340" y="490" width="24" height="16" rx="3" fill="#DCEBFA" stroke="#1F4E8C"/><text x="370" y="503">GPU compute</text>
+  <rect x="480" y="490" width="24" height="16" rx="3" fill="url(#f3-h)" stroke="#8A4B00"/><text x="510" y="503">mixed host/device/MPI</text>
+</g>
+</svg>
+</div>
+<figcaption><b>Figure 3. Every synchronisation point in one timestep.</b> Point-to-point traffic is dominated by the six whole-mesh halo exchanges and the FMM's internal exchanges. Latency comes mostly from many tiny Allreduces: at least 16 per step, of 1–9 words each, before the remesher adds its own. The Beatnik-level counts come from <span class="cite">TimeIntegrator.hpp:262</span>, <span class="cite">VolumeProjection.hpp:150</span>, <span class="cite">ZModelSolver.hpp:634</span>, <span class="cite">SurfaceState.hpp:388, 596</span>, and <span class="cite">FarFieldInterface.hpp:1457, 1677</span>. The LAND check at <span class="cite">:1457</span> runs only on the reuse path, which is why the count is 16–17. The remesh counts come from <span class="cite">DynamicRemesh.hpp:646, 998-1052, 1097, 1257-1260, 1290, 1327</span>.</figcaption>
+</figure>
+
+<!-- ===================================================================== -->
+<h2 id="mpi">Stage 3: halo exchanges, and all MPI communication</h2>
+
+<p>Beatnik itself issues only <code>MPI_Allreduce</code>, one ring of <code>MPI_Sendrecv</code> (the direct BR solver, not used by default) and <code>MPI_Barrier</code> (I/O). All point-to-point traffic belongs to the libraries:</p>
+<ul>
+<li><b>Tessera</b>: mesh halo, mesh edits, halo plans.</li>
+<li><b>Cabana</b>: <code>Distributor</code>/<code>migrate</code> in the FMM adapter.</li>
+<li><b>Canopy</b>: the FMM's internal exchanges.</li>
+</ul>
+
+<h3>3.1 Neighbour discovery</h3>
+<ul>
+<li><b>No topology communicator.</b> Beatnik and Tessera never call <code>MPI_Comm_dup</code> or <code>MPI_Comm_split</code>, and never build a Cartesian, graph or dist-graph communicator or use neighbourhood collectives. The solver passes <code>MPI_COMM_WORLD</code> through unchanged (<span class="cite">adaptive_mesh_bubble.cpp:215-216</span>, <span class="cite">Solver.hpp:199-203</span>). <span class="b ok">confirmed</span> by grep across Beatnik and Tessera. Cabana, however, duplicates the communicator inside every <code>CommunicationPlanBase</code> constructor (<span class="cite">cabana/core/src/Cabana_CommunicationPlanBase.hpp:441-458</span>), and the FMM adapter builds up to three of those per evaluation.</li>
+<li><b>Peers come from ghost ownership.</b> After <code>distribute</code>, each rank knows every ghost entity as a pair (gid, owning rank), which gives the receive side directly. For the send side, each rank tells every owner which of its entities it ghosts: <code>allToAllV</code>, which is a dense <code>MPI_Alltoall</code> of counts followed by <code>MPI_Alltoallv</code> of gids, on host buffers. The owner maps those gids to local indices, and that list is its send list (<span class="cite">tessera/src/Tessera_Distribute.hpp:71-102</span>; <span class="cite">tessera/src/Tessera_AllToAllV.hpp:89, 101</span>). <span class="b ok">confirmed</span></li>
+<li><b>The plan is a custom object, not a Cabana Halo.</b> <code>HaloExchangePlan</code> holds peer lists and offsets as host <code>std::vector</code>s, the send and receive indices as device <code>Kokkos::View</code>s, and two persistent device buffer pools (<span class="cite">tessera/src/Tessera_HaloExchange.hpp:53-121</span>). There is one plan per entity kind: vertex, edge and face (<span class="cite">Tessera_Distribute.hpp:39-51</span>).</li>
+<li><b>When plans are rebuilt.</b> Once at setup. Then inside <code>rebuildHalo</code> at the end of every <code>splitEdges</code> (<span class="cite">tessera/src/Tessera_EdgeSplit.hpp:885</span>), so on every remesh step in which any edge splits. The rebuild is coordinator-based and dense: roughly 10–20 <code>allToAllV</code> rounds plus a few Allreduces, then three <code>buildKindPlan</code> calls (<span class="cite">tessera/src/Tessera_HaloRebuild.hpp:238-692</span>). <span class="b inf">inferred</span> The round count was tallied by the trace and not re-counted here.</li>
+<li><b>Expected peer count: two (the bands above and below).</b> This holds as long as each band is thicker than the two-ring halo. Very thin bands, at large P on a small mesh, will reach further neighbours. <span class="b inf">inferred</span> Not measured.</li>
+</ul>
+
+<figure>
+<div class="svgwrap">
+<svg viewBox="0 0 1200 330" role="img" aria-label="How a rank discovers its halo neighbours: from its ghost list it knows the owner of each ghost, and it tells each owner what it ghosts with a dense all-to-all exchange on host buffers. The owner turns the received ids into its send list, and the index lists are copied to the device." xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">
+<defs>
+  <marker id="f5-a" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#222"/></marker>
+  <pattern id="f5-h" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><rect width="8" height="8" fill="#FFF6EA"/><line x1="0" y1="0" x2="0" y2="8" stroke="#E9B877" stroke-width="2.2"/></pattern>
+</defs>
+<rect width="1200" height="330" fill="#fff"/>
+<text x="600" y="32" text-anchor="middle" font-size="20" font-weight="700" fill="#111">③ Neighbour discovery: building one HaloExchangePlan</text>
+<text x="600" y="54" text-anchor="middle" font-size="12.5" fill="#444">Tessera detail::buildKindPlan, run once per entity kind (vertex, edge, face)</text>
+<g font-size="12.5" fill="#111">
+  <rect x="20" y="80" width="200" height="118" rx="6" fill="url(#f5-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="32" y="100" font-weight="700">1  ghost list (host)</text><text x="32" y="122">(gid, owner) for every</text><text x="32" y="140">ghost, known from the</text><text x="32" y="158">partition; grouped by</text><text x="32" y="176">owner = recv list</text>
+  <rect x="257" y="80" width="200" height="118" rx="6" fill="#fff" stroke="#B3261E" stroke-width="2"/>
+  <text x="269" y="100" font-weight="700">2  MPI_Alltoall</text><text x="269" y="122">request counts to</text><text x="269" y="140">ALL P ranks</text><text x="269" y="158">(dense, host buffers)</text><text x="269" y="186" font-size="11" font-weight="700" fill="#B3261E">COLLECTIVE</text>
+  <rect x="494" y="80" width="200" height="118" rx="6" fill="#fff" stroke="#B3261E" stroke-width="2"/>
+  <text x="506" y="100" font-weight="700">3  MPI_Alltoallv</text><text x="506" y="122">ghosted gids → each</text><text x="506" y="140">owner (host buffers)</text><text x="506" y="186" font-size="11" font-weight="700" fill="#B3261E">COLLECTIVE</text>
+  <rect x="731" y="80" width="200" height="118" rx="6" fill="url(#f5-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="743" y="100" font-weight="700">4  owner side (host)</text><text x="743" y="122">gid → local index:</text><text x="743" y="140">this is my send list,</text><text x="743" y="158">ordered by ghoster's</text><text x="743" y="176">gid order</text>
+  <rect x="968" y="80" width="212" height="118" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="980" y="100" font-weight="700">5  setFromHost</text><text x="980" y="122">peers + offsets: host</text><text x="980" y="140">send_idx / recv_idx:</text><text x="980" y="158">copied host → device</text><text x="980" y="176">(plus new buffer pools)</text>
+</g>
+<g stroke="#222" stroke-width="1.8" marker-end="url(#f5-a)">
+  <line x1="220" y1="139" x2="255" y2="139"/><line x1="457" y1="139" x2="492" y2="139"/><line x1="694" y1="139" x2="729" y2="139"/><line x1="931" y1="139" x2="966" y2="139"/>
+</g>
+<g font-size="12.5" fill="#111">
+  <text x="20" y="236"><tspan font-weight="700">When:</tspan>&#160;once at setup (Tessera::distribute), and again in rebuildHalo after every splitEdges, i.e. on every remesh step that splits an edge.</text>
+  <text x="20" y="258"><tspan font-weight="700">No MPI topology:</tspan>&#160;peers are explicit lists on MPI_COMM_WORLD (tag 0). Discovery is O(P) per rank because the all-to-all is dense.</text>
+  <text x="20" y="280"><tspan font-weight="700">Side effect:</tspan>&#160;a rebuild replaces the plan object, including its registered device buffers, so the next exchange re-allocates them.</text>
+  <text x="20" y="310" font-size="11.5" fill="#444">tessera/src/Tessera_Distribute.hpp:71-102 · Tessera_AllToAllV.hpp:64-107 · Tessera_HaloExchange.hpp:88-120 · Tessera_HaloRebuild.hpp:682-687</text>
+</g>
+</svg>
+</div>
+<figcaption><b>Figure 4. Neighbour discovery.</b> Discovery reuses information the rank already has, namely its ghosts' owners, and needs one dense all-to-all to learn the reverse direction. It runs on the host. The result is an explicit send and receive list per peer, with the index arrays copied to the device for the pack and unpack kernels.</figcaption>
+</figure>
+
+<h3>3.2 How a halo exchange is implemented</h3>
+<p><code>SurfaceMesh::haloExchange()</code> is one line: <code>Tessera::haloExchange(_mesh, _halo)</code> (<span class="cite">MeshInterface.hpp:1348</span>). That function runs three exchanges back to back, one for each entity kind (<span class="cite">tessera/src/Tessera_Distribute.hpp:521-528</span>). Each kind runs the same five steps (<span class="cite">tessera/src/Tessera_HaloExchange.hpp:134-218</span>) <span class="b ok">confirmed</span>:</p>
+<ol>
+<li><b>Pack on device.</b> Kernel <code>tessera_halo_pack</code> copies whole AoSoA tuples, <code>out(i) = src.getTuple(send_idx(i))</code>, into a persistent device send buffer, then fences (<span class="cite">:156-169</span>).</li>
+<li><b>Post.</b> <code>MPI_Irecv</code> for every receive peer, then <code>MPI_Isend</code> for every send peer. Each message is one contiguous segment of a single registered region per direction, and the MPI datatype is one whole tuple (<code>MPI_Type_contiguous</code>, created and freed on every call) (<span class="cite">:171-194, 201</span>).</li>
+<li><b>Wait.</b> <code>MPI_Waitall</code> on the receives, then on the sends (<span class="cite">:195-200</span>).</li>
+<li><b>Unpack on device.</b> Kernel <code>tessera_halo_unpack</code> scatters received tuples into the ghost slots, then fences (<span class="cite">:204-217</span>).</li>
+<li><b>GPU-aware MPI, no host staging.</b> The buffers are a <code>RegisteredBufferPool&lt;char, MemorySpace&gt;</code>: one grow-only device allocation per direction (1.5× headroom), kept so the Slingshot NIC does not register new memory on every call (<span class="cite">tessera/src/Tessera_RegisteredBufferPool.hpp</span>). The device pointers go straight to MPI. That requires <code>MPICH_GPU_SUPPORT_ENABLED=1</code>, which <span class="cite">scripts/tuolumne/runtime_env.sh:24</span> sets. The tuning variables <code>GTL_DREG_CACHE_SIZE</code> and <code>HSA_XNACK</code> are set there too.</li>
+</ol>
+
+<figure>
+<div class="svgwrap">
+<svg viewBox="0 0 1200 660" role="img" aria-label="Halo exchange between neighbouring latitude-band ranks. Rank r gathers the boundary entities it owns into a device send buffer, posts nonblocking sends to ranks r minus 1 and r plus 1 using device pointers, receives their boundary entities into a device receive buffer, waits, and scatters them into its ghost rows. This repeats for vertices, then edges, then faces." xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">
+<defs>
+  <marker id="f4-a" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#222"/></marker>
+  <marker id="f4-p" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5B2A86"/></marker>
+  <pattern id="f4-g" patternUnits="userSpaceOnUse" width="7" height="7" patternTransform="rotate(45)"><rect width="7" height="7" fill="#fff"/><line x1="0" y1="0" x2="0" y2="7" stroke="#5B2A86" stroke-width="2"/></pattern>
+  <clipPath id="f4-c"><circle cx="150" cy="330" r="120"/></clipPath>
+</defs>
+<rect width="1200" height="660" fill="#fff"/>
+<text x="600" y="34" text-anchor="middle" font-size="20" font-weight="700" fill="#111">③ Halo exchange between neighbouring z-bands (Tessera::haloExchange)</text>
+<text x="600" y="56" text-anchor="middle" font-size="12.5" fill="#444">One mesh.haloExchange() = this pattern for vertices, then edges, then faces. All buffers are in device memory.</text>
+
+<!-- mini sphere -->
+<g clip-path="url(#f4-c)">
+  <rect x="20" y="200" width="270" height="270" fill="#F4F4F4"/>
+  <rect x="20" y="290" width="270" height="80" fill="#DCEBFA"/>
+  <rect x="20" y="270" width="270" height="20" fill="url(#f4-g)"/>
+  <rect x="20" y="370" width="270" height="20" fill="url(#f4-g)"/>
+</g>
+<circle cx="150" cy="330" r="120" fill="none" stroke="#222" stroke-width="2"/>
+<line x1="38" y1="290" x2="262" y2="290" stroke="#222" stroke-width="1.5"/><line x1="38" y1="370" x2="262" y2="370" stroke="#222" stroke-width="1.5"/>
+<g font-size="13" font-weight="700" fill="#111" text-anchor="middle"><text x="150" y="250">r + 1</text><text x="150" y="336">rank r</text><text x="150" y="425">r − 1</text></g>
+<g font-size="11.5" fill="#333" text-anchor="middle"><text x="150" y="480">rank r stores its band (owned) plus</text><text x="150" y="496">2 rings of each neighbour band</text><text x="150" y="512">(hatched = ghost)</text></g>
+
+<!-- rank frames -->
+<rect x="320" y="84" width="860" height="84" rx="8" fill="none" stroke="#999" stroke-dasharray="4 3"/>
+<rect x="320" y="232" width="860" height="250" rx="8" fill="none" stroke="#222" stroke-width="1.5"/>
+<rect x="320" y="500" width="860" height="84" rx="8" fill="none" stroke="#999" stroke-dasharray="4 3"/>
+<g font-size="13" font-weight="700" fill="#111"><text x="332" y="104">rank r + 1</text><text x="332" y="252">rank r (detail)</text><text x="332" y="520">rank r − 1</text></g>
+
+<!-- r+1 -->
+<g font-size="11.5" fill="#111">
+  <rect x="332" y="124" width="200" height="28" fill="#DCEBFA" stroke="#1F4E8C"/><rect x="532" y="124" width="60" height="28" fill="url(#f4-g)" stroke="#5B2A86"/><text x="432" y="142" text-anchor="middle">AoSoA (owned | ghost)</text>
+  <rect x="640" y="124" width="170" height="28" fill="#C9DDF4" stroke="#1F4E8C"/><text x="725" y="142" text-anchor="middle">recv pool</text>
+  <rect x="880" y="124" width="170" height="28" fill="#C9DDF4" stroke="#1F4E8C"/><text x="965" y="142" text-anchor="middle">send pool</text>
+</g>
+<!-- r detail -->
+<g font-size="12" fill="#111">
+  <text x="332" y="276" font-size="11.5" fill="#333">owned rows   (▮ = boundary entities listed in send_idx)</text><text x="645" y="276" text-anchor="middle" font-size="11.5" fill="#333">ghost rows</text>
+  <rect x="332" y="282" width="268" height="30" fill="#DCEBFA" stroke="#1F4E8C"/>
+  <rect x="600" y="282" width="90" height="30" fill="url(#f4-g)" stroke="#5B2A86" stroke-width="1.5"/>
+  <g fill="#1F4E8C"><rect x="346" y="284" width="8" height="26"/><rect x="372" y="284" width="8" height="26"/><rect x="548" y="284" width="8" height="26"/><rect x="574" y="284" width="8" height="26"/></g>
+
+  <rect x="332" y="340" width="200" height="40" rx="5" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="342" y="356" font-weight="700">1 pack kernel (GPU)</text><text x="342" y="372" font-size="11">out(i) = tuple(send_idx(i))</text>
+  <rect x="560" y="340" width="110" height="34" fill="#C9DDF4" stroke="#1F4E8C"/><rect x="670" y="340" width="110" height="34" fill="#C9DDF4" stroke="#1F4E8C"/>
+  <text x="615" y="361" text-anchor="middle">→ r − 1</text><text x="725" y="361" text-anchor="middle">→ r + 1</text>
+  <text x="670" y="334" text-anchor="middle" font-size="10.5" fill="#333">send pool (device, persistent)</text>
+  <rect x="560" y="404" width="110" height="34" fill="#C9DDF4" stroke="#1F4E8C"/><rect x="670" y="404" width="110" height="34" fill="#C9DDF4" stroke="#1F4E8C"/>
+  <text x="615" y="425" text-anchor="middle">← r − 1</text><text x="725" y="425" text-anchor="middle">← r + 1</text>
+  <text x="628" y="456" font-size="10.5" fill="#333">recv pool (device, persistent)</text>
+  <rect x="810" y="404" width="200" height="40" rx="5" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="820" y="420" font-weight="700">4 unpack kernel (GPU)</text><text x="820" y="436" font-size="11">tuple(recv_idx(i)) = in(i)</text>
+</g>
+<g stroke="#222" stroke-width="1.4" fill="none" marker-end="url(#f4-a)">
+  <path d="M350,312 V338"/><path d="M576,312 V326 H500 V338"/>
+  <path d="M532,357 H558"/>
+  <path d="M808,424 H782"/>
+  <path d="M910,404 V297 H692"/>
+</g>
+<!-- r-1 -->
+<g font-size="11.5" fill="#111">
+  <rect x="332" y="534" width="130" height="28" fill="#DCEBFA" stroke="#1F4E8C"/><rect x="462" y="534" width="10" height="28" fill="url(#f4-g)" stroke="#5B2A86"/>
+  <rect x="480" y="534" width="170" height="28" fill="#C9DDF4" stroke="#1F4E8C"/><text x="565" y="552" text-anchor="middle">recv pool</text>
+  <rect x="700" y="534" width="170" height="28" fill="#C9DDF4" stroke="#1F4E8C"/><text x="785" y="552" text-anchor="middle">send pool</text>
+</g>
+<!-- MPI arrows -->
+<g stroke="#5B2A86" stroke-width="2.2" fill="none" stroke-dasharray="7 4" marker-end="url(#f4-p)">
+  <path d="M725,340 V154"/>
+  <path d="M965,152 V390 H725 V402"/>
+  <path d="M560,357 H545 V532"/>
+  <path d="M785,534 V470 H615 V440"/>
+</g>
+<g font-size="11.5" fill="#5B2A86" font-weight="700">
+  <text x="731" y="200">2 MPI_Isend</text><text x="731" y="214" font-weight="400">(device ptr)</text>
+  <text x="971" y="200">2 MPI_Irecv</text><text x="971" y="214" font-weight="400">(from r + 1)</text>
+  <text x="538" y="494" text-anchor="end">2 MPI_Isend</text>
+  <text x="791" y="494">2 MPI_Irecv (from r − 1)</text>
+</g>
+<!-- step list -->
+<g font-size="12" fill="#111">
+  <rect x="1022" y="250" width="150" height="140" rx="6" fill="#fafafa" stroke="#999"/>
+  <text x="1032" y="268" font-weight="700">Per entity kind</text>
+  <text x="1032" y="288">1 pack + fence</text>
+  <text x="1032" y="306">2 Irecv all, Isend all</text>
+  <text x="1032" y="324">3 Waitall recv, send</text>
+  <text x="1032" y="342">4 unpack + fence</text>
+  <text x="1032" y="366" font-weight="700" fill="#B3261E">No compute</text>
+  <text x="1032" y="382" font-weight="700" fill="#B3261E">overlaps 2–3</text>
+</g>
+<!-- bottom strip -->
+<g font-size="12.5" fill="#111">
+  <text x="20" y="612" font-weight="700">One call:</text>
+  <rect x="96" y="598" width="250" height="22" fill="#DCEBFA" stroke="#1F4E8C"/><text x="221" y="614" text-anchor="middle">V: pack · post · wait · unpack</text>
+  <text x="358" y="614">→</text>
+  <rect x="378" y="598" width="250" height="22" fill="#DCEBFA" stroke="#1F4E8C"/><text x="503" y="614" text-anchor="middle">E: pack · post · wait · unpack</text>
+  <text x="640" y="614">→</text>
+  <rect x="660" y="598" width="250" height="22" fill="#DCEBFA" stroke="#1F4E8C"/><text x="785" y="614" text-anchor="middle">F: pack · post · wait · unpack</text>
+  <text x="20" y="644" font-size="12">MPI element = one whole AoSoA tuple (every field of the entity), tag 0, MPI_COMM_WORLD. tessera/src/Tessera_HaloExchange.hpp:134-218; Tessera_Distribute.hpp:521-528</text>
+</g>
+</svg>
+</div>
+<figcaption><b>Figure 5. The halo exchange pattern.</b> A rank ships the owned entities its neighbours ghost, and receives the entities it ghosts. Packing and unpacking are device kernels. The device buffers go straight to GPU-aware MPI through nonblocking sends and receives, followed by an immediate <code>Waitall</code>. The three entity kinds are serialized, so one <code>mesh.haloExchange()</code> costs three latency rounds. The payload is the <b>whole tuple</b> of every ghost entity, not just the fields that changed.</figcaption>
+</figure>
+
+<h3>3.3 What is in a halo message</h3>
+<div class="tbl"><table>
+<tr><th>Entity</th><th>Tuple fields (all of them are sent)</th><th>Approx. bytes per entity</th><th>Changes during an RK stage?</th></tr>
+<tr><td>vertex</td><td>gid, owner, flags, x[3], φ (<code>u0</code>), S[3] (<code>u1</code>), X[3] (<code>u2</code>) (<span class="cite">tessera/src/Tessera_Fields.hpp:75-76</span>; <span class="cite">MeshInterface.hpp:445</span>)</td><td>≈ 96 <span class="b inf">estimate</span></td><td>x and φ (32 B); S is recomputed locally afterwards</td></tr>
+<tr><td>edge</td><td>gid, owner, level, vertex gids[2], face gids[2] (<span class="cite">Tessera_Fields.hpp:80-81</span>)</td><td>≈ 48–56 <span class="b inf">estimate</span></td><td>no</td></tr>
+<tr><td>face</td><td>core members, closure gids, 3 Real user fields (<span class="cite">Tessera_Fields.hpp:84-96</span>; <span class="cite">MeshInterface.hpp:458</span>)</td><td>≈ 120 <span class="b inf">estimate</span></td><td>no</td></tr>
+</table></div>
+<p class="small">The byte counts were estimated from the member lists and ignore Cabana padding; they have not been measured. One <code>sizeof(tuple_type)</code> printout per kind would settle them.</p>
+
+<h3>3.4 Blocking or nonblocking, and is there overlap?</h3>
+<div class="tbl"><table>
+<tr><th>Site</th><th>Calls</th><th>Buffers</th><th>Overlap with compute</th></tr>
+<tr><td>Mesh halo (Tessera)</td><td><code>Irecv</code> ×peers, <code>Isend</code> ×peers, <code>Waitall</code> ×2</td><td>device, persistent pool</td><td><b>None.</b> Receives are posted after the pack fence; unpack waits for the receives; the three kinds are serialized (<span class="cite">Tessera_HaloExchange.hpp:156-217</span>).</td></tr>
+<tr><td>Vertex scalar halo (remesh sizing field)</td><td>same, on the vertex plan only</td><td>fresh device AoSoA per call</td><td>None (<span class="cite">MeshInterface.hpp:1386-1409</span>)</td></tr>
+<tr><td>Plan build and remesh (Tessera <code>allToAllV</code>)</td><td><code>MPI_Alltoall</code> + <code>MPI_Alltoallv</code></td><td>host</td><td>None (blocking collectives)</td></tr>
+<tr><td>FMM adapter (Cabana)</td><td>Distributor constructor: <code>MPI_Comm_dup</code>, <code>MPI_Reduce_scatter</code>, <code>Irecv(ANY_SOURCE)</code> + blocking <code>MPI_Send</code>, <code>MPI_Barrier</code>. <code>migrate</code>: <code>Isend</code>/<code>Irecv</code>/<code>Waitall</code> + <code>MPI_Barrier</code>.</td><td>device <span class="b inf">inferred</span> from migrate's device-view packing</td><td>None (<span class="cite">cabana/core/src/impl/Cabana_CommunicationPlan_Mpi.hpp:426-494</span>; <span class="cite">Cabana_Migrate_Mpi.hpp:168</span>)</td></tr>
+<tr><td>Canopy FMM</td><td>per-peer <code>Isend</code>/<code>Irecv</code> for multipoles, locals and P2P ghost particles; <code>MPI_Alltoall</code> + <code>Isend</code>/<code>Irecv</code> particle migration; Allreduce/Allgather</td><td>device, except the shared-cell M2L Allreduce (host)</td><td>The three solve phases run strictly in sequence (<span class="cite">canopy/src/Canopy_Solver.hpp:315-326</span>). Overlap inside a phase was not traced. <span class="b inf">inferred</span></td></tr>
+<tr><td>Direct BR ring (not the default)</td><td>P−1 steps × 3 blocking <code>MPI_Sendrecv</code></td><td>device, reallocated every call</td><td>None. The kernel runs after the receive; no double buffering (<span class="cite">BRSolverDirect.hpp:272-333</span>).</td></tr>
+</table></div>
+
+<h3>3.5 Collectives: where and why</h3>
+<div class="tbl"><table>
+<tr><th>Where</th><th>Operation, payload</th><th>How often</th><th>Why</th></tr>
+<tr><td><code>chooseStepSize</code> <span class="cite">TimeIntegrator.hpp:262</span></td><td>Allreduce MIN, 1 double</td><td>every step</td><td>Global dt from the minimum edge length. MIN is order-independent, so the result is reproducible across rank counts (<span class="cite">:212-219</span>).</td></tr>
+<tr><td><code>removeVolumeFlux</code> <span class="cite">VolumeProjection.hpp:150</span></td><td>Allreduce SUM, 2 doubles</td><td>3 per step</td><td>Two inner products for the volume-preserving projection, reduced before dividing.</td></tr>
+<tr><td><code>subtractAreaWeightedMean</code> <span class="cite">ZModelSolver.hpp:634</span></td><td>Allreduce SUM, 2 doubles</td><td>3 per step</td><td>Gauge of φ̇. The code notes that subtracting per-rank means would put a jump at every partition boundary (<span class="cite">:615-619</span>).</td></tr>
+<tr><td><code>centerPotential</code> <span class="cite">SurfaceState.hpp:388</span></td><td>Allreduce SUM, 2 doubles</td><td>3 per step, +1 per remesh</td><td>Gauge of φ; the shift is applied to ghosts too, which saves an exchange.</td></tr>
+<tr><td>FMM validity <span class="cite">FarFieldInterface.hpp:1457</span></td><td>Allreduce LAND, 1 int</td><td>per evaluation on the reuse path</td><td>All ranks must agree whether the cached routing still applies.</td></tr>
+<tr><td>FMM diagnostics <span class="cite">FarFieldInterface.hpp:1677</span></td><td>Allreduce SUM, 9 × int64</td><td>3 per step</td><td>Round-trip check (exactly one result per source) plus cost counters.</td></tr>
+<tr><td><code>allFinite</code> <span class="cite">Communication.hpp:313</span></td><td>Allreduce LAND, 1 int</td><td>1–2 per step</td><td>A stop must be unanimous or the other ranks deadlock in the next collective.</td></tr>
+<tr><td>Remesh <span class="cite">DynamicRemesh.hpp:646-1327</span></td><td>about 11 singleton diagnostic Allreduces; ≤ 8 LOR (sizing-field gradation); SUM count; up to 61 extra if the split cap binds (a 60-probe bisection)</td><td>per remesh step</td><td>Global counts, quality minima and thresholds. The bisection avoids a distributed sort.</td></tr>
+<tr><td><code>projectToVolume</code> <span class="cite">VolumeProjection.hpp:257</span></td><td>Allreduce SUM, 2 doubles × 2 iterations</td><td>per remesh step</td><td>Restore V₀ exactly after the remesh.</td></tr>
+<tr><td>Tessera split and rebuild</td><td><code>MPI_Exscan</code> + Allreduce MAX (new gids), Alltoall(v), SUMs</td><td>per remesh step with a split</td><td>Globally unique ids for midpoints; ownership and halo closure.</td></tr>
+<tr><td>Diagnostics <span class="cite">Diagnostics.hpp:284-289</span></td><td>SUM ×4, MAX, MIN ×3 (fused into 3 calls), plus <code>maxSheetStrength</code></td><td>progress cadence</td><td>Progress line on rank 0.</td></tr>
+<tr><td>Checkpoint <span class="cite">IOInterface.hpp:637-697</span>; <span class="cite">tessera/src/Tessera_IoCommon.hpp:78-89</span></td><td>4 Barriers; Allreduce + Exscan for offsets; Alltoallv for ghost indices</td><td>per checkpoint</td><td>File offsets per rank; rank-0 phases ordered behind the collective write.</td></tr>
+<tr><td>Canopy, inside each solve</td><td>bounding-box MIN/MAX; cell-key <code>MPI_Allgather</code>; ParMETIS on (re)partition; shared top-level cells Allreduced in the upward and downward sweeps</td><td>per evaluation (partition only on setup or when the topology changes)</td><td>The global tree skeleton is replicated on every rank; the top <code>replication_depth</code> (3) levels are shared rather than owned.</td></tr>
+</table></div>
+
+<h3>3.6 Choices that already reduce message count, size or synchronisation</h3>
+<ul>
+<li><b>Depth-2 ghosts built once.</b> One exchange per RHS serves the two-ring stencil, instead of two one-ring exchanges per operator (<span class="cite">MeshInterface.hpp:136-157</span>).</li>
+<li><b>Owner-computes assembly instead of scatter-add.</b> Geometry is assembled from every locally held face, so owned rows come out complete and no reverse halo is needed. <code>Tessera_HaloScatterAdd</code> exists but is never called (<span class="cite">MeshInterface.hpp:167-197, 1450-1455</span>).</li>
+<li><b>Device-resident halo with registered persistent buffers.</b> Packing stays on the GPU, device pointers go to MPI, and NIC registrations stay bounded (<span class="cite">Tessera_RegisteredBufferPool.hpp</span>).</li>
+<li><b>Fused reductions.</b> Numerator and denominator travel together in the gauge fixes, the volume projection, the diagnostics and the FMM's 9-word counter block (<span class="cite">SurfaceState.hpp:386-388</span>, <span class="cite">VolumeProjection.hpp:147-150</span>, <span class="cite">FarFieldInterface.hpp:1636-1677</span>).</li>
+<li><b>Ghost-consistent updates.</b> <code>centerPotential</code> subtracts the same global constant from ghost rows, so a known-consistent halo stays consistent without a message (<span class="cite">SurfaceState.hpp:415-423</span>).</li>
+<li><b>Communication-free partition.</b> The partition comes from a deterministic sort of the replicated mesh, with no collective at all.</li>
+</ul>
+
+<h3>3.7 Probable missed opportunities</h3>
+<p>Each item names the evidence. None has been measured; the experiments in <a href="#perf">§9</a> are designed to size them.</p>
+<ol>
+<li><b>Redundant halo exchanges.</b> <code>finishStage</code> exchanges, then <code>centerPotential</code> shifts owned and ghost rows alike. The next stage's RHS opens with another <code>haloExchange()</code>, and nothing in between writes mesh data. That makes at least 2 of the 6 exchanges per step look redundant (stages 2 and 3), plus stage 1's when the remesh path has just exchanged. <span class="cite">TimeIntegrator.hpp:334-341</span>; <span class="cite">ZModelSolver.hpp:207</span>. <span class="b inf">inferred</span> from reading every write between the two calls.</li>
+<li><b>Whole-tuple exchange of all three entity kinds inside RK.</b> Only vertex x and φ change during a stage: <code>combine</code> writes nothing else, and S is recomputed. Even so, every edge and face tuple is resent six times a step, costing two extra serialized latency rounds per exchange. A vertex-only, two-field exchange would cut roughly two-thirds of the rounds and most of the bytes. Tessera already exposes the vertex plan (<span class="cite">MeshInterface.hpp:1401</span>). <span class="b inf">inferred</span></li>
+<li><b>No communication/computation overlap.</b> Interior-vertex RHS work does not depend on ghosts and could run between posting and waiting. Nothing is structured that way today (§3.4).</li>
+<li><b>About 16 tiny Allreduces per step, plus remesh diagnostics.</b> The φ̇-mean reduction does not depend on the volume-flux reduction (φ̇ uses the pre-projection normal speed, <span class="cite">ZModelSolver.hpp:227-276</span>), so the two could be one 4-word Allreduce. The FMM's 9-word verification reduce runs every evaluation and could be gated behind a debug flag. Remesh diagnostics are about 11 singleton reduces, and <code>auditLongEdges</code> recomputes the entire sizing field, with its halo exchanges and LOR reductions, purely for reporting (<span class="cite">DynamicRemesh.hpp:1284-1290</span>).</li>
+<li><b>Three Cabana Distributors per FMM evaluation.</b> Each one dups the communicator, runs <code>Reduce_scatter</code> and barriers, and each migrate barriers again. The code itself names caching the forward distributor as a future optimisation (<span class="cite">FarFieldInterface.hpp:1236-1237</span>).</li>
+<li><b>A split forces a full Canopy setup.</b> On the first evaluation after any split, the source count no longer matches, so the routing check fails and Canopy re-runs its whole setup, including ParMETIS (<span class="cite">FarFieldInterface.hpp:1474-1495</span>). With <code>--remesh-every 1</code> that can happen every step.</li>
+<li><b>Dense O(P) collectives on the remesh path.</b> Plan building and split bookkeeping use <code>MPI_Alltoall(v)</code> over all of <code>MPI_COMM_WORLD</code> even though each rank has about two peers. A dist-graph communicator, or a sparse NBX-style exchange, would scale with the neighbour count instead.</li>
+<li><b>A plan rebuild drops the registered pools.</b> <code>halo.vplan = buildKindPlan(…)</code> assigns a fresh plan (<span class="cite">tessera/src/Tessera_HaloRebuild.hpp:682-687</span>), contradicting the "pools are retained" intent at <span class="cite">Tessera_HaloExchange.hpp:72-73</span>. Every split step therefore reallocates and re-registers halo buffers. <span class="b ok">confirmed</span></li>
+<li><b>Static z-band partition, with no load balancing.</b> Refinement concentrates where the sheet rolls up, and those faces stay on their parent's rank. Tessera ships a Zoltan2 <code>loadBalance</code> that Beatnik does not call.</li>
+</ol>
+
+<!-- ===================================================================== -->
+<h2 id="br">Stage 4: the compute kernel (Birkhoff–Rott) and the FMM</h2>
+
+<p>The Birkhoff–Rott integral gives the velocity the vortex sheet induces at every vertex. It is the core kernel: an all-pairs interaction over the whole surface, so it needs far-field evaluation. Here it is treated as a black box. It runs 3 times per step, once per RHS (<span class="cite">ZModelSolver.hpp:223-225</span>), and the interface doc calls it "the most expensive collective in the run" (<span class="cite">BRSolverBase.hpp:141-146</span>).</p>
+
+<ul>
+<li><b>Selection.</b> <code>createBRSolver</code> switches on <code>--br-approximation</code>. <code>fmm</code>, the default, gives <code>BRSolverFMM</code>; <code>treecode</code>, <code>local</code> and <code>clustered</code> are aliases for it. <code>direct</code> gives <code>BRSolverDirect</code> (<span class="cite">CreateBRSolver.hpp:51-77</span>; <span class="cite">examples/02_adaptive_mesh_bubble/InputFile.hpp:444-472</span>).</li>
+<li><b>Isolation.</b> Only <code>Beatnik_FarFieldInterface.hpp</code> names Canopy types (<span class="cite">FarFieldInterface.hpp:18-21</span>; <span class="cite">BRSolverFMM.hpp:16</span>).</li>
+</ul>
+
+<figure>
+<div class="svgwrap">
+<svg viewBox="0 0 1200 720" role="img" aria-label="One Birkhoff–Rott evaluation. Beatnik turns owned vertices into sources weighted by area times sheet vector, packs them with an origin tag, and migrates them into Canopy's particle ownership. Canopy maintains its tree, then runs the upward sweep, the downward sweep with M2L, and the P2P near field strictly in sequence, returning a gradient tensor. Beatnik contracts it to a velocity, migrates the results back to their origin ranks, and scatters them to owned vertices." xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">
+<defs>
+  <marker id="f6-a" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#222"/></marker>
+  <marker id="f6-p" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="12" markerHeight="12" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#5B2A86"/></marker>
+  <pattern id="f6-h" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><rect width="8" height="8" fill="#FFF6EA"/><line x1="0" y1="0" x2="0" y2="8" stroke="#E9B877" stroke-width="2.2"/></pattern>
+</defs>
+<rect width="1200" height="720" fill="#fff"/>
+<text x="600" y="32" text-anchor="middle" font-size="20" font-weight="700" fill="#111">④ Birkhoff–Rott velocity: the Beatnik / Canopy split (one evaluation; 3 per step)</text>
+
+<rect x="20" y="52" width="1160" height="278" rx="8" fill="#FAFAFA" stroke="#999"/>
+<text x="32" y="74" font-size="13.5" font-weight="700" fill="#111">BEATNIK: BRSolverFMM → FarFieldSolver::evaluate (src/Beatnik_FarFieldInterface.hpp:1396-1734)</text>
+<rect x="20" y="356" width="1160" height="232" rx="8" fill="none" stroke="#555" stroke-width="1.8" stroke-dasharray="2 4"/>
+<text x="32" y="576" font-size="13.5" font-weight="700" fill="#111">CANOPY (external FMM library): Canopy::Solver, all kernels on Beatnik's ExecutionSpace / MemorySpace</text>
+
+<g font-size="12.5" fill="#111">
+  <!-- forward row -->
+  <rect x="36" y="90" width="170" height="74" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="46" y="110" font-weight="700">owned vertices</text><text x="46" y="128">x, S, vertex area A</text><text x="46" y="146">(device)</text>
+  <rect x="224" y="90" width="170" height="74" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="234" y="110" font-weight="700">vertex quadrature</text><text x="234" y="128">w = A·S: one source</text><text x="234" y="146">per owned vertex</text>
+  <rect x="412" y="90" width="180" height="74" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="422" y="110" font-weight="700">pack Cabana AoSoA</text><text x="422" y="128">pos[3], charge[3],</text><text x="422" y="146">out[3], tag(rank, index)</text>
+  <rect x="610" y="90" width="200" height="74" rx="6" fill="#fff" stroke="#B3261E" stroke-width="2"/>
+  <text x="620" y="110" font-weight="700">source set unchanged</text><text x="620" y="128">on every rank?</text><text x="620" y="150" fill="#B3261E" font-weight="700">◆AR LAND</text>
+  <rect x="840" y="90" width="324" height="74" rx="6" fill="#fff" stroke="#5B2A86" stroke-width="2" stroke-dasharray="7 4"/>
+  <text x="850" y="110" font-weight="700">YES (reuse): 2 Cabana Distributors</text><text x="850" y="128">(claims, forward) + Cabana::migrate into</text><text x="850" y="146">Canopy's particle ownership (MPI)</text>
+  <rect x="840" y="182" width="324" height="50" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="850" y="202" font-weight="700">NO (first call, or after a split):</text><text x="850" y="220">Cabana::deep_copy, no routing</text>
+
+  <!-- return row -->
+  <rect x="36" y="250" width="200" height="62" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="46" y="270" font-weight="700">contract ∇ tensor (GPU)</text><text x="46" y="288">u = c·(T₁₂−T₂₁, T₂₀−T₀₂,</text><text x="46" y="304">T₀₁−T₁₀), c = ±1/4π</text>
+  <rect x="256" y="250" width="230" height="62" rx="6" fill="#fff" stroke="#5B2A86" stroke-width="2" stroke-dasharray="7 4"/>
+  <text x="266" y="270" font-weight="700">reverse Distributor +</text><text x="266" y="288">Cabana::migrate back to</text><text x="266" y="304">tag.origin_rank (MPI)</text>
+  <rect x="506" y="250" width="170" height="62" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="516" y="270" font-weight="700">scatter by</text><text x="516" y="288">tag.owned_index</text><text x="516" y="304">→ u (owned rows)</text>
+  <rect x="696" y="250" width="150" height="62" rx="6" fill="#fff" stroke="#B3261E" stroke-width="2"/>
+  <text x="706" y="270" fill="#B3261E" font-weight="700">◆AR SUM 9×int64</text><text x="706" y="288">round-trip check</text><text x="706" y="304">+ cost counters</text>
+  <text x="864" y="286" font-weight="700">→ u to ZModelSolver</text>
+</g>
+<g stroke="#222" stroke-width="1.6" fill="none" marker-end="url(#f6-a)">
+  <line x1="206" y1="127" x2="222" y2="127"/><line x1="394" y1="127" x2="410" y2="127"/><line x1="592" y1="127" x2="608" y2="127"/>
+  <line x1="810" y1="127" x2="838" y2="127"/>
+  <path d="M710,164 V207 H838"/>
+  <line x1="236" y1="281" x2="254" y2="281"/><line x1="486" y1="281" x2="504" y2="281"/><line x1="676" y1="281" x2="694" y2="281"/><line x1="846" y1="281" x2="860" y2="281"/>
+</g>
+<text x="822" y="120" font-size="11" fill="#111">yes</text><text x="716" y="200" font-size="11" fill="#111">no</text>
+
+<!-- Canopy lane -->
+<g font-size="12.5" fill="#111">
+  <rect x="890" y="394" width="274" height="124" rx="6" fill="url(#f6-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="900" y="414" font-weight="700">maintain (host + device)</text>
+  <text x="900" y="434">auto_maintain (reuse): tree is</text><text x="900" y="452">always rebuilt; repartition and</text><text x="900" y="470">plan rebuild only if the topology</text><text x="900" y="488">changed. setup: full rebuild</text><text x="900" y="506">incl. ParMETIS partition.</text>
+  <rect x="640" y="394" width="230" height="124" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="650" y="414" font-weight="700">1 upward sweep</text><text x="650" y="434">P2M at leaves, M2M up;</text><text x="650" y="452">multipole exchange</text><text x="650" y="470">(Isend/Irecv, device);</text><text x="650" y="488">shared top cells ◆AR</text>
+  <rect x="356" y="394" width="264" height="124" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="366" y="414" font-weight="700">2 downward sweep</text><text x="366" y="434">remote multipoles exchanged;</text><text x="366" y="452">M2L; shared top cells ◆AR,</text><text x="366" y="470" font-weight="700">staged through host memory;</text><text x="366" y="488">L2L per depth; L2P</text>
+  <rect x="36" y="394" width="300" height="124" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="46" y="414" font-weight="700">3 P2P near field</text><text x="46" y="434">ghost-particle gather</text><text x="46" y="452">(Isend/Irecv, device pools);</text><text x="46" y="470">softened kernel, same blob as</text><text x="46" y="488">far field → ∇ tensor (N×3×3)</text>
+  <text x="600" y="546" text-anchor="middle" font-size="12.5" fill="#333">1 → 2 → 3 run strictly in sequence (Canopy_Solver.hpp:315-326): near field and far field do not overlap.</text>
+</g>
+<g stroke="#222" stroke-width="1.6" fill="none" marker-end="url(#f6-a)">
+  <line x1="888" y1="456" x2="872" y2="456"/><line x1="638" y1="456" x2="622" y2="456"/><line x1="354" y1="456" x2="338" y2="456"/>
+  <path d="M1080,232 V392"/>
+  <path d="M136,394 V314"/>
+</g>
+<path d="M1164,127 H1174 V380 H1140 V392" fill="none" stroke="#5B2A86" stroke-width="2" stroke-dasharray="7 4" marker-end="url(#f6-p)"/>
+<text x="144" y="342" font-size="11.5" fill="#111">∇ (Canopy order, Canopy ranks)</text>
+
+<!-- inset: direct ring -->
+<g font-size="12.5" fill="#111">
+  <text x="20" y="606" font-weight="700">Alternative: --br-approximation direct (BRSolverDirect.hpp:272-333)</text>
+  <circle cx="90" cy="664" r="38" fill="none" stroke="#5B2A86" stroke-width="2" stroke-dasharray="6 3"/>
+  <g fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"><circle cx="90" cy="626" r="11"/><circle cx="128" cy="664" r="11"/><circle cx="90" cy="702" r="11"/><circle cx="52" cy="664" r="11"/></g>
+  <g font-size="10" text-anchor="middle" font-weight="700"><text x="90" y="630">0</text><text x="128" y="668">1</text><text x="90" y="706">2</text><text x="52" y="668">3</text></g>
+  <text x="160" y="640">Own block first, then P−1 ring steps. Each step: 3 blocking MPI_Sendrecv (count, points, strengths)</text>
+  <text x="160" y="660">on device buffers padded to the global max count, then the kernel on the block just received.</text>
+  <text x="160" y="680">No double buffering, buffers reallocated every call; O(N²/P) work and O(N/P) storage per rank.</text>
+  <text x="160" y="700">Same vertex quadrature; the GPU kernel is a RangePolicy over owned targets with a serial loop over the block.</text>
+</g>
+</svg>
+</div>
+<figcaption><b>Figure 6. Who computes what.</b> Beatnik owns everything up to and after the far-field solve: the quadrature that turns the sheet into point sources, the routing of those sources into Canopy's own particle decomposition and back, and the contraction of Canopy's 3×3 gradient into a velocity. Canopy owns the tree and all of the FMM proper. Beatnik adds <b>no</b> local near-field or self-panel correction on this path. The self term is zero, and Canopy's P2P skips i = j (<span class="cite">BRSolverBase.hpp:46-49</span>; <span class="cite">FarFieldInterface.hpp:700-703</span>).</figcaption>
+</figure>
+
+<h3>Data handed to Canopy and what comes back</h3>
+<ul>
+<li><b>Sources = targets.</b> One source per owned vertex: position x, and a 3-component strength w = A·S, the vertex area times the sheet vector (<span class="cite">SourceQuadrature.hpp:225-256</span>). Canopy has no separate target list, which is why only the vertex quadrature is accepted (<span class="cite">FarFieldInterface.hpp:549-555, 1406-1412</span>).</li>
+<li><b>Particle AoSoA.</b> <code>MemberTypes&lt;Real[3] pos, Real[3] charge, Real[3] output, int[2] tag&gt;</code> in <code>MemorySpace</code>. The tag (origin rank, owned index) is how results find their way home after Canopy permutes and migrates the particles (<span class="cite">:788-790, 1194-1219</span>).</li>
+<li><b>Control passes into Canopy at these points:</b>
+  <ul>
+  <li><code>Canopy::createSolver</code> on the first call (<span class="cite">:899-905, 1421-1427</span>);</li>
+  <li><code>Solver::auto_maintain</code> on reuse (<span class="cite">:919-922, 1472-1473</span>);</li>
+  <li><code>Solver::setup</code> on the first call or after a split (<span class="cite">:911-913, 1492</span>);</li>
+  <li><code>Solver::solve(particles, compute_gradient = true)</code> (<span class="cite">:938-940, 1500</span>).</li>
+  </ul>
+  Canopy returns <code>gradient()</code>, a <code>View&lt;Real*[3][3]&gt;</code> on device in Canopy's particle order (<span class="cite">:948-951</span>).</li>
+<li><b>What persists between evaluations.</b> The <code>Canopy::Solver</code> object and two AoSoAs (<span class="cite">:1755-1767</span>). Inside Canopy, the tree is rebuilt on every <code>auto_maintain</code> (<span class="cite">canopy/src/Canopy_Solver.hpp:493-496</span>). The partition and communication plan are reused only when the cell-key set is unchanged. The M2L operator cache survives until the quantized root box crosses an octave (<span class="cite">Params.hpp:440-460</span>). <span class="b ok">confirmed</span>; the cache detail rests on the comments cited.</li>
+<li><b>Parameters.</b>
+  <ul>
+  <li>CLI: <code>--br-treecode-theta</code> (MAC θ, default 0.3), <code>--br-treecode-order</code> (expansion order, default 3), <code>--br-treecode-ncrit</code> (leaf size, default 64) (<span class="cite">InputFile.hpp:498-515</span>; <span class="cite">Params.hpp:194, 229, 256</span>).</li>
+  <li>No CLI option: <code>max_depth</code> 10, <code>replication_depth</code> 3, <code>imbalance_tolerance</code> 0.10, and <code>quantize_root_half_width</code> true.</li>
+  <li>The softening is √blob, which comes from <code>--eps</code> (<span class="cite">FarFieldInterface.hpp:1155</span>).</li>
+  </ul></li>
+</ul>
+
+<!-- ===================================================================== -->
+<h2 id="io">Stage 5: I/O</h2>
+
+<figure>
+<div class="svgwrap">
+<svg viewBox="0 0 1200 350" role="img" aria-label="Checkpoint write: the whole mesh is copied from device to host, global offsets are computed with collectives, every rank writes its owned rows with collective parallel HDF5 over MPI-IO, and then rank 0 alone appends scalar metadata, writes the XDMF light data and updates the latest-file symlinks, with a barrier between each phase." xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">
+<defs>
+  <marker id="f7-a" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#222"/></marker>
+  <pattern id="f7-h" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><rect width="8" height="8" fill="#FFF6EA"/><line x1="0" y1="0" x2="0" y2="8" stroke="#E9B877" stroke-width="2.2"/></pattern>
+</defs>
+<rect width="1200" height="350" fill="#fff"/>
+<text x="600" y="32" text-anchor="middle" font-size="20" font-weight="700" fill="#111">⑤ Checkpoint write: CheckpointIO::write → Tessera MeshSeries / writeMesh</text>
+<g font-size="12.5" fill="#111">
+  <rect x="20" y="62" width="172" height="112" rx="6" fill="url(#f7-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="30" y="82" font-weight="700">1 device → host</text><text x="30" y="102">Cabana::deep_copy of</text><text x="30" y="120">the whole V, E, F</text><text x="30" y="138">AoSoAs (owned +</text><text x="30" y="156">ghost) to HostSpace</text>
+  <rect x="212" y="62" width="172" height="112" rx="6" fill="#fff" stroke="#B3261E" stroke-width="2"/>
+  <text x="222" y="82" font-weight="700">2 global offsets</text><text x="222" y="102">◆AR SUM + MPI_Exscan</text><text x="222" y="120">per kind; ghost dense</text><text x="222" y="138">indices via 2 Alltoallv;</text><text x="222" y="156">host std::map</text>
+  <rect x="404" y="62" width="172" height="112" rx="6" fill="#fff" stroke="#5B2A86" stroke-width="2" stroke-dasharray="7 4"/>
+  <text x="414" y="82" font-weight="700">3 parallel HDF5</text><text x="414" y="102">H5Fcreate with</text><text x="414" y="120">fapl_mpio; every dataset</text><text x="414" y="138">a COLLECTIVE hyperslab</text><text x="414" y="156">write of owned rows</text>
+  <rect x="596" y="62" width="172" height="112" rx="6" fill="url(#f7-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="606" y="82" font-weight="700">4 barrier; rank 0</text><text x="606" y="102">reopens the file with</text><text x="606" y="120">the serial driver,</text><text x="606" y="138">writes /beatnik</text><text x="606" y="156">scalars</text>
+  <rect x="788" y="62" width="172" height="112" rx="6" fill="url(#f7-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="798" y="82" font-weight="700">5 rank 0: XDMF</text><text x="798" y="102">frame .xmf; appends</text><text x="798" y="120">.xmfindex; rewrites</text><text x="798" y="138">master temporal .xmf</text><text x="798" y="156">(O(frames) each time)</text>
+  <rect x="980" y="62" width="200" height="112" rx="6" fill="url(#f7-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="990" y="82" font-weight="700">6 barrier; rank 0</text><text x="990" y="102">relinks</text><text x="990" y="120">prefix_latest.{h5,xmf};</text><text x="990" y="138">barrier</text><text x="990" y="156">(4 barriers in all)</text>
+</g>
+<g stroke="#222" stroke-width="1.6" marker-end="url(#f7-a)">
+  <line x1="192" y1="118" x2="210" y2="118"/><line x1="384" y1="118" x2="402" y2="118"/><line x1="576" y1="118" x2="594" y2="118"/><line x1="768" y1="118" x2="786" y2="118"/><line x1="960" y1="118" x2="978" y2="118"/>
+</g>
+<g font-size="12.5" fill="#111">
+  <text x="20" y="208"><tspan font-weight="700">When:</tspan>&#160;at startup; every --checkpoint-every-steps N; once --checkpoint-every-time Δt has elapsed; and the last finite state at finalize(). Nothing is written without --checkpoint-dir.</text>
+  <text x="20" y="232"><tspan font-weight="700">File:</tspan>&#160;one .h5 + .xmf pair per frame, &lt;dir&gt;/&lt;prefix&gt;_t&lt;timekey&gt;_step&lt;NNNNNNN&gt;; master &lt;prefix&gt;.xmf temporal collection.</text>
+  <text x="20" y="256"><tspan font-weight="700">Datasets:</tspan>&#160;/vertices/position (Nv×3), /faces/verts (Nf×3 global vertex ids), /vertices/u0 = φ, u1 = S, u2 = X; /edges/*, gids, levels, closure, face user pack.</text>
+  <text x="20" y="280"><tspan font-weight="700">/beatnik:</tspan>&#160;state model, time, step, V₀, h⁰min, field names. Contiguous datasets: no chunking, no compression.</text>
+  <text x="20" y="312" font-size="11.5" fill="#444">src/Beatnik_IOInterface.hpp:78-141, 554-573, 626-725, 796-815, 842-918 · tessera/src/Tessera_HDF5Writer.hpp:109-123, 150-192, 389-450 · Tessera_IoCommon.hpp:78-89, 211-236</text>
+  <text x="20" y="332" font-size="11.5" fill="#444">Hatched = host work; red border = collective; purple dashed = MPI-IO data movement.</text>
+</g>
+</svg>
+</div>
+<figcaption><b>Figure 7. Checkpoint I/O.</b> The mesh data is written collectively: every rank writes its owned rows into shared datasets with collective MPI-IO. The metadata is written by rank 0 alone, serialized behind barriers. Before each write, the whole mesh, ghosts included, is copied from device to a fresh host AoSoA.</figcaption>
+</figure>
+
+<ul>
+<li><b>Collective or per-rank.</b> The heavy data is collective parallel HDF5: <code>H5Pset_fapl_mpio</code> (<span class="cite">tessera/src/Tessera_HDF5Writer.hpp:187-191</span>) and <code>H5FD_MPIO_COLLECTIVE</code> on every dataset write (<span class="cite">tessera/src/Tessera_IoCommon.hpp:235-236</span>). A rank that owns nothing still participates, with an empty selection (<span class="cite">:226-232</span>). The <code>/beatnik</code> group, the XDMF files and the symlinks are rank 0 only. The old gather-to-rank-0 path was deleted (<span class="cite">IOInterface.hpp:44-56</span>). <span class="b ok">confirmed</span></li>
+<li><b>Host copy.</b> <code>Cabana::deep_copy</code> of all three AoSoAs, ghosts included, into newly allocated <code>HostSpace</code> AoSoAs on every write (<span class="cite">Tessera_HDF5Writer.hpp:115-123</span>). It sits on the critical path of a checkpoint step.</li>
+<li><b>Restart</b> is not implemented. <code>CheckpointIO::read</code> and <code>RestartReader::load</code> throw (<span class="cite">IOInterface.hpp:780-785</span>; <span class="cite">Restart.hpp:178-186</span>).</li>
+<li><b>Stdout.</b> Rank 0 prints a progress line at step 1, every steps/10 steps, and every <code>--progress-time-interval</code> (default 0.25). Each one costs a collective <code>Diagnostics::compute</code> (<span class="cite">Solver.hpp:1023-1044</span>).</li>
+<li><b>Requirement.</b> Checkpoint directories must be on a parallel filesystem. MPI-IO across nodes fails on node-local paths (project <code>CLAUDE.md</code>).</li>
+</ul>
+
+<!-- ===================================================================== -->
+<h2 id="gpu">GPU usage</h2>
+
+<h3>How kernels are expressed</h3>
+<ul>
+<li><b>Execution and memory spaces.</b> Every Beatnik class is templated on <code>&lt;ExecutionSpace, MemorySpace&gt;</code>. The example instantiates <code>Kokkos::DefaultExecutionSpace</code> and its memory space, which is HIP and <code>HIPSpace</code> on tuolumne (<span class="cite">adaptive_mesh_bubble.cpp:212-216</span>).</li>
+<li><b>Kernel style.</b> Kernels are flat, labelled <code>Kokkos::parallel_for</code> / <code>parallel_reduce</code> with <code>RangePolicy&lt;ExecutionSpace&gt;</code> over owned or local rows, nearly always followed by <code>Kokkos::fence()</code>. There is no <code>TeamPolicy</code>, <code>MDRangePolicy</code> or execution-space instance on the solver path, so everything runs on the default stream, synchronously. Examples: <code>beatnik_rk3_combine</code> (<span class="cite">TimeIntegrator.hpp:318-327</span>), <code>beatnik_far_field_curl</code> (<span class="cite">FarFieldInterface.hpp:1513-1525</span>), <code>tessera_halo_pack</code> (<span class="cite">tessera/src/Tessera_HaloExchange.hpp:161-168</span>). The direct BR kernel's doc mentions a <code>TeamPolicy</code>, but the code is a <code>RangePolicy</code> with a serial inner loop (<span class="cite">BRSolverDirect.hpp:87-88</span> vs <span class="cite">:133-163</span>).</li>
+<li><b>Data.</b> Solution fields are not Beatnik Views. They are slots in Tessera's device-resident <code>Cabana::AoSoA</code>s, accessed through slices, so splits, migration and halo exchange carry them automatically (<span class="cite">SurfaceState.hpp:51-76</span>). Scratch is <code>Kokkos::View&lt;Real*[3], Device&lt;Exec, Mem&gt;&gt;</code>, allocated once and reused.</li>
+</ul>
+
+<figure>
+<div class="svgwrap">
+<svg viewBox="0 0 1200 690" role="img" aria-label="Placement of each stage on GPU, CPU and network, with the host-device transfers between them. Arithmetic runs on the GPU. The host holds the mesh build, the partition, halo plans, Canopy's tree structure and checkpoint staging. Transfers occur once at setup, as small scalars at every reduction, as tree mirrors on every FMM evaluation, as topology copies on remesh steps, and as a full mesh copy per checkpoint." xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">
+<defs>
+  <marker id="f8-o" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="14" markerHeight="14" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#B85C00"/></marker>
+  <pattern id="f8-h" patternUnits="userSpaceOnUse" width="8" height="8" patternTransform="rotate(45)"><rect width="8" height="8" fill="#FFF6EA"/><line x1="0" y1="0" x2="0" y2="8" stroke="#E9B877" stroke-width="2.2"/></pattern>
+</defs>
+<rect width="1200" height="690" fill="#fff"/>
+<text x="600" y="32" text-anchor="middle" font-size="20" font-weight="700" fill="#111">Where each stage runs, and where data crosses the host–device boundary</text>
+<text x="600" y="54" text-anchor="middle" font-size="12.5" fill="#444">tuolumne: MI300A, HIP backend, 1 GPU per rank, GPU-aware Cray MPICH</text>
+
+<!-- lane labels -->
+<g font-size="14" font-weight="700" fill="#111">
+  <rect x="20" y="92" width="100" height="150" fill="#DCEBFA" stroke="#1F4E8C"/><text x="70" y="172" text-anchor="middle">GPU</text>
+  <rect x="20" y="336" width="100" height="150" fill="url(#f8-h)" stroke="#8A4B00"/><text x="70" y="408" text-anchor="middle">CPU</text><text x="70" y="426" text-anchor="middle" font-size="11" font-weight="400">(host)</text>
+  <rect x="20" y="540" width="100" height="84" fill="#fff" stroke="#5B2A86" stroke-width="2" stroke-dasharray="6 3"/><text x="70" y="578" text-anchor="middle">MPI</text><text x="70" y="596" text-anchor="middle" font-size="11" font-weight="400">(network)</text>
+</g>
+<g font-size="13" font-weight="700" fill="#111" text-anchor="middle">
+  <text x="225" y="82">① Setup (once)</text><text x="440" y="82">② RK stage (×3/step)</text><text x="680" y="82">④ FMM eval (×3/step)</text><text x="902" y="82">Remesh (per step)</text><text x="1092" y="82">⑤ Checkpoint</text>
+</g>
+
+<g font-size="12" fill="#111">
+  <!-- GPU lane -->
+  <rect x="130" y="92" width="190" height="150" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="140" y="112">scale sphere;</text><text x="140" y="130">init φ, S, X;</text><text x="140" y="148">centre φ; V₀, h⁰min</text><text x="140" y="166">partial reductions</text>
+  <rect x="335" y="92" width="210" height="150" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="345" y="112">geometry, S, all RHS</text><text x="345" y="130">kernels, combine,</text><text x="345" y="148">halo pack/unpack,</text><text x="345" y="166">NaN scan, local</text><text x="345" y="184">reduction partials</text>
+  <rect x="560" y="92" width="240" height="150" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="3"/>
+  <text x="570" y="112">Beatnik: quadrature, pack,</text><text x="570" y="130">contract, scatter, Cabana</text><text x="570" y="148">migrate packing.</text><text x="570" y="170">Canopy: P2M, M2M, M2L,</text><text x="570" y="188">L2L, L2P, P2P kernels</text>
+  <rect x="815" y="92" width="175" height="150" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="825" y="112">sizing field, edge</text><text x="825" y="130">mask, split cap,</text><text x="825" y="148">volume projection,</text><text x="825" y="166">re-centre φ</text>
+  <rect x="1005" y="92" width="175" height="150" rx="6" fill="#DCEBFA" stroke="#1F4E8C" stroke-width="1.5"/>
+  <text x="1015" y="112">(source: mesh</text><text x="1015" y="130">AoSoAs only;</text><text x="1015" y="148">no compute)</text>
+
+  <!-- CPU lane -->
+  <rect x="130" y="336" width="190" height="150" rx="6" fill="url(#f8-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="140" y="356">full icosphere build,</text><text x="140" y="374">z-sort partition,</text><text x="140" y="392">2-ring closure, halo</text><text x="140" y="410">plans (std::map);</text><text x="140" y="428" font-weight="700">O(global) per rank</text>
+  <rect x="335" y="336" width="210" height="150" rx="6" fill="url(#f8-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="345" y="356">control flow, MPI calls,</text><text x="345" y="374">final scalar of every</text><text x="345" y="392">reduction</text>
+  <rect x="560" y="336" width="240" height="150" rx="6" fill="url(#f8-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="570" y="356">Canopy tree cells and keys,</text><text x="570" y="374">comm plans (unordered_map),</text><text x="570" y="392">M2L operator tables; shared-</text><text x="570" y="410">cell M2L reduction buffers;</text><text x="570" y="428">Beatnik P2P pair count</text>
+  <rect x="815" y="336" width="175" height="150" rx="6" fill="url(#f8-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="825" y="356">split edge list,</text><text x="825" y="374">Tessera split and</text><text x="825" y="392">halo rebuild (whole</text><text x="825" y="410">mesh on host), derived</text><text x="825" y="428">connectivity</text>
+  <rect x="1005" y="336" width="175" height="150" rx="6" fill="url(#f8-h)" stroke="#8A4B00" stroke-width="1.5"/>
+  <text x="1015" y="356">host AoSoA copy,</text><text x="1015" y="374">dense index map,</text><text x="1015" y="392">HDF5 calls; rank 0:</text><text x="1015" y="410">XDMF + attributes</text>
+
+  <!-- MPI lane -->
+  <rect x="130" y="540" width="190" height="84" rx="6" fill="#fff" stroke="#5B2A86" stroke-width="1.5" stroke-dasharray="6 3"/>
+  <text x="140" y="560">Alltoall(v) on host</text><text x="140" y="578">buffers; halo fill</text><text x="140" y="596">(device); Allreduces</text>
+  <rect x="335" y="540" width="210" height="84" rx="6" fill="#fff" stroke="#5B2A86" stroke-width="1.5" stroke-dasharray="6 3"/>
+  <text x="345" y="560">halo Isend/Irecv:</text><text x="345" y="578" font-weight="700">device pointers</text><text x="345" y="596">Allreduce: host scalars</text>
+  <rect x="560" y="540" width="240" height="84" rx="6" fill="#fff" stroke="#5B2A86" stroke-width="1.5" stroke-dasharray="6 3"/>
+  <text x="570" y="560">Cabana migrate, Canopy P2P,</text><text x="570" y="578">M2L, L2L: <tspan font-weight="700">device pointers</tspan>;</text><text x="570" y="596">shared-cell Allreduce: <tspan font-weight="700">host</tspan></text>
+  <rect x="815" y="540" width="175" height="84" rx="6" fill="#fff" stroke="#5B2A86" stroke-width="1.5" stroke-dasharray="6 3"/>
+  <text x="825" y="560">Alltoallv, Exscan,</text><text x="825" y="578">Allreduce (host);</text><text x="825" y="596">halo (device)</text>
+  <rect x="1005" y="540" width="175" height="84" rx="6" fill="#fff" stroke="#5B2A86" stroke-width="1.5" stroke-dasharray="6 3"/>
+  <text x="1015" y="560">MPI-IO collective</text><text x="1015" y="578">writes (host bufs),</text><text x="1015" y="596">Exscan, 4 barriers</text>
+</g>
+
+<!-- transfers -->
+<g stroke="#B85C00" stroke-width="3.2" fill="none">
+  <line x1="225" y1="334" x2="225" y2="246" marker-end="url(#f8-o)"/>
+  <line x1="440" y1="244" x2="440" y2="332" marker-end="url(#f8-o)"/>
+  <line x1="660" y1="244" x2="660" y2="332" marker-end="url(#f8-o)"/><line x1="700" y1="334" x2="700" y2="246" marker-end="url(#f8-o)"/>
+  <line x1="885" y1="244" x2="885" y2="332" marker-end="url(#f8-o)"/><line x1="920" y1="334" x2="920" y2="246" marker-end="url(#f8-o)"/>
+  <line x1="1092" y1="244" x2="1092" y2="332" marker-end="url(#f8-o)"/>
+</g>
+<g font-size="11" fill="#7A3D00" font-weight="700">
+  <rect x="232" y="268" width="96" height="40" fill="#fff"/><text x="236" y="282">H→D mesh</text><text x="236" y="298" font-weight="400">once</text>
+  <rect x="446" y="262" width="104" height="54" fill="#fff"/><text x="450" y="276">D→H scalars</text><text x="450" y="292" font-weight="400">8–72 B per reduce,</text><text x="450" y="308" font-weight="400">~16 per step</text>
+  <rect x="706" y="256" width="104" height="70" fill="#fff"/><text x="710" y="270">D↔H ★</text><text x="710" y="286" font-weight="400">tree mirrors,</text><text x="710" y="302" font-weight="400">cell snapshots,</text><text x="710" y="318" font-weight="400">every evaluation</text>
+  <rect x="926" y="256" width="72" height="70" fill="#fff"/><text x="930" y="270">D↔H ★</text><text x="930" y="286" font-weight="400">mask, mesh</text><text x="930" y="302" font-weight="400">copies,</text><text x="930" y="318" font-weight="400">new plans</text>
+  <rect x="1098" y="262" width="82" height="54" fill="#fff"/><text x="1102" y="276">D→H ★</text><text x="1102" y="292" font-weight="400">full mesh,</text><text x="1102" y="308" font-weight="400">per ckpt</text>
+</g>
+<g font-size="12" fill="#111">
+  <line x1="20" y1="654" x2="52" y2="654" stroke="#B85C00" stroke-width="3.2" marker-end="url(#f8-o)"/><text x="60" y="658">host↔device transfer</text>
+  <text x="230" y="658">★ = on the critical path of the step (nothing overlaps it)</text>
+  <text x="640" y="658">Thick border = dominant compute. On MI300A host and device share HBM,</text>
+  <text x="640" y="676">but Kokkos HostSpace and HIPSpace are separate allocations, so these are real copies (inferred).</text>
+</g>
+</svg>
+</div>
+<figcaption><b>Figure 8. CPU versus GPU placement.</b> All per-vertex and per-particle arithmetic runs on the GPU. The host keeps what is irregular and pointer-based: mesh construction and partition at setup, halo-plan building, mesh topology edits, Canopy's tree skeleton and communication plans, and checkpoint staging. The traffic that matters crosses the boundary in three places: Canopy's tree mirrors on every evaluation, the remesh path's topology round trip, and the full-mesh copy per checkpoint. Halo exchanges never cross it, because MPI reads and writes device memory directly.</figcaption>
+</figure>
+
+<h3>Host–device transfers</h3>
+<div class="tbl"><table>
+<tr><th>Transfer</th><th>Direction, size</th><th>How often</th><th>Critical path?</th><th>Source</th></tr>
+<tr><td>Mesh after the replicated build and distribute</td><td>H→D, whole local mesh</td><td>once</td><td>setup only</td><td class="cite">tessera/src/Tessera_Distribute.hpp:193-260</td></tr>
+<tr><td>Result of each <code>parallel_reduce</code> into a host scalar</td><td>D→H, 4–72 B</td><td>~16+ per step</td><td>yes: each is a sync point, but tiny</td><td class="cite">e.g. TimeIntegrator.hpp:253-262</td></tr>
+<tr><td>Halo plan indices</td><td>H→D, O(boundary)</td><td>setup + every split</td><td>yes, on remesh steps</td><td class="cite">Tessera_HaloExchange.hpp:113-116</td></tr>
+<tr><td>Split edge mask</td><td>D→H, O(owned edges)</td><td>every remesh step that splits</td><td>yes</td><td class="cite">DynamicRemesh.hpp:1171-1176</td></tr>
+<tr><td>Tessera split / halo rebuild: whole mesh to host and back</td><td>D↔H, whole local mesh</td><td>every split</td><td>yes</td><td class="cite">Tessera_EdgeSplit.hpp:280-282; Tessera_HaloRebuild.hpp:535-583, 752-754</td></tr>
+<tr><td>Derived connectivity (face→vertex local ids, one-ring)</td><td>built host-side, then uploaded</td><td>once per topology generation (after each split)</td><td>yes, on remesh steps</td><td class="cite">MeshInterface.hpp:514-528, 1824-1830</td></tr>
+<tr><td>Canopy tree build: positions, counts, candidate lists mirrored to host</td><td>D↔H, O(local particles + cells)</td><td>every evaluation (3 per step)</td><td><b>yes</b></td><td class="cite">canopy/src/Canopy_TreeBuilder.hpp:555, 633, 827-841, 891, 1180</td></tr>
+<tr><td>Canopy downward sweep: cell snapshot per depth; shared-cell locals copied to host for <code>MPI_Allreduce</code> and back</td><td>D↔H</td><td>every evaluation</td><td><b>yes</b></td><td class="cite">canopy/src/Canopy_DownwardSweep.hpp:2925-2926, 2982-3034</td></tr>
+<tr><td>Checkpoint staging</td><td>D→H, whole V/E/F incl. ghosts</td><td>per checkpoint</td><td>yes, on those steps</td><td class="cite">Tessera_HDF5Writer.hpp:115-123</td></tr>
+</table></div>
+<p><b>Why the split looks like this.</b> The pattern is to keep the arithmetic on the device and keep pointer-chasing, ordered, map-based logic on the host: tree construction, ownership closure, plan building and HDF5. This reading is inferred from where the code puts things. Canopy states it directly: tree construction "runs on host because the tree structure is in _cells… on the host" (<span class="cite">canopy/src/Canopy_TreeBuilder.hpp:340-343</span>). The cost of that choice is that every FMM evaluation pays host round trips, because the tree is rebuilt every time.</p>
+
+<!-- ===================================================================== -->
+<h2 id="libs">External libraries</h2>
+<div class="tbl"><table>
+<tr><th>Library</th><th>Responsible for</th><th>Where control passes into it</th></tr>
+<tr><td><b>MPI</b> (Cray MPICH, GPU-aware via GTL)</td><td>All communication.</td><td><code>MPI_Init</code> <span class="cite">adaptive_mesh_bubble.cpp:162</span>. Beatnik's own calls: <span class="cite">Communication.hpp:231-315</span>, <span class="cite">ZModelSolver.hpp:634</span>, <span class="cite">SurfaceState.hpp:388, 535</span>, <span class="cite">VolumeProjection.hpp:150, 257</span>, <span class="cite">DynamicRemesh.hpp</span>, <span class="cite">Diagnostics.hpp:284-289</span>, <span class="cite">FarFieldInterface.hpp:1457, 1677</span>, <span class="cite">IOInterface.hpp</span> barriers. GTL is linked by the spack package (<code>-lmpi_gtl_hsa</code>).</td></tr>
+<tr><td><b>Kokkos</b> (≥ 5 per CMake)</td><td>Execution and memory spaces, Views, parallel patterns.</td><td><code>Kokkos::initialize</code> <span class="cite">adaptive_mesh_bubble.cpp:175</span>; every <code>parallel_for</code>/<code>parallel_reduce</code>; <code>CMakeLists.txt:30</code>.</td></tr>
+<tr><td><b>Tessera</b> (sibling repo)</td><td>The distributed triangle mesh: storage (V/E/F AoSoAs and the user field packs), icosphere generation, partition, distribute, halo plans and exchange, edge split, halo rebuild, parallel HDF5/XDMF output.</td><td><code>#include &lt;Tessera.hpp&gt;</code> <span class="cite">MeshInterface.hpp:269</span>; <code>buildIcosphere</code> (<span class="cite">:796-803</span>); <code>facePartitionByAxis</code>/<code>distribute</code>/<code>haloExchange</code> (<span class="cite">:1756-1761</span>); <code>haloExchange</code> (<span class="cite">:1348</span>); vertex-plan exchange (<span class="cite">:1401</span>); <code>splitEdges</code> via <span class="cite">DynamicRemesh.hpp:872</span>; <code>buildMeshGeometry</code> (<span class="cite">MeshInterface.hpp:1828</span>); <code>MeshSeries</code>/<code>writeMesh</code> (<span class="cite">IOInterface.hpp:626-725</span>).</td></tr>
+<tr><td><b>Cabana</b> (Core)</td><td>The AoSoA container under Tessera's mesh and the FMM particle pack; <code>Distributor</code>/<code>migrate</code> for routing particles to and from Canopy.</td><td><span class="cite">FarFieldInterface.hpp:790, 1252-1325, 1466-1469, 1564-1588</span>. <code>Cabana::Grid</code> is required by CMake (<span class="cite">CMakeLists.txt:49-55</span>), but no file in <code>src/</code> uses it.</td></tr>
+<tr><td><b>Canopy</b> (sibling repo)</td><td>The distributed FMM: tree, partition, upward and downward sweeps, P2P.</td><td>Includes at <span class="cite">FarFieldInterface.hpp:175-177</span>; <code>createSolver</code> <span class="cite">:899-905</span>; <code>auto_maintain</code> <span class="cite">:919-922</span>; <code>setup</code> <span class="cite">:911-913</span>; <code>solve</code> <span class="cite">:938-940</span>; <code>gradient</code> <span class="cite">:948-951</span>.</td></tr>
+<tr><td><b>ParMETIS</b> (via Canopy)</td><td>Partitioning Canopy's tree cells across ranks.</td><td><code>ParMETIS_V3_PartKway</code> / <code>ParMETIS_V3_AdaptiveRepart</code> <span class="cite">canopy/src/Canopy_TreePartitioner.hpp:593-600</span>; reached only through Canopy setup or repartition.</td></tr>
+<tr><td><b>HDF5</b> (parallel)</td><td>Checkpoint format.</td><td>Through Tessera (<span class="cite">Tessera_HDF5Writer.hpp:187-191</span>), and directly for the rank-0 <code>/beatnik</code> group (<code>#include &lt;hdf5.h&gt;</code> <span class="cite">IOInterface.hpp:328</span>, writes <span class="cite">:842-918</span>). Found transitively through Tessera's CMake config.</td></tr>
+<tr><td>Trilinos / Zoltan2 (via Tessera)</td><td>Tessera's <code>loadBalance</code>.</td><td>A build dependency of Tessera only. Beatnik never calls <code>loadBalance</code>, so control never passes into it in this example.</td></tr>
+</table></div>
+<p class="small">The spack recipe also lists Silo, heFFTe and an <code>arborx</code>-enabled Cabana. Nothing in <code>src/</code> uses those, so the recipe is out of date relative to <code>CMakeLists.txt</code>.</p>
+
+<!-- ===================================================================== -->
+<h2 id="perf">Performance hooks and suggested experiments</h2>
+
+<h3>Existing timers and hooks</h3>
+<div class="tbl"><table>
+<tr><th>Hook</th><th>What it measures</th><th>How to get it out</th></tr>
+<tr><td>Beatnik <code>ScopedTimer</code> (<span class="cite">src/Profiling.hpp:127-147</span>)</td><td>11 phases of each FMM evaluation: <code>ff_evaluate_total</code>, <code>ff_maintain</code>, <code>ff_pack</code>, <code>ff_fwd_distribute</code>, <code>ff_fwd_migrate</code>, <code>ff_solve</code>, <code>ff_contract</code>, <code>ff_rev_distribute</code>, <code>ff_rev_migrate</code>, <code>ff_scatter</code>, <code>ff_diagnostics</code> (<span class="cite">:69-79</span>; sites <span class="cite">FarFieldInterface.hpp:1419-1639</span>). Uses <code>MPI_Wtime</code>, pushes a Kokkos region, and fences on exit only.</td><td>Compiled in at <code>BEATNIK_PROFILING_LEVEL ≥ 2</code>; the spack env builds <code>profiling_level=2</code>. <code>print_timing_table</code> reduces MIN/MAX/SUM and prints min, max, mean and imbalance on rank 0, <b>but nothing in the example calls it.</b> The output needs one line, <code>BEATNIK_PRINT_FMM_TIMERS(MPI_COMM_WORLD)</code> (<span class="cite">Profiling.hpp:289</span>), after <code>solver.finalize()</code>. That line has not been added.</td></tr>
+<tr><td><code>FarFieldDiagnostics</code> (always on)</td><td>Maintenance action (Setup, Migrate, Rebalance or Rebuild), global P2P and M2L pair counts, fallback counts, root-width changes (<span class="cite">FarFieldInterface.hpp:215-439</span>).</td><td>Through <code>solver.brSolver()</code> downcast to <code>BRSolverFMM</code> (<span class="cite">Solver.hpp:689</span>), as <code>tests/regression_tests/Beatnik_Probe_FmmCost.cpp</code> does.</td></tr>
+<tr><td>Tessera <code>TESSERA_SCOPED_TIMER</code></td><td><code>TIMER_HALO_EXCHANGE</code> (<span class="cite">Tessera_Distribute.hpp:524</span>), <code>TIMER_WRITE_MESH</code>, <code>TIMER_BUILD_ICOSPHERE</code>, <code>TIMER_PARTITION</code>, <code>TIMER_DISTRIBUTE</code>. These also push Kokkos regions (<span class="cite">tessera/src/Tessera_Profiling.hpp:212-222</span>).</td><td><code>TESSERA_PROFILING_LEVEL</code>. Whether this environment enables it was not checked.</td></tr>
+<tr><td>Canopy <code>CANOPY_SCOPED_TIMER</code>, <code>CANOPY_PRINT_SOLVE_BREAKDOWN</code></td><td>Upward, downward and P2P wall time per solve (<span class="cite">canopy/src/Canopy_Solver.hpp:310-326</span>), per-phase downward timers, <code>TIMER_M2L_ALLREDUCE</code>.</td><td><code>canopy +profiling profiling_level=2</code> in the env spec.</td></tr>
+<tr><td>Kokkos Tools</td><td>Every labelled kernel (<code>beatnik_*</code>, <code>tessera_halo_pack</code>, …) and every region pushed by the three timer systems above.</td><td>Set <code>KOKKOS_TOOLS_LIBS</code> to a space-time-stack or kernel-timer connector. No script sets it today, and whether kokkos-tools is installed was not checked.</td></tr>
+<tr><td>Gaps</td><td colspan="2">No timers in the solver loop, the RHS, the direct BR solver, remesh, setup or Beatnik's I/O. No wall clock at all in the example driver. The Beatnik timer does not fence at start, but almost every kernel before it ends in a fence, so attribution should be close.</td></tr>
+</table></div>
+
+<h3>Suggested experiments</h3>
+<p>Mesh size follows Nv = 10·4ˢ + 2 for <code>--icosphere-subdivisions s</code> (default 2): s = 5 → 10,242 vertices, 6 → 40,962, 7 → 163,842, 8 → 655,362. Tuolumne runs 4 ranks per node, one GPU each. Submit every run as a batch script through the repository's resolver, never interactively.</p>
+<p>Common flags for all runs: <code>--source-quadrature vertex --steps 20 --progress-time-interval 0</code> and no <code>--checkpoint-dir</code>, except in E8.</p>
+<ul>
+<li><b>Frozen topology</b>, which isolates the RK path: add <code>--no-dynamic-remesh --refine-every 0</code>.</li>
+<li><b>Dynamic remeshing</b>: add <code>--no-isotropic-cleanup --remesh-collapse-factor 0 --remesh-smooth-iters 0 --remesh-flip-min-gain 1e12</code>.</li>
+</ul>
+
+<div class="tbl"><table>
+<tr><th>#</th><th>Question (poster topic)</th><th>Vary</th><th>Hold</th><th>Measure</th></tr>
+<tr><td>E1</td><td>Per-step breakdown: halo vs FMM vs rest (both topics)</td><td>s ∈ {6, 7}; frozen vs dynamic</td><td>P = 16 (4 nodes)</td><td>Kokkos Tools space-time stack: <code>TIMER_HALO_EXCHANGE</code>, <code>ff_*</code>, Canopy up/down/P2P, remainder = wall − sum. Add a per-step <code>MPI_Wtime</code> in the driver if needed.</td></tr>
+<tr><td>E2</td><td>Strong scaling (1)</td><td>P ∈ {4, 8, 16, 32, 64, 128, 256}</td><td>s = 7, frozen</td><td>Wall per step; halo time and its share; <code>ff_fwd/rev_*</code> share; imbalance % from <code>print_timing_table</code>; neighbour count per rank (log <code>plan.send_peers.size()</code>).</td></tr>
+<tr><td>E3</td><td>Weak scaling (1)</td><td>(s, P) = (5, 4), (6, 16), (7, 64), (8, 256): exactly 2,560 vertices per rank</td><td>frozen</td><td>Wall per step, halo time, Allreduce count × latency (tiny-collective cost should grow with log P), Canopy setup vs migrate.</td></tr>
+<tr><td>E4</td><td>FMM vs direct crossover (2)</td><td><code>--br-approximation {direct, fmm}</code>; s ∈ {3, 4, 5, 6}</td><td>P ∈ {4, 16}, frozen</td><td>BR time per evaluation. The direct ring is O(N²/P) with P−1 blocking hops.</td></tr>
+<tr><td>E5</td><td>FMM local vs remote work (2)</td><td><code>--br-treecode-ncrit {16, 32, 64, 128}</code>, <code>--br-treecode-order {2, 3, 4, 5}</code>, <code>--br-treecode-theta {0.3, 0.5}</code></td><td>s = 7, P = 16, frozen</td><td><code>ff_solve</code> split into up, down and P2P; P2P fraction from <code>FarFieldDiagnostics</code>; <code>ff_maintain</code>; accuracy against the direct sum.</td></tr>
+<tr><td>E6</td><td>Cost of adaptivity on communication (1)</td><td><code>--remesh-every {1, 5, 20}</code> vs frozen</td><td>s = 6, P = 16</td><td>Maintenance action per evaluation (Setup vs Migrate); remesh wall; owned-vertex imbalance over time (min/max owned count per step).</td></tr>
+<tr><td>E7</td><td>Size the halo missed opportunities (1)</td><td>(a) as is; (b) drop the stage-opening exchange in stages 2–3; (c) vertex-only exchange in RK. (b) and (c) are small code changes on a branch.</td><td>s = 7, P ∈ {16, 64}, frozen</td><td>Halo time per step and bytes per step; confirm the gold regression still passes.</td></tr>
+<tr><td>E8</td><td>Host–device traffic and I/O (2)</td><td><code>--checkpoint-every-steps {0, 10, 1}</code></td><td>s = 7, P = 64</td><td><code>rocprofv3</code> memory-copy trace: count D↔H copies per step and attribute them to Canopy tree build, remesh or checkpoint; <code>TIMER_WRITE_MESH</code>; effective write bandwidth.</td></tr>
+</table></div>
+
+<!-- ===================================================================== -->
+<h2 id="ambig">Ambiguities and open questions</h2>
+<ol>
+<li><b>Which configuration counts as "the" run.</b> The example's defaults are rejected at setup (see the warning at the top). This document traces the accepted production configuration: FMM with the vertex quadrature, split-only remeshing every step. Indicator AMR (<code>--no-dynamic-remesh --refine-every N</code>) is a different branch with its own expensive collectives, documented in <span class="cite">AdaptiveMesh.hpp</span> but not drawn here. Its 60-probe bisection, when <code>--max-faces</code> binds, reruns the whole closure, halo exchanges included.</li>
+<li><b>Redundant exchanges</b> (§3.7, items 1–2). The reading is that nothing writes the mesh between <code>finishStage</code> and the next RHS. A one-line test would confirm it: compare a run with and without the stage-opening exchange against the gold set.</li>
+<li><b>GPU-awareness of <code>Cabana::migrate</code></b> is inferred from Cabana packing into device views. The underlying MPI calls were not traced into GTL.</li>
+<li><b>Canopy overlap.</b> Canopy's phases are sequential at solve level. Whether a phase overlaps its own Isend/Irecv with kernels internally was not traced.</li>
+<li><b>MI300A unified memory.</b> HBM is physically shared, but Kokkos still allocates <code>HostSpace</code> and <code>HIPSpace</code> separately, so each "transfer" is a real copy. Whether it goes through the copy engine or runs at memory bandwidth was not measured.</li>
+<li><b>Uncommitted code.</b> <code>device_op_table_assembly</code> (<span class="cite">Params.hpp:462-474</span>; <span class="cite">FarFieldInterface.hpp:1183</span>) exists only in the working tree on 2026-10-13.</li>
+<li><b>Stale comments.</b> Some Beatnik comments say Tessera lacks edge collapse and flip (<span class="cite">MeshInterface.hpp:1563-1625</span>). <code>Tessera_EdgeCollapse.hpp</code> and <code>Tessera_EdgeFlip.hpp</code> now exist, but Beatnik does not call them yet.</li>
+</ol>
+
+</main>
+</body>
+</html>

@@ -2496,3 +2496,69 @@ displacements are 40 times larger at weight 0.4.
   should be at least as regular as the reference's, and the flip counts are
   not comparable one for one. Compare the valence histograms, not flip
   totals.
+
+## Long-job split (design only)
+
+**Commits:** the commit that adds this section (`milestone1.md`, this log).
+
+The remaining tasks whose exit criteria wait on a long job were split into
+submit/post-job pairs, under the new Conventions row "Long jobs".
+
+- **T4d6 → T4d6j + T4d6.** The 600-step cadence run at ranks 1 and 4 is
+  estimated at about 12 min per launch, from M1-G2's Python wall of 707 s
+  (`## M1-G2`); no Beatnik dynamic-remesh run has been timed. The standalone
+  "T4d exit criterion" section had no owning task. Its 50-step umbrella run now
+  goes in T4d6j's job and is judged in T4d6, the first point at which it can
+  run, because T4d6j deletes the rejections. T4d6j's job also gains a control
+  launch with renumbering off, so the bound has a failure direction. That needs
+  a cadence value meaning "never".
+- **M1-T1 deleted, merged into M1-T2j.** M1-T1's exit criterion listed the
+  M1-T2 member, whose source only M1-T2 wrote, and M1-T2 depended on M1-T1. Its
+  bare `run_milestone.flux` would also have run the whole tier, including the
+  4.2 h FMM jobs. Registration, the gold `install()` rule and a dedicated
+  staged runner, `m1_milestone_run.flux`, now live in M1-T2j. The task loop
+  protects `run_milestone.flux` and `submit_milestone_split.sh`.
+- **M1-T2 / M1-A1 cycle broken.** M1-T2 ran at M1-A1's depth, while M1-A1
+  depended on M1-T2's first failing step. The order is now: M1-T2j submits a
+  600-step measurement whose test continues past failures and prints per-step
+  `max|e|`; M1-T2 reads it; M1-A1j decides with the user, encodes the decision
+  and submits the confirming run; M1-A1 judges it green.
+- The gate (8 and about 11 min in the last two runs `framework-progress-log.md`
+  records) stays inside the submit tasks and is waited on in the session.
+
+**Affects:** T4d6j, T4d6, M1-T2j, M1-T2, M1-A1j and M1-A1: new or rewritten
+entries. Every reference to M1-T1 in earlier sections of this log now means
+M1-T2j.
+
+## M1-T2j protected-file edits, made ahead (design only)
+
+**Commits:** the commit that adds this section (`CLAUDE.md`, `docs/testing.md`,
+`scripts/tuolumne/submit_milestone_split.sh`, `milestone1.md`, this log).
+
+The task loop protects CLAUDE.md and `submit_milestone_split.sh`. So both were
+changed ahead of M1-T2j, in forms that stay true before and after the member
+lands:
+
+- **CLAUDE.md** keeps the `milestone` tier's rules: not the gate, one `pbatch`
+  job per (member, backend), the FMM ruling and the parallel-filesystem scratch
+  rule. It defers the member list, the counts and the measured walls to
+  `docs/testing.md`, which already carried them. Adding a member no longer
+  touches CLAUDE.md.
+- **`submit_milestone_split.sh`** accepts an optional fourth row field,
+  `pending=<task ID>`. A pending row is submitted only when its
+  `<member>_MPI_<backend>` line is in the installed
+  `beatnik_milestone_manifest.txt`. Otherwise it prints `PENDING …` to stderr
+  and is skipped. Unmarked rows are unchanged, so a missing established member
+  still fails in the runner. The `Beatnik_Test_Milestone1Bubble` SERIAL and HIP
+  rows are in, `pending=M1-T2j`, at `-t 40m`, an estimate of about 1.5x the
+  M1-G2 Python bound of 2 x 707 s. The script was checked with a stub `flux` on
+  the login node. Today both milestone-1 rows print PENDING and the eight
+  milestone-0 rows submit. A copy that marked `Milestone0Frozen HIP` pending
+  still submitted it, because that member is installed.
+- `docs/testing.md` is not protected. Its member list stays M1-T2j's. Only the
+  hardcoded "eight separate `pbatch` jobs" became "one `pbatch` job per
+  (member, backend)".
+
+**Affects:** M1-T2j: no edit to CLAUDE.md or the split script; it updates the
+`docs/testing.md` entry. M1-A1: its log asks the user to re-time the two rows
+and drop `pending=M1-T2j`.
