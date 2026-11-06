@@ -2853,3 +2853,82 @@ polling the gate; the gate had completed and was read on resume.
 - **Follow-up:** `Beatnik_Test_T2bOperators` makes the unit tier red at four
   ranks; the "ranks 1 and 4" convention would read cleaner if its guard became
   a reduced skip (another task's test, not changed here).
+
+## T4d6j review
+
+**Verdict:** Passed
+**Reviewed:** `092e2e5^..092e2e5` (the one code commit; `be10161` after it
+touches only `tasks/`). It touches every file in the **Fill in** (the remesh
+cycle and `RemeshDiagnostics` in `src/Beatnik_DynamicRemesh.hpp`, the adapter
+and query in `src/Beatnik_MeshInterface.hpp`, `RemeshParams` in
+`src/Beatnik_Params.hpp`, the five rejections in `src/Beatnik_Solver.hpp`, the
+driver, its header and its `BEATNIK_DRIVER_SOURCES` entry, the job script,
+`RefineSplitEdges` and `DynamicRemeshSplit`), plus the README and
+`docs/testing.md` lines CLAUDE.md requires to stay in sync, the user-ruled
+`--bank=unm` line in `scripts/tuolumne/unit_tests.flux`, the additive
+`Solver::edgeFlips()` accessor check 6 needs, and comment-only rewrites in
+`tests/unit_tests/Beatnik_Test_MeshEdits.cpp` (the log's cosmetic corrections).
+Nothing out of scope.
+**Evidence:** a submit task (**Submits:** field), so verified without a
+verification job. Job `f3iXs3sWtvv3` (`scripts/tuolumne/t4d6_gid_cadence.flux`)
+is known to the scheduler, state `SCHED`, submitted 11:17:18; its result is
+T4d6's. The stage `/p/lustre5/stewartj/beatnik/T4d6j/stage/` exists and its
+`COMMIT` names `092e2e580a91…`, porcelain count 4 (none compiled, as the log
+lists). The script takes its binaries only from the stage (`$1`, never
+`beatnik_exe`), prints `stage/COMMIT` and each binary's `sha256sum` before any
+launch, writes under `T4d6j/out/<tag>/`, and carries the deadline guard (rows
+sum to 3300 s inside a 3420 s budget of the 60 m wall). The rest of the
+criterion was read from the implementing session's jobs. They ran at
+10:19–10:28, before the commit (11:17), so provenance rests on the installed
+tree, not an echo: the dev view's `Beatnik_DynamicRemesh.hpp`,
+`Beatnik_MeshInterface.hpp`, `Beatnik_Params.hpp` and `Beatnik_Solver.hpp` are
+byte-identical to `092e2e5`'s, the gate log carries check 6's new
+`flips liveness, pass N` notes (code that exists only in `092e2e5`), and the
+staged `Beatnik_Test_Milestone1Run_MPI_HIP` is byte-identical to the view's
+(mtime 10:18:58). Unit tier `f3iXQgeQwhKD` COMPLETED rc 0, no queue wait,
+48.6 s; `f3iXQgvioo7D` rc 1, 1.06 min, the one failure the
+pre-existing `T2bOperators` `comm_size == 1` guard, as recorded. Gate
+`f3iXR6G8cAF9` COMPLETED rc 0, no queue wait, 7.51 min, ends `[gate] PASS
+(label=regression)`, zero `[FAIL]` lines; its only remaining failure direction
+in `DynamicRemeshSplit`, the T4e proximity rejection, is noted on every
+launch, and check 6's flips go 0, 18, … to a positive cumulative count.
+The build log (`/p/lustre5/stewartj/beatnik/T4d6j/t4d6j_spack_install.log`)
+was not re-read; the **Met.** paragraph's warning count is the session's.
+
+Mechanical pass (`review_checks.py`): S2 at `Beatnik_MeshInterface.hpp:451` is
+a doc comment, not code; the S4 hits on `improveConnectivityByFlips` are the
+live function (passed in error as an old name). No K/M/B candidates. Read:
+- Collectives: `remesh()` step 5 runs `gidSpace()` (one `MPI_Allreduce`) on
+  every call and `compactAndRenumberGids()` on `_remesh_calls % every == 0`, a
+  counter identical on every rank; the driver's per-step measurements and its
+  early-stop `break` follow `advanceOneStep`'s global result.
+- State across renumbering: the solution lives in the Tessera vertex user
+  pack and the AMR reference fields in face user fields, so they travel with
+  the reorder; the `Solver`'s `rebuildState()` after every remesh still runs.
+  No `resetReferenceState`, as the log argues.
+- The driver's one kernel captures a View by value and is reduced into a host
+  scalar; the cadence's "why 50" is documented on the field.
+- Check 6 is the liveness check the **Removes** field asks for: four passes,
+  Euler and `checkConformity` after each, `edgeFlips() > 0` on a global count.
+
+Stale code: the five rejections, the four T4d `checkRejected` cases and
+`checkFailureDirection` are gone (grep); the `refining` flag went with them.
+`DynamicRemeshSplit`'s header and `RefineSplitEdges`' makeParams comment
+(T4d5 review nit 1) are rewritten. No prompt file remains under `tasks/`.
+
+1. [nit] `examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp:39-47`
+   and `examples/02_adaptive_mesh_bubble/CMakeLists.txt:19-26` still say the
+   mesh-quality passes (T4d) are unported and that the DEFAULT configuration
+   is rejected because `--isotropic-cleanup` defaults on. This diff deleted
+   that rejection, so both now describe a failure the example no longer has
+   (CLAUDE.md "Describe the code as it is now"). Rewrite both to name only
+   T4e (off by default), the tight set and T5c.
+2. [follow-up] `docs/dataflow.html:64-68` says the defaults do not run, that
+   `--source-quadrature face` is the default (it is `vertex`,
+   `Beatnik_Params.hpp:96`) and gives a production path with the four T4d
+   knobs off. Stale before this task in part; now wholly.
+3. [follow-up] `scripts/tuolumne/grouped_io_t1.flux:25-32` says the four
+   remesh flags are T4d, unimplemented, and throw. Stale since T4d2–T4d5;
+   the job's split-only flags are still a valid choice.
+
+**Affects:** none.
