@@ -2,7 +2,7 @@
 
 **Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1, M1-G2, M1-D1, T4d1,
 T4d2, T4d3, T4d4, T4d5 and T4d6j are **DONE** (M1-U1–U3, M1-G1, M1-G2, M1-D1,
-T4d1–T4d5 reviewed, Passed; T4d6j awaiting review, its job pending for T4d6).
+T4d1–T4d5 and T4d6j reviewed, Passed; T4d6j's job finished, read by T4d6).
 T4d6, M1-T2j, M1-T2, M1-A1j and M1-A1 are NOT STARTED.
 
 ## Problem
@@ -1676,10 +1676,20 @@ deleted; the new `RefineSplitEdges` check 6 reports cumulative flips 58 or 60
 
 **Depends on:** T4d6j.
 
-**Fill in:** the progress log's `## T4d6` section. If the output shows a defect,
-fix it inside T4d6j's **Fill in** and resubmit: restage into
-`/p/lustre5/stewartj/beatnik/T4d6/stage/` and submit `t4d6_gid_cadence.flux`
-again.
+**Fill in:** the progress log's `## T4d6` section; a launch selector in
+`scripts/tuolumne/t4d6_gid_cadence.flux` and its `diag` row (below); a README
+"Known Issues" entry if the diagnostic attributes the growth to checkpoints. If
+the output shows a defect, fix it inside T4d6j's **Fill in** and resubmit:
+restage into `/p/lustre5/stewartj/beatnik/T4d6/stage/` and submit
+`t4d6_gid_cadence.flux` again.
+
+**Submits:** one diagnostic job, `t4d6_gid_cadence.flux` restricted to a single
+`diag` row: 600 steps, 4 ranks, HIP, checkpoint cadence `0`, renumber cadence
+`50`, `pdebug`, 1 node `--exclusive`, `--bank=unm`. The launch is selected by a
+script argument, since the submit wrapper takes arguments and no options. It
+runs from `/p/lustre5/stewartj/beatnik/T4d6/stage/` (the `092e2e5` binaries,
+restaged) and writes under `/p/lustre5/stewartj/beatnik/T4d6/out/`. Expected
+run time under a minute: the T4d6j job's 600-step 4-rank HIP launch took 17 s.
 
 **Removes:** nothing.
 
@@ -1691,13 +1701,27 @@ per-rank peak RSS and the umbrella's four counter totals into the log. Its
 `**Affects:**` line names M1-T2j's walltime when the measured 600-step wall
 differs from T4d6j's estimate.
 
+The T4d6j job's 4-rank cadence run grows every rank's RSS by about 11–19 MB
+over 600 steps at constant face count, only on checkpoint steps (every 10th),
+while both 1-rank runs, which write the same checkpoints, stay flat between
+face-count changes. Submit the `diag` launch to attribute it. If per-rank RSS
+is flat at constant face count without checkpoints, the gid space is not the
+cause: record the checkpoint-step growth as a README "Known Issues" entry
+(pre-existing, 4-rank checkpoint writes) and as a follow-up in the log's
+`**Affects:**` line. If RSS still grows without checkpoints, the per-rank RSS
+clause fails: stop and report.
+
 **Exit criterion,** judged from the T4d6j job's output:
 - **The cadence run:** at ranks 1 and 4, the ratio of the gid-space high-water
   mark to the global vertex count does **not** grow monotonically with step
   index across the last third of the run (steps 400–600). Per-rank resident
-  memory does not grow with step count at constant face count.
+  memory does not grow with step count at constant face count, judged on the
+  `diag` launch (no checkpoints) at 4 ranks and on the cadence run at 1 rank.
 - **The control:** the ratio **does** grow monotonically across the same third,
-  which shows the measure detects the leak this task bounds.
+  which shows the measure detects the leak this task bounds. Monotone means
+  non-decreasing at every step with a net rise over the window; the mesh is
+  nearly static at the milestone defaults, so the ratio rises only when a
+  split adds gids.
 - **The T4d umbrella:** all four 50-step launches complete; volume drift is below
   `1e-10`; the minimum triangle quality stays above `--remesh-min-quality` at
   every step; `Solver::requireSupportedConfiguration` rejects **nothing** for that
