@@ -1,9 +1,9 @@
 # Milestone 1 — the reference's default rising-bubble configuration
 
 **Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1, M1-G2, M1-D1, T4d1,
-T4d2, T4d3, T4d4 and T4d5 are **DONE** (M1-U1–U3, M1-G1, M1-G2, M1-D1,
-T4d1–T4d4 reviewed, Passed; T4d5 awaiting review). T4d6j, T4d6, M1-T2j, M1-T2,
-M1-A1j and M1-A1 are NOT STARTED.
+T4d2, T4d3, T4d4, T4d5 and T4d6j are **DONE** (M1-U1–U3, M1-G1, M1-G2, M1-D1,
+T4d1–T4d5 reviewed, Passed; T4d6j awaiting review, its job pending for T4d6).
+T4d6, M1-T2j, M1-T2, M1-A1j and M1-A1 are NOT STARTED.
 
 ## Problem
 
@@ -311,37 +311,42 @@ introduces or sharpens.
   (3 of 12) with consistent winding. Compare valence statistics accordingly.
 - **`SurfaceMesh::compact()` is not called from the remesh cycle.**
   `Tessera::collapseEdges` runs `compact()` as its own last step; the standalone
-  adapter exists for T4d6j's renumbering cadence and for tests. Its doc comment
-  must say that, rather than leave a reader to infer it.
+  adapter is called only by tests. T4d6j's renumbering cadence calls
+  `SurfaceMesh::compactAndRenumberGids()`, which compacts first. Its doc comment
+  says so, rather than leave a reader to infer it.
 
 ## Current state
 
 True at HEAD, and specific about what is *defined but wrong* versus what
 *throws*:
 
-- **Implemented, unreachable from a `Solver` run until T4d6j** except at their
-  disabling values (T4d3, **DONE**): `DynamicRemesh::flipEdgesForQuality`
-  ([src/Beatnik_DynamicRemesh.hpp:1146](../src/Beatnik_DynamicRemesh.hpp#L1146)),
+- **Implemented and reachable from a `Solver` run** (T4d3, **DONE**; the
+  rejections deleted by T4d6j): `DynamicRemesh::flipEdgesForQuality`
+  ([src/Beatnik_DynamicRemesh.hpp:1160](../src/Beatnik_DynamicRemesh.hpp#L1160)),
   called from the pass loop's repair gate, and
   `MeshQuality::improveConnectivityByFlips`
   ([src/Beatnik_MeshQuality.hpp:986](../src/Beatnik_MeshQuality.hpp#L986)),
   called from the refine branch
-  ([src/Beatnik_Solver.hpp:479](../src/Beatnik_Solver.hpp#L479)). Both run
-  `qualityFlipSweep` (`:417`): several `flipEdges` rounds with a sweep-wide
-  touched set of new diagonals, gathered from `MeshEditReport::flipped`. The
-  `Solver` still rejects `--remesh-flip-min-gain < 1e12` and `--flip-passes > 0`;
-  at those disabling values the passes return before any mutation. Covered by
-  case 4 of `Beatnik_Test_MeshEdits`.
-- **Implemented, reachable from `DynamicRemesh::remesh` but not from a `Solver`
-  run** (T4d2, **DONE**): `DynamicRemesh::collapseShortEdges`, called once per
-  pass after a second sizing-field recompute, through
-  `ReferenceCollapsePolicy` (the reference metric on M1-U1's hook). The `Solver`
-  still rejects `--remesh-collapse-factor > 0`
-  ([src/Beatnik_Solver.hpp:830-850](../src/Beatnik_Solver.hpp#L830-L850)) until
-  T4d6j, so a run reaches it only at factor 0, where it returns before any
-  mutation. Covered by case 3 of `Beatnik_Test_MeshEdits`.
+  ([src/Beatnik_Solver.hpp:478](../src/Beatnik_Solver.hpp#L478)), which
+  re-bases the AMR reference state under `flips > 0 && smooth_iters == 0`
+  (`:481`). Both run `qualityFlipSweep` (`:417`): several `flipEdges` rounds
+  with a sweep-wide touched set of new diagonals, gathered from
+  `MeshEditReport::flipped`. At `--remesh-flip-min-gain 1e12` and
+  `--flip-passes 0` the passes return before any mutation. Covered by case 4 of
+  `Beatnik_Test_MeshEdits`; the refine branch's flips are asserted live at
+  `--flip-passes 2` by check 6 of the `regression` member
+  `Beatnik_Test_RefineSplitEdges`.
+- **Implemented and reachable from a `Solver` run** (T4d2, **DONE**; the
+  rejection deleted by T4d6j): `DynamicRemesh::collapseShortEdges`, called once
+  per pass after a second sizing-field recompute, through
+  `ReferenceCollapsePolicy` (the reference metric on M1-U1's hook). At
+  `--remesh-collapse-factor 0` it returns before any mutation. Covered by case 3
+  of `Beatnik_Test_MeshEdits`.
 - **Implemented** (T4d1, **DONE**), with `collapseEdges` called by T4d2 and
-  `flipEdges` called by T4d3 and `compact` called only by the test:
+  `flipEdges` called by T4d3 and `compact` called only by the test; T4d6j added
+  `SurfaceMesh::compactAndRenumberGids` (called by `DynamicRemesh::remesh` every
+  `RemeshParams::renumber_gids_every` calls, default 50) and `gidSpace()`
+  (reported as `RemeshDiagnostics::gid_space_high_water`):
   `SurfaceMesh::{collapseEdges, flipEdges, compact}` take a host
   `std::vector<char>` mask sized `ownedEdgeCount()` and a trailing policy
   defaulted to `collapse_policy_type` / `flip_policy_type`, and return
@@ -357,31 +362,30 @@ True at HEAD, and specific about what is *defined but wrong* versus what
   `flipEdges` accepts at most one of several flips in one call that would create
   the same new diagonal, under either relation (M1-U3, **DONE**, Tessera
   `33dc6b9`); T4d3's quality flips rely on it.
-- **Implemented, unreachable from a `Solver` run until T4d6j** except at its
-  disabling value (T4d4): `DynamicRemesh::tangentialSmooth`
-  ([src/Beatnik_DynamicRemesh.hpp:1235](../src/Beatnik_DynamicRemesh.hpp#L1235)),
+- **Implemented and reachable from a `Solver` run** (T4d4; the rejection
+  deleted by T4d6j): `DynamicRemesh::tangentialSmooth`
+  ([src/Beatnik_DynamicRemesh.hpp:1247](../src/Beatnik_DynamicRemesh.hpp#L1247)),
   called from the pass loop's repair gate after the flips
   (`diag.smooth_steps += tangentialSmooth( mesh )`,
-  [:1405](../src/Beatnik_DynamicRemesh.hpp#L1405)). It is T4c's stencil
+  [:1416](../src/Beatnik_DynamicRemesh.hpp#L1416)). It is T4c's stencil
   (`MeshGeometry` normals, `graphLaplacianVector`, `projectTangent`) plus the
   reference's all-or-nothing quality guard per iteration, and returns the
-  accepted-iteration count. The `Solver` still rejects
-  `--remesh-smooth-iters > 0`; at 0 the pass returns before any halo exchange.
-  Covered by case 5 of `Beatnik_Test_MeshEdits`.
-- **Implemented, unreachable from a `Solver` run until T4d6j** except at its
-  disabling value (T4d5): `MeshQuality::valenceEqualizingFlips`
+  accepted-iteration count. At `--remesh-smooth-iters 0` the pass returns
+  before any halo exchange. Covered by case 5 of `Beatnik_Test_MeshEdits`.
+- **Implemented and reachable from a `Solver` run** (T4d5; the rejection
+  deleted by T4d6j): `MeshQuality::valenceEqualizingFlips`
   ([src/Beatnik_MeshQuality.hpp:652](../src/Beatnik_MeshQuality.hpp#L652))
   and `MeshQuality::isotropicCleanup` ([:937](../src/Beatnik_MeshQuality.hpp#L937)),
   called from both branches of `Solver::advanceOneStep` under
   `_params.cleanup.enabled`
-  ([src/Beatnik_Solver.hpp:513](../src/Beatnik_Solver.hpp#L513),
-  [:571](../src/Beatnik_Solver.hpp#L571)), each call followed by
-  `Solver::rebuildState` ([:910](../src/Beatnik_Solver.hpp#L910):
+  ([src/Beatnik_Solver.hpp:511](../src/Beatnik_Solver.hpp#L511),
+  [:568](../src/Beatnik_Solver.hpp#L568)), each call followed by
+  `Solver::rebuildState` ([:839](../src/Beatnik_Solver.hpp#L839):
   `resetReferenceState` + `centerPotential`); the remesh branch also rebuilds
   before the cleanup. The valence flips run several `EndpointInQuad` rounds per
-  pass with a pass-wide touched set of vertex gids. The `Solver` still rejects
-  `--isotropic-cleanup`; under `--no-isotropic-cleanup` neither the cleanup nor
-  its rebuild runs. Covered by case 6 of `Beatnik_Test_MeshEdits`.
+  pass with a pass-wide touched set of vertex gids. The cleanup is on by
+  default; under `--no-isotropic-cleanup` neither the cleanup nor its rebuild
+  runs. Covered by case 6 of `Beatnik_Test_MeshEdits`.
 - Implemented and validated, and this milestone must not re-invent them: the
   sizing field, the gradation sweeps, the split pass and the edge-mask plumbing
   (T4a/T4b); `MeshQuality::relaxTangential` and `improveQualityTangential` (T4c);
@@ -1503,15 +1507,22 @@ gates both call sites on; `Solver::solve` still rejects `--isotropic-cleanup`.
 
 ---
 
-### T4d6j — the gid-renumbering cadence, built and submitted — **NOT STARTED**
+### T4d6j — the gid-renumbering cadence, built and submitted — **DONE**
 
 **Depends on:** T4d2, T4d3, T4d4, T4d5. It is the last T4d task because it
 deletes the `Solver` rejections that T4d2–T4d5 all leave in place (Conventions,
 "`Solver` rejections during T4d").
 
 **Fill in:** the remesh cycle in
-[src/Beatnik_DynamicRemesh.hpp:998-1056](../src/Beatnik_DynamicRemesh.hpp#L998-L1056)
-and `RemeshDiagnostics` ([:142-196](../src/Beatnik_DynamicRemesh.hpp#L142-L196));
+[src/Beatnik_DynamicRemesh.hpp:1367-1448](../src/Beatnik_DynamicRemesh.hpp#L1367-L1448)
+and `RemeshDiagnostics` ([:149-259](../src/Beatnik_DynamicRemesh.hpp#L149-L259));
+the `SurfaceMesh` adapter `compactAndRenumberGids()` and the query
+`gidSpace()` in
+[src/Beatnik_MeshInterface.hpp:1914-1947](../src/Beatnik_MeshInterface.hpp#L1914-L1947),
+modelled on `compact()` and returning a `MeshEditReport` with
+`gid_space_{before,after}`; the cadence field
+`RemeshParams::renumber_gids_every`
+([src/Beatnik_Params.hpp:707](../src/Beatnik_Params.hpp#L707), `0` = never);
 the new driver `tests/regression_tests/Beatnik_Test_Milestone1Run.cpp`, its
 header `tests/regression_tests/Beatnik_Milestone1Params.hpp`, and its
 entry in `BEATNIK_DRIVER_SOURCES`
@@ -1641,6 +1652,23 @@ launches with zero `[FAIL]` lines, with the five rejection cases deleted; the
 staged directory exists and its `COMMIT` names the commit holding this task's
 code; and the scheduler accepted `t4d6_gid_cadence.flux`, its job ID on the log's
 `**Jobs:**` line.
+
+**Met.** Commit `092e2e5`. The dev-env `spack install` (beatnik `ckhvawf`) is
+rc 0 in 12m28s; its 75 warnings are all Canopy `-Wpass-failed` occupancy notes
+(70 before; the new HIP driver translation unit instantiates the same
+kernels), none in a changed file. `BEATNIK_UNIT_RANKS=1` (`f3iXQgeQwhKD`):
+`[unit] SUMMARY: PASS (8/8 tests)`. `BEATNIK_UNIT_RANKS=4` (`f3iXQgvioo7D`):
+7/8, every member green including `Beatnik_Test_MeshEdits` (282/282 on all
+four ranks), the one failure being `Beatnik_Test_T2bOperators`'s deliberate
+`comm_size == 1` guard (`expected 1, got 4`), pre-existing and recorded in
+`framework.md` T4c. The gate (`f3iXR6G8cAF9`) ends `[gate] PASS
+(label=regression)` over 60 launches with zero `[FAIL]` lines, with the five
+rejections and their four `checkRejected` cases and `checkFailureDirection`
+deleted; the new `RefineSplitEdges` check 6 reports cumulative flips 58 or 60
+(rank-count dependent) over four passes. Stage
+`/p/lustre5/stewartj/beatnik/T4d6j/stage/` holds both driver binaries and a
+`COMMIT` naming `092e2e5`. The scheduler accepted `t4d6_gid_cadence.flux` as
+`f3iXs3sWtvv3`; its output is T4d6's to judge.
 
 ---
 

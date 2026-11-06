@@ -2695,3 +2695,161 @@ now stand in the task as design:
 **Affects:** T4d6j: no longer needs these questions answered, so the loop does
 not pause on it. M1-T2j: includes `Beatnik_Milestone1Params.hpp` rather than
 writing its own `makeParams()`.
+
+## T4d6j
+
+**Commits:** `092e2e5` (the code, the tests, the driver and its header, the
+CMake entry, README, `docs/testing.md`, `scripts/tuolumne/unit_tests.flux` and
+the new `scripts/tuolumne/t4d6_gid_cadence.flux`), and the commit that adds
+this section (`milestone1.md`, this log).
+
+**Jobs:**
+- `f3iXQgeQwhKD`, `scripts/tuolumne/unit_tests.flux` at `BEATNIK_UNIT_RANKS=1`,
+  log `beatnik_unit_tests.f3iXQgeQwhKD.log`. COMPLETED rc 0,
+  `[unit] SUMMARY: PASS (8/8 tests)`. Passing direction.
+- `f3iXQgvioo7D`, the same at `BEATNIK_UNIT_RANKS=4`, log
+  `beatnik_unit_tests.f3iXQgvioo7D.log`. Exit 1, `SUMMARY: FAIL (7/8 tests)`.
+  The one failure is `Beatnik_Test_T2bOperators` (`check 1: expected 1, got
+  4`): its deliberate `comm_size == 1` guard, pre-existing and recorded in
+  `framework.md` T4c and the `grouped-io` log as making the tier red at four
+  ranks by design. Every other member passed, `Beatnik_Test_MeshEdits` with
+  `282/282` on all four ranks. Read per member, the passing direction.
+- `f3iXR6G8cAF9`, `scripts/tuolumne/run_regression_minset.flux` with
+  `BEATNIK_TEST_SCRATCH=/p/lustre5/stewartj/beatnik/gate_scratch`, log
+  `beatnik_regression_minset.f3iXR6G8cAF9.log`. COMPLETED, 7.5 min,
+  `[gate] PASS (label=regression)` over 60 launches, zero `[FAIL]` lines.
+  Passing direction: the gate members' trajectories did not move.
+- `f3iXs3sWtvv3`, `scripts/tuolumne/t4d6_gid_cadence.flux` (`pdebug`, 1 node
+  `--exclusive`, `-t 60m`, `--bank=unm`), staged directory
+  `/p/lustre5/stewartj/beatnik/T4d6j/stage/` (`COMMIT` = `092e2e5`, porcelain
+  count 4: the user's `run_regression_minset.flux`, `commands.sh`,
+  `milestone1.md` and the prompt file, none compiled), output
+  `/p/lustre5/stewartj/beatnik/T4d6j/out/<group>_<BACKEND>_np<N>/` and
+  `beatnik_t4d6.f3iXs3sWtvv3.log`. **Pending: read by `T4d6`.** Accepted and
+  queued (`S`) at 11:17.
+
+**Decisions** (given to the task and not reopened):
+- **`--bank` directives (the user's ruling).** The user added
+  `# flux: --bank=unm` to `scripts/tuolumne/run_regression_minset.flux`; that
+  edit is theirs and is neither staged nor committed here. This task added the
+  same single line to `scripts/tuolumne/unit_tests.flux`'s directive block and
+  changed nothing else there. All four submissions went through
+  `$TASKLOOP_SUBMIT`; the wrapper's two-job limit put the gate in after the
+  first unit job finished.
+- **The driver**, the replacement for `RefineSplitEdges` check 6 and the three
+  job groups are as the entry states them (`## T4d6j open questions settled`).
+
+**The cadence: `RemeshParams::renumber_gids_every = 50`** remesh calls, `0` (or
+negative) = never, the `SolverParams` default and therefore what a milestone
+run uses. It counts `DynamicRemesh::remesh` calls (a member counter,
+`remeshCalls()`), identical on every rank. Why 50: one renumbering costs two
+halo rebuilds plus a whole-AoSoA exchange, while every remesh call at the
+milestone defaults already does a split, a collapse with its own compaction,
+several flip rounds and a smoothing step, so one renumbering per 50 calls is
+well under 1 % of remesh cost; much longer stops bounding the space within a
+milestone run, and at `--remesh-every 1` a 600-step run renumbers 12 times,
+with at least three renumberings in any 200-step window (T4d6's steps
+400-600). Tessera's header suggests "every few hundred steps"; 50 is the
+conservative end while the leak rate is unmeasured. The reasoning is in the
+field's comment. The gate's dynamic-remesh member runs 20 remesh calls, so it
+never renumbers.
+
+**Re-basing:** renumbering does **not** call `resetReferenceState`. It moves no
+vertex and changes no connectivity; it changes gids and the local storage
+order. The AMR reference area and curvature are face user fields and travel
+with their faces through the compaction, and no Beatnik state caches a local
+index or a gid across a step (the valence flips' touched set lives inside one
+cleanup pass, which runs after `remesh()` returns). The Solver's existing
+`rebuildState()` after every remesh still runs.
+
+**Signatures added:**
+
+```
+// src/Beatnik_MeshInterface.hpp, SurfaceMesh
+MeshEditReport compactAndRenumberGids();   // Tessera::compactAndRenumberGids
+long long gidSpace();                      // Tessera::detail::gidSpace, collective
+// src/Beatnik_Params.hpp, RemeshParams
+int renumber_gids_every = 50;              // 0 = never
+// src/Beatnik_DynamicRemesh.hpp
+RemeshDiagnostics::gid_space_high_water;   // GlobalIndex, before renumbering
+RemeshDiagnostics::gids_renumbered;        // bool
+RemeshDiagnostics::gid_space_after;        // GlobalIndex
+long long DynamicRemesh::remeshCalls() const;
+// src/Beatnik_Solver.hpp
+long long Solver::edgeFlips() const;       // cumulative refine-branch flips
+```
+
+`gidSpace()` wraps `Tessera::detail::gidSpace`, the function `Tessera::compact`
+reports with, so the high-water mark and `CompactStats` cannot disagree; it
+copies the three AoSoAs to the host (O(local entities), once per remesh). The
+renumbering runs as step 5 of `remesh()`, after every measurement. The
+`edgeFlips()` accessor is additive and exists for check 6 (an implementation
+choice inside **Fill in**; no other caller).
+
+**The driver,** `Beatnik_Test_Milestone1Run_MPI_{SERIAL,HIP,OPENMP}`, three
+positionals: `argv[1]` steps, `argv[2]` checkpoint cadence (`0` = none, not even
+step 0), `argv[3]` renumber cadence (`0` = never). Every rank prints after every
+step one line of `key=value` fields:
+
+```
+[m1run] step= time= rank= V= F= gid_space= gid_space_after= renumbered=
+  gid_ratio= volume_drift= min_quality= splits= collapses= flips=
+  smooth_steps= rss_kb= rss_peak_kb= elapsed=
+```
+
+(one line). `gid_space` is the step's high-water mark, `gid_ratio` is it over
+`V`, `min_quality` is measured after the whole step, the four counters are
+cumulative sums of the remesh pass's diagnostics (the cleanup's valence flips
+are not in `flips`), RSS is this rank's `VmRSS`/`VmHWM`. A closing
+`[m1run] FINAL rank= … wall= s_per_step= …` line per rank. It asserts only the
+step budget. `Beatnik_Milestone1Params.hpp` holds
+`Beatnik::Test::Milestone1::makeParams( checkpoint_dir )` (600 steps, every 10)
+and `kSteps`, `kCheckpointEvery`, with a reference-line provenance comment on
+every default (`run_adaptive_mesh_bubble.py` at the gold README's version).
+The job's checkpoint cadence is 10 in every row, as a milestone run writes.
+
+**Removes, confirmed gone:** the five rejections and their comments
+(`grep` for `improveConnectivityByFlips`, `isotropicCleanup`,
+`collapseShortEdges`, `tangentialSmooth`, `flipEdgesForQuality` in a `throw`
+message in `src/` finds none); the four `checkRejected` cases (the T4e
+proximity case stays); `checkFailureDirection` and its header description
+(`grep checkFailureDirection` finds nothing).
+
+**Only running revealed:**
+- Check 6's cumulative flips are rank-count dependent: 58 at 16 launches and
+  60 at 5 (passes 3 and 4 are `--max-faces`-capped, which the file already
+  records as not rank-count invariant). The check asserts only `> 0`. The
+  refine branch's re-base under `flips > 0 && smooth_iters == 0` (T4d3 review
+  item 2) is now exercised by every gate launch of that check.
+- The four-rank unit tier is red by `T2bOperators`'s design, as noted under
+  Jobs; this is the first milestone-1 task to submit `unit_tests.flux` at four
+  ranks.
+
+**Cosmetic corrections** (prompt's list, all made): Status line; the Fill in
+line references (`remesh()` `:1367-1448`, `RemeshDiagnostics` `:149-259`) and
+the two files it omitted (the adapter and the `RemeshParams` field), added to
+the entry; `compact()`'s doc comment now says the cadence calls
+`compactAndRenumberGids()` and `compact()` is called only by tests, with the
+matching Deliberate-deviations bullet; every "rejected until T4d6" comment in
+`src/`, `tests/`, README Known Issues and `docs/testing.md` rewritten in the
+present tense; T4d5 review nit 1 (`RefineSplitEdges.cpp` makeParams comment).
+Current state's four "unreachable until T4d6j" bullets now say reachable.
+
+**Session notes:** one `spack install`, rc 0, 12m28s, after unsetting
+`HIPCC_*_FLAGS_APPEND`; log `/p/lustre5/stewartj/beatnik/T4d6j/
+t4d6j_spack_install.log`, build output `t4d6j_build_out.txt` beside it (the
+guard blocks writes under `~/spack_envs`). clang-tidy does not apply (spack
+mode); clang-format was not run. The session was interrupted once while
+polling the gate; the gate had completed and was read on resume.
+
+**Affects:**
+- **T4d6:** read `beatnik_t4d6.f3iXs3sWtvv3.log` and each `out/<tag>/launch.log`;
+  the line format above is the contract. The cadence runs use 50, the control
+  0. The 600-step estimate (900 s per launch) is untimed.
+- **M1-T2j:** include `Beatnik_Milestone1Params.hpp` and call
+  `Beatnik::Test::Milestone1::makeParams()`; it leaves
+  `renumber_gids_every` at its default. T4d6's measured 600-step wall sets the
+  walltime.
+- **Follow-up:** `Beatnik_Test_T2bOperators` makes the unit tier red at four
+  ranks; the "ranks 1 and 4" convention would read cleaner if its guard became
+  a reduced skip (another task's test, not changed here).
