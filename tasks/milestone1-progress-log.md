@@ -2291,3 +2291,208 @@ under `tasks/`.
    before as a projection defect.
 
 **Affects:** none
+
+## T4d5
+
+**Commits:** `8120fa1` (`valenceEqualizingFlips`, `isotropicCleanup`, the
+shared flip helpers, `Solver::rebuildState` and both call sites, case 6 of
+`Beatnik_Test_MeshEdits`, README Known Issues, `docs/testing.md` and the
+`DynamicRemesh.hpp` header table), and the commit that adds this section
+(`milestone1.md`, this log).
+
+**Jobs:**
+- `f3iWgRGrp42K`, the exit criterion, **both directions of the switch**,
+  the touched rule, the valence fall, the volume and tangency clauses and the
+  early stop: `scripts/tuolumne/t4d1_mesh_edits.flux` at its default ranks
+  1 2 3 4 5 6 (`pdebug`, two nodes, `-t 15m`, `--bank=unm`), unchanged. Log
+  `beatnik_t4d1_mesh_edits.f3iWgRGrp42K.log` in the repo root. COMPLETED,
+  66 s, `flux job status` rc 0. `PASS np=1` … `PASS np=6`, `SUMMARY: PASS (6/6
+  rank counts)`, all 21 ranks `[PASS] Beatnik_Test_MeshEdits (282/282
+  checks)` on HIP. It echoed commit `2f2dd73` with the task's files dirty (the
+  run preceded the code commit `8120fa1`) and the dev-view binary, mtime
+  08:46:12. Every source edit in `8120fa1` was in the build except a
+  comment-only edit to the `DynamicRemesh.hpp` header table, made after the
+  `spack install` had started; README, `docs/testing.md` and the design doc
+  are not compiled. It was the only job: the Python model's literals held on
+  the first run, so no sentinel run was needed.
+- Submitted through the loop's `hpc_submit.py` with the loop's environment set
+  by hand: the session was resumed outside the loop and `TASKLOOP_SUBMIT` was
+  unset.
+
+**The user's ruling, made in this session (2026-11-06):** the valence flips'
+normal test uses the **new faces as Tessera winds them**, not the reference's
+literal `(c,d,a)`, `(d,c,b)`. Found while modelling the reference
+(`mesh_quality.py:76-79`): which face is `f0` depends on face index alone
+(`edges_from_faces` order), and on every edge where `f0` runs `a → b`
+(`a < b` by index) both literal children are inverted. On the default
+icosphere that is 206 of 480 edges, worst dot `-0.983`; the other 274 pass,
+best `0.955`. So the reference's normal test mostly rejects by array index.
+Beatnik's `resident_faces` order is rank-local, so a literal copy would reject
+a rank-count-dependent set. Three options went to the user: consistent
+winding (1), a gid-based imitation of the artifact (2), and a literal copy (3).
+The user chose 1. On a scrambled icosphere the model gave 7, 1, 0 flips per
+pass for the reference (7 of 15 valence candidates rejected by the normal
+test, 25 irregular after) against 7, 2, 0 (3 of 12, 26 after). Recorded under
+Deliberate deviations in `milestone1.md`, in Do step 1 and in README Known
+Issues.
+
+**Decisions given to the task, recorded as given:**
+- **The volume clause is T4d4's form, not a `1e-12` bound.** The valence
+  flips' relative volume change is printed and not bounded; each relaxation
+  pass is asserted tangent, `max|Δx·n| ≤ 1e-13·max|Δx|`, both maxima global;
+  the relaxation passes' volume change is asserted at least `1e3` times
+  smaller than one un-projected pass at weight 0.4, built in the test from the
+  same public operators (`unguardedIteration` with `project = false`).
+- **The refine branch follows the reference's rebuild.** After
+  `isotropicCleanup`, under `_params.cleanup.enabled`, `rebuildState()`
+  (`resetReferenceState` + `centerPotential`), before the volume projection.
+  The comment that said nothing re-bases the reference state after the
+  tangential pass now says that under `--isotropic-cleanup` the rebuild after
+  the cleanup does.
+- **The `Solver` rejection stays**, message text included (now
+  `src/Beatnik_Solver.hpp:791-797`), and so does the `checkRejected` case in
+  `Beatnik_Test_DynamicRemeshSplit.cpp:705-707`. The other four T4d
+  rejections are untouched (now `:778-783`, `:830-850`, `:852-859`,
+  `:861-870`).
+- **The mask holds only the reference's tests:** the valence-deviation test,
+  the two `≥ 0.2` normal dots (each child against its own old face), and
+  `min(q_new) ≥ 0.05` in `QualityFlips::triangleQuality`. `c == d` is
+  skipped; whether `(c,d)` exists is not tested (Tessera's
+  `rejected_duplicate_edge`). Policy `flip_policy_type` with
+  `maxNormalDeviation = π`, `minQuality = 0`, `conflict = EndpointInQuad`,
+  each set explicitly. The two thresholds are named constants
+  `kMinValenceFlipNormalDot` and `kMinValenceFlipQuality`, citing
+  `mesh_quality.py:78` and `:80`.
+- **Pass structure:** rounds until one accepts nothing, never a fresh mask
+  within a pass; a pass-wide touched set of vertex gids holding all four
+  corners of every accepted flip, from the gathered `flipped` lists; passes
+  stop after one that flips nothing.
+
+**Decisions made in the session:**
+- **How the pass-start valences are obtained, including at ghost endpoints.**
+  Each round takes the *current* valence (owned rows from `vertexOneRing()`
+  row sizes, which on a closed manifold equal the face-incidence count; ghost
+  rows by `haloExchangeVertexView` on a `Real` view) and adds a per-gid
+  `shift`: `+1` for each of this pass's flips with the vertex as an old
+  endpoint, `-1` for each with it as a new endpoint. The shift comes from the
+  gathered flips, the same on every rank, so the result is exactly the
+  pass-start valence, keyed by gid, including for a vertex that entered a
+  rank's halo mid-pass. That is one extra vertex halo exchange per round.
+- **Pass-start face normals are not stored.** A face rewritten in the pass
+  has all three corners touched, so no later candidate edge lies on it, and
+  positions do not move during the flips, so the faces the mask reads are
+  still at their pass-start state.
+- **Child winding:** if `f0` runs `a → b` the children are `(c,a,d)`
+  (replaces `f0`) and `(d,b,c)` (replaces `f1`), otherwise the reference's
+  `(c,d,a)` and `(d,c,b)`: the quad boundary is `a,d,b,c` in the first case.
+- **The switch is shown through `MeshQuality`, not `advanceOneStep`.**
+  `isotropicCleanup` returns before anything collective when
+  `CleanupParams::enabled` is false; the `Solver` constructs `MeshQuality`
+  from `_params.cleanup` and also gates both call sites (and their rebuilds)
+  on `_params.cleanup.enabled`. A Solver-level test needs a full setup; the
+  gate tested is the same flag in the same struct.
+- **Shared helpers:** `QualityFlips::gatherFlips` (the gathered, deduplicated
+  `FlippedEdge` list; `gatherNewDiagonals` now reduces it to new diagonals,
+  same behaviour, the error message now begins "Beatnik flips:"),
+  `QualityFlips::hostPositions` and `QualityFlips::oppositeCorner`.
+  `qualityFlipSweep` uses the last two instead of its inline copies, so
+  `MeshQuality.hpp` has one copy of each.
+- **`valenceEqualizingFlips` exchanges the halo on entry** (T4d1 Affects: the
+  mask reads ghost corners). `isotropicCleanup` is then halo-consistent on
+  return, through `relaxTangential`'s closing exchange.
+- **`Solver::rebuildState()`** is a new private method, the port of
+  `MeshPotentialZModelState.__post_init__` (`mesh_solver.py:138-163`), used
+  three times; the remesh branch's inline rebuild block now calls it.
+- **Fixture chosen with a Python model** (persistent, outside the repo:
+  `~/spack_envs/tuolumne_beatnik/t4d5_model/fixture_model.py`, plus
+  `orient_check.py` for the winding finding). It transcribes the reference
+  pass, Tessera's `SharedFace` and `EndpointInQuad` rounds with the M1-U3
+  claim rule, and the Beatnik pass. A 30° cap gave one round per pass;
+  45°, one scramble round, gave pass 0 three rounds; 60° with two scramble
+  rounds gave a second pass with no flip (the early-stop sub-case). Every
+  predicted literal held in C++.
+- **Cosmetic corrections** (the prompt's list): `milestone1.md` Status line,
+  Problem table and its `requireSupportedConfiguration` range (`:759-892`),
+  Conventions row, T4d6 table and comment-block reference (`:799-810`),
+  T4d5 Fill in and rejection references, Current state ("Throws" bullet
+  removed; "Missing entirely" bullet replaced by an "Implemented, unreachable
+  from a `Solver` run until T4d6" bullet; the `improveConnectivityByFlips`,
+  `qualityFlipSweep`, collapse and `EndpointInQuad` references refreshed);
+  `tangentialRelaxation`'s and `valenceEqualizingFlips`' doc comments;
+  `Solver.hpp`'s "3. isotropicCleanup is task T4d5" and remesh-branch
+  comments; the `DynamicRemesh.hpp` header table's cleanup row (now cites
+  `:1491`); README Known Issues and `docs/testing.md:147`.
+
+**Re-basing (Conventions row):**
+- `valenceEqualizingFlips` and `isotropicCleanup` do **not** call
+  `AdaptiveMesh::resetReferenceState`; `MeshQuality` does not depend on the
+  AMR header. The reference's callers rebuild the state, so the call sites
+  do.
+- **Remesh branch** (Do step 4): `remesh` → `rebuildState()` →
+  under `enabled`, `isotropicCleanup` → `rebuildState()` → `projectToVolume`.
+  The cleanup is gated on the remesh having run (inside `if ( remeshed )`),
+  `:1491`'s `remesh_diag is not None`.
+- **Refine branch** (the decision above): after the tangential pass, under
+  `enabled`, `isotropicCleanup` → `rebuildState()`, then the projection under
+  the unchanged `repaired` gate. The `flips > 0 && smooth_iters == 0` re-base
+  before it is unchanged.
+- Under `--no-isotropic-cleanup` neither the cleanup nor its rebuild runs, so
+  every `regression` trajectory is unchanged (the remesh branch's first
+  rebuild is the same code as before, moved into the method).
+
+**Signatures changed:**
+- `int MeshQuality::valenceEqualizingFlips( mesh_type&, int passes,
+  std::vector<ValenceFlipPass>* record = nullptr ) const` (the stub's
+  signature plus a defaulted trailing record, as T4d3 gave
+  `improveConnectivityByFlips`; its only caller is `isotropicCleanup`).
+- `void MeshQuality::isotropicCleanup( mesh_type& ) const`: unchanged.
+- New: `ValenceFlipPass`, `QualityFlips::{gatherFlips, hostPositions,
+  oppositeCorner}`, `kMinValenceFlipNormalDot`, `kMinValenceFlipQuality`,
+  `Solver::rebuildState()` (private).
+
+**Measured** (identical on all 21 ranks except the last digits of the real
+values, which come from the atomic normal assembly):
+
+| Sub-case | Result |
+| --- | --- |
+| 6a, `enabled = false`, and `passes = 0` | positions, face gids, generation bit-identical; returns 0 |
+| fixture | 14 scramble flips; valence ≠ 6: 35, maximum 10 |
+| 6b pass 0 | 3 rounds, requested 18, accepted 6 (rounds 4, 1, 1 in the model), rejectedConflict 12 |
+| 6b pass 1 | 1 round, requested 7, accepted 3, rejectedConflict 4 |
+| 6b pass 2 | 1 round, requested 2, accepted 1, rejectedConflict 1 |
+| 6b after | 10 flips; valence ≠ 6: 35 → 20; maximum 10 → 7; touched-rule violations 0; ΔV/V `+1.2006751809e-03` |
+| 6c relaxation pass 1 | `max|Δx|` 4.4513e-02, `max|Δx·n|` 9.46e-17, ratio 2.12e-15 |
+| 6c relaxation pass 2 | `max|Δx|` 2.7246e-02, `max|Δx·n|` 6.89e-17, ratio 2.53e-15 |
+| 6c volume | relaxation ΔV/V `3.1015090185e-05`; one un-projected pass `-5.3809043581e-02`; factor 1734.9 |
+| 6d, `enabled = true` | valence ≠ 6: 20; within 1.1e-16 of the separate calls; positions and generation changed |
+| 6e, early stop | 2 of 3 passes run: 1 flip in 1 round, then 0 |
+
+No duplicate-edge or geometric rejection occurred on this fixture.
+
+**Only running revealed:** nothing that changed the code; the model's
+counts, including the per-pass `requested`, matched exactly. The relaxation's
+tangency ratios here (~2.5e-15) sit far below T4d4's 6.7e-14 because the
+displacements are 40 times larger at weight 0.4.
+
+**Session notes:**
+- One `spack install`, rc 0, 12m19s, staging, cmake and a full build, after
+  unsetting `HIPCC_*_FLAGS_APPEND`. Logs:
+  `~/spack_envs/tuolumne_beatnik/t4d5_spack_install.log` and the build output
+  `t4d5_build_out.txt` beside it. 70 warnings, all `-Wpass-failed`; none in a
+  file this task touched.
+- clang-tidy does not apply: spack mode, no `compile_commands.json` and no
+  `.clang-tidy`. clang-format was not run.
+- The session was paused once, mid-implementation, for the user's ruling
+  above, and resumed outside the loop.
+
+**Affects:**
+- **T4d6:** it deletes the `--isotropic-cleanup` rejection (now
+  `Solver.hpp:791-797`) and its `checkRejected` case; after that the default
+  configuration runs the cleanup and the extra `rebuildState()` on every
+  remesh and every marking refine. The T4d6 table's references are refreshed
+  as of this task.
+- **M1-T2 / M1-A1:** Beatnik's valence flips accept flips the reference never
+  makes (the winding deviation), so its valence histogram after a cleanup
+  should be at least as regular as the reference's, and the flip counts are
+  not comparable one for one. Compare the valence histograms, not flip
+  totals.

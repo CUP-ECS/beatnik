@@ -1,8 +1,8 @@
 # Milestone 1 — the reference's default rising-bubble configuration
 
 **Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1, M1-G2, M1-D1, T4d1,
-T4d2, T4d3 and T4d4 are **DONE** (M1-U1–U3, M1-G1, M1-G2, M1-D1, T4d1, T4d2
-and T4d3 reviewed, Passed; T4d4 awaiting review). T4d5, T4d6, M1-T1, M1-T2 and
+T4d2, T4d3, T4d4 and T4d5 are **DONE** (M1-U1–U3, M1-G1, M1-G2, M1-D1,
+T4d1–T4d4 reviewed, Passed; T4d5 awaiting review). T4d6, M1-T1, M1-T2 and
 M1-A1 are NOT STARTED.
 
 ## Problem
@@ -27,15 +27,15 @@ of the Python `.npz` checkpoints against the Beatnik `.h5` checkpoints by
 
 What exists now is a Beatnik that **rejects this command at setup**, by name and
 by task ID, from `Solver::requireSupportedConfiguration`
-([src/Beatnik_Solver.hpp:727-859](../src/Beatnik_Solver.hpp#L727-L859)). Four
+([src/Beatnik_Solver.hpp:759-892](../src/Beatnik_Solver.hpp#L759-L892)). Four
 rejections fire and every one of them is **T4d**:
 
 | Option, at its default | Rejection | Needs |
 | --- | --- | --- |
-| `--isotropic-cleanup` (default **on**) | [:759-765](../src/Beatnik_Solver.hpp#L759-L765) | `MeshQuality::isotropicCleanup` |
-| `--remesh-collapse-factor 0.45` | [:809-817](../src/Beatnik_Solver.hpp#L809-L817) | `DynamicRemesh::collapseShortEdges` |
-| `--remesh-smooth-iters 1` | [:819-826](../src/Beatnik_Solver.hpp#L819-L826) | `DynamicRemesh::tangentialSmooth` |
-| `--remesh-flip-min-gain 1e-3` | [:828-837](../src/Beatnik_Solver.hpp#L828-L837) | `DynamicRemesh::flipEdgesForQuality` |
+| `--isotropic-cleanup` (default **on**) | [:791-797](../src/Beatnik_Solver.hpp#L791-L797) | `MeshQuality::isotropicCleanup` |
+| `--remesh-collapse-factor 0.45` | [:830-850](../src/Beatnik_Solver.hpp#L830-L850) | `DynamicRemesh::collapseShortEdges` |
+| `--remesh-smooth-iters 1` | [:852-859](../src/Beatnik_Solver.hpp#L852-L859) | `DynamicRemesh::tangentialSmooth` |
+| `--remesh-flip-min-gain 1e-3` | [:861-870](../src/Beatnik_Solver.hpp#L861-L870) | `DynamicRemesh::flipEdgesForQuality` |
 
 Nothing else on the command line is stubbed. The end state is: the command runs,
 the two codes' checkpoints are compared to a **measured, documented** depth, and
@@ -275,7 +275,7 @@ introduces or sharpens.
 | Where a reference acceptance rule lives | **In the mask whenever it needs only the quad; in the Tessera policy only when it needs both endpoints' one-rings.** Flip tests (the gain test, the valence test, the valence path's normal and quality tests) and the collapse candidate predicate and normalized-length ranking are evaluated by Beatnik while building the mask, and both flip call sites pass the permissive `DefaultFlipPolicy{ maxNormalDeviation = π, minQuality = 0 }`, the valence call site with `conflict = FlipConflict::EndpointInQuad` (M1-U2). Collapse's geometric test needs the full one-rings, so it is a Tessera policy: `maxNormalRotation = acos(0.1)`, `minQuality = --remesh-min-quality`, and the reference quality metric through M1-U1's hook. Read this first #6 has the evidence. A marked edge may still be rejected; that shows up in the `rejected*` counters, never as a silent drop. |
 | Reference-state re-basing | every pass that moves a vertex or changes connectivity states, in its progress-log entry, whether it calls `AdaptiveMesh::resetReferenceState`, and why. A silent choice here changes every later refinement decision. |
 | Failure behavior | loud. A configuration Beatnik cannot reproduce is rejected before the first step, by method name and task ID, exactly as the four rejections this milestone deletes do. No pass may silently no-op. |
-| `Solver` rejections during T4d | **Every T4d rejection in `Solver::requireSupportedConfiguration` stays until T4d6**, message text included: `--flip-passes > 0` under `--refine-every` ([src/Beatnik_Solver.hpp:764-769](../src/Beatnik_Solver.hpp#L764-L769)), `--isotropic-cleanup` ([:777-783](../src/Beatnik_Solver.hpp#L777-L783)), `--remesh-collapse-factor > 0` ([:816-836](../src/Beatnik_Solver.hpp#L816-L836)), `--remesh-smooth-iters > 0` ([:838-845](../src/Beatnik_Solver.hpp#L838-L845)) and `--remesh-flip-min-gain < 1e12` ([:847-856](../src/Beatnik_Solver.hpp#L847-L856)). So do the `regression`-tier cases that assert them: the four T4d `checkRejected` calls in [tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp:696-707](../tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp#L696-L707) and `checkFailureDirection` in [tests/regression_tests/Beatnik_Test_RefineSplitEdges.cpp:379-417](../tests/regression_tests/Beatnik_Test_RefineSplitEdges.cpp#L379-L417). T4d2–T4d5 each **wire their pass into its call site anyway** and meet their exit criterion at the `unit` tier, so after each of them a `Solver` run reaches the new pass only at the knob value that makes it a no-op, and the gate trajectory is unchanged. T4d6 deletes all five rejections and their test cases in one change. Deleting one earlier is out of scope for the task at hand, even when its pass is finished. |
+| `Solver` rejections during T4d | **Every T4d rejection in `Solver::requireSupportedConfiguration` stays until T4d6**, message text included: `--flip-passes > 0` under `--refine-every` ([src/Beatnik_Solver.hpp:778-783](../src/Beatnik_Solver.hpp#L778-L783)), `--isotropic-cleanup` ([:791-797](../src/Beatnik_Solver.hpp#L791-L797)), `--remesh-collapse-factor > 0` ([:830-850](../src/Beatnik_Solver.hpp#L830-L850)), `--remesh-smooth-iters > 0` ([:852-859](../src/Beatnik_Solver.hpp#L852-L859)) and `--remesh-flip-min-gain < 1e12` ([:861-870](../src/Beatnik_Solver.hpp#L861-L870)). So do the `regression`-tier cases that assert them: the four T4d `checkRejected` calls in [tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp:696-707](../tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp#L696-L707) and `checkFailureDirection` in [tests/regression_tests/Beatnik_Test_RefineSplitEdges.cpp:379-417](../tests/regression_tests/Beatnik_Test_RefineSplitEdges.cpp#L379-L417). T4d2–T4d5 each **wire their pass into its call site anyway** and meet their exit criterion at the `unit` tier, so after each of them a `Solver` run reaches the new pass only at the knob value that makes it a no-op, and the gate trajectory is unchanged. T4d6 deletes all five rejections and their test cases in one change. Deleting one earlier is out of scope for the task at hand, even when its pass is finished. |
 | Diagnostics that must be numbers | per remesh pass: `splits`, `collapses`, `flips`, `smooth_steps`, `min_quality` before/after, R12's two shape signals, and (T4d6) the gid-space high-water mark. A milestone run that reports zero edits everywhere is M1-R7, not a pass. |
 | Unit-tier rank and backend coverage | Unit members register at **one** rank on the build's default execution space ([tests/unit_tests/CMakeLists.txt:68-80](../tests/unit_tests/CMakeLists.txt#L68-L80)). "Ranks 1 and 4" in a T4d exit criterion means two submissions, `BEATNIK_UNIT_RANKS=1` and `BEATNIK_UNIT_RANKS=4 flux batch scripts/tuolumne/unit_tests.flux`, and the member's checks must be global reductions so one set of literals holds at both, as `Beatnik_Test_TangentialRelaxation` does. The unit tier has no SERIAL/HIP pair; the `regression` gate and the T4d umbrella run supply backend coverage. |
 | Test tier for the milestone comparison | the **`milestone`** label, at ranks **1 and 4** on SERIAL and HIP, outside the 60-launch ship gate. The tier is created by **M0-T1** in [`milestone0.md`](completed/milestone0.md); M1-T1 registers a member in it. The `regression` tier keeps exactly its five members; promoting anything into it needs the user's confirmation (CLAUDE.md "Minimum test set"). |
@@ -294,6 +294,20 @@ introduces or sharpens.
   `RemeshParams::max_collapses_per_pass`. Only `--remesh-collapse-factor 0`
   disables collapse. The deleted rejection text says so and the replacement
   diagnostics must not re-introduce the confusion.
+- **The valence flips' normal test uses the new faces as Tessera winds them**
+  (T4d5, the user's ruling, 2026-11-06). The reference writes the children as
+  `(c,d,a)` and `(d,c,b)` whatever the winding of `f0`, its first-indexed face
+  of the edge (`mesh_quality.py:76-79`). On every edge where `f0` runs `a → b`
+  both children are inverted, `n·n_f ≈ −1`, and the `≥ 0.2` test rejects the
+  flip: 206 of the default icosphere's 480 edges can never flip, by array
+  index rather than geometry. Beatnik's two faces per edge come in a rank-local
+  order, so a literal copy would reject a rank-count-dependent set. Beatnik
+  winds the child holding `a` and the child holding `b` consistently with the
+  mesh and tests each against the old face it replaces, which rejects only
+  genuine inversions and accepts flips the reference does not. On a scrambled
+  icosphere the Python model gave 7, 1, 0 flips per pass for the reference
+  (7 of 15 valence candidates rejected by the normal test) against 7, 2, 0
+  (3 of 12) with consistent winding. Compare valence statistics accordingly.
 - **`SurfaceMesh::compact()` is not called from the remesh cycle.**
   `Tessera::collapseEdges` runs `compact()` as its own last step; the standalone
   adapter exists for T4d6's renumbering cadence and for tests. Its doc comment
@@ -304,19 +318,15 @@ introduces or sharpens.
 True at HEAD, and specific about what is *defined but wrong* versus what
 *throws*:
 
-- **Throws** (`BEATNIK_NOT_IMPLEMENTED`), so a run cannot reach them silently:
-  `MeshQuality::{valenceEqualizingFlips, isotropicCleanup}`
-  ([src/Beatnik_MeshQuality.hpp:536](../src/Beatnik_MeshQuality.hpp#L536),
-  [:607](../src/Beatnik_MeshQuality.hpp#L607)).
 - **Implemented, unreachable from a `Solver` run until T4d6** except at their
   disabling values (T4d3, **DONE**): `DynamicRemesh::flipEdgesForQuality`
   ([src/Beatnik_DynamicRemesh.hpp:1146](../src/Beatnik_DynamicRemesh.hpp#L1146)),
   called from the pass loop's repair gate, and
   `MeshQuality::improveConnectivityByFlips`
-  ([src/Beatnik_MeshQuality.hpp:654](../src/Beatnik_MeshQuality.hpp#L654)),
+  ([src/Beatnik_MeshQuality.hpp:986](../src/Beatnik_MeshQuality.hpp#L986)),
   called from the refine branch
   ([src/Beatnik_Solver.hpp:479](../src/Beatnik_Solver.hpp#L479)). Both run
-  `qualityFlipSweep` (`:337`): several `flipEdges` rounds with a sweep-wide
+  `qualityFlipSweep` (`:417`): several `flipEdges` rounds with a sweep-wide
   touched set of new diagonals, gathered from `MeshEditReport::flipped`. The
   `Solver` still rejects `--remesh-flip-min-gain < 1e12` and `--flip-passes > 0`;
   at those disabling values the passes return before any mutation. Covered by
@@ -326,7 +336,7 @@ True at HEAD, and specific about what is *defined but wrong* versus what
   pass after a second sizing-field recompute, through
   `ReferenceCollapsePolicy` (the reference metric on M1-U1's hook). The `Solver`
   still rejects `--remesh-collapse-factor > 0`
-  ([src/Beatnik_Solver.hpp:816-836](../src/Beatnik_Solver.hpp#L816-L836)) until
+  ([src/Beatnik_Solver.hpp:830-850](../src/Beatnik_Solver.hpp#L830-L850)) until
   T4d6, so a run reaches it only at factor 0, where it returns before any
   mutation. Covered by case 3 of `Beatnik_Test_MeshEdits`.
 - **Implemented** (T4d1, **DONE**), with `collapseEdges` called by T4d2 and
@@ -342,7 +352,7 @@ True at HEAD, and specific about what is *defined but wrong* versus what
   carry the `quality()` hook (M1-U1, **DONE**, Tessera `279287e`), defaulting to
   the radius ratio; T4d2's `ReferenceCollapsePolicy` shadows it. `flipEdges` has the
   opt-in `FlipConflict::EndpointInQuad` relation beside the default per-face one
-  (M1-U2, **DONE**, Tessera `05b5942`); no Beatnik call site sets it yet (T4d5).
+  (M1-U2, **DONE**, Tessera `05b5942`); T4d5's valence flips set it.
   `flipEdges` accepts at most one of several flips in one call that would create
   the same new diagonal, under either relation (M1-U3, **DONE**, Tessera
   `33dc6b9`); T4d3's quality flips rely on it.
@@ -357,10 +367,20 @@ True at HEAD, and specific about what is *defined but wrong* versus what
   accepted-iteration count. The `Solver` still rejects
   `--remesh-smooth-iters > 0`; at 0 the pass returns before any halo exchange.
   Covered by case 5 of `Beatnik_Test_MeshEdits`.
-- **Missing entirely from the remesh branch:** the `isotropic_cleanup` call site
-  and the *second* state rebuild that follows it
-  ([src/Beatnik_Solver.hpp:521-541](../src/Beatnik_Solver.hpp#L521-L541) has a
-  comment where the cleanup goes, then the first rebuild).
+- **Implemented, unreachable from a `Solver` run until T4d6** except at its
+  disabling value (T4d5): `MeshQuality::valenceEqualizingFlips`
+  ([src/Beatnik_MeshQuality.hpp:652](../src/Beatnik_MeshQuality.hpp#L652))
+  and `MeshQuality::isotropicCleanup` ([:937](../src/Beatnik_MeshQuality.hpp#L937)),
+  called from both branches of `Solver::advanceOneStep` under
+  `_params.cleanup.enabled`
+  ([src/Beatnik_Solver.hpp:513](../src/Beatnik_Solver.hpp#L513),
+  [:571](../src/Beatnik_Solver.hpp#L571)), each call followed by
+  `Solver::rebuildState` ([:910](../src/Beatnik_Solver.hpp#L910):
+  `resetReferenceState` + `centerPotential`); the remesh branch also rebuilds
+  before the cleanup. The valence flips run several `EndpointInQuad` rounds per
+  pass with a pass-wide touched set of vertex gids. The `Solver` still rejects
+  `--isotropic-cleanup`; under `--no-isotropic-cleanup` neither the cleanup nor
+  its rebuild runs. Covered by case 6 of `Beatnik_Test_MeshEdits`.
 - Implemented and validated, and this milestone must not re-invent them: the
   sizing field, the gradation sweeps, the split pass and the edge-mask plumbing
   (T4a/T4b); `MeshQuality::relaxTangential` and `improveQualityTangential` (T4c);
@@ -1342,20 +1362,20 @@ case 4's fixture, `flips = 44` and `smooth_steps = 1`.
 
 ---
 
-### T4d5 — `MeshQuality::{valenceEqualizingFlips, isotropicCleanup}` and the cleanup call site — **NOT STARTED**
+### T4d5 — `MeshQuality::{valenceEqualizingFlips, isotropicCleanup}` and the cleanup call site — **DONE**
 
 **Depends on:** T4d1, T4d3 (shares the flip adapter and the mask machinery),
 M1-U2, M1-U3, and T4c (landed).
 
-**Fill in:** [src/Beatnik_MeshQuality.hpp:111](../src/Beatnik_MeshQuality.hpp#L111)
-and [:182](../src/Beatnik_MeshQuality.hpp#L182); the two call sites in
-`Solver::advanceOneStep` — the remesh branch
-([src/Beatnik_Solver.hpp:521-541](../src/Beatnik_Solver.hpp#L521-L541)) and the
-refine branch ([:456-465](../src/Beatnik_Solver.hpp#L456-L465)).
+**Fill in:** the stubs `valenceEqualizingFlips` and `isotropicCleanup` in
+`src/Beatnik_MeshQuality.hpp` (at `:536` and `:607` before this task); the two
+call sites in `Solver::advanceOneStep` — the remesh branch
+(`src/Beatnik_Solver.hpp:533-560` before this task) and the refine branch
+(`:457-517` before this task).
 
 **The `Solver` rejection stays** (Conventions, "`Solver` rejections during
 T4d"). Leave the `--isotropic-cleanup` rejection at
-[src/Beatnik_Solver.hpp:759-765](../src/Beatnik_Solver.hpp#L759-L765), message
+[src/Beatnik_Solver.hpp:791-797](../src/Beatnik_Solver.hpp#L791-L797), message
 text included, and the `isotropicCleanup` `checkRejected` case in
 [tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp:705-707](../tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp#L705-L707)
 that asserts it. T4d6 deletes both. Wire both call sites anyway, so that
@@ -1374,8 +1394,10 @@ unchanged.
    shared edge `(a,b)` of faces `f0` (opposite vertex `c`) and `f1` (opposite
    `d`) iff
    `|v_a-7| + |v_b-7| + |v_c-5| + |v_d-5| < |v_a-6| + |v_b-6| + |v_c-6| + |v_d-6|`,
-   the children `(c,d,a)` and `(d,c,b)` satisfy `n·n_f0 ≥ 0.2` and `n·n_f1 ≥ 0.2`
-   respectively on unit normals (`mesh_quality.py:76-79`), and
+   the child holding `a` and the child holding `b` satisfy `n·n_f0 ≥ 0.2` and
+   `n·n_f1 ≥ 0.2` respectively on unit normals (`mesh_quality.py:76-79`), each
+   child wound as Tessera writes it rather than as the reference's literal
+   `(c,d,a)`, `(d,c,b)` (Deliberate deviations), and
    `min(q_new) >= 0.05` in the reference metric. Valence is the face-incidence
    count (`np.bincount(F.ravel())`), which on a closed manifold is the edge
    count Tessera's header says is local at a vertex's owner. Do **not** test
@@ -1459,6 +1481,25 @@ And, in the failure direction,
 the unit tier on the call site's `_params.cleanup.enabled` gate, not through
 `Solver::solve`. Statistics only, never flip sets (R7).
 
+**Met.** Job `f3iWgRGrp42K` (`scripts/tuolumne/t4d1_mesh_edits.flux`, ranks
+1–6 in one job, HIP): `SUMMARY: PASS (6/6 rank counts)`, every one of the 21
+ranks `[PASS] Beatnik_Test_MeshEdits (282/282 checks)`, so ranks 1 and 4 are
+both covered with one set of literals. Case 6, on case 3's perturbed icosphere
+after one `SharedFace` scramble round in a 45° cap (35 vertices of valence ≠ 6,
+maximum 10): three valence passes flip 6, 3 and 1 over 3, 1 and 1 rounds; no
+gathered flip has an endpoint touched earlier in its pass or among another
+same-round flip's corners (0 violations); the valence ≠ 6 count falls 35 → 20
+(maximum 10 → 7); V/E/F and χ unchanged. Flips' relative volume change
+`+1.2007e-3`, printed. Two relaxation passes at 0.4: tangency ratios `2.12e-15`
+and `2.53e-15` (bound `1e-13`); volume change `3.1015e-05` against
+`-5.3809e-02` for one un-projected pass, factor 1735 (asserted ≥ 1e3).
+`enabled = false` leaves every local position, the face gids and the generation
+bit-identical; `enabled = true` changes positions and generation and lands
+within `1.1e-16` of the separate calls. The early stop ran 2 of 3 passes on a
+fixture whose second pass flips nothing. The switch was shown through
+`MeshQuality`'s own `CleanupParams::enabled` check, the struct the `Solver`
+gates both call sites on; `Solver::solve` still rejects `--isotropic-cleanup`.
+
 ---
 
 ### T4d6 — the gid-renumbering cadence — **NOT STARTED**
@@ -1475,15 +1516,15 @@ and the deletion of **all five** T4d rejections in
 
 | Rejection | Lines | Left in place by |
 | --- | --- | --- |
-| `--flip-passes > 0` under `--refine-every`, naming `improveConnectivityByFlips` | [src/Beatnik_Solver.hpp:764-769](../src/Beatnik_Solver.hpp#L764-L769) | T4d3 |
-| `--isotropic-cleanup`, naming `isotropicCleanup` | [:777-783](../src/Beatnik_Solver.hpp#L777-L783) | T4d5 |
-| `--remesh-collapse-factor > 0`, naming `collapseShortEdges` | [:816-836](../src/Beatnik_Solver.hpp#L816-L836) | T4d2 |
-| `--remesh-smooth-iters > 0`, naming `tangentialSmooth` | [:838-845](../src/Beatnik_Solver.hpp#L838-L845) | T4d4 |
-| `--remesh-flip-min-gain < 1e12`, naming `flipEdgesForQuality` | [:847-856](../src/Beatnik_Solver.hpp#L847-L856) | T4d3 |
+| `--flip-passes > 0` under `--refine-every`, naming `improveConnectivityByFlips` | [src/Beatnik_Solver.hpp:778-783](../src/Beatnik_Solver.hpp#L778-L783) | T4d3 |
+| `--isotropic-cleanup`, naming `isotropicCleanup` | [:791-797](../src/Beatnik_Solver.hpp#L791-L797) | T4d5 |
+| `--remesh-collapse-factor > 0`, naming `collapseShortEdges` | [:830-850](../src/Beatnik_Solver.hpp#L830-L850) | T4d2 |
+| `--remesh-smooth-iters > 0`, naming `tangentialSmooth` | [:852-859](../src/Beatnik_Solver.hpp#L852-L859) | T4d4 |
+| `--remesh-flip-min-gain < 1e12`, naming `flipEdgesForQuality` | [:861-870](../src/Beatnik_Solver.hpp#L861-L870) | T4d3 |
 
 Also rewrite the comment block above the metric remesher's rejections
-([:785-796](../src/Beatnik_Solver.hpp#L785-L796)), which says which thirds are
-still rejected. Line numbers are as of T4d4; T4d5 may move them.
+([:799-810](../src/Beatnik_Solver.hpp#L799-L810)), which says which thirds are
+still rejected. Line numbers are as of T4d5.
 
 Deleting the rejections breaks the `regression`-tier cases that expect `solve()`
 to throw. Delete them in the same change:
