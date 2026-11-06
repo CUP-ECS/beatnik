@@ -3917,3 +3917,45 @@ of queue wait. The queue figure comes from the user's 9 recent `pbatch` jobs (me
 judging from the `[m1g3]` check and table lines. The early-stop line, the
 step-600 equality and the self-compare of the last file correspond to its exit
 criterion. M1-A1j consumes M1-G3's statistics.
+
+## M1-G3j review
+
+**Verdict:** Passed
+**Reviewed:** `2a38355^..2a38355` (code), with the doc and log commit `0535a45`
+excluded from the code review.
+**Evidence:** a submit task, so it was checked without a verification job.
+- **Scheduler:** `flux jobs` reports `f3iZLsmfWYw1` as `SCHED` in `pbatch`,
+  submitted at 2026-11-06T14:25:33, not yet started.
+- **Stage:** `/p/lustre5/stewartj/beatnik/M1-G3j/stage/` exists.
+  - Its `COMMIT` names Beatnik HEAD `2a38355cd838…`, the task's last code commit.
+    The only later commit, `0535a45`, touches only `tasks/`.
+  - `COMMIT` also records reference HEAD `ec7d7bf4…`, which is still the live
+    reference's HEAD, an empty `zmodel3d/` status block, and the one-line
+    `--source-quadrature` default diff.
+  - `diff -r -x __pycache__` of the staged `examples/` and `zmodel3d/` against the
+    live reference trees prints nothing.
+  - `stage/beatnik/{compare_output.py, initial_conditions/gold.npz,
+    milestone1-bubble/checkpoint_t00000p557934_step0000600.npz}` are each
+    identical by `cmp` to the repo copies. The last one is M1-G2's `gold/` file.
+  - The stage contains no `__pycache__`.
+- **Script:** `m1g3_gold.flux` reads only from the stage. The exceptions are the
+  resolver, `/usr/tce/bin/python3` and the `flux run` launcher.
+  - It prints `stage/COMMIT` rather than `git rev-parse HEAD`.
+  - It refuses a non-empty `zmodel3d/` status or an `out/` that already holds
+    `.npz` files.
+  - It runs with `cd` into the stage, under `PYTHONDONTWRITEBYTECODE=1`.
+  - Diffed against `m1g2_gold.flux`, the reference command changes only
+    `--steps 600` to `--steps 5000`; `--checkpoint-every-steps 10` and every
+    other option are the same.
+  - Its directives match **Submits:** (`pbatch`, 1 node `--exclusive`,
+    `-t 150m`, `--bank=unm`).
+- **Build:** there is no build, because the task adds no Beatnik binary.
+- **Mechanical checks:** `review_checks.py` reported no candidates.
+- **Prompt file:** the task's prompt file is gone, and the working tree's only
+  untracked file is `commands.sh`.
+
+1. [nit] `tasks/milestone1-progress-log.md` `## M1-G3j` **Commits:** line: it
+   names the doc and log commit only as "the commit that adds this section",
+   with no SHA. That SHA is `0535a45`. It does not change the code range.
+
+**Affects:** none
