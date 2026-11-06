@@ -3849,3 +3849,71 @@ site, so nothing was made dead. No prompt file for M1-D2 is under `tasks/`.
 
 **Affects:** M1-A1j — confirm with the user that its **Settled:** paragraph
 (physical-time matching) is their decision (finding 3).
+
+## M1-G3j
+
+**Commits:** Beatnik `2a38355` (`scripts/tuolumne/m1g3_gold.flux`); the commit
+that adds this section and the `milestone1.md` edits.
+
+**Jobs:** `f3iZLsmfWYw1`, `scripts/tuolumne/m1g3_gold.flux` (`pbatch`, 1 node
+`--exclusive`, `-t 150m`, `--bank=unm`). Stage
+`/p/lustre5/stewartj/beatnik/M1-G3j/stage/`, output
+`/p/lustre5/stewartj/beatnik/M1-G3j/out/`, log
+`beatnik_m1g3_gold.f3iZLsmfWYw1.log` in the Beatnik repo root. Accepted, state
+`S` at submission. Pending: read by `M1-G3`.
+
+**Decisions:**
+
+- The command is M1-G2's verbatim (`m1g2_gold.flux:114-119`), with `--steps
+  5000` in place of `--steps 600` and `--checkpoint-dir` pointing at `out/`. The
+  checkpoint cadence stays 10, so a full run writes 501 numbered files.
+- The 501 `.npz` files stay on Lustre under `M1-G3j/out/`. They are not copied
+  into `tests/regression_tests/`, and no `gold/` directory is created: M1-A1j
+  compiles in only their statistics.
+- The reference runs from a staged copy, never from the live checkout
+  `~/research-bridges/zmodel-steve/zmodel3d-amr`. Its `examples/` and
+  `zmodel3d/` working trees were copied with `rsync -a --exclude __pycache__`,
+  including the uncommitted `examples/` diff. `diff -r -x __pycache__` against
+  the live trees printed nothing. `run_adaptive_mesh_bubble.py:21` puts
+  `parents[1]` (the stage) on `sys.path`, so the staged driver imports the
+  staged `zmodel3d/`. The job sets `PYTHONDONTWRITEBYTECODE=1` so it writes no
+  `__pycache__` into the stage.
+- Also staged under `stage/beatnik/`, identical to the repo copies by `cmp`:
+  `compare_output.py`, `initial_conditions/gold.npz` and M1-G2's
+  `milestone1-bubble/checkpoint_t00000p557934_step0000600.npz`.
+- `stage/COMMIT` (staged 2026-11-06T14:23 PST) contains:
+  - reference HEAD `ec7d7bf4aaf9e84c6ac999dce3193ca1650677f1`;
+  - an empty `git status --porcelain -- zmodel3d`;
+  - the reference's full `git diff`: the one-line `--source-quadrature` default
+    `face` to `vertex` in `examples/run_adaptive_mesh_bubble.py`, the same diff
+    M1-G2 and M1-D2 ran under;
+  - Beatnik HEAD `2a38355cd838e15d31dd3d1a0ef0a8d605964b26`, the commit that
+    adds the script;
+  - Beatnik porcelain count 2: the untracked `commands.sh` and the task prompt.
+- The job reads nothing outside the stage except the resolver. Its provenance
+  block prints `stage/COMMIT`, and it refuses to run if the `zmodel3d/` status
+  block in `COMMIT` is not empty or if `out/` already holds `.npz` files.
+- In-job checks are M1-G2's, adapted to 5000 steps (501 files, and the
+  no-early-stop line at step 5000), with three changes:
+  - a new check that the step-600 file is `np.array_equal` on every key to the
+    staged M1-G2 step-600 file; a run that stops before step 600 fails it;
+  - the finiteness check covers every numeric field, not only `vertices`,
+    `potential` and `remesh_material_position`, to match M1-G3's "every field
+    finite";
+  - the table covers all 501 files.
+- Submission: the loop was not running, so `hpc_submit.py` was called directly
+  with `TASKLOOP_POLICY`, `TASKLOOP_DIR` and `TASKLOOP_STEP` set to this loop's
+  values. The first call returned exit 3 (`pbatch` is not an allowed queue,
+  150 min is over 60, and 2.50 node-hours is over 2). The user approved script
+  sha256 `1c31205b…8961` in `approvals.json`, and the second call submitted the
+  job, rc 0.
+
+**Wait estimate:** about **115 minutes** from submission. That is about 100
+minutes of run time (5000 × 1.18 s/step, from `## M1-G2`) plus up to 11 minutes
+of queue wait. The queue figure comes from the user's 9 recent `pbatch` jobs (median
+1.1 min, longest 11 min), the only ones `flux jobs -a` lists.
+
+**Affects:** M1-G3: read `beatnik_m1g3_gold.f3iZLsmfWYw1.log` and `M1-G3j/out/`,
+judging from the `[m1g3]` check and table lines. The early-stop line, the
+step-600 equality and the self-compare of the last file correspond to its exit
+criterion. M1-A1j consumes M1-G3's statistics.

@@ -5,7 +5,8 @@ T4d2, T4d3, T4d4, T4d5, T4d6j, T4d6, M1-T2j, M1-T2 and M1-D2 are **DONE** and
 reviewed, Passed. The codes part at step 2, where Tessera's one-round collapse
 independent set accepts 8 of the 44 collapse candidates the reference's serial
 walk accepts 31 of, and Beatnik's mesh obeys the reference's rules at every
-probed step after (log `## M1-D2`). M1-G3j, M1-G3, M1-A1j and M1-A1 are NOT
+probed step after (log `## M1-D2`). M1-G3j is **DONE**: its 5000-step
+reference job `f3iZLsmfWYw1` is submitted. M1-G3, M1-A1j and M1-A1 are NOT
 STARTED.
 
 ## Problem
@@ -2019,7 +2020,7 @@ The numbers are in the log's `## M1-D2`.
 
 ---
 
-### M1-G3j — the 5000-step gold set, staged and submitted *(reference run, no code)* — **NOT STARTED**
+### M1-G3j — the 5000-step gold set, staged and submitted *(reference run, no code)* — **DONE**
 
 **Depends on:** M1-G2.
 
@@ -2054,6 +2055,21 @@ step-0 file.
 
 **Exit criterion:** the staged directory exists with its `COMMIT`; the scheduler
 accepted `m1g3_gold.flux`, its job ID on the log's `**Jobs:**` line.
+
+**Met.** `scripts/tuolumne/m1g3_gold.flux` (commit `2a38355`) is M1-G2's command
+with `--steps 5000`, run with `cd` into the stage. It keeps M1-G2's in-job checks
+for 501 files and adds the step-600 `np.array_equal` check against M1-G2's file.
+The stage `/p/lustre5/stewartj/beatnik/M1-G3j/stage/` holds the reference's
+`examples/` and `zmodel3d/` working trees (no `__pycache__`), equal to the live
+trees by `diff -r -x __pycache__`, no output. It also holds
+`beatnik/compare_output.py`, `beatnik/initial_conditions/gold.npz` and
+`beatnik/milestone1-bubble/checkpoint_t00000p557934_step0000600.npz`, each
+identical to the repo copy by `cmp`. `COMMIT` records reference HEAD `ec7d7bf`, an
+empty `zmodel3d/` status, the one-line `--source-quadrature` default diff in
+`examples/`, Beatnik HEAD `2a38355` and a porcelain count of 2. The loop's wrapper
+needed approval for `pbatch`, 150 minutes and 2.5 node-hours. The user approved it,
+and the wrapper submitted job `f3iZLsmfWYw1` (rc 0). `flux jobs` shows it in state
+`S` in `pbatch`, 1 node, 2.5 h limit.
 
 ---
 
