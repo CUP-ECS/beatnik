@@ -872,6 +872,22 @@ subsections above, which are intended behavior.
   one registered region per direction, mirroring the `solve()` fix — **Canopy
   #22**. Once that lands and Beatnik picks up the new Canopy, the env bump becomes
   belt-and-suspenders.
+- **At 4 ranks on HIP, per-rank resident memory grows slowly at constant face
+  count during a dynamic-remesh run.** *Pre-existing; not the gid space and not
+  the gid-renumbering cadence (task T4d6).* Over a 600-step milestone-defaults
+  run (about 1040 faces), every rank's `VmRSS` rises in about 264 kB increments.
+  Without checkpoints it grows 6.4–9.5 MB per rank (3.7–7.7 MB of it while the face
+  count is unchanged, mostly after step 300, often on the same steps on every
+  rank and on steps that make no remesh edit). It grows as much with
+  renumbering off as at cadence 50, and the gid space stays flat. With a checkpoint every 10
+  steps it grows 12.8–21.7 MB per rank, 11.6–17.3 MB of that on checkpoint
+  steps. At 1 rank the same runs change RSS only 3–5 times in 600 steps
+  (about 1 MB in total). About 1 % of a rank's ~1 GB footprint over 600 steps;
+  whether it plateaus over a longer run is unmeasured.
+  **Reproduce:** `scripts/tuolumne/t4d6_gid_cadence.flux` — the `cadence_HIP_np4`
+  launch of the default `measure` selector (with checkpoints), or the `diag`
+  selector's `diag` and `diag0` launches (no checkpoints; renumbering every 50
+  and never), reading the `rss_kb=` field of the `[m1run]` lines.
 
 Two further FMM defects — a Slingshot NIC registration exhaustion during Canopy
 `Rebalance` (RESOLVED 2026-06-17) and a premature FMM NaN at full rollup

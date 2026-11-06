@@ -32,6 +32,19 @@
 #             4 -- the T4d exit criterion's volume drift, minimum quality and
 #             cumulative splits / collapses / flips / smooth_steps
 #
+# THE SELECTOR, $2. `measure` (the default) runs exactly the seven rows
+# above and writes under /p/lustre5/stewartj/beatnik/T4d6j/out. `diag` runs
+# only the two diag rows -- 600 steps, 4 ranks, HIP, NO checkpoints,
+# renumbering every 50 (diag) and never (diag0) -- and writes under
+# /p/lustre5/stewartj/beatnik/T4d6/out. T4d6 uses them to attribute per-rank
+# RSS growth at constant face count: to the gid space or its renumbering, or
+# to neither, and apart from the 4-rank checkpoint writes. The
+# selector is a positional because the task loop's submit wrapper passes
+# script arguments after `--` and takes no options:
+#
+#   "$TASKLOOP_SUBMIT" --purpose "..." scripts/tuolumne/t4d6_gid_cadence.flux \
+#       -- /p/lustre5/stewartj/beatnik/T4d6/stage diag
+#
 # THE BINARIES ARE STAGED, NOT RESOLVED. The job runs
 # Beatnik_Test_Milestone1Run_MPI_{SERIAL,HIP} from the staged directory given
 # as $1 (default /p/lustre5/stewartj/beatnik/T4d6j/stage), never through
@@ -105,12 +118,24 @@ source "${BEATNIK_REPO}/scripts/lib/beatnik_env.sh" || exit 1
 ## Parameters
 ##--------------------------------------------------------------------------##
 BEATNIK_T4D6_STAGE="${1:-/p/lustre5/stewartj/beatnik/T4d6j/stage}"
+BEATNIK_T4D6_SELECT="${2:-measure}"
 BEATNIK_T4D6_DRIVER="Beatnik_Test_Milestone1Run"
 
 # Parent of the per-launch output directories. MUST be on a PARALLEL
 # filesystem: the checkpoints go through MPI-IO and a node-local scratch fails
 # every launch that spans more than one node (CLAUDE.md "Minimum test set").
-BEATNIK_T4D6_OUT_ROOT="${BEATNIK_T4D6_OUT_ROOT:-/p/lustre5/stewartj/beatnik/T4d6j/out}"
+# Each selector has its own root, so the diag launches never overwrite the
+# measurement's output.
+case "${BEATNIK_T4D6_SELECT}" in
+    measure) _default_out=/p/lustre5/stewartj/beatnik/T4d6j/out ;;
+    diag)    _default_out=/p/lustre5/stewartj/beatnik/T4d6/out ;;
+    *)
+        echo "[t4d6] FAIL: unknown selector '${BEATNIK_T4D6_SELECT}'" \
+             "(expected 'measure' or 'diag')." >&2
+        exit 1
+        ;;
+esac
+BEATNIK_T4D6_OUT_ROOT="${BEATNIK_T4D6_OUT_ROOT:-${_default_out}}"
 
 # Seconds of the 60m wall the launches may spend. The remainder is slack for
 # startup, the final flush and the report below.
@@ -120,8 +145,11 @@ BEATNIK_T4D6_BUDGET="${BEATNIK_T4D6_BUDGET:-3420}"
 #   group backend ranks steps checkpoint_every renumber_every estimate_seconds
 # Renumber cadence 50 is RemeshParams::renumber_gids_every's default, the
 # value a milestone run uses; 0 is never. Checkpoints every 10, as the
-# milestone run writes them. The estimates sum to 3300 s, inside the budget.
-SWEEP="
+# milestone run writes them. The measurement rows' estimates sum to 3300 s,
+# inside the budget. The two diag rows (renumbering every 50, and never) run
+# only under the `diag` selector, and the measurement rows only under
+# `measure`.
+SWEEP_ALL="
 cadence  HIP    1 600 10 50 900
 cadence  HIP    4 600 10 50 900
 control  HIP    1 600 10 0  900
@@ -129,7 +157,14 @@ umbrella SERIAL 1 50  10 50 150
 umbrella SERIAL 4 50  10 50 150
 umbrella HIP    1 50  10 50 150
 umbrella HIP    4 50  10 50 150
+diag     HIP    4 600 0  50 300
+diag0    HIP    4 600 0  0  300
 "
+if [ "${BEATNIK_T4D6_SELECT}" = "diag" ]; then
+    SWEEP="$(printf '%s\n' "${SWEEP_ALL}" | awk '$1 ~ /^diag/')"
+else
+    SWEEP="$(printf '%s\n' "${SWEEP_ALL}" | awk 'NF && $1 !~ /^diag/')"
+fi
 
 ##--------------------------------------------------------------------------##
 ## Provenance, BEFORE any work
@@ -158,7 +193,10 @@ if [ -n "${CC_BIN}" ]; then
     echo "[t4d6] ${CC_BIN} --version:"
     "${CC_BIN}" --version 2>&1 | head -3
 fi
-echo "[t4d6] submit command: \"\$TASKLOOP_SUBMIT\" scripts/tuolumne/t4d6_gid_cadence.flux"
+echo "[t4d6] submit command: \"\$TASKLOOP_SUBMIT\" scripts/tuolumne/t4d6_gid_cadence.flux -- ${*}"
+echo "[t4d6] selector: ${BEATNIK_T4D6_SELECT}"
+echo "[t4d6] rows:"
+printf '%s\n' "${SWEEP}" | sed 's/^/  /'
 echo "[t4d6] hostname: $(hostname)"
 echo "[t4d6] date: $(date -Is)"
 echo "[t4d6] out_root=${BEATNIK_T4D6_OUT_ROOT} budget=${BEATNIK_T4D6_BUDGET}s"

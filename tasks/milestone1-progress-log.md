@@ -2932,3 +2932,148 @@ Stale code: the five rejections, the four T4d `checkRejected` cases and
    the job's split-only flags are still a valid choice.
 
 **Affects:** none.
+
+## T4d6
+
+**Commits:** the one commit that adds this section (the diag selector in
+`scripts/tuolumne/t4d6_gid_cadence.flux`, the README Known Issues entry,
+`milestone1.md`, this log). No code under `src/` or `tests/` changed.
+
+**Jobs:**
+- `f3iXs3sWtvv3` (submitted by T4d6j), `scripts/tuolumne/t4d6_gid_cadence.flux`
+  (default `measure` selector), stage `/p/lustre5/stewartj/beatnik/T4d6j/stage`
+  (`COMMIT` `092e2e580a91…`), output `beatnik_t4d6.f3iXs3sWtvv3.log` and
+  `/p/lustre5/stewartj/beatnik/T4d6j/out/<group>_<BACKEND>_np<N>/launch.log`.
+  COMPLETED rc 0, `launched=7 skipped=0`, total 66 s. Showed the cadence's
+  bounded direction (ranks 1 and 4), the control's growing direction, the
+  umbrella, the 1-rank RSS clause, and the 4-rank checkpoint-step RSS growth.
+- `f3iYLanaSJHd`, the same script with `-- /p/lustre5/stewartj/beatnik/T4d6/stage diag`
+  (one `diag` row then: 4 ranks, HIP, 600 steps, checkpoints 0, renumber 50),
+  output `beatnik_t4d6.f3iYLanaSJHd.log` and
+  `/p/lustre5/stewartj/beatnik/T4d6/diag_HIP_np4.f3iYLanaSJHd/launch.log`
+  (moved aside before the next job reused `out/diag_HIP_np4`). COMPLETED rc 0,
+  0 checkpoints, wall 17 s. Showed that 4-rank RSS still grows without
+  checkpoints, which by the entry's text fails the RSS clause, so the session
+  stopped and asked.
+- `f3iYMv1J4fSw`, the same arguments after the user's ruling added a `diag0`
+  row (renumber 0), output `beatnik_t4d6.f3iYMv1J4fSw.log` and
+  `/p/lustre5/stewartj/beatnik/T4d6/out/{diag,diag0}_HIP_np4/launch.log`.
+  COMPLETED rc 0, `launched=2 skipped=0`, walls 20 s (`diag`) and 16 s
+  (`diag0`). Showed that the 4-rank no-checkpoint growth is the same with and
+  without renumbering: not the gid space, not the cadence.
+
+Stage `/p/lustre5/stewartj/beatnik/T4d6/stage/`: both
+`Beatnik_Test_Milestone1Run_MPI_{SERIAL,HIP}` copied from the T4d6j stage
+(sha256 `4556994…` HIP, `d279e9b…` SERIAL, identical to the source), `COMMIT`
+naming `092e2e5` plus a line saying the binaries were copied, not rebuilt.
+
+**Ratio series** (`gid_ratio` = gid-space high-water / global V; rank 0, the
+value is global). Cadence np1 and np4 identical; `diag` identical to them;
+`diag0` identical to the control:
+
+```
+cadence (renumber 50)                     control (renumber 0)
+step  V   F    gid_space→after ratio      step  V   F    gid_space ratio
+  1  462  920  3082            6.670996     1  462  920  3082      6.670996
+  2  514 1024  3514            6.836576     2  514 1024  3514      6.836576
+  3  518 1032  3522            6.799228     3  518 1032  3522      6.799228
+ 50  518 1032  3522→3098 (R)   6.799228   246  519 1034  3530      6.801541
+ 51                            5.980695   257  520 1036  3538      6.803846
+100,150,200 R, no change       5.980695   398  521 1038  3546      6.806142
+246  519 1034  3106            5.984586   516  522 1040  3554      6.808429
+250  R 3106→3104; 251          5.980732   (constant between these steps)
+257  520 1036  3112            5.984615
+300  R 3112→3110; 301          5.980769
+350  R, no change
+398  521 1038  3118            5.984645
+400  R 3118→3116; 401          5.980806
+450,500 R, no change
+516  522 1040  3124            5.984674
+550  R 3124→3122; 551          5.980843
+600  R, no change              5.980843
+```
+
+Window 400–600: cadence 5.984645 → 5.980843, two drops and one rise, so it
+does not grow monotonically, at np1 and np4. Control 6.806142 → 6.808429, zero
+drops and one rise (step 516).
+
+**Per-rank peak RSS** (`/usr/bin/time -v` Maximum resident set size, kB, per rank):
+
+| Launch | Peak RSS per rank | VmRSS step 1 → 600 (rank 0..3) |
+| --- | --- | --- |
+| cadence_HIP_np1 | 863476 | 862220 → 863476 |
+| cadence_HIP_np4 | 1014924, 1023676, 1023656, 1022368 | +12.8, +21.7, +21.3, +20.4 MB |
+| control_HIP_np1 | 863176 | 862184 → 863176 |
+| umbrella_SERIAL_np1 | 704848 | (50 steps) +0.3 MB |
+| umbrella_SERIAL_np4 | 709176, 709140, 708468, 708076 | +0.8–1.1 MB |
+| umbrella_HIP_np1 | 863464 | +1.3 MB |
+| umbrella_HIP_np4 | 1004144, 1004576, 1004100, 1004608 | +2.2–2.4 MB |
+| diag_HIP_np4 (`f3iYLanaSJHd`) | 1003704, 1004352, 1006524, 1005076 | +6.4, +6.7, +9.2, +8.2 MB |
+| diag_HIP_np4 (`f3iYMv1J4fSw`) | 1003752, 1004968, 1006884, 1004304 | +6.4, +7.5, +9.5, +7.4 MB |
+| diag0_HIP_np4 (`f3iYMv1J4fSw`) | 1003840, 1005464, 1005200, 1003628 | +6.7, +8.0, +7.5, +6.4 MB |
+
+RSS series, read from the `rss_kb=` fields:
+- 1 rank (cadence): changes only at steps 1, 10 (F 920→1032 at step 3), 50,
+  250 and 270: two 264 kB steps at constant face count (50, 270). The control
+  changes at 1, 10 and 250 only. This counts as flat.
+- 4 ranks with checkpoints (cadence): 51–60 changes per rank. 11.8 / 19.0 /
+  18.8 / 17.7 MB arrive at constant F, 11.6 / 17.2 / 17.3 / 15.6 MB of it on
+  checkpoint steps. Rank 1: 1001792 (1), 1003516 (10), 1007420 (200),
+  1011404 (300), 1015896 (400), 1019464 (500), 1023540 (600).
+- 4 ranks without checkpoints: about 264 kB increments, at constant F 4.1–7.2 MB
+  (`diag`, first job), 4.9–7.7 MB (`diag`, second), 3.7–5.4 MB (`diag0`), mostly
+  after step ~300 and often on the same steps on every rank (389, 413/414,
+  437/438, 462, 486/487, 510/511, 535, 559/560, 583/584). None of those steps
+  makes a remesh edit or changes the gid space. `diag0` rank 0: 997124 (1),
+  998076 (3), 998248 (246), 999408 (389), 1000460 (398), 1002036 (511),
+  1003064 (516), 1003840 (584).
+
+**Umbrella** (all four launches, identical): cumulative at step 50
+splits / collapses / flips / smooth_steps = **364 / 8 / 76 / 3**, all non-zero
+(not M1-R7). Min quality over every step and rank 0.6939016 against
+`--remesh-min-quality` 0.18 (`src/Beatnik_Params.hpp:655`). Max |volume drift|
+3.62e-12 at step 1 and 3.1e-14 after it, below `1e-10`. The prompt's "at most
+2.2e-16" understated the step-1 value; the clause holds either way.
+`requireSupportedConfiguration` rejects nothing: every launch completed.
+The 600-step runs' totals at step 600: 368 / 8 / 76 / 7.
+
+**Measured 600-step walls** (launch wall from `LAUNCH_WALL`, including
+startup; driver `wall=` in parentheses): cadence np1 13 s (5.9 s), cadence np4
+17 s (9.7 s), control np1 10 s (7.0 s), diag np4 17 s and 20 s (7.8 s), diag0
+np4 16 s. T4d6j's estimate was 900 s per launch.
+
+**Decisions** (given to the task and not reopened):
+- **"Grows monotonically" in the control clause means non-decreasing at every
+  step with a net rise over steps 400–600.** The mesh is nearly static at the
+  milestone defaults: the control holds 6.806142 from step 398 and steps to
+  6.808429 at 516. That meets the clause.
+- **The per-rank RSS clause is judged after a diagnostic launch.** The first
+  diag (`f3iYLanaSJHd`, renumber 50, no checkpoints) still grew. The entry says
+  that fails the clause, so the session stopped and asked. **User's ruling:**
+  attribute first by adding a `diag0` row (4 ranks, HIP, 600 steps,
+  checkpoints 0, renumber 0). If it grows the same way, rule the clause met with
+  respect to the gid leak and record the 4-rank growth (checkpoint and
+  non-checkpoint parts) as a pre-existing README Known Issue plus an Affects
+  follow-up; if not, stop. It grew the same way (`f3iYMv1J4fSw`), so the clause is
+  met with respect to the gid leak and the Known Issue is in README.
+
+**Implementation choices** (inside **Fill in**): the selector is the script's
+second positional, `measure` (default, the seven T4d6j rows, output
+`T4d6j/out`) or `diag` (the `diag` and `diag0` rows, output `T4d6/out`); an
+unknown value exits 1. The provenance block echoes the selector, the selected
+rows and the arguments. Row estimates for `diag`/`diag0` are 300 s; `-t 60m`
+unchanged. The diag group names begin with `diag` and the filter matches on
+that prefix.
+
+**Affects:**
+- **M1-T2j:** a 600-step milestone-defaults launch takes 10–20 s of wall
+  (5.9–9.7 s in the driver) at 1 or 4 ranks on HIP, against T4d6j's 900 s
+  estimate; size its walltime from these numbers (it also writes the Python
+  comparison, which this job did not).
+- **M1-A1j:** per-rank peak RSS 0.86 GB (HIP np1), 1.00–1.02 GB (HIP np4), 0.71
+  GB (SERIAL), with a 4-rank growth of 6–10 MB per 600 steps without
+  checkpoints and 13–22 MB with checkpoints every 10; table above.
+- **Follow-up:** the 4-rank per-rank RSS growth at constant face count
+  (README Known Issues), pre-existing, independent of the gid cadence. About
+  two thirds of it is on checkpoint steps and the rest is not. It is unmeasured
+  whether it plateaus over a longer run. Not fixed here (checkpoint writer out of scope).

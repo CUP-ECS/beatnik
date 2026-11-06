@@ -1,9 +1,9 @@
 # Milestone 1 — the reference's default rising-bubble configuration
 
 **Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1, M1-G2, M1-D1, T4d1,
-T4d2, T4d3, T4d4, T4d5 and T4d6j are **DONE** (M1-U1–U3, M1-G1, M1-G2, M1-D1,
-T4d1–T4d5 and T4d6j reviewed, Passed; T4d6j's job finished, read by T4d6).
-T4d6, M1-T2j, M1-T2, M1-A1j and M1-A1 are NOT STARTED.
+T4d2, T4d3, T4d4, T4d5, T4d6j and T4d6 are **DONE** (M1-U1–U3, M1-G1, M1-G2,
+M1-D1, T4d1–T4d5 and T4d6j reviewed, Passed; T4d6 not yet reviewed).
+M1-T2j, M1-T2, M1-A1j and M1-A1 are NOT STARTED.
 
 ## Problem
 
@@ -1672,7 +1672,7 @@ deleted; the new `RefineSplitEdges` check 6 reports cumulative flips 58 or 60
 
 ---
 
-### T4d6 — the gid space and resident memory are bounded — **NOT STARTED**
+### T4d6 — the gid space and resident memory are bounded — **DONE**
 
 **Depends on:** T4d6j.
 
@@ -1733,6 +1733,30 @@ clause fails: stop and report.
 Record both the ratio series and the RSS series in the progress log. This is the
 first thing to suspect if a long run's memory grows with step count rather than
 with face count.
+
+**Met.** Judged from `f3iXs3sWtvv3` (stage `T4d6j/stage`, `COMMIT` `092e2e5`;
+COMPLETED rc 0, `launched=7 skipped=0`, every launch `completed=` its budget) and
+two diag jobs from `T4d6/stage` (the same binaries, sha256-identical):
+`f3iYLanaSJHd` (`diag`) and `f3iYMv1J4fSw` (`diag` and `diag0`), both rc 0.
+**Cadence:** at ranks 1 and 4 the ratio over steps 400–600 goes 5.984645 →
+5.980843, with two drops (renumberings at 400 and 550) and one rise (the split
+at 516), so it does not grow monotonically; the gid space falls back to
+`3104–3122` at every renumbering. **Control:** non-decreasing at every step from
+6.806142 (step 398) to 6.808429 (step 516), a net rise, which meets the clause
+as the user reads it (the same series at 4 ranks in `diag0`). **Per-rank RSS:** at 1
+rank it is flat between face-count changes except two 264 kB steps (+1.26 MB
+over 600 steps). At 4 ranks without checkpoints it still grows 6.4–9.5 MB
+per rank, 3.7–7.7 MB of it at constant face count, by the same amount with
+renumbering every 50 (`diag`) and never (`diag0`). The gid space is flat
+throughout. So, by the user's ruling, the clause is met with respect to the gid leak, and the
+growth is recorded as a pre-existing README Known Issue (follow-up on the log's
+**Affects:** line). The second diag row (`diag0`, renumber `0`) is the
+user's addition to **Submits**. **Umbrella:** all four 50-step launches complete,
+`requireSupportedConfiguration` rejects nothing, cumulative splits / collapses /
+flips / smooth_steps are 364 / 8 / 76 / 3 in every launch, the minimum quality is
+never below 0.6939 (`--remesh-min-quality` 0.18), and the largest |volume drift| is
+3.62e-12 (step 1; 3.1e-14 after it), below `1e-10`. Measured 600-step walls:
+13 s (np1), 17 s (np4), 10 s (control), 16–20 s (4-rank diag).
 
 ---
 
