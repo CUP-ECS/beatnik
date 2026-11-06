@@ -3077,3 +3077,50 @@ that prefix.
   (README Known Issues), pre-existing, independent of the gid cadence. About
   two thirds of it is on checkpoint steps and the rest is not. It is unmeasured
   whether it plateaus over a longer run. Not fixed here (checkpoint writer out of scope).
+
+## T4d6 review
+
+**Verdict:** Passed
+**Reviewed:** `6d4896c^..6d4896c` (the one commit; `345c8c8` before it touches
+only `tasks/milestone1.md`). Outside `tasks/` it touches
+`scripts/tuolumne/t4d6_gid_cadence.flux` (the launch selector and the `diag`
+rows) and `README.md` (the Known Issues entry), both in **Fill in**. No `src/`
+or `tests/` change, so the code under judgment is T4d6j's `092e2e5`.
+**Evidence:** a post-job task, verified from its jobs' output, read in full
+and re-derived independently from every `launch.log`:
+- `f3iXs3sWtvv3` (`t4d6_gid_cadence.flux`, `measure`), stage
+  `/p/lustre5/stewartj/beatnik/T4d6j/stage`, echoed `COMMIT` `092e2e580a91…`
+  with the staged binaries' sha256 (SERIAL `d279e9b…`). COMPLETED rc 0;
+  submitted 11:17:18, started 11:38:22 (21 min queue wait), 1.55 min run.
+  `launched=7 skipped=0`, every `FINAL` line `completed=` its budget.
+- `f3iYLanaSJHd` (`diag`, one row) and `f3iYMv1J4fSw` (`diag` and `diag0`),
+  stage `/p/lustre5/stewartj/beatnik/T4d6/stage`, `COMMIT` `092e2e5` with a
+  "copied, not rebuilt" line; SERIAL sha256 identical to the T4d6j stage's.
+  Both COMPLETED rc 0, no queue wait, 42 s and 1.01 min. The second job's
+  provenance block echoes `selector: diag` and both rows, matching the
+  committed script.
+
+Re-derived from the logs (rank 0's `gid_ratio`, global):
+- **Bounded direction.** Cadence np1, cadence np4 and both `diag` launches:
+  steps 400–600 go 5.984645 → 5.980843, one rise and two drops. Not monotone.
+- **Leak direction.** Control np1 and `diag0` np4: 6.806142 → 6.808429, one
+  rise, zero drops; non-decreasing with a net rise, as the log's settled
+  reading of "monotonically" requires.
+- **Per-rank RSS.** 1 rank: +1.2 MB (cadence) and +1.0 MB (control) over 600
+  steps. 4 ranks without checkpoints: +6.2–9.3 MB per rank, 3.6–7.5 MB at
+  constant F, the same with renumbering every 50 and never; with checkpoints
+  +12.5–21.2 MB (step-1 `VmRSS` to step-600; the log's table uses step-1 to
+  peak, a few hundred kB higher). The clause is met with respect to the gid
+  leak by the user's ruling recorded under **Decisions**, and the growth is
+  in README Known Issues with a reproduction and on the **Affects** line.
+- **Umbrella.** All four 50-step launches complete; cumulative splits /
+  collapses / flips / smooth_steps 364 / 8 / 76 / 3 in each; minimum quality
+  0.6939016 (floor 0.18); largest |volume drift| 3.62e-12, below `1e-10`.
+
+Mechanical pass (`review_checks.py`): no candidates. `bash -n` on the script
+is clean. The selector rejects an unknown value with exit 1 before any work,
+`measure` keeps exactly T4d6j's seven rows and output root, and the diag rows
+write under their own root, so the T4d6j output is not overwritten. No prompt
+file remains under `tasks/`. **Removes** is nothing.
+
+**Affects:** none.
