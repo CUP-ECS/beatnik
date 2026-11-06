@@ -508,7 +508,7 @@ class Solver
                 // the collectives together.
                 if ( _params.cleanup.enabled )
                 {
-                    _quality->isotropicCleanup( _mesh );
+                    _cleanup_flips += _quality->isotropicCleanup( _mesh );
                     rebuildState();
                 }
 
@@ -565,7 +565,7 @@ class Solver
                 // (`:1502-1504`), so the state is rebuilt a second time.
                 if ( _params.cleanup.enabled )
                 {
-                    _quality->isotropicCleanup( _mesh );
+                    _cleanup_flips += _quality->isotropicCleanup( _mesh );
                     rebuildState();
                 }
             }
@@ -737,6 +737,15 @@ class Solver
     /// progress line. A global count. Exposed so the T4a regression test can
     /// assert that `--flip-passes > 0` actually flips (risk R15).
     long long edgeFlips() const { return _edge_flips; }
+
+    /// Cumulative valence flips of `MeshQuality::isotropicCleanup`, summed
+    /// over every call from both adaptivity branches. A global count,
+    /// identical on every rank, because each call returns
+    /// `valenceEqualizingFlips`'s reduced total; 0 under
+    /// `--no-isotropic-cleanup`. Not part of `lastRemesh().flips` or of
+    /// `edgeFlips()`, which count other passes. Exposed so the milestone
+    /// comparison test can assert the cleanup actually flipped (risk M1-R7).
+    long long cleanupFlips() const { return _cleanup_flips; }
 
     /// Path of the last checkpoint written, empty if none. Exposed so a test
     /// can find the file to compare without reconstructing the naming rule —
@@ -1112,6 +1121,9 @@ class Solver
     long long _refine_events = 0;
     long long _edge_flips = 0;
     long long _remesh_events = 0;
+
+    /// Cumulative `isotropicCleanup` valence flips, for `cleanupFlips()`.
+    long long _cleanup_flips = 0;
 };
 
 } // namespace Beatnik

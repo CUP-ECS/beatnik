@@ -931,15 +931,24 @@ class MeshQuality
      *      the halo on entry, and the relaxation exchanges between passes and
      *      once at the end, so the mesh is halo-consistent on return.
      *
+     * @return The valence flips accepted, summed over every pass and every
+     *         rank — `valenceEqualizingFlips`'s global count, identical on
+     *         every rank — or 0 when the cleanup is disabled. The reference
+     *         discards this count; Beatnik returns it so a run can show the
+     *         cleanup flipped anything (`Solver::cleanupFlips()`). It is not
+     *         in `RemeshDiagnostics::flips`, which counts the remesh pass's
+     *         quality flips only.
+     *
      * @note MPI. Collective when enabled; the pass counts and the early stop
      *       are parameters or global counts.
      */
-    void isotropicCleanup( mesh_type& mesh ) const
+    int isotropicCleanup( mesh_type& mesh ) const
     {
         if ( !_params.enabled )
-            return;
-        valenceEqualizingFlips( mesh, _params.flip_passes );
+            return 0;
+        const int flips = valenceEqualizingFlips( mesh, _params.flip_passes );
         relaxTangential( mesh, _params.relax_passes, _params.relax_weight );
+        return flips;
     }
 
     /**

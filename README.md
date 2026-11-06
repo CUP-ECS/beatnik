@@ -802,7 +802,9 @@ subsections above, which are intended behavior.
   covered by the `unit` member `Beatnik_Test_MeshEdits`; the gate's dynamic-remesh
   member configures all four off, because its gold counts were measured
   that way. Every-step coverage of the default configuration is the milestone
-  comparison test (`tasks/milestone1.md`, M1-T2j, not yet written). The cleanup's valence flips test each
+  comparison test, the `milestone` member `Beatnik_Test_Milestone1Bubble`
+  (`tasks/milestone1.md`, M1-T2j), which also asserts the cleanup flipped
+  (`Solver::cleanupFlips()`). The cleanup's valence flips test each
   new face against the old one with the winding Tessera writes, where the
   reference's literal `(c,d,a)`, `(d,c,b)` inverts the pair on every edge whose
   first-indexed face runs `a -> b` and so never flips those edges; Beatnik

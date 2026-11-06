@@ -20,8 +20,8 @@ does not cover.
   which drives
   [scripts/tuolumne/run_milestone.flux](../scripts/tuolumne/run_milestone.flux)
   once per row. Run it split, not as one big job.
-  Created by task M0-T1, filled by M0-T3 and extended by T6; it has **four**
-  members.
+  Created by task M0-T1, filled by M0-T3 and extended by T6 and M1-T2j; it has
+  **five** members.
 
   M0-T3's frozen pair: `Beatnik_Test_Milestone0Frozen` (2000 frozen-mesh
   timesteps at `--icosphere-subdivisions 3` against the M0-G1 gold set, all 81
@@ -42,7 +42,27 @@ does not cover.
   the horizon because `compare_output.py`'s pairing degenerates on an FMM-driven
   run. They reuse the frozen members' gold directories; no new gold set exists.
 
-  Four members x two backends x two rank counts is **sixteen launches**. The FMM
+  M1-T2j's milestone-1 member (`tasks/milestone1.md`):
+  `Beatnik_Test_Milestone1Bubble`, 600 steps of the reference's default
+  rising-bubble configuration (dynamic remesh with collapse, quality flips and
+  guarded smoothing, and the isotropic cleanup, all at the reference's
+  defaults) against the M1-G2 gold set (`regression_tests/milestone1-bubble/`).
+  It compares all 61 checkpointed steps (0-600 every 10) through
+  `compare_output.py` at a compiled-in per-step tolerance table, every entry
+  `--rtol 1e-10 --atol 1e-12` until task M1-A1j decides the compare depth and
+  the tolerances, and **continues past a failing step**, printing one
+  `[m1step]` line per step (verdict, every field's `max|e|`, both files' V and
+  F). A comparator exit other than 0 or 1 is a defect, never a pass or a
+  mismatch. It also asserts liveness: the cumulative remesh `splits`,
+  `collapses`, `flips` and `smooth_steps` and `Solver::cleanupFlips()` all
+  non-zero by step 600, and `time` within a factor of two of the gold's at every
+  checkpointed step, which a fixed dt is not. Its optional third argument,
+  `fail-step0` or `fail-no-cleanup`, selects a failure direction instead; the
+  manifest line never passes one. The staged job that measures it, with both
+  failure directions, is
+  [scripts/tuolumne/m1_milestone_run.flux](../scripts/tuolumne/m1_milestone_run.flux).
+
+  Five members x two backends x two rank counts is **twenty launches**. The FMM
   pair is **hours, not minutes**. T9b's split run (2026-10-09, 16/16 green)
   measured these job walls, each holding the np1 + np4 launches:
 
@@ -52,6 +72,7 @@ does not cover.
   | `Milestone0FrozenL4` | 1781 s | 168 s |
   | `Milestone0Fmm` | 9581 s | 613 s |
   | `Milestone0FmmL4` | 15130 s | 3614 s |
+  | `Milestone1Bubble` | not yet measured (M1-A1) | not yet measured (M1-A1) |
 
   They sum to **8.69 h** of node time, but the split tier's wall-clock is the
   slowest job, **level-4 FMM SERIAL at 4.2 h** (4 h 15 min submit to last exit).
