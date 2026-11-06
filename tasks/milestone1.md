@@ -2,9 +2,10 @@
 
 **Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1, M1-G2, M1-D1, T4d1,
 T4d2, T4d3, T4d4, T4d5, T4d6j and T4d6 are **DONE** and reviewed, Passed.
-M1-T2j is **DONE** and reviewed, Passed; its job `f3iYnNt9YPJP` (`pdebug`) is
-pending, and its output is M1-T2's input. M1-T2,
-M1-A1j and M1-A1 are NOT STARTED.
+M1-T2j is **DONE** and reviewed, Passed; its job `f3iYnNt9YPJP` (`pdebug`)
+finished, and M1-T2 is **DONE**, having read it: every compare launch first fails
+at step 10 on differing vertex and face counts (log `## M1-T2`). M1-A1j and
+M1-A1 are NOT STARTED.
 
 ## Problem
 
@@ -1892,12 +1893,12 @@ milestone 0's twelve plus `Beatnik_Test_Milestone1Bubble_MPI_{SERIAL,OPENMP,HIP}
 and the 61-file gold set, each byte-identical to the dev view's, and `COMMIT`
 names `347c2ef…` (porcelain count 4: none compiled). The scheduler accepted
 `m1_milestone_run.flux` as `f3iYnNt9YPJP` (`pdebug`, `-t 12m`); the user
-cancelled the first submission, `f3iYjQ4E4J8X` in `pbatch`, before it started. The test itself has not run yet; M1-T2
-judges it.
+cancelled the first submission, `f3iYjQ4E4J8X` in `pbatch`, before it started.
+M1-T2 judges the job's output.
 
 ---
 
-### M1-T2 — read the 600-step measurement — **NOT STARTED**
+### M1-T2 — read the 600-step measurement — **DONE**
 
 **Depends on:** M1-T2j.
 
@@ -1931,6 +1932,28 @@ on a frozen mesh; M1-G2's face-count table (log `## M1-G2`).
   comparison;
 - the log's `## M1-T2` section holds the per-launch record from **Do**, with an
   `**Affects:**` line naming M1-A1j.
+
+**Met.** Job `f3iYnNt9YPJP` is INACTIVE, FAILED, rc 1, 230 s of runtime; the
+stage's `COMMIT` is `347c2ef78b70…`, M1-T2j's code commit. The log ends
+`launched=6 skipped=0 total=204s` and `[milestone] SUMMARY: FAIL (2/6
+launches)`, with a `[milestone]` line for each launch. All four compare launches
+(SERIAL and HIP, ranks 1 and 4) read `steps=600/600`, `defects=0`,
+`time_liveness_failures=0`, `matched=1 mismatched=60`, `first_failing_step=10`,
+and splits / collapses / flips / smooth_steps / cleanup_flips = 368 / 8 / 76 /
+7 / 84, all non-zero. Every comparator exit is 0 (step 0, five times) or 1; the
+244 `[FAIL]` lines are the 60 step mismatches and the summary line per compare
+launch, none naming a counter or `time`. Failure direction (a): `fail-step0`
+compares step 10 against the step-0 gold, comparator exit 1, PASS. Direction
+(b): `fail-no-cleanup` (`cleanup_flips=0`) mismatches at step 10 with no defect,
+PASS. So no listed defect occurred and nothing was resubmitted. The four launches
+agree exactly on every count, counter and `time_rel`; `time` differs between them
+by at most 1.8e-15 relative. At step 10 and every compared step after it the
+counts differ (step 10: Beatnik 518/1032, gold 547/1090), the comparator stops at
+the count check, and so no field after step 0 was compared: the first failing
+field, its `max|e|` against M1-D1's floor and M1-R8's signature are "not
+reached". This is M1-R2's differing-counts case. The per-launch record, the face
+count and `time` series and the walls are in the log's `## M1-T2`, with an
+`**Affects:**` line naming M1-A1j.
 
 ---
 

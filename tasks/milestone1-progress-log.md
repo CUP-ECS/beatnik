@@ -3328,3 +3328,161 @@ file remains under `tasks/`.
    `submit_milestone_split.sh` re-timing M1-A1 already asks for.
 
 **Affects:** none.
+
+## M1-T2
+
+**Commits:** the commit that adds this section (`milestone1.md`, this log). No
+code changed; no job was submitted.
+
+**Jobs:** `f3iYnNt9YPJP` (M1-T2j's job, read here, not resubmitted),
+`scripts/tuolumne/m1_milestone_run.flux /p/lustre5/stewartj/beatnik/M1-T2j/stage`
+(`pdebug`, 1 node `--exclusive`, `-t 12m`, `--bank=unm`, dev env). Stage
+`/p/lustre5/stewartj/beatnik/M1-T2j/stage/`, its `COMMIT` reads
+`347c2ef78b70e7f725a4f1a482bdc9b9f41778b1` (porcelain count 4), and the job
+echoed sha256 SERIAL `1daa9626…` and HIP `f9ba6852…`. Output stays where it is:
+`beatnik_m1_milestone.f3iYnNt9YPJP.log` in the repo root (5468 lines) and
+`/p/lustre5/stewartj/beatnik/M1-T2j/out/<tag>/launch.log` plus checkpoints for
+the six tags. Flux: INACTIVE, FAILED, rc 1, runtime 230.25 s, on tuolumne1013
+from 13:14:42. The log ends `launched=6 skipped=0 total=204s budget=600s` and
+`[milestone] SUMMARY: FAIL (2/6 launches)`. The four compare launches FAIL on
+step mismatches, which is a measurement. Both failure-direction launches PASS.
+
+**Exit criterion, checked against the output:**
+- All four compare launches have `[m1final] … steps=600/600` and a
+  `[milestone] FAIL … (rc=1)` line, and the `SUMMARY` line is present.
+- Liveness holds in every launch. Each compare launch ends with splits /
+  collapses / flips / smooth_steps / cleanup_flips = 368 / 8 / 76 / 7 / 84,
+  `time_liveness_failures=0` and `defects=0`. Each has 61 `[FAIL]` lines, the 60
+  `comparison mismatch (exit 1)` checks and the summary
+  `[FAIL] Beatnik_Test_Milestone1Bubble (8/68 checks)`, and none names a counter
+  or `time`. Comparator exits across the job: 5 × 0 (step 0, four compare
+  launches plus `fail-no-cleanup`) and 242 × 1. None is 2 or anything else.
+- Direction (a), `fail-step0`: `[m1fail] direction=a step=10 vs step-0 gold:
+  comparator exit 1`, `[PASS] … (2/2 checks)`.
+- Direction (b), `fail-no-cleanup`: `cleanup_flips=0`, Beatnik at V/F 642/1280
+  from step 2, against gold 547/1090 at step 10. Result: `[m1fail] direction=b
+  … first failing step 10, mismatched 1, defects 0`, `[PASS] … (3/3 checks)`.
+
+**Per-launch record (Do).** The four compare launches are identical except for
+their walls, checked from the output rather than the summary. The `[m1traj]`
+step/V/F/counter columns of all 600 steps are byte-identical across SERIAL np1,
+SERIAL np4, HIP np1 and HIP np4, and so are the `[m1step]` counts and
+`time_rel` (as printed, 7 digits) at all 61 compared steps. `time` itself
+differs between launches by at most 1.8e-15 relative.
+
+| launch | first failing step | first failing field, `max\|e\|` vs M1-D1 floor | counts at that step (Beatnik / gold) | M1-R8 signature | `run_wall` | `cmp_wall` | test `wall` | `LAUNCH_WALL` |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| SERIAL np1 | 10 | not reached | 518/1032 vs 547/1090, **differ** | not reached | 18.695 s | 28.018 s | 46.713 s | 54 s |
+| SERIAL np4 | 10 | not reached | 518/1032 vs 547/1090, **differ** | not reached | 18.895 s | 27.072 s | 45.967 s | 54 s |
+| HIP np1 | 10 | not reached | 518/1032 vs 547/1090, **differ** | not reached | 6.757 s | 26.189 s | 32.946 s | 37 s |
+| HIP np4 | 10 | not reached | 518/1032 vs 547/1090, **differ** | not reached | 9.763 s | 30.247 s | 40.010 s | 49 s |
+| HIP np1 `fail-step0` | 10 (by design) | — | 518/1032 vs 162/320 | — | 0.296 s | 0.854 s | 1.150 s | 5 s |
+| HIP np1 `fail-no-cleanup` | 10 (by design) | — | 642/1280 vs 547/1090 | — | −0.585 s (bug, below) | 1.184 s | 0.599 s | 5 s |
+
+Step 0 matches in every compare launch: `162/162`, `ambiguous=0/0`,
+`faces_identical=320/320`, `max_e[vertices]=5.551115e-17`, `max_e[potential]=0`,
+`max_e[time]=0`, `max_e[remesh_material_position]=5.551115e-17`, M1-D1's step-0
+numbers. Every step from 10 to 600 is `mismatch`, `exit=1`,
+`ambiguous=n/a faces_identical=n/a`, with no `max_e[...]` field. The
+comparator's report (`[cmp 10]`) is `structure: vertices cpp=(518, 3)
+gold=(547, 3); faces cpp=(1032, 3) gold=(1090, 3)`, then `FAIL: vertex count`
+and `FAIL: face count`, and it stops there (`compare_output.py:555-566`): no
+field is compared at any step after 0.
+
+**Field-level items: not reached.** The first failing field, its `max|e|` set
+against M1-D1's frozen-mesh `vertices` floor, and M1-R8's `vertices`-first
+signature are all **not reached**. The vertex and face counts differ at step 10,
+the first compared step after 0, and at every compared step after it, so the
+comparator never reached a field. M1-D1's floor peaks at `9.88e-15` through step
+600, but there is no measured field error to set against it. This is **M1-R2's
+"differing counts" case**: the two codes selected different mark sets, a step
+beyond an edit-ordering (R7) or diagonal (R13) difference, and not fixable by an
+ordering change. Pairing (M1-R8) is not in question; no pairing was attempted.
+
+**Face-count trajectory against M1-G2's.** Beatnik, from the `[m1traj]` `F=`
+column (every step, identical in all four launches): 920 at step 1, 1024 at
+step 2, 1032 from step 3 to 245, 1034 from 246, 1036 from 257, 1038 from 398, and
+1040 from 516 to 600; V is `F/2 + 2` throughout. Mesh edits happen only at steps
+1, 2, 3, 246, 257, 398 and 516. Cumulative splits/collapses/flips/smooth_steps/
+cleanup_flips are 300/0/60/1/20 after step 1 and 364/8/76/3/76 after step 3, and
+each later event adds one split, one smooth step and two cleanup flips. The gold,
+from its table (every 10 steps): 1090 at 10, 1084 at 20, 1080 at 30–50, 1074 at
+60–240, 1072 at 250–310, 1074 at 320, 1072 at 330–390, 1076 at 400–570, 1074 at
+580, and 1072 at 590–600. The gold-minus-Beatnik gap is positive at every
+compared step, largest at step 10 (58 faces) and smallest at steps 590–600 (32).
+Beatnik's trajectory is flat, not superlinear in step index (M1-R6).
+
+What the data bounds: **the two codes agree at step 1.** M1-G2's progress line
+reads `step=1 t=0.0030 … V=462 F=920`, which is Beatnik's step-1 `V=462 F=920`
+and `time=0.003` exactly. They have parted by step 10. Beatnik reaches its
+1032 plateau at step 3, while the gold is at 1090 at step 10 and still editing
+(`remesh_events` 390 at step 1, 631 at step 60). The earliest step at which
+they can be seen to part is therefore somewhere in **steps 2–10**. The gold has
+no counts between step 1 and step 10, so the data cannot place it more
+precisely: it cannot say whether Beatnik's step-2 count of 1024 already differs
+from the gold's step 2, nor whether the gold rises monotonically to 1090. The
+two codes' edit counters are defined differently (`remesh_events` against the
+five `RemeshDiagnostics` sums), so they do not bound it either. Only counts were
+compared, never edit sets (R7, Deliberate deviations).
+
+**`time` series** (`time_rel` = Beatnik's `time` over the gold's, minus 1, at the
+compared steps). Positive at every step after 0, so Beatnik is always ahead:
+10: 0.163, 20: 0.255, 30: 0.298, 40: 0.321, **50: 0.336 (the maximum)**, 60:
+0.325, 70: 0.296, 80: 0.277, 100: 0.249, 150: 0.210, 200: 0.190, 250: 0.176,
+300: 0.164, 350: 0.154, 400: 0.146, 450: 0.138, 500: 0.131, 550: 0.124, 600:
+0.116. At step 600 Beatnik is at `t = 0.62239` and the gold at `0.55793`. The
+maximum is a third of `kTimeLivenessRtol = 1.0`, and matches T4d6's driver
+(0.16 at step 10, 0.34 at step 50). It is consistent with Beatnik's coarser mesh
+(3–5 % fewer faces) giving a larger minimum edge and so a larger adaptive dt;
+this session did not measure the minimum edge.
+
+**Walls.** The job wall is **230 s** (flux runtime 230.25 s); the launches total
+`total=204s`, the remaining 26 s being provenance and setup. In each compare
+launch the comparator dominates: `cmp_wall` is 26–30 s for 61 calls (about
+0.43–0.6 s each, step 0 0.75–1.04 s), against `run_wall` 6.8 s on HIP np1,
+9.8 s on HIP np4 and 18.7–18.9 s on SERIAL at either rank count (`s_per_step`
+0.0113 / 0.0163 / 0.0312 / 0.0315). `LAUNCH_WALL` is 54 / 54 / 37 / 49 s against
+the guard's 100 s estimate; the two failure-direction launches take 5 s each.
+
+**Decisions** (given to the task and not reopened):
+- **No resubmission.** None of **Fill in**'s defects occurred: every launch ran
+  its budget (600/600 for the compare launches, 10/10 for `fail-step0`,
+  `fail-no-cleanup` stopping at its first mismatch as designed), no liveness
+  counter is zero, and every comparator exit is 0 or 1. Nothing was restaged
+  under `M1-T2/stage`.
+- **The field-level items in Do are recorded as "not reached"**, for the
+  reason above: the counts differ from step 10 on, so the comparator reached no
+  field. `compare_output.py` and the test are unmodified. Whether to compare
+  beyond the structural failure, and how (statistically: counts, `time`,
+  quality, volume drift), is M1-A1j's decision with the user.
+- **Two output-formatting bugs in the test are left for M1-A1j**, which edits
+  that file and resubmits anyway (see **Affects:**).
+
+**Session notes:** a reading task. Analysis was grep/awk over the job log, the
+six `launch.log` files, the gold README and the M1-G2 job log, on the login
+node. No build, no job, no code change; clang-format was not run. The
+**Status** line and M1-T2j's **Met.** paragraph in `milestone1.md` are
+rewritten to the present state (cosmetic, inside this task).
+
+**Affects:**
+- **M1-A1j:**
+  - The measured **first failing step is 10** at every backend and rank count,
+    the first compared step after 0. Its cause is **structural**: Beatnik's
+    vertex and face counts are 518/1032 against the gold's 547/1090, so the
+    codes chose different mark sets somewhere in steps 2–10 (M1-R2, differing
+    counts). No field `max|e|` exists past step 0, and a per-step tolerance
+    table cannot make any later step pass: the comparator fails on counts
+    before any tolerance applies. At `1e-10` the field-wise compare depth is
+    **step 0** unless the mark-set difference is removed; beyond it, only a
+    structural or statistical comparison is possible. Measured gaps: 32–58
+    faces (3–5 %), `time_rel` 0.116–0.336.
+  - **Walls for sizing `-t`:** job wall 230 s at 600 steps (launches 204 s);
+    1.5x is about 6 min, to be scaled to the decided depth. The comparator is
+    26–30 s of each compare launch.
+  - **Formatting follow-ups in `Beatnik_Test_Milestone1Bubble.cpp`:**
+    (1) the `[FAIL] check N: step S: comparison mismatch (exit 1) at rtol
+    0.000000` lines print the tolerance in fixed-point, so `1e-10` reads as
+    `0.000000`; (2) `fail-no-cleanup`'s `[m1final]` reports `run_wall=-0.585
+    s_per_step=-0.058492`, negative because `cmp_wall` (1.184 s) is subtracted
+    from a `wall` (0.599 s) that does not contain all of it in a run that stops
+    at step 10.
