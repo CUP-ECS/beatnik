@@ -3759,3 +3759,93 @@ from M1-T2j's checkpoints, identical; `structural_stats.py`).
 - **Follow-up:** `scripts/tuolumne/m1d2_split_ab.flux`'s comparison block runs
   `compare_output.py` at step 1, where it reports M1-R8 pairing failures. Read
   the nearest-neighbour numbers above, not those `max|e|`s.
+
+## M1-D2 review
+
+**Verdict:** Passed
+**Reviewed:** `beefb76^..beefb76`, the task's one commit (its **Commits:**
+line). Outside `tasks/` it touches exactly **Fill in**:
+`scripts/tuolumne/m1d2_split_ab.flux` (new), `scripts/tuolumne/m1d2_refhooks.py`
+(new) and the `[m1rem]` print plus its header paragraph in
+`tests/regression_tests/Beatnik_Test_Milestone1Run.cpp`.
+**Evidence:** implementing session's jobs, output read; no verification job,
+because all four checks pass and the criterion is deterministic counting (the
+four Beatnik launches agree exactly, the reference is serial).
+- `f3iZ2TAcXCc7`, part `all`, log `beatnik_m1d2.f3iZ2TAcXCc7.log` (233 lines,
+  read whole). Flux: COMPLETED rc 0, submitted 13:45:08, started 13:48:02
+  (queue wait 2 min 54 s), runtime 1.954 min; the log ends `[m1d2] total=97s
+  rc=0`. Reference `rc=0 checkpoints=11`; each of the four launches
+  `rc=0 ... checkpoints=11` (re-counted on disk: 11 `.h5` under each
+  `beatnik/<tag>/`); `[m1d2cmp] instrumented step 10 vs M1-G2 step 10:
+  np.array_equal on 9 keys: yes`; comparator exits 0 at step 0 and 1 at steps
+  1–10 in every launch, counts first differing at step 2 (514/1024 against
+  498/992); probe 51 states (`analysis/probe.txt`, 51 lines).
+- `f3iZ84VbzTGj`, part `diag`, log `beatnik_m1d2.f3iZ84VbzTGj.log` (140 lines,
+  read whole). Flux: COMPLETED rc 0, no queue wait (13:57:27), runtime
+  46.69 s; ends `total=27s rc=0`, 11 checkpoints per launch (re-counted under
+  `diag/<tag>/`). Every launch's step-2 `[m1rem]` reads `collapse_candidates=44
+  collapse_requested=44 collapse_rejected_conflict=36 collapse_capped=0
+  collapses=8`, step 1 `split_candidates=480 split_capped=1 splits=300
+  flip_requested=60 flips=60`, as the log's table records.
+- **Provenance.** Both jobs echo `4672169` with the M1-D2 files uncommitted.
+  The `diag` job's batch script, taken from its Flux jobspec, is byte-identical
+  to the committed `m1d2_split_ab.flux`. The `all` job's differs only by the
+  `[all|diag]` switch, which leaves part `all`'s path unchanged.
+  `m1d2_refhooks.py` was last modified (13:44) before either job, and the test
+  source (13:51) before the dev-env install that built the `diag` binaries
+  (`spack_install.log`, finished 13:57:16, `[+] ckhvawf`, 0 warnings). The
+  working tree now equals `beefb76`.
+- **Re-derived on the login node:**
+  `/p/lustre5/stewartj/beatnik/M1-D2/analysis/step1_step2_checks.py`, rerun
+  with `python3 -I`, reproduces every number it backs:
+  - step-1 nearest-neighbour pairing bijective, median `1.671e-05`, max
+    `1.983e-02`, 120 over 1e-4, faces 894/920, `max|dphi|` `6.862e-08`, on
+    both HIP np1 and SERIAL np4;
+  - 44 collapse candidates on each code's step-1 mesh, all 44 individually
+    safe, 48 distinct endpoints;
+  - the 300th and 301st split ratios both `1.4273650159101463`;
+  - 82 two-split faces, the reference's diagonal longer in 41, 41 of 90 flips
+    undoing one.
+
+  The hooks' candidate tests match the reference's `split_long_edges` and
+  `collapse_short_edges` (`dynamic_remesh.py:234-258`, `:361-405`) term for
+  term.
+- **Both directions.** A diagnostic task with no failure case. Its
+  discriminating measurement is the probe: on Beatnik's own step-1 mesh the
+  reference's rules accept 32 collapses where Beatnik accepts 8 of the same 44
+  requests. Of Beatnik's 36 declined, all lost the conflict round and none
+  failed a geometric test. And from step 3 on the reference's rules want no
+  edit on Beatnik's mesh. Together these decide (a) over (b).
+
+The mechanical pass (`review_checks.py`) found no candidates. `[m1rem]` is
+rank-0 only, and every value it prints is either a global `RemeshDiagnostics`
+field or a plain getter (`Solver::cleanupFlips()`, `Beatnik_Solver.hpp:748`),
+so no rank misses a collective. Its format specifiers match the field types
+(`GlobalIndex` cast to `long long`, `bool` to `int`). Both new scripts carry
+the BSD-3-Clause header. **Removes** is nothing; the diff deletes no call
+site, so nothing was made dead. No prompt file for M1-D2 is under `tasks/`.
+
+1. [nit] `scripts/tuolumne/m1d2_split_ab.flux:257-258` — `probe ... | tee
+   probe.txt || _rc=1` takes `tee`'s status, and the script sets no
+   `pipefail`. A probe that crashed would not fail the job. Here the probe
+   printed all 51 states, so no result depends on it. This breaks the
+   fail-loudly convention; `set -o pipefail` or `PIPESTATUS[0]` fixes it if the
+   script is reused.
+2. [nit] The **Met.** paragraph says both codes "see the same 44 candidates".
+   What was measured is equal counts (44 and 44, each with 48 distinct
+   endpoints, all individually admissible) on two different step-1 meshes,
+   not an edge-for-edge match. The (a) reading does not rest on it: it rests on
+   the reference's rules and Beatnik differing on Beatnik's own mesh, 32
+   accepted against 8.
+3. [follow-up] This commit introduced M1-D2 itself, and it rewrote M1-A1j:
+   **Depends on** gains M1-D2, the "Additional information needed" list is
+   replaced by measured **Inputs**, and a **Settled:** paragraph fixes that
+   beyond-depth comparisons match on physical time. M1-A1j's own text says its
+   decisions are made with the user and recorded. No log section records the
+   user choosing time matching, or asking for M1-D2. If the user did not make
+   that choice, M1-A1j's prompt session should put **Settled:** to them as an
+   open decision rather than inherit it. The measurement behind it, `time_rel`
+   up to 0.336 at equal step index, stands either way.
+
+**Affects:** M1-A1j — confirm with the user that its **Settled:** paragraph
+(physical-time matching) is their decision (finding 3).
