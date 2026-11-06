@@ -2562,3 +2562,108 @@ lands:
 **Affects:** M1-T2j: no edit to CLAUDE.md or the split script; it updates the
 `docs/testing.md` entry. M1-A1: its log asks the user to re-time the two rows
 and drop `pending=M1-T2j`.
+
+## T4d5 review
+
+**Verdict:** Passed
+**Reviewed:** `8120fa1^..8120fa1` (the one code commit; `d126add`, `38a612b`
+and `a5dba69` after it touch no file under `src/` or `tests/`). It touches the
+**Fill in** (`valenceEqualizingFlips` and `isotropicCleanup` in
+`src/Beatnik_MeshQuality.hpp`, both call sites in `Solver::advanceOneStep`),
+the shared helpers and `Solver::rebuildState` the log records, the test
+`tests/unit_tests/Beatnik_Test_MeshEdits.cpp`, the README Known Issues and
+`docs/testing.md` lines CLAUDE.md requires to stay in sync, and one
+comment-only row of the `src/Beatnik_DynamicRemesh.hpp` header table (recorded
+as a cosmetic correction). Nothing out of scope. The `--isotropic-cleanup`
+rejection at `src/Beatnik_Solver.hpp:791-797` and its `checkRejected` case in
+`Beatnik_Test_DynamicRemeshSplit.cpp` are untouched (Conventions "`Solver`
+rejections during T4d").
+**Evidence:** implementing session's job `f3iWgRGrp42K`, output read.
+`scripts/tuolumne/t4d1_mesh_edits.flux`, log
+`beatnik_t4d1_mesh_edits.f3iWgRGrp42K.log`, Flux `COMPLETED` rc 0, submitted
+and started 08:46:46 (no queue wait), ran 1.10 min. Provenance needed more
+than the echo: the job echoed `2f2dd73` with the task's files dirty, because
+it ran before the code commit `8120fa1`. The dirty source set it printed is
+exactly `8120fa1`'s file list. The installed `Beatnik_MeshQuality.hpp`,
+`Beatnik_Solver.hpp` and `Beatnik_DynamicRemesh.hpp` in the dev view's
+`include/` are byte-identical to `8120fa1`'s. Every string literal of 12+
+characters that `8120fa1` adds to the test is present in the binary
+(`share/Beatnik/tests/Beatnik_Test_MeshEdits`, mtime 08:46:12); the only two
+misses were regex fragments spanning string concatenations. So the binary is
+`8120fa1`'s code, and the evidence stands without a verification job. The log
+has `PASS np=1` … `PASS np=6`, `SUMMARY: PASS (6/6 rank counts)` and 21
+`[PASS] Beatnik_Test_MeshEdits (282/282 checks)` lines on HIP, with no
+`FAIL`, abort or exception, so ranks 1 and 4 are both covered. Passing
+direction: three valence passes accept 6, 3, 1 over 3, 1, 1 rounds; 0
+touched-rule violations in every pass; valence ≠ 6 falls 35 → 20 (maximum
+10 → 7); V/E/F and χ unchanged; flips' ΔV/V `+1.2007e-3`, printed; relaxation
+tangency ratios `2.12e-15`, `2.53e-15` (bound `1e-13`); relaxation ΔV/V
+`3.1015e-05` against `-5.3809e-02` un-projected, factor 1735 (asserted ≥ 1e3);
+early stop runs 2 of 3 passes. Both directions of the switch: 6a
+(`enabled = false`, and `passes = 0`) leaves positions, face gids and
+generation bit-identical; 6d (`enabled = true`) changes positions and
+generation and lands within `2.8e-17` at most (asserted ≤ `1e-13`) of the
+separate calls. Every number agrees with the **Met.** paragraph. The checked
+tolerances sit orders of magnitude from their bounds, so the atomic-assembly
+nondeterminism the log notes is no reason for a second run.
+
+Mechanical pass (`review_checks.py`): candidates only, all dismissed. K4 (nine
+host mirrors in `valenceEqualizingFlips` and `hostPositions`) is the host-mask
+design the Conventions row "Where a reference acceptance rule lives" chose,
+the same pattern as `qualityFlipSweep`. S4 `BEATNIK_NOT_IMPLEMENTED` hits are
+other tasks' stubs; none remains in `Beatnik_MeshQuality.hpp`. Read against
+`mesh_quality.py:44-87`, `:146-167` and `run_adaptive_mesh_bubble.py:1438-1504`:
+- Do step 1: dev0/dev1 transcribed exactly; `c == d` skipped; no `(c,d)`
+  existence test; both `≥ 0.2` dots and `min(q_new) ≥ 0.05` as named
+  constants citing `:78` and `:80`; policy set explicitly to
+  `{π, 0, EndpointInQuad}`. The winding derivation is correct: when `f0`
+  runs `a → b` the quad boundary is `a→d→b→c`, so `(c,a,d)` and `(d,b,c)`
+  are the consistently wound children, each tested against the face it
+  replaces (Deliberate deviations).
+- Do step 2: pass-wide touched set of vertex gids, edges with a touched
+  endpoint left out of the mask, all four corners added from
+  `gatherFlips`, round loop ends on an empty global mask or zero accepts,
+  passes stop after one with no flip. The per-gid `shift` (+1 old
+  endpoint, −1 new endpoint) reconstructs pass-start valence exactly.
+  Pass-start normals are read from untouched faces only, as argued.
+- Do step 3: `isotropicCleanup` = valence passes then `relaxTangential` at
+  the cleanup params; `enabled` checked before anything collective.
+- Do steps 4–6: remesh branch `remesh` → `rebuildState` → (enabled)
+  `isotropicCleanup` → `rebuildState` → projection, inside `if ( remeshed )`;
+  refine branch adds the cleanup and its rebuild inside
+  `marked_faces > 0`, with the `repaired` gate untouched; the comment at
+  `src/Beatnik_Solver.hpp:491-497` rewritten as asked. Matches the reference
+  call sites line for line.
+- Collectives: every branch after the parameter-only early return is on a
+  global count (`MPI_Allreduce` of the three counters, `report.accepted`) or
+  the gathered flips; `faceAdjacency()`, `haloExchangeVertexView` and
+  `flipEdges` are reached by every rank. The one device kernel
+  (`hostPositions`) captures Views by value, no `this`, and is fenced.
+- Conventions: provenance comments with line ranges on all three ports; loud
+  failure on a non-resident quad; re-basing recorded in the log with reasons.
+- Tests: case 6 lives in the registered `unit` member; each clause of the exit
+  criterion is an assertion with a literal, including both switch directions.
+
+Stale code: both `BEATNIK_NOT_IMPLEMENTED` stubs are gone; the remesh
+branch's "It is T4d and unimplemented" comment and its inline rebuild block
+are gone (the block is now `rebuildState`); `qualityFlipSweep`'s inline copies
+of `hostPositions` and `oppositeCorner` are gone, and `gatherNewDiagonals` is
+still called. Nothing is made dead. No prompt file remains under `tasks/`.
+
+1. [nit] `tests/regression_tests/Beatnik_Test_RefineSplitEdges.cpp:305-311`
+   still says "Flips and isotropic cleanup are unimplemented (T4d)". Both are
+   now implemented (flips by T4d3, the cleanup by this task); what remains
+   true is that the `Solver` rejects them. Outside this task's **Fill in**,
+   and T4d6j edits this file when it deletes `checkFailureDirection`, so it
+   is the natural place to rewrite the comment (CLAUDE.md "Describe the code
+   as it is now").
+2. [follow-up] `isotropicCleanup` returns `void`, so the cleanup's flip count
+   reaches no run diagnostic. The reference discards it too, and the
+   Conventions row "Diagnostics that must be numbers" lists the remesh pass's
+   counters, not the cleanup's. But M1-T2/M1-A1 are told to compare valence
+   statistics after cleanup (`## T4d5` Affects); a per-step cleanup flip
+   count or valence-≠-6 count in the run output would give them a number to
+   compare without a checkpoint post-process.
+
+**Affects:** T4d6j (nit 1: rewrite the `RefineSplitEdges.cpp:305-311` comment
+when it edits that file).
