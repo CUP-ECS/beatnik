@@ -800,8 +800,15 @@ subsections above, which are intended behavior.
   `--remesh-flip-min-gain < 1e12` and `--flip-passes > 0` at setup until task
   T4d6. Guarded tangential smoothing (`DynamicRemesh::tangentialSmooth`, T4d4)
   is implemented and covered by the same member, but the `Solver` still rejects
-  `--remesh-smooth-iters > 0` at setup until task T4d6; the isotropic cleanup
-  is T4d and not yet implemented. Every configuration that would reach
+  `--remesh-smooth-iters > 0` at setup until task T4d6. The isotropic cleanup
+  (`MeshQuality::isotropicCleanup` and `valenceEqualizingFlips`, T4d5) is
+  implemented and covered by the same member, but the `Solver` still rejects
+  `--isotropic-cleanup` at setup until task T4d6. Its valence flips test each
+  new face against the old one with the winding Tessera writes, where the
+  reference's literal `(c,d,a)`, `(d,c,b)` inverts the pair on every edge whose
+  first-indexed face runs `a -> b` and so never flips those edges; Beatnik
+  therefore accepts flips the reference does not (deliberate,
+  `tasks/milestone1.md`). Every configuration that would reach
   collapse, a flip, smoothing or the cleanup in a run is rejected before the
   first step by name and task ID. Resolves progressively as T4 lands its remaining regression
   tests. See

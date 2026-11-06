@@ -144,8 +144,9 @@ pass for the wrong reason.
 > `--remesh-flip-min-gain < 1e12` and `--flip-passes > 0` at setup until T4d6.
 > Guarded tangential smoothing is implemented (T4d4, covered by the same
 > member) but the `Solver` rejects `--remesh-smooth-iters > 0` at setup until
-> T4d6; the isotropic cleanup is T4d and not yet implemented, and any configuration
-> reaching it is rejected before the first step. See `tasks/framework.md`.
+> T4d6. The isotropic cleanup (valence-equalizing flips plus tangential
+> relaxation) is implemented (T4d5, covered by the same member) but the `Solver`
+> rejects `--isotropic-cleanup` at setup until T4d6. See `tasks/framework.md`.
 
 ## CI
 

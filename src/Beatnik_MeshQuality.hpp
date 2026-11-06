@@ -53,6 +53,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <map>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -84,6 +86,22 @@ struct FlipSweepStats
     long long rejected_duplicate_edge = 0;
     long long rejected_geometric = 0;
     long long rejected_conflict = 0;
+};
+
+/**
+ * @brief What one valence-equalizing pass did: Tessera's counters summed over
+ *        the pass's rounds, and every round's accepted flips.
+ *
+ * `rounds[r]` is round `r`'s accepted flips, gathered from every rank and
+ * deduplicated by old edge, so it is the same on every rank and its size is
+ * that round's global `accepted`. It is what lets a caller check the pass's
+ * touched-set rule from outside: no accepted flip has an endpoint among the
+ * corners of a flip accepted in an earlier round of the same pass.
+ */
+struct ValenceFlipPass
+{
+    FlipSweepStats stats;
+    std::vector<std::vector<FlippedEdge>> rounds;
 };
 
 /**
@@ -223,12 +241,13 @@ inline GidPair gidPair( std::uint64_t u, std::uint64_t v )
 }
 
 /**
- * @brief Gather every rank's `MeshEditReport::flipped`, deduplicate by the old
- *        edge, and return the new diagonals.
+ * @brief Gather every rank's `MeshEditReport::flipped` and deduplicate it by
+ *        the old edge: the whole round's accepted flips, on every rank.
  *
  * `flipped` lists only the flips the calling rank touches, so one flip appears
  * on every rank that owns its edge or either face and nowhere else. After the
- * gather every rank holds the same set, which is the whole round.
+ * gather every rank holds the same set, in the same order, which is the whole
+ * round.
  *
  * @throws std::runtime_error when the deduplicated count differs from the
  *         global `accepted`. Both are the same on every rank, so every rank
@@ -236,8 +255,8 @@ inline GidPair gidPair( std::uint64_t u, std::uint64_t v )
  *
  * @note MPI. Collective: one `MPI_Allgather` and one `MPI_Allgatherv`.
  */
-inline std::vector<GidPair> gatherNewDiagonals( MPI_Comm comm,
-                                                const MeshEditReport& report )
+inline std::vector<FlippedEdge> gatherFlips( MPI_Comm comm,
+                                             const MeshEditReport& report )
 {
     std::vector<std::uint64_t> mine;
     mine.reserve( 4 * report.flipped.size() );
@@ -261,22 +280,83 @@ inline std::vector<GidPair> gatherNewDiagonals( MPI_Comm comm,
                     displs.data(), MPI_UINT64_T, comm );
 
     std::set<GidPair> old_seen;
-    std::vector<GidPair> diagonals;
+    std::vector<FlippedEdge> flips;
     for ( std::size_t k = 0; k + 3 < all.size(); k += 4 )
     {
         if ( !old_seen.insert( gidPair( all[k], all[k + 1] ) ).second )
             continue;
-        diagonals.push_back( gidPair( all[k + 2], all[k + 3] ) );
+        FlippedEdge f;
+        f.old_v[0] = all[k];
+        f.old_v[1] = all[k + 1];
+        f.new_v[0] = all[k + 2];
+        f.new_v[1] = all[k + 3];
+        flips.push_back( f );
     }
-    if ( static_cast<long long>( diagonals.size() ) != report.accepted )
+    if ( static_cast<long long>( flips.size() ) != report.accepted )
         throw std::runtime_error(
-            "Beatnik quality flips: the gathered flip map names " +
-            std::to_string( diagonals.size() ) +
+            "Beatnik flips: the gathered flip map names " +
+            std::to_string( flips.size() ) +
             " distinct flips but flipEdges accepted " +
             std::to_string( report.accepted ) +
             "; every accepted flip is touched by at least its edge's owner "
             "(Tessera_EdgeFlip.hpp, FlipResult::flipped)." );
+    return flips;
+}
+
+/**
+ * @brief The new diagonals of a round's accepted flips, gathered from every
+ *        rank — `gatherFlips` reduced to what the quality sweep's touched set
+ *        holds.
+ *
+ * @note MPI. Collective, as `gatherFlips`.
+ */
+inline std::vector<GidPair> gatherNewDiagonals( MPI_Comm comm,
+                                                const MeshEditReport& report )
+{
+    std::vector<GidPair> diagonals;
+    for ( const FlippedEdge& f : gatherFlips( comm, report ) )
+        diagonals.push_back( gidPair( f.new_v[0], f.new_v[1] ) );
     return diagonals;
+}
+
+/**
+ * @brief Every local vertex position, owned then ghost, in a host view whose
+ *        rows are contiguous 3-vectors.
+ *
+ * LayoutRight, so `&pos( i, 0 )` is a `const double*` to a 3-vector whatever
+ * the device's default layout — the form `triangleQuality` and `unitNormal`
+ * take.
+ */
+template <class Mesh>
+Kokkos::View<double* [3], Kokkos::LayoutRight, Kokkos::HostSpace>
+hostPositions( Mesh& mesh )
+{
+    using exec_space = typename Mesh::execution_space;
+    using mem_space = typename Mesh::memory_space;
+    const int nv = mesh.totalVertexCount();
+    Kokkos::View<double* [3], Kokkos::LayoutRight, mem_space> pos_d(
+        "beatnik_flip_positions", nv );
+    auto pos = mesh.positions();
+    Kokkos::parallel_for(
+        "beatnik_flip_copy_positions",
+        Kokkos::RangePolicy<exec_space>( 0, nv ), KOKKOS_LAMBDA( const int i ) {
+            for ( int d = 0; d < 3; ++d )
+                pos_d( i, d ) = pos( i, d );
+        } );
+    Kokkos::fence();
+    return Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), pos_d );
+}
+
+/// The corner of face `f` that is neither `a` nor `b`, or -1. Port of
+/// dynamic_remesh.py::opposite_vertex (lines 1138-1144).
+template <class FaceVertices>
+int oppositeCorner( const FaceVertices& fv, const int f, const int a,
+                    const int b )
+{
+    for ( int k = 0; k < 3; ++k )
+        if ( fv( f, k ) != a && fv( f, k ) != b )
+            return fv( f, k );
+    return -1;
 }
 
 } // namespace QualityFlips
@@ -358,7 +438,6 @@ FlipSweepStats qualityFlipSweep( SurfaceMesh<ExecutionSpace, MemorySpace>& mesh,
         const long long non_resident = mesh.faceAdjacency().non_resident;
 
         const int n_owned_e = mesh.ownedEdgeCount();
-        const int nv = mesh.totalVertexCount();
         const auto incidence = mesh.edgeAdjacency();
         auto rc = Kokkos::create_mirror_view_and_copy(
             Kokkos::HostSpace(), incidence.resident_count );
@@ -368,23 +447,7 @@ FlipSweepStats qualityFlipSweep( SurfaceMesh<ExecutionSpace, MemorySpace>& mesh,
                                                        mesh.edgeVertices() );
         auto fv = Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(),
                                                        mesh.faceVertices() );
-        // LayoutRight, so `&pos( i, 0 )` on the host mirror is a contiguous
-        // 3-vector whatever the device's default layout.
-        Kokkos::View<double* [3], Kokkos::LayoutRight, MemorySpace> pos_d(
-            "beatnik_flip_positions", nv );
-        {
-            auto pos = mesh.positions();
-            Kokkos::parallel_for(
-                "beatnik_flip_copy_positions",
-                Kokkos::RangePolicy<ExecutionSpace>( 0, nv ),
-                KOKKOS_LAMBDA( const int i ) {
-                    for ( int d = 0; d < 3; ++d )
-                        pos_d( i, d ) = pos( i, d );
-                } );
-            Kokkos::fence();
-        }
-        auto pos =
-            Kokkos::create_mirror_view_and_copy( Kokkos::HostSpace(), pos_d );
+        const auto pos = QualityFlips::hostPositions( mesh );
         const std::vector<std::uint64_t> gid = mesh.vertexGids();
 
         auto touched = [&]( const int f )
@@ -399,13 +462,6 @@ FlipSweepStats qualityFlipSweep( SurfaceMesh<ExecutionSpace, MemorySpace>& mesh,
                     return true;
             }
             return false;
-        };
-        auto opposite = [&]( const int f, const int a, const int b )
-        {
-            for ( int k = 0; k < 3; ++k )
-                if ( fv( f, k ) != a && fv( f, k ) != b )
-                    return fv( f, k );
-            return -1;
         };
 
         std::vector<char> mask( static_cast<std::size_t>( n_owned_e ), 0 );
@@ -426,8 +482,8 @@ FlipSweepStats qualityFlipSweep( SurfaceMesh<ExecutionSpace, MemorySpace>& mesh,
             }
             if ( touched( f0 ) || touched( f1 ) )
                 continue;
-            const int c = opposite( f0, a, b );
-            const int d = opposite( f1, a, b );
+            const int c = QualityFlips::oppositeCorner( fv, f0, a, b );
+            const int d = QualityFlips::oppositeCorner( fv, f1, a, b );
             if ( c < 0 || d < 0 || c == d )
                 continue;
 
@@ -476,6 +532,13 @@ FlipSweepStats qualityFlipSweep( SurfaceMesh<ExecutionSpace, MemorySpace>& mesh,
     return stats;
 }
 
+/// The valence flip's normal test: each new face's unit normal against the
+/// old face it replaces (`mesh_quality.py:78`).
+constexpr double kMinValenceFlipNormalDot = 0.2;
+/// The valence flip's quality floor on the worse new face
+/// (`mesh_quality.py:80`).
+constexpr double kMinValenceFlipQuality = 0.05;
+
 //---------------------------------------------------------------------------//
 /**
  * @brief Connectivity and parameterization regularization.
@@ -500,44 +563,296 @@ class MeshQuality
      *
      * Port of mesh_quality.py::_valence_equalizing_flips (lines 44-87)
      *
-     * For the shared edge \f$(a,b)\f$ of two triangles with opposite vertices
-     * \f$c\f$ and \f$d\f$, flipping to \f$(c,d)\f$ moves one unit of valence
-     * from \f$a,b\f$ to \f$c,d\f$. Accept the flip iff it strictly reduces the
-     * total deviation from valence 6:
+     * For the shared edge \f$(a,b)\f$ of two triangles \f$f_0\f$ (opposite
+     * vertex \f$c\f$) and \f$f_1\f$ (opposite \f$d\f$), flipping to
+     * \f$(c,d)\f$ moves one unit of valence from \f$a,b\f$ to \f$c,d\f$. The
+     * edge is marked iff the flip strictly reduces the total deviation from
+     * valence 6:
      * \f[
-     *   \sum |{\rm val}-6| \;\to\;
-     *     |v_a-7|+|v_b-7|+|v_c-5|+|v_d-5| \;<\;
-     *     |v_a-6|+|v_b-6|+|v_c-6|+|v_d-6| .
+     *   |v_a-7|+|v_b-7|+|v_c-5|+|v_d-5| \;<\;
+     *   |v_a-6|+|v_b-6|+|v_c-6|+|v_d-6| ,
      * \f]
-     * (The pre-flip valences \f$v\f$ are used on both sides; the post-flip
-     * valences are \f$v_a-1, v_b-1, v_c+1, v_d+1\f$, which is where the 7s and
-     * 5s come from.)
+     * with \f$v\f$ the valences at the start of the pass; and iff each new
+     * face's unit normal has a dot product of at least 0.2 with the
+     * pass-start unit normal of the old face it replaces (a generous margin,
+     * not merely a sign test, because a near-inversion is nearly as bad); and
+     * iff the worse new face has reference quality at least 0.05
+     * (`QualityFlips::triangleQuality`). An edge whose two opposite corners
+     * coincide is skipped, as in the reference.
      *
-     * Rejected if the flip would:
-     *   - invert a face normal (\f$\hat n_{\text{new}}\cdot\hat n_{\text{old}} <
-     *     0.2\f$ — a generous margin, not merely a sign test, because a
-     *     near-inversion is nearly as bad);
-     *   - create an already-existing edge, i.e. make the mesh non-manifold;
-     *   - produce a triangle with quality below 0.05.
+     * **The new faces are wound as Tessera writes them**, consistently with
+     * the mesh: the child holding \f$a\f$ replaces \f$f_0\f$ and the child
+     * holding \f$b\f$ replaces \f$f_1\f$. The reference writes them as
+     * \f$(c,d,a)\f$ and \f$(d,c,b)\f$ whatever \f$f_0\f$'s winding, so on
+     * every edge whose first-indexed face runs \f$a\to b\f$ its normal test
+     * compares an inverted child and rejects; on the default icosphere that
+     * is 206 of 480 edges. The rank-local face order here has no such index,
+     * so the test is the one the reference intends, which accepts flips the
+     * reference does not (`tasks/milestone1.md`, Deliberate deviations).
      *
-     * A `touched` set keeps the flips within one pass independent, so the
-     * valences the pass is deciding against stay consistent. That also makes
-     * the pass order-dependent — a parallel implementation will not reproduce
-     * the serial flip set, though it should reach a comparable valence
-     * histogram. Recorded as risk R7 in `tasks/framework.md`.
+     * Valence is the face-incidence count, which on a closed manifold is the
+     * one-ring size `vertexOneRing()` holds for every owned vertex. Whether the
+     * new diagonal already exists is **not** tested: Tessera rejects that
+     * flip into `rejected_duplicate_edge` (`tasks/milestone1.md`, Read this
+     * first #6).
      *
-     * Not yet implemented (task T4d5); it edits connectivity through
-     * `SurfaceMesh::flipEdges`.
+     * **One reference pass is several `flipEdges` rounds** under
+     * `FlipConflict::EndpointInQuad`, sharing a pass-wide set of touched
+     * vertex gids:
      *
-     * @param mesh   Surface, connectivity edited in place.
-     * @param passes Sweeps; exits early when a sweep flips nothing.
-     * @return Total flips applied.
+     *   1. mark every owned edge that passes the tests above and has neither
+     *      endpoint touched;
+     *   2. if no rank marked anything, end the pass **without** calling
+     *      `flipEdges`;
+     *   3. otherwise `flipEdges` with the permissive policy
+     *      `{maxNormalDeviation = π, minQuality = 0,
+     *      conflict = EndpointInQuad}` — no accepted flip has an endpoint
+     *      among another's four corners, the reference's `touched` rule;
+     *   4. gather the round's flips and add all four corners of each to the
+     *      touched set; end the pass if the round accepted nothing.
+     *
+     * Re-running rounds with a fresh mask instead would re-test edges at
+     * touched vertices and flip more than the reference.
+     *
+     * **The pass-start valences** are reconstructed each round, exactly: the
+     * current valence (owned rows from the one-ring, ghost rows by
+     * `haloExchangeVertexView`) plus, per gid, the number of this pass's
+     * flips that removed an edge at the vertex, minus the number that added
+     * one, counted from the gathered flips, which are the same on every
+     * rank. A vertex that enters a rank's halo mid-pass is covered by the same
+     * rule. **The pass-start face normals need no storing**: a face rewritten
+     * in the pass has all three corners touched, so no later candidate edge
+     * lies on it, and every face the mask reads still has the positions and
+     * connectivity it had at the start of the pass.
+     *
+     * The accepted set is Tessera's and is not the reference's serial set
+     * (framework risk R7): compare valence statistics, never flip sets.
+     *
+     * Volume is not controlled: a flip on a curved surface changes the
+     * enclosed volume by its quad's tetrahedron, as in the reference, whose
+     * call sites restore it with `project_state_to_volume`.
+     *
+     * @param mesh   Surface, connectivity edited in place. Halo-exchanged on
+     *               entry, because the mask reads ghost corners.
+     * @param passes Sweeps; a non-positive count returns 0 before anything
+     *               collective. Exits early after a pass that flips nothing,
+     *               as `mesh_quality.py:85-86` does.
+     * @param[out] record When non-null, one `ValenceFlipPass` is appended per
+     *             pass run, with its counters and each round's gathered flips.
+     * @return Total flips accepted, globally.
+     *
+     * @throws std::runtime_error if an owned edge's quad is not fully
+     *         resident, as `qualityFlipSweep` does; every rank throws or none.
+     *
+     * @note MPI. Collective whenever `passes > 0`. Every branch is on a global
+     *       count, a parameter or the gathered flips, so every rank reaches the
+     *       same `faceAdjacency()`, halo exchanges, reductions and `flipEdges`
+     *       calls.
      */
-    int valenceEqualizingFlips( mesh_type& mesh, int passes ) const
+    int valenceEqualizingFlips(
+        mesh_type& mesh, int passes,
+        std::vector<ValenceFlipPass>* record = nullptr ) const
     {
-        (void)mesh;
-        (void)passes;
-        BEATNIK_NOT_IMPLEMENTED( "MeshQuality", "valenceEqualizingFlips" );
+        const int n_passes = ( passes > 0 ) ? passes : 0;
+        if ( n_passes == 0 )
+            return 0;
+
+        const MPI_Comm comm = mesh.comm();
+        mesh.haloExchange();
+
+        typename mesh_type::flip_policy_type policy;
+        policy.maxNormalDeviation = std::acos( -1.0 );
+        policy.minQuality = 0.0;
+        policy.conflict = mesh_type::flip_conflict_type::EndpointInQuad;
+
+        long long total = 0;
+        for ( int pass = 0; pass < n_passes; ++pass )
+        {
+            ValenceFlipPass this_pass;
+            std::set<std::uint64_t> touched;
+            // Pass-start valence minus current valence, by vertex gid.
+            std::map<std::uint64_t, int> shift;
+
+            while ( true )
+            {
+                // Collective, so called unconditionally on every rank; see
+                // qualityFlipSweep.
+                const long long non_resident =
+                    mesh.faceAdjacency().non_resident;
+
+                const int n_owned_e = mesh.ownedEdgeCount();
+                const int n_owned_v = mesh.ownedVertexCount();
+                const int nv = mesh.totalVertexCount();
+                const auto incidence = mesh.edgeAdjacency();
+                auto rc = Kokkos::create_mirror_view_and_copy(
+                    Kokkos::HostSpace(), incidence.resident_count );
+                auto rf = Kokkos::create_mirror_view_and_copy(
+                    Kokkos::HostSpace(), incidence.resident_faces );
+                auto ev = Kokkos::create_mirror_view_and_copy(
+                    Kokkos::HostSpace(), mesh.edgeVertices() );
+                auto fv = Kokkos::create_mirror_view_and_copy(
+                    Kokkos::HostSpace(), mesh.faceVertices() );
+                const auto pos = QualityFlips::hostPositions( mesh );
+                const std::vector<std::uint64_t> gid = mesh.vertexGids();
+
+                // Current valence: owned rows from the one-ring, ghost rows
+                // from their owners.
+                Kokkos::View<Real*, MemorySpace> val_d( "beatnik_valence",
+                                                        nv );
+                {
+                    auto off = Kokkos::create_mirror_view_and_copy(
+                        Kokkos::HostSpace(), mesh.vertexOneRing().offsets );
+                    auto val_h = Kokkos::create_mirror_view( val_d );
+                    for ( int v = 0; v < nv; ++v )
+                        val_h( v ) = ( v < n_owned_v )
+                                         ? Real( off( v + 1 ) - off( v ) )
+                                         : Real( 0 );
+                    Kokkos::deep_copy( val_d, val_h );
+                }
+                mesh.haloExchangeVertexView( val_d );
+                auto val_h = Kokkos::create_mirror_view_and_copy(
+                    Kokkos::HostSpace(), val_d );
+                auto valence = [&]( const int v )
+                {
+                    const auto it = shift.find( gid[v] );
+                    return static_cast<int>( val_h( v ) ) +
+                           ( ( it == shift.end() ) ? 0 : it->second );
+                };
+
+                std::vector<char> mask( static_cast<std::size_t>( n_owned_e ),
+                                        0 );
+                long long counts[3] = { non_resident, 0, 0 }; // non-resident,
+                                                              // unresolved,
+                                                              // marked
+                for ( int e = 0; e < n_owned_e; ++e )
+                {
+                    const int a = ev( e, 0 );
+                    const int b = ev( e, 1 );
+                    const int f0 = rf( e, 0 );
+                    const int f1 = rf( e, 1 );
+                    if ( rc( e ) != 2 || a < 0 || b < 0 || f0 < 0 || f1 < 0 ||
+                         fv( f0, 0 ) < 0 || fv( f0, 1 ) < 0 ||
+                         fv( f0, 2 ) < 0 || fv( f1, 0 ) < 0 ||
+                         fv( f1, 1 ) < 0 || fv( f1, 2 ) < 0 )
+                    {
+                        ++counts[1];
+                        continue;
+                    }
+                    if ( touched.count( gid[a] ) || touched.count( gid[b] ) )
+                        continue;
+                    const int c = QualityFlips::oppositeCorner( fv, f0, a, b );
+                    const int d = QualityFlips::oppositeCorner( fv, f1, a, b );
+                    if ( c < 0 || d < 0 || c == d )
+                        continue;
+
+                    const int va = valence( a );
+                    const int vb = valence( b );
+                    const int vc = valence( c );
+                    const int vd = valence( d );
+                    const int dev0 = std::abs( va - 6 ) + std::abs( vb - 6 ) +
+                                     std::abs( vc - 6 ) + std::abs( vd - 6 );
+                    const int dev1 = std::abs( va - 7 ) + std::abs( vb - 7 ) +
+                                     std::abs( vc - 5 ) + std::abs( vd - 5 );
+                    if ( dev1 >= dev0 )
+                        continue;
+
+                    // The children as Tessera winds them: if f0 runs a -> b
+                    // the quad's boundary is a, d, b, c and the children are
+                    // (c, a, d) and (d, b, c); otherwise (c, d, a) and
+                    // (d, c, b), the reference's literal pair.
+                    int k = 0;
+                    while ( fv( f0, k ) != a )
+                        ++k;
+                    const bool forward = ( fv( f0, ( k + 1 ) % 3 ) == b );
+                    const int t0[3] = { c, forward ? a : d, forward ? d : a };
+                    const int t1[3] = { d, forward ? b : c, forward ? c : b };
+
+                    double n_old0[3], n_old1[3], n_new0[3], n_new1[3];
+                    QualityFlips::unitNormal( &pos( fv( f0, 0 ), 0 ),
+                                              &pos( fv( f0, 1 ), 0 ),
+                                              &pos( fv( f0, 2 ), 0 ), n_old0 );
+                    QualityFlips::unitNormal( &pos( fv( f1, 0 ), 0 ),
+                                              &pos( fv( f1, 1 ), 0 ),
+                                              &pos( fv( f1, 2 ), 0 ), n_old1 );
+                    QualityFlips::unitNormal( &pos( t0[0], 0 ),
+                                              &pos( t0[1], 0 ),
+                                              &pos( t0[2], 0 ), n_new0 );
+                    QualityFlips::unitNormal( &pos( t1[0], 0 ),
+                                              &pos( t1[1], 0 ),
+                                              &pos( t1[2], 0 ), n_new1 );
+                    const double dot0 = n_new0[0] * n_old0[0] +
+                                        n_new0[1] * n_old0[1] +
+                                        n_new0[2] * n_old0[2];
+                    const double dot1 = n_new1[0] * n_old1[0] +
+                                        n_new1[1] * n_old1[1] +
+                                        n_new1[2] * n_old1[2];
+                    if ( dot0 < kMinValenceFlipNormalDot ||
+                         dot1 < kMinValenceFlipNormalDot )
+                        continue;
+
+                    const double q0 = QualityFlips::triangleQuality(
+                        &pos( t0[0], 0 ), &pos( t0[1], 0 ), &pos( t0[2], 0 ) );
+                    const double q1 = QualityFlips::triangleQuality(
+                        &pos( t1[0], 0 ), &pos( t1[1], 0 ), &pos( t1[2], 0 ) );
+                    if ( q0 < kMinValenceFlipQuality ||
+                         q1 < kMinValenceFlipQuality )
+                        continue;
+
+                    mask[static_cast<std::size_t>( e )] = 1;
+                    ++counts[2];
+                }
+
+                long long global[3] = { 0, 0, 0 };
+                MPI_Allreduce( counts, global, 3, MPI_LONG_LONG, MPI_SUM,
+                               comm );
+                if ( global[0] != 0 || global[1] != 0 )
+                    throw std::runtime_error(
+                        "Beatnik valence flips: " +
+                        std::to_string( global[0] ) +
+                        " owned face-adjacency entries are not resident and " +
+                        std::to_string( global[1] ) +
+                        " owned edges have no fully resident quad; the flip "
+                        "test reads both incident faces' corners and cannot "
+                        "be evaluated (SurfaceMesh::FaceAdjacencyCsr::"
+                        "non_resident)." );
+                if ( global[2] == 0 )
+                    break;
+
+                const MeshEditReport report = mesh.flipEdges( mask, policy );
+                FlipSweepStats& st = this_pass.stats;
+                ++st.rounds;
+                st.requested += report.requested;
+                st.accepted += report.accepted;
+                st.rejected_boundary += report.rejected_boundary;
+                st.rejected_duplicate_edge += report.rejected_duplicate_edge;
+                st.rejected_geometric += report.rejected_geometric;
+                st.rejected_conflict += report.rejected_conflict;
+
+                std::vector<FlippedEdge> flips =
+                    QualityFlips::gatherFlips( comm, report );
+                for ( const FlippedEdge& f : flips )
+                {
+                    for ( int j = 0; j < 2; ++j )
+                    {
+                        touched.insert( f.old_v[j] );
+                        touched.insert( f.new_v[j] );
+                        ++shift[f.old_v[j]];
+                        --shift[f.new_v[j]];
+                    }
+                }
+                this_pass.rounds.push_back( std::move( flips ) );
+                if ( report.accepted == 0 )
+                    break;
+            }
+
+            total += this_pass.stats.accepted;
+            const bool flipped = ( this_pass.stats.accepted > 0 );
+            if ( record != nullptr )
+                record->push_back( std::move( this_pass ) );
+            if ( !flipped )
+                break;
+        }
+        return static_cast<int>( total );
     }
 
     /**
@@ -563,11 +878,8 @@ class MeshQuality
      * entry points delegate to `relaxTangential` below, because the
      * reference's two functions (`mesh_quality.py::_tangential_relaxation` and
      * `mesh_solver.py::improve_mesh_quality_tangential`) are the same operator
-     * written twice, one over raw arrays and one over a state. This entry point
-     * has **no caller on any solver path** — its consumer is
-     * `isotropicCleanup`, which is not yet implemented. The only thing that
-     * exercises it is the one-kernel equivalence check in
-     * `tests/unit_tests/Beatnik_Test_TangentialRelaxation.cpp`.
+     * written twice, one over raw arrays and one over a state. Its consumer is
+     * `isotropicCleanup`, the second half of which it is.
      *
      * @param mesh   Surface; **owned** vertex positions moved in place.
      * @param passes Sweeps; a non-positive count is a no-op, as is `weight` 0.
@@ -588,26 +900,46 @@ class MeshQuality
      *
      * Port of mesh_quality.py::isotropic_cleanup (lines 146-167)
      *
-     * `--isotropic-cleanup-flips` (3) flip passes, then
-     * `--isotropic-cleanup-relax` (2) relaxation passes at
+     * `--isotropic-cleanup-flips` (3) passes of `valenceEqualizingFlips`, then
+     * `--isotropic-cleanup-relax` (2) passes of `tangentialRelaxation` at
      * `--isotropic-cleanup-weight` (0.4).
+     *
+     * **`--no-isotropic-cleanup` is checked here**, before anything collective:
+     * with `CleanupParams::enabled` false the call returns at once and the mesh
+     * is untouched. The reference has the switch at its two call sites
+     * (`run_adaptive_mesh_bubble.py:1452`, `:1491`); `Solver::advanceOneStep`
+     * gates both of its calls on the same flag, which is the struct this class
+     * holds, so the check here only makes the switch testable on its own.
      *
      * Vertex count unchanged and shape preserved, so the caller keeps its
      * per-vertex fields as they are. It **does** change face areas and
-     * curvature, so the AMR reference state must be re-based afterwards — see
-     * `AdaptiveMesh::resetReferenceState`.
+     * curvature, and **it does not re-base the AMR reference state**: the
+     * reference's callers build a fresh `MeshPotentialZModelState` on the
+     * returned arrays, which re-seeds the reference area and curvature and
+     * re-centres the potential (`mesh_solver.py:138-163`). That rebuild is a
+     * property of the call site, so `Solver::advanceOneStep` does it after
+     * this call (`AdaptiveMesh::resetReferenceState`, then
+     * `SurfaceState::centerPotential`); this class does not depend on the AMR
+     * header.
      *
-     * The driver follows it with the volume projection whenever anything
-     * changed (`run_adaptive_mesh_bubble.py:1465-1468, 1514-1516`), because the
-     * tangential relaxation is only volume-preserving to first order.
+     * The driver follows it with the volume projection
+     * (`run_adaptive_mesh_bubble.py:1465-1468, 1513-1516`): the flips change
+     * the volume by their quads' tetrahedra and the tangential relaxation
+     * preserves it only to first order.
      *
-     * Not yet implemented (task T4d5). `--isotropic-cleanup` is rejected in
-     * `Solver::requireSupportedConfiguration`, naming this method.
+     * @pre None beyond a closed surface: `valenceEqualizingFlips` exchanges
+     *      the halo on entry, and the relaxation exchanges between passes and
+     *      once at the end, so the mesh is halo-consistent on return.
+     *
+     * @note MPI. Collective when enabled; the pass counts and the early stop
+     *       are parameters or global counts.
      */
     void isotropicCleanup( mesh_type& mesh ) const
     {
-        (void)mesh;
-        BEATNIK_NOT_IMPLEMENTED( "MeshQuality", "isotropicCleanup" );
+        if ( !_params.enabled )
+            return;
+        valenceEqualizingFlips( mesh, _params.flip_passes );
+        relaxTangential( mesh, _params.relax_passes, _params.relax_weight );
     }
 
     /**

@@ -107,7 +107,7 @@
  * | collapse (rejected by the `Solver` until T4d6) | `--remesh-collapse-factor 0` | `dynamic_remesh.py:373`'s candidate predicate `length < 0 * target` is never true, so the pass returns before any mutation; `collapseShortEdges` returns 0 before building a mask |
  * | smoothing (rejected by the `Solver` until T4d6) | `--remesh-smooth-iters 0` | `:463-465` returns immediately; so does `tangentialSmooth`, before any halo exchange |
  * | flips (rejected by the `Solver` until T4d6) | `--remesh-flip-min-gain >= 1e12` | `:449-450` `continue`s every candidate of a mesh with no zero-quality face; `flipEdgesForQuality` builds an empty mask and returns before calling `flipEdges`; see `kFlipsDisabledMinGain` |
- * | cleanup | `--no-isotropic-cleanup` | `run_adaptive_mesh_bubble.py:1493` skips the whole block |
+ * | cleanup (rejected by the `Solver` until T4d6) | `--no-isotropic-cleanup` | `run_adaptive_mesh_bubble.py:1491` skips the whole block; the `Solver` skips `MeshQuality::isotropicCleanup` and the state rebuild after it, and the call itself returns before anything collective |
  *
  * `Solver::requireSupportedConfiguration` rejects anything else by name and by
  * task ID before the first step. **`--remesh-max-collapses 0` is NOT one of the

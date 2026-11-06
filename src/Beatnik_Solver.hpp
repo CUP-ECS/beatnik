@@ -488,17 +488,31 @@ class Solver
                 // (0.12); the pass makes its own no-op decision when either is
                 // zero, exactly as the reference's early return does.
                 //
-                // NOTHING RE-BASES THE AMR REFERENCE STATE AFTER IT. The
-                // reference passes `reset_reference=False` here (`:1449`). An
-                // `AdaptiveMesh::resetReferenceState` call here would change
-                // every subsequent refinement decision, so there is none. With
-                // `smooth_iters > 0` the flip pass above does not re-base
-                // either, so the reference state stays the refinement's.
-                //
-                // 3. isotropicCleanup is task T4d5 and rejected at setup.
+                // The tangential pass does not re-base the AMR reference state
+                // itself: the reference passes `reset_reference=False` here
+                // (`:1449`). With `smooth_iters > 0` the flip pass above does
+                // not re-base either. Under `--no-isotropic-cleanup` the
+                // reference state therefore stays the refinement's; under
+                // `--isotropic-cleanup` the state rebuild after the cleanup
+                // (step 3) re-bases it.
                 _quality->improveQualityTangential(
                     _mesh, _params.filter.smooth_iters,
                     _params.filter.smooth_relaxation );
+
+                // 3. MeshQuality::isotropicCleanup (lines 1452-1464), under
+                // `--isotropic-cleanup`. The reference replaces the state with
+                // a fresh `MeshPotentialZModelState` on the cleaned arrays
+                // (`:1462-1464`), whose `__post_init__`
+                // (`mesh_solver.py:138-163`) re-seeds the reference area and
+                // curvature and re-centres the potential; `rebuildState` is
+                // that rebuild. The flag is a parameter, so every rank enters
+                // the collectives together. `--isotropic-cleanup` is rejected
+                // at setup until task T4d6.
+                if ( _params.cleanup.enabled )
+                {
+                    _quality->isotropicCleanup( _mesh );
+                    rebuildState();
+                }
 
                 // `project_state_to_volume` is gated on a repair having
                 // ACTUALLY RUN (lines 1465-1468), not on the refinement having
@@ -536,26 +550,26 @@ class Solver
                 _remesh_events += _last_remesh.splits + _last_remesh.collapses +
                                   _last_remesh.flips;
 
-                // `mesh_quality.isotropic_cleanup` runs here (`:1493-1504`).
-                // It is T4d and unimplemented, and `--isotropic-cleanup` is
-                // rejected at setup rather than skipped.
-
                 // The reference rebuilds the state from the remeshed arrays,
                 // which (a) re-bases the reference area and curvature —
                 // `dynamic_remesh_state_with_material` passes both as `None`
                 // (`:1099-1101`) and `TriangleSurfaceState.__post_init__`
                 // re-seeds them from the current geometry — and (b) re-centres
                 // the potential against the NEW area weights
-                // (`mesh_solver.py:155-162`). Both are done here, in that
-                // order, because both are properties of state construction
-                // rather than of the remesher.
-                _amr->resetReferenceState( _mesh );
+                // (`mesh_solver.py:155-162`). Both are properties of state
+                // construction rather than of the remesher.
+                rebuildState();
+
+                // `mesh_quality.isotropic_cleanup` (`:1491-1504`), gated on
+                // the remesh having RUN (`remesh_diag is not None`), as the
+                // projection below is. The reference then builds a fresh
+                // `MeshPotentialZModelState` on the cleaned arrays
+                // (`:1502-1504`), so the state is rebuilt a second time.
+                // `--isotropic-cleanup` is rejected at setup until task T4d6.
+                if ( _params.cleanup.enabled )
                 {
-                    MeshGeometry<ExecutionSpace, MemorySpace> geometry;
-                    geometry.compute( _mesh.positions(),
-                                      _mesh.totalVertexCount(),
-                                      _mesh.faceVertices() );
-                    _state.centerPotential( _mesh, geometry );
+                    _quality->isotropicCleanup( _mesh );
+                    rebuildState();
                 }
             }
 
@@ -875,6 +889,31 @@ class Solver
                 "Beatnik::Solver::solve: --field-filter-every > 0 needs "
                 "Solver::filterCirculationField, which is task T5c and still "
                 "throws. Pass --field-filter-every 0." );
+    }
+
+    /**
+     * @brief What constructing a `MeshPotentialZModelState` on the current
+     *        arrays does: re-seed the AMR reference area and curvature, then
+     *        re-centre the potential against the current area weights.
+     *
+     * Port of mesh_solver.py::MeshPotentialZModelState.__post_init__
+     * (lines 138-163)
+     *
+     * The reference builds a fresh state after a remesh and after an
+     * isotropic cleanup, with the reference fields passed as `None`, so
+     * `TriangleSurfaceState.__post_init__` re-seeds them from the current
+     * geometry; it then subtracts the area-weighted mean of the potential.
+     * Both are done here, in that order.
+     *
+     * @note MPI. Collective: both calls reduce over the mesh.
+     */
+    void rebuildState()
+    {
+        _amr->resetReferenceState( _mesh );
+        MeshGeometry<ExecutionSpace, MemorySpace> geometry;
+        geometry.compute( _mesh.positions(), _mesh.totalVertexCount(),
+                          _mesh.faceVertices() );
+        _state.centerPotential( _mesh, geometry );
     }
 
     /// Rank 0 prints the reference's stop line verbatim

@@ -14,10 +14,12 @@
  *        Tessera — `collapseEdges`, `flipEdges` and `compact` — and of the
  *        passes built on them: `DynamicRemesh::collapseShortEdges`,
  *        `DynamicRemesh::flipEdgesForQuality`,
- *        `MeshQuality::improveConnectivityByFlips` and
- *        `DynamicRemesh::tangentialSmooth`.
+ *        `MeshQuality::improveConnectivityByFlips`,
+ *        `DynamicRemesh::tangentialSmooth`,
+ *        `MeshQuality::valenceEqualizingFlips` and
+ *        `MeshQuality::isotropicCleanup`.
  *
- * THIS IS T4d1's, T4d2's, T4d3's AND T4d4's EXIT CRITERIA, MECHANIZED
+ * THIS IS T4d1's TO T4d5's EXIT CRITERIA, MECHANIZED
  * (`tasks/milestone1.md`).
  * Its rank sweep is `scripts/tuolumne/t4d1_mesh_edits.flux`, ranks 1-6 in one
  * job; the tier registers it at one rank like every other member.
@@ -116,6 +118,32 @@
  *   - **5d, the pass loop.** On case 4's fixture the repair gate fires; at
  *     `smoothing_iterations = 0` with flips off `remesh()` changes nothing,
  *     and with both on it flips 4b's count and then smooths.
+ *
+ * Case 6, **T4d5**, the valence-equalizing flips and the isotropic cleanup,
+ * on case 3's perturbed icosphere after one round of SharedFace flips in a
+ * cap, which leaves a patch of vertices up to valence 10. Statistics are
+ * compared, never flip sets (framework risk R7):
+ *
+ *   - **6a, off.** `isotropicCleanup` under `CleanupParams::enabled = false`
+ *     (the `Solver`'s `--no-isotropic-cleanup`), and `valenceEqualizingFlips`
+ *     at zero passes, leave every local position, the face gids and the
+ *     generation bit-identical.
+ *   - **6b, the valence passes.** Three passes flip fixed counts over fixed
+ *     round counts, one pass taking more than one round. From each pass's
+ *     gathered flips: no accepted flip has an endpoint among the corners of a
+ *     flip accepted earlier in the pass or of another flip of its round. The
+ *     count of vertices with valence != 6 falls to a fixed count; V/E/F and
+ *     the Euler characteristic are unchanged. The volume change is printed,
+ *     not bounded: a flip on a curved surface changes it.
+ *   - **6c, the relaxation passes**, one per call at weight 0.4: each
+ *     displacement satisfies `max|dx.n| <= 1e-13 max|dx|` against the normals
+ *     it used. The two passes' relative volume change is at least 1e3 times
+ *     smaller than that of one un-projected pass on the same flipped mesh.
+ *   - **6d, on.** `isotropicCleanup` under `enabled = true` changes the
+ *     positions and the generation and lands where 6b and 6c's separate calls
+ *     did.
+ *   - **6e, the early stop.** On a fixture whose second pass flips nothing,
+ *     three requested passes run two.
  *
  * NAMING EDGES WITHOUT GIDS
  * -------------------------
@@ -253,6 +281,32 @@ constexpr double kIdenticalPositions = 1.0e-13;
 // The exit criterion's volume separation: the guarded pass changes the
 // volume at least this many times less than one un-projected iteration.
 constexpr double kVolumeFactor = 1.0e3;
+
+// Case 6's fixture: case 3's radially perturbed icosphere, then SharedFace
+// flips of every owned edge whose midpoint direction lies within a cap about
+// kScrambleDir, which pushes valence away from 6 inside the cap. One round in
+// a 45-degree cap gives the main fixture; two rounds in a 60-degree cap give
+// one whose second valence pass flips nothing. Chosen with a Python model of
+// the scramble round, the valence pass and Tessera's EndpointInQuad round
+// (tasks/milestone1-progress-log.md `## T4d5`), which predicted the literals
+// below; the model's pass 0 takes three rounds.
+const double kScrambleDir[3] = { 0.3, 0.5, 0.8 };
+constexpr double kScrambleCapDeg = 45.0;
+constexpr int kScrambleRounds = 1;
+constexpr long long kScrambleFlips = 14;
+constexpr long long kIrregularBefore = 35;
+constexpr int kMaxValenceBefore = 10;
+constexpr int kCleanupFlipPasses = 3;
+constexpr int kValencePasses = 3;
+const long long kValencePassFlips[kValencePasses] = { 6, 3, 1 };
+const int kValencePassRounds[kValencePasses] = { 3, 1, 1 };
+constexpr long long kIrregularAfter = 20;
+constexpr double kEarlyStopCapDeg = 60.0;
+constexpr int kEarlyStopScrambleRounds = 2;
+constexpr long long kEarlyStopFlips = 1;
+// `--isotropic-cleanup-relax` and `--isotropic-cleanup-weight` defaults.
+constexpr int kCleanupRelaxPasses = 2;
+constexpr double kCleanupWeight = 0.4;
 
 Point unit( const double* d )
 {
@@ -1699,6 +1753,337 @@ void caseTangentialSmooth( Beatnik::Test::Recorder& rec )
     }
 }
 
+//---------------------------------------------------------------------------//
+// Case 6 -- valence-equalizing flips and the isotropic cleanup (T4d5).
+//---------------------------------------------------------------------------//
+
+/// Case 3's perturbed icosphere, then `rounds` SharedFace flip calls, each
+/// marking every owned edge whose midpoint direction is within `cap_deg` of
+/// kScrambleDir. Tessera's accepted set is a function of positions and gids
+/// alone, so the fixture is the same at every rank count. Returns the total
+/// accepted.
+template <class ExecSpace, class MeshType>
+long long makeScrambledIcosphere( MeshType& mesh, double cap_deg, int rounds )
+{
+    makePerturbedIcosphere<ExecSpace>( mesh );
+    typename MeshType::flip_policy_type permissive;
+    permissive.maxNormalDeviation = std::acos( -1.0 );
+    permissive.minQuality = 0.0;
+    const Point u = unit( kScrambleDir );
+    const double cos_cap = std::cos( cap_deg * std::acos( -1.0 ) / 180.0 );
+    long long accepted = 0;
+    for ( int r = 0; r < rounds; ++r )
+    {
+        const HostMesh h = snapshot<ExecSpace>( mesh );
+        std::vector<char> mask( h.owned_edges.size(), 0 );
+        for ( std::size_t e = 0; e < h.owned_edges.size(); ++e )
+        {
+            const int a = h.owned_edges[e][0];
+            const int b = h.owned_edges[e][1];
+            if ( a >= 0 && b >= 0 &&
+                 dot( midDir( h.pos[a], h.pos[b] ), u ) >= cos_cap )
+                mask[e] = 1;
+        }
+        accepted += mesh.flipEdges( mask, permissive ).accepted;
+    }
+    mesh.haloExchange();
+    return accepted;
+}
+
+/// The global count of vertices whose valence is not 6, and the largest
+/// valence, from the owned rows of the one-ring (valence on a closed
+/// manifold).
+struct ValenceStats
+{
+    long long irregular = 0;
+    int max_valence = 0;
+};
+
+template <class ExecSpace, class MeshType>
+ValenceStats valenceStats( MeshType& mesh )
+{
+    const HostMesh h = snapshot<ExecSpace>( mesh );
+    long long irregular = 0;
+    int mx = 0;
+    for ( int i = 0; i < h.owned_vertices; ++i )
+    {
+        const int v = h.ring_offsets[i + 1] - h.ring_offsets[i];
+        irregular += ( v != 6 );
+        mx = std::max( mx, v );
+    }
+    ValenceStats s;
+    MPI_Allreduce( &irregular, &s.irregular, 1, MPI_LONG_LONG, MPI_SUM,
+                   mesh.comm() );
+    MPI_Allreduce( &mx, &s.max_valence, 1, MPI_INT, MPI_MAX, mesh.comm() );
+    return s;
+}
+
+/// The pass's touched-set rule, checked from the gathered flips: no accepted
+/// flip has an endpoint among the corners of a flip accepted earlier in its
+/// pass, nor among the corners of another flip of its own round (the
+/// EndpointInQuad relation). Returns the number of violations.
+long long touchedViolations( const Beatnik::ValenceFlipPass& pass )
+{
+    long long bad = 0;
+    std::vector<std::uint64_t> touched;
+    auto in = []( const std::vector<std::uint64_t>& s, std::uint64_t g )
+    { return std::find( s.begin(), s.end(), g ) != s.end(); };
+    for ( const auto& round : pass.rounds )
+    {
+        for ( std::size_t i = 0; i < round.size(); ++i )
+        {
+            for ( int j = 0; j < 2; ++j )
+            {
+                const std::uint64_t g = round[i].old_v[j];
+                if ( in( touched, g ) )
+                    ++bad;
+                for ( std::size_t k = 0; k < round.size(); ++k )
+                {
+                    if ( k == i )
+                        continue;
+                    const auto& o = round[k];
+                    if ( g == o.old_v[0] || g == o.old_v[1] ||
+                         g == o.new_v[0] || g == o.new_v[1] )
+                        ++bad;
+                }
+            }
+        }
+        for ( const auto& f : round )
+            for ( int j = 0; j < 2; ++j )
+            {
+                touched.push_back( f.old_v[j] );
+                touched.push_back( f.new_v[j] );
+            }
+    }
+    return bad;
+}
+
+template <class ExecSpace, class MeshType>
+void caseIsotropicCleanup( Beatnik::Test::Recorder& rec )
+{
+    using mem_space = typename MeshType::memory_space;
+    using quality_type = Beatnik::MeshQuality<ExecSpace, mem_space>;
+
+    Beatnik::CleanupParams on;
+    on.enabled = true;
+    on.flip_passes = kCleanupFlipPasses;
+    on.relax_passes = kCleanupRelaxPasses;
+    on.relax_weight = kCleanupWeight;
+    Beatnik::CleanupParams off = on;
+    off.enabled = false;
+
+    // 6a. The switch, off: `isotropicCleanup` under `enabled = false` -- the
+    //     `Solver`'s `--no-isotropic-cleanup` -- and `valenceEqualizingFlips`
+    //     at zero passes change nothing: every local position, the face gids
+    //     and the generation are bit-identical.
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        const MPI_Comm comm = mesh.comm();
+        makeScrambledIcosphere<ExecSpace>( mesh, kScrambleCapDeg,
+                                           kScrambleRounds );
+        const HostMesh before = snapshot<ExecSpace>( mesh );
+        const auto gids = sortedFaceGids( mesh );
+        const std::size_t gen = mesh.generation();
+        quality_type( off ).isotropicCleanup( mesh );
+        const int zero = quality_type( on ).valenceEqualizingFlips( mesh, 0 );
+        const bool pos =
+            globalAll( comm, snapshot<ExecSpace>( mesh ).pos == before.pos );
+        const bool fg = globalAll( comm, sortedFaceGids( mesh ) == gids );
+        const bool g = globalAll( comm, mesh.generation() == gen );
+        rec.note( std::string( "case 6a enabled=false, and passes=0: " ) +
+                  "positions " + ( pos ? "bit-identical" : "CHANGED" ) +
+                  ", face gids " + ( fg ? "unchanged" : "CHANGED" ) +
+                  ", generation " + ( g ? "unchanged" : "CHANGED" ) );
+        BEATNIK_CHECK_EQ( rec, zero, 0 );
+        BEATNIK_CHECK_TRUE( rec, pos );
+        BEATNIK_CHECK_TRUE( rec, fg );
+        BEATNIK_CHECK_TRUE( rec, g );
+    }
+
+    // 6b. The valence passes, one call, recorded per pass and round.
+    double volume_flipped = 0.0;
+    HostMesh stepped;
+    ValenceStats stepped_stats;
+    double dv_relax = 0.0;
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        const MPI_Comm comm = mesh.comm();
+        const long long scrambled = makeScrambledIcosphere<ExecSpace>(
+            mesh, kScrambleCapDeg, kScrambleRounds );
+        const ValenceStats v0 = valenceStats<ExecSpace>( mesh );
+        const double volume0 = globalVolume( mesh );
+        rec.note( "case 6b fixture: scramble flips=" +
+                  std::to_string( scrambled ) + " valence != 6: " +
+                  std::to_string( v0.irregular ) + " max valence " +
+                  std::to_string( v0.max_valence ) );
+        BEATNIK_CHECK_EQ( rec, scrambled, kScrambleFlips );
+        BEATNIK_CHECK_EQ( rec, v0.irregular, kIrregularBefore );
+        BEATNIK_CHECK_EQ( rec, v0.max_valence, kMaxValenceBefore );
+
+        std::vector<Beatnik::ValenceFlipPass> record;
+        const int flips = quality_type( on ).valenceEqualizingFlips(
+            mesh, kValencePasses, &record );
+        BEATNIK_CHECK_EQ( rec, static_cast<int>( record.size() ),
+                          kValencePasses );
+        long long sum = 0;
+        int max_rounds = 0;
+        for ( std::size_t k = 0; k < record.size(); ++k )
+        {
+            const auto& p = record[k];
+            long long gathered = 0;
+            for ( const auto& r : p.rounds )
+                gathered += static_cast<long long>( r.size() );
+            const long long bad = touchedViolations( p );
+            const std::string what =
+                "case 6b valence pass " + std::to_string( k );
+            rec.note( sweepLine( what.c_str(), p.stats.rounds,
+                                 p.stats.requested, p.stats.accepted,
+                                 p.stats.rejected_boundary,
+                                 p.stats.rejected_duplicate_edge,
+                                 p.stats.rejected_geometric,
+                                 p.stats.rejected_conflict ) +
+                      " gathered=" + std::to_string( gathered ) +
+                      " touched-rule violations=" + std::to_string( bad ) );
+            BEATNIK_CHECK_EQ( rec, bad, 0 );
+            BEATNIK_CHECK_EQ( rec, gathered, p.stats.accepted );
+            BEATNIK_CHECK_EQ( rec, static_cast<int>( p.rounds.size() ),
+                              p.stats.rounds );
+            BEATNIK_CHECK_EQ( rec, p.stats.requested,
+                              p.stats.accepted + p.stats.rejected_boundary +
+                                  p.stats.rejected_duplicate_edge +
+                                  p.stats.rejected_geometric +
+                                  p.stats.rejected_conflict );
+            if ( k < static_cast<std::size_t>( kValencePasses ) )
+            {
+                BEATNIK_CHECK_EQ( rec, p.stats.accepted,
+                                  kValencePassFlips[k] );
+                BEATNIK_CHECK_EQ( rec, p.stats.rounds, kValencePassRounds[k] );
+            }
+            sum += p.stats.accepted;
+            max_rounds = std::max( max_rounds, p.stats.rounds );
+        }
+        BEATNIK_CHECK_EQ( rec, static_cast<long long>( flips ), sum );
+        // The premise: some pass needed more than one round.
+        BEATNIK_CHECK_TRUE( rec, max_rounds > 1 );
+
+        const ValenceStats v1 = valenceStats<ExecSpace>( mesh );
+        volume_flipped = globalVolume( mesh );
+        rec.note( "case 6b after the valence passes: flips=" +
+                  std::to_string( flips ) + " valence != 6: " +
+                  std::to_string( v0.irregular ) + " -> " +
+                  std::to_string( v1.irregular ) + " max valence " +
+                  std::to_string( v0.max_valence ) + " -> " +
+                  std::to_string( v1.max_valence ) +
+                  " relative volume change=" +
+                  g17( volume_flipped / volume0 - 1.0 ) );
+        BEATNIK_CHECK_TRUE( rec, v1.irregular < v0.irregular );
+        BEATNIK_CHECK_EQ( rec, v1.irregular, kIrregularAfter );
+        BEATNIK_CHECK_EQ( rec, mesh.globalVertexCount(), kV0 );
+        BEATNIK_CHECK_EQ( rec, mesh.globalEdgeCount(), kE0 );
+        BEATNIK_CHECK_EQ( rec, mesh.globalFaceCount(), kF0 );
+        BEATNIK_CHECK_EQ( rec, mesh.globalEulerCharacteristic(), 2 );
+
+        // 6c. The relaxation passes, one per call so each can be judged
+        //     against the normals it used.
+        quality_type q( on );
+        for ( int k = 0; k < kCleanupRelaxPasses; ++k )
+        {
+            const HostMesh before = snapshot<ExecSpace>( mesh );
+            const auto normals = hostNormals<ExecSpace>( mesh );
+            const int sweeps = q.tangentialRelaxation( mesh, 1, kCleanupWeight );
+            const HostMesh after = snapshot<ExecSpace>( mesh );
+            const StepStats s = stepStats( comm, before, after, normals );
+            rec.note( "case 6c relaxation pass " + std::to_string( k + 1 ) +
+                      ": max|dx|=" + g17( s.max_step ) + " max|dx.n|=" +
+                      g17( s.max_normal ) + " ratio=" +
+                      g17( s.max_normal / s.max_step ) );
+            BEATNIK_CHECK_EQ( rec, sweeps, 1 );
+            BEATNIK_CHECK_TRUE( rec, s.max_step > 0.0 );
+            BEATNIK_CHECK_TRUE( rec,
+                                s.max_normal <= kTangencyRatio * s.max_step );
+        }
+        dv_relax = globalVolume( mesh ) / volume_flipped - 1.0;
+        stepped = snapshot<ExecSpace>( mesh );
+        stepped_stats = valenceStats<ExecSpace>( mesh );
+        rec.note( "case 6c after " + std::to_string( kCleanupRelaxPasses ) +
+                  " relaxation passes: relative volume change=" +
+                  g17( dv_relax ) );
+    }
+    {
+        // The un-projected failure direction: one pass at the same weight on
+        // the same flipped mesh.
+        MeshType mesh( MPI_COMM_WORLD );
+        makeScrambledIcosphere<ExecSpace>( mesh, kScrambleCapDeg,
+                                           kScrambleRounds );
+        quality_type( on ).valenceEqualizingFlips( mesh, kValencePasses );
+        const double v_flipped = globalVolume( mesh );
+        unguardedIteration<ExecSpace>( mesh, kCleanupWeight, false );
+        const double dv_raw = globalVolume( mesh ) / v_flipped - 1.0;
+        rec.note( "case 6c un-projected pass: relative volume change=" +
+                  g17( dv_raw ) + " factor over the relaxation passes=" +
+                  g17( std::fabs( dv_raw / dv_relax ) ) );
+        BEATNIK_CHECK_TRUE( rec, v_flipped == volume_flipped );
+        BEATNIK_CHECK_TRUE( rec, dv_raw != 0.0 );
+        BEATNIK_CHECK_TRUE( rec, kVolumeFactor * std::fabs( dv_relax ) <=
+                                     std::fabs( dv_raw ) );
+    }
+
+    // 6d. The switch, on: `isotropicCleanup` in one call lands where 6b and
+    //     6c's separate calls did, and the mesh is not what it was.
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        const MPI_Comm comm = mesh.comm();
+        makeScrambledIcosphere<ExecSpace>( mesh, kScrambleCapDeg,
+                                           kScrambleRounds );
+        const HostMesh before = snapshot<ExecSpace>( mesh );
+        const std::size_t gen = mesh.generation();
+        quality_type( on ).isotropicCleanup( mesh );
+        const HostMesh after = snapshot<ExecSpace>( mesh );
+        const ValenceStats s = valenceStats<ExecSpace>( mesh );
+        double diff = 0.0;
+        for ( int i = 0; i < after.owned_vertices; ++i )
+            for ( int d = 0; d < 3; ++d )
+                diff = std::max( diff, std::fabs( after.pos[i][d] -
+                                                  stepped.pos[i][d] ) );
+        double diff_g = 0.0;
+        MPI_Allreduce( &diff, &diff_g, 1, MPI_DOUBLE, MPI_MAX, comm );
+        const bool pos_same = globalAll( comm, after.pos == before.pos );
+        const bool gen_same = globalAll( comm, mesh.generation() == gen );
+        rec.note( "case 6d enabled=true: valence != 6: " +
+                  std::to_string( s.irregular ) +
+                  " max|x - x_separate_calls|=" + g17( diff_g ) +
+                  ", positions " + ( pos_same ? "UNCHANGED" : "changed" ) +
+                  ", generation " + ( gen_same ? "UNCHANGED" : "changed" ) );
+        BEATNIK_CHECK_EQ( rec, s.irregular, stepped_stats.irregular );
+        BEATNIK_CHECK_TRUE( rec, diff_g <= kIdenticalPositions );
+        BEATNIK_CHECK_TRUE( rec, !pos_same );
+        BEATNIK_CHECK_TRUE( rec, !gen_same );
+    }
+
+    // 6e. The early stop: on a fixture whose first pass flips once and
+    //     second pass flips nothing, three passes requested run two.
+    {
+        MeshType mesh( MPI_COMM_WORLD );
+        makeScrambledIcosphere<ExecSpace>( mesh, kEarlyStopCapDeg,
+                                           kEarlyStopScrambleRounds );
+        std::vector<Beatnik::ValenceFlipPass> record;
+        const int flips = quality_type( on ).valenceEqualizingFlips(
+            mesh, kValencePasses, &record );
+        std::string per_pass;
+        for ( const auto& p : record )
+            per_pass += " " + std::to_string( p.stats.accepted ) + "/" +
+                        std::to_string( p.stats.rounds );
+        rec.note( "case 6e early stop: passes run=" +
+                  std::to_string( record.size() ) +
+                  " flips/rounds per pass:" + per_pass );
+        BEATNIK_CHECK_EQ( rec, static_cast<int>( record.size() ), 2 );
+        BEATNIK_CHECK_EQ( rec, static_cast<long long>( flips ),
+                          kEarlyStopFlips );
+        if ( record.size() == 2 )
+            BEATNIK_CHECK_EQ( rec, record[1].stats.accepted, 0LL );
+    }
+}
+
 template <class ExecSpace, class MemSpace>
 void runChecks( Beatnik::Test::Recorder& rec )
 {
@@ -1713,6 +2098,7 @@ void runChecks( Beatnik::Test::Recorder& rec )
     caseCollapseShortEdges<ExecSpace, mesh_type>( rec );
     caseQualityFlips<ExecSpace, mesh_type>( rec );
     caseTangentialSmooth<ExecSpace, mesh_type>( rec );
+    caseIsotropicCleanup<ExecSpace, mesh_type>( rec );
 }
 
 } // namespace
