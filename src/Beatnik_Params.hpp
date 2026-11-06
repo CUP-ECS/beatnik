@@ -608,10 +608,10 @@ struct AmrParams
  * every mesh without a degenerate (zero-area) face — the pass still runs and
  * still mutates nothing.
  *
- * **This is the acceptance criterion for `--dynamic-remesh`** until task T4d6:
- * the flip third, `DynamicRemesh::flipEdgesForQuality`, is implemented, and
- * the `Solver` still accepts a run only when the reference itself would flip
- * nothing. See `Solver::requireSupportedConfiguration`.
+ * The split-only members (`Beatnik_Test_DynamicRemeshSplit` in the
+ * `regression` tier, `Beatnik_Test_Milestone0Frozen` in the `milestone` tier)
+ * set it to keep `DynamicRemesh::flipEdgesForQuality` a no-op, so that their
+ * trajectories stay the ones their reference data describe.
  */
 constexpr Real kFlipsDisabledMinGain = 1.0e12;
 
@@ -677,6 +677,34 @@ struct RemeshParams
     /// Cap on collapses per pass; <= 0 means unlimited.
     /// CLI `--remesh-max-collapses`, default 120.
     int max_collapses_per_pass = 120;
+
+    /// Renumber gids (`SurfaceMesh::compactAndRenumberGids`) at the end of
+    /// every this-many-th `DynamicRemesh::remesh` call; `0` (or negative)
+    /// means never. **Beatnik-only**: the reference keeps dense array indices
+    /// and has no gid space to leak, so there is no CLI option and no
+    /// reference default.
+    ///
+    /// Why it exists: Tessera mints gids by `MPI_Exscan` onto a monotonically
+    /// rising global count, and collapse keeps gids, so a split-and-collapse
+    /// run grows the gid **space** without bound at constant mesh size, and
+    /// several Tessera paths size dense host arrays to the maximum gid
+    /// (`Tessera_Compact.hpp`, the leak note). `RemeshDiagnostics::
+    /// gid_space_high_water` makes the growth observable.
+    ///
+    /// Why 50: a renumbering costs two halo rebuilds and one whole-AoSoA halo
+    /// exchange, while one remesh call at the milestone defaults already runs
+    /// a split, a collapse (with its own compaction), several flip rounds and
+    /// a smoothing step, each with its own halo rebuild or exchange — so one
+    /// renumbering every 50 calls adds well under 1 % to the remesh cost.
+    /// Shorter is not worth it: a renumbering only reclaims space, and between
+    /// two of them the space grows by at most 50 calls' worth of new gids, a
+    /// bounded multiple of the live count. Much longer stops bounding it within
+    /// a milestone run: at `--remesh-every 1` a 600-step run renumbers 12
+    /// times, and every 200-step stretch of it (task T4d6's window) holds at
+    /// least three renumberings. Tessera's own advice is "every few hundred
+    /// steps"; 50 is the conservative end of that, chosen while the leak rate
+    /// on the milestone run is unmeasured (T4d6 measures it).
+    int renumber_gids_every = 50;
 
     // --- nonlocal proximity sizing -----------------------------------------
 

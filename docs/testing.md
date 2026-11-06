@@ -136,17 +136,14 @@ pass for the wrong reason.
 > removed the pre-redesign solver and its only end-to-end test) until T1c, and
 > the gate was vacuous; it is not any more. **But it covers only what exists** —
 > both adaptivity paths are covered for their *refinement* halves only, and only
-> for the structural and shape claims those two tests make. Nothing in the gate
-> coarsens. Collapse is implemented (T4d2, covered by the `unit` member
-> `Beatnik_Test_MeshEdits`) but the `Solver` rejects
-> `--remesh-collapse-factor > 0` at setup until T4d6. Quality flips are
-> implemented (T4d3, covered by the same member) but the `Solver` rejects
-> `--remesh-flip-min-gain < 1e12` and `--flip-passes > 0` at setup until T4d6.
-> Guarded tangential smoothing is implemented (T4d4, covered by the same
-> member) but the `Solver` rejects `--remesh-smooth-iters > 0` at setup until
-> T4d6. The isotropic cleanup (valence-equalizing flips plus tangential
-> relaxation) is implemented (T4d5, covered by the same member) but the `Solver`
-> rejects `--isotropic-cleanup` at setup until T4d6. See `tasks/framework.md`.
+> for the structural and shape claims those two tests make, plus the refine
+> branch's flips, which `Beatnik_Test_RefineSplitEdges` check 6 asserts are live
+> at `--flip-passes 2`. Nothing in the gate coarsens. Collapse (T4d2), quality
+> flips (T4d3), guarded tangential smoothing (T4d4) and the isotropic cleanup
+> (T4d5) are implemented, run at the reference's defaults in a `Solver` run,
+> and are covered by the `unit` member `Beatnik_Test_MeshEdits`; the gate's
+> dynamic-remesh member configures all four off, because its gold counts were
+> measured that way. See `tasks/framework.md` and `tasks/milestone1.md`.
 
 ## CI
 

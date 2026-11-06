@@ -380,8 +380,8 @@ enum : int
  *   - `flipEdges()`: `requested`, `accepted`, `rejected_boundary`,
  *     `rejected_duplicate_edge`, `rejected_geometric`, `rejected_conflict`
  *     and `flipped` (`Tessera::FlipResult`).
- *   - `compact()`: the three `*_removed` and the two `gid_space_*`
- *     (`Tessera::CompactStats`).
+ *   - `compact()` and `compactAndRenumberGids()`: the three `*_removed` and
+ *     the two `gid_space_*` (`Tessera::CompactStats`).
  *   - every edit: `owned_vertices_after`, `owned_faces_after`.
  *
  * **Every collapse, flip and compact counter is GLOBAL**, already summed over
@@ -446,10 +446,11 @@ struct MeshEditReport
     long long faces_removed = 0;
 
     /// Size of the gid space, summed over vertices, edges and faces as
-    /// (global max live gid + 1) per kind, before and after (compact). The gap
-    /// between it and the live entity count is the gid-space growth that
-    /// renumbering (task T4d6) reclaims; `compact()` preserves gids, so the two
-    /// are equal unless the removal vacated the top of some kind's range.
+    /// (global max live gid + 1) per kind, before and after (compact,
+    /// compactAndRenumberGids). The gap between it and the live entity count
+    /// is the gid-space growth that `compactAndRenumberGids()` reclaims;
+    /// `compact()` preserves gids, so for it the two are equal unless the
+    /// removal vacated the top of some kind's range.
     long long gid_space_before = 0;
     long long gid_space_after = 0;
 
@@ -1545,7 +1546,8 @@ class SurfaceMesh
     //
     // EDITING FAMILIES — READ THE FILE HEADER. Every edit named below is in the
     // REMESH family, which is the only family Beatnik uses: `splitEdges()`,
-    // `collapseEdges()`, `flipEdges()` and `compact()`. `SurfaceMesh` has no
+    // `collapseEdges()`, `flipEdges()`, `compact()` and
+    // `compactAndRenumberGids()`. `SurfaceMesh` has no
     // `refine` — the HIERARCHICAL family's
     // entry point — so Tessera's `EditFamily` guard is a backstop that should
     // never fire. The decision and its two findings are in
@@ -1553,11 +1555,10 @@ class SurfaceMesh
     //-----------------------------------------------------------------------//
 
     /**
-     * @brief Split a specified set of edges at their midpoints. **The only
-     *        topological edit a `Solver` run performs** until task T4d6:
-     *        `collapseEdges()` and `flipEdges()` are wired into the remesh and
-     *        refine cycles (tasks T4d2, T4d3), but the `Solver` admits them
-     *        only at the settings where they edit nothing.
+     * @brief Split a specified set of edges at their midpoints. One of the
+     *        three topological edits a `Solver` run performs, beside
+     *        `collapseEdges()` and `flipEdges()` (the remesh cycle, the
+     *        refine branch's flips and the isotropic cleanup).
      *
      * Port of dynamic_remesh.py::split_selected_edges (lines 261-298) **and**
      * of mesh.py::refine_marked_faces (lines 570-730)
@@ -1840,13 +1841,15 @@ class SurfaceMesh
      * dynamic_remesh.py::compact_mesh (lines 492-508), which drops
      * unreferenced vertices and renumbers them contiguously; here local
      * indices are contiguous after the rebuild, and **gids are not
-     * renumbered**. Renumbering is `Tessera::compactAndRenumberGids`, and
-     * when to call it is task T4d6.
+     * renumbered**. Renumbering is `compactAndRenumberGids()`, which
+     * `DynamicRemesh::remesh` calls on the `RemeshParams::renumber_gids_every`
+     * cadence.
      *
      * **The remesh cycle does not call this.** `collapseEdges()` — the only
      * edit that orphans anything — runs Tessera's compaction as its own last
      * step, so the mesh is already compact whenever a caller holds it. This
-     * entry point exists for T4d6's renumbering cadence and for tests.
+     * entry point is called only by tests; the remesh cycle's periodic
+     * compaction is `compactAndRenumberGids()`, which compacts first.
      *
      * @return The removed counts and the gid-space size before and after;
      *         see `MeshEditReport`. All global.
@@ -1872,6 +1875,76 @@ class SurfaceMesh
         report.owned_faces_after = ownedFaceCount();
         return report;
     }
+
+    /**
+     * @brief `compact()`, then renumber every gid contiguously from 0 per
+     *        entity kind, so the gid space stops growing across edit rounds.
+     *
+     * TESSERA MAPPING: `Tessera::compactAndRenumberGids( mesh, halo )`
+     * (`Tessera_Compact.hpp`). Gids are minted by `MPI_Exscan` onto a
+     * monotonically rising global count, so a long split-and-collapse run
+     * grows the gid **space** without bound at constant mesh size, and
+     * several Tessera paths index a dense host array sized to the maximum gid
+     * (the leak note at the top of that header). This call reclaims the
+     * space.
+     *
+     * The new gid of an entity is the number of live entities of its kind
+     * with a smaller old gid, so the result is rank-count deterministic and
+     * order preserving. Geometry, connectivity and every vertex and face user
+     * field are unchanged; only gids and the local storage order change.
+     *
+     * **Cost.** Two halo rebuilds — the compaction's, and a second because
+     * the halo plans were keyed on the old gids — plus one whole-AoSoA halo
+     * exchange that carries the new gids to the ghosts. That is why it runs on
+     * a cadence (`RemeshParams::renumber_gids_every`) rather than after every
+     * edit.
+     *
+     * @return The removed counts and the gid-space size before (the
+     *         high-water mark) and after; see `MeshEditReport`. All global.
+     *
+     * @note MPI. Collective. Preserves `halo_depth`.
+     *
+     * @note INVALIDATION. Rebuilds the halo twice and bumps `generation()`,
+     *       so every slice, CSR and accessor taken before the call is
+     *       dangling, and every gid a caller saved names nothing (or a
+     *       different entity) afterwards.
+     *
+     * **EDITING FAMILY — Remesh.**
+     */
+    MeshEditReport compactAndRenumberGids()
+    {
+        const Tessera::CompactStats stats =
+            Tessera::compactAndRenumberGids( _mesh, _halo );
+
+        MeshEditReport report;
+        report.vertices_removed = stats.verticesRemoved;
+        report.edges_removed = stats.edgesRemoved;
+        report.faces_removed = stats.facesRemoved;
+        report.gid_space_before = stats.gidSpaceBefore;
+        report.gid_space_after = stats.gidSpaceAfter;
+        report.owned_vertices_after = ownedVertexCount();
+        report.owned_faces_after = ownedFaceCount();
+        return report;
+    }
+
+    /**
+     * @brief The current size of the gid space: the sum over vertices, edges
+     *        and faces of (global maximum live gid + 1). The quantity
+     *        `MeshEditReport::gid_space_*` reports, measured without editing.
+     *
+     * TESSERA MAPPING: `Tessera::detail::gidSpace( mesh )`, the function
+     * `Tessera::compact` itself reports `gidSpaceBefore` and `gidSpaceAfter`
+     * with, so the two measures cannot drift apart.
+     *
+     * Compare it against `globalVertexCount() + globalEdgeCount() +
+     * globalFaceCount()`: the gap is the gid-space growth that
+     * `compactAndRenumberGids()` reclaims.
+     *
+     * @note MPI. Collective: one `MPI_Allreduce`. It copies the three entity
+     *       AoSoAs to the host, so it is O(local entities) and not free; the
+     *       remesh cycle calls it once per remesh.
+     */
+    long long gidSpace() { return Tessera::detail::gidSpace( _mesh ); }
 
     /**
      * @brief Overwrite vertex positions in place, connectivity unchanged.

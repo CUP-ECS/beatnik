@@ -611,6 +611,12 @@ set(BEATNIK_DRIVER_SOURCES
   # parameterize its BR approximation and FMM knobs, so the same driver
   # produces the FMM-driven 2000-step series.
   Beatnik_Test_Milestone0Run.cpp
+  # The milestone-1 run (tasks/milestone1.md, T4d6j): the reference's
+  # default rising-bubble configuration with every remesh pass live, one
+  # `[m1run] key=value` line per step (gid space, V/F, volume drift, minimum
+  # quality, cumulative edit counters, RSS). Asserts only that it reached its
+  # step budget. Its makeParams() is in Beatnik_Milestone1Params.hpp.
+  Beatnik_Test_Milestone1Run.cpp
   # The far-field fidelity scan (tasks/canopy/add-canopy.md). Evaluates
   # every arm against ONE spin-up state in one process and prints one
   # `[t5arm]` line each. Compiles no tolerance -- it produces the numbers the

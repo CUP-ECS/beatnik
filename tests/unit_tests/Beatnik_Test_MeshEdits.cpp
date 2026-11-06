@@ -62,7 +62,8 @@
  *
  *   - **3a, the failure direction.** `collapse_factor = 0` returns 0 with no
  *     candidates, and V/E/F, the face gids, every local position and the mesh
- *     generation are unchanged — the path the `Solver` runs until task T4d6.
+ *     generation are unchanged — the path the split-only regression member
+ *     takes.
  *   - **3b.** An artificially large `collapse_factor` at
  *     `max_collapses_per_pass = 0`, which is **unlimited**: the candidate and
  *     collapse counts are fixed literals, faces fall by `2 * collapses`, and
@@ -82,7 +83,7 @@
  *   - **4a, the failure direction.** `flip_min_gain = kFlipsDisabledMinGain`
  *     (1e12) gives `flips == 0`, no `flipEdges` call, and V/E/F, the face gids,
  *     every local position and the generation unchanged — the path the T4b
- *     regression member and every `Solver` run take until task T4d6.
+ *     regression member takes.
  *   - **4b.** At the default gain (1e-3) and floor (0.18), one sweep flips a
  *     fixed count over more than one round, the global minimum quality rises
  *     or holds, the count of faces below 0.18 does not increase, V/E/F and
@@ -97,8 +98,8 @@
  *
  * Case 5, **T4d4**, the guarded tangential smoothing:
  *
- *   - **5a, off.** `smoothing_iterations = 0` (the `Solver`'s value until
- *     task T4d6), and `relaxation` 0 and negative (the reference's
+ *   - **5a, off.** `smoothing_iterations = 0` (the T4b regression member's
+ *     value), and `relaxation` 0 and negative (the reference's
  *     `relaxation <= 0`), each return 0 with every local position
  *     bit-identical and the generation unchanged.
  *   - **5b, the healthy direction**, on the default icosphere at the
@@ -1537,7 +1538,7 @@ void caseTangentialSmooth( Beatnik::Test::Recorder& rec )
         BEATNIK_CHECK_EQ( rec, mesh.globalFaceCount(), kF0 );
     };
 
-    // 5a. Off: iterations 0 (the `Solver`'s value until T4d6), and the
+    // 5a. Off: iterations 0 (the T4b regression member's value), and the
     //     reference's `relaxation <= 0` at zero and below. Each returns 0
     //     and changes nothing.
     {
@@ -1707,7 +1708,7 @@ void caseTangentialSmooth( Beatnik::Test::Recorder& rec )
 
     // 5d. The pass loop. On case 4's fixture the repair gate fires (worst
     //     face below 0.18). With flips off and smoothing_iterations = 0 --
-    //     the `Solver`'s path until T4d6 -- nothing changes. With both on,
+    //     the T4b regression member's path -- nothing changes. With both on,
     //     the flips run first and the smoothing after them.
     {
         MeshType mesh( MPI_COMM_WORLD );

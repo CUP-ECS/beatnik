@@ -5,6 +5,7 @@
 # flux: -t 20m
 # flux: --output={{name}}.{{jobid}}.log
 # flux: -q pdebug
+# flux: --bank=unm
 ############################################################################
 # Copyright (c) 2025 by the Beatnik authors                                #
 # All rights reserved.                                                     #

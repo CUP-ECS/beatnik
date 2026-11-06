@@ -60,6 +60,11 @@
  *   4. if anything changed, or the worst quality is below `min_quality`:
  *      **flip** for quality, then **tangentially smooth**
  *
+ * After the passes, on every `RemeshParams::renumber_gids_every`-th call,
+ * the gids are renumbered (`SurfaceMesh::compactAndRenumberGids`) — a
+ * Beatnik-only step with no reference counterpart, which bounds the gid-space
+ * growth the split and collapse passes cause.
+ *
  * The sizing field is recomputed between split and collapse because splitting
  * changes the curvature estimate. Skipping that recomputation lets the collapse
  * pass undo the split pass.
@@ -94,25 +99,21 @@
  * pass (`tangentialSmooth`, task T4d4) are implemented; the two proximity
  * paths are **T4e** and throw.
  *
- * A `--dynamic-remesh` run is accepted by the `Solver` only when the passes
- * below are configured off **through the reference's own knobs**, so that what
- * runs there is what the reference would run, not a Beatnik-only subset of it.
- * Collapse, flips and smoothing are implemented and reachable through
- * `remesh()` at any setting, but the `Solver` still rejects
- * `--remesh-collapse-factor > 0`, `--remesh-smooth-iters > 0` and
- * `--remesh-flip-min-gain < 1e12` until task T4d6 deletes those rejections:
+ * The `Solver` runs every implemented pass at the reference's defaults; it
+ * rejects only the two proximity paths (T4e). Each pass can still be
+ * configured off **through the reference's own knobs**, which is how the
+ * split-only test members run:
  *
  * | pass | configured off by | reference becomes |
  * | --- | --- | --- |
- * | collapse (rejected by the `Solver` until T4d6) | `--remesh-collapse-factor 0` | `dynamic_remesh.py:373`'s candidate predicate `length < 0 * target` is never true, so the pass returns before any mutation; `collapseShortEdges` returns 0 before building a mask |
- * | smoothing (rejected by the `Solver` until T4d6) | `--remesh-smooth-iters 0` | `:463-465` returns immediately; so does `tangentialSmooth`, before any halo exchange |
- * | flips (rejected by the `Solver` until T4d6) | `--remesh-flip-min-gain >= 1e12` | `:449-450` `continue`s every candidate of a mesh with no zero-quality face; `flipEdgesForQuality` builds an empty mask and returns before calling `flipEdges`; see `kFlipsDisabledMinGain` |
- * | cleanup (rejected by the `Solver` until T4d6) | `--no-isotropic-cleanup` | `run_adaptive_mesh_bubble.py:1491` skips the whole block; the `Solver` skips `MeshQuality::isotropicCleanup` and the state rebuild after it, and the call itself returns before anything collective |
+ * | collapse | `--remesh-collapse-factor 0` | `dynamic_remesh.py:373`'s candidate predicate `length < 0 * target` is never true, so the pass returns before any mutation; `collapseShortEdges` returns 0 before building a mask |
+ * | smoothing | `--remesh-smooth-iters 0` | `:463-465` returns immediately; so does `tangentialSmooth`, before any halo exchange |
+ * | flips | `--remesh-flip-min-gain >= 1e12` | `:449-450` `continue`s every candidate of a mesh with no zero-quality face; `flipEdgesForQuality` builds an empty mask and returns before calling `flipEdges`; see `kFlipsDisabledMinGain` |
+ * | cleanup | `--no-isotropic-cleanup` | `run_adaptive_mesh_bubble.py:1491` skips the whole block; the `Solver` skips `MeshQuality::isotropicCleanup` and the state rebuild after it, and the call itself returns before anything collective |
  *
- * `Solver::requireSupportedConfiguration` rejects anything else by name and by
- * task ID before the first step. **`--remesh-max-collapses 0` is NOT one of the
- * levers**, and reading it as one is the trap: the driver maps a non-positive
- * value to `None` = *unlimited* (`run_adaptive_mesh_bubble.py:1350-1352`), which
+ * **`--remesh-max-collapses 0` is NOT one of the levers**, and reading it as
+ * one is the trap: the driver maps a non-positive value to `None` =
+ * *unlimited* (`run_adaptive_mesh_bubble.py:1350-1352`), which
  * `RemeshParams::max_collapses_per_pass` reproduces ("<= 0 means unlimited").
  * Only the collapse factor disables the pass.
  */
@@ -242,6 +243,19 @@ struct RemeshDiagnostics
     /// **R12 signal 2** — global count of faces below \f$r/R = 0.25\f$ after
     /// the call. Tessera's own `kTail` threshold.
     GlobalIndex faces_below_quarter = 0;
+
+    /// **The gid-space high-water mark** — `SurfaceMesh::gidSpace()` after
+    /// the last pass and before any renumbering, i.e. the largest gid space
+    /// this call reached (every edit only grows it). Summed over vertices,
+    /// edges and faces as (global max live gid + 1) per kind; compare it
+    /// against `new_vertices` (or V+E+F) to see the leak that
+    /// `RemeshParams::renumber_gids_every` bounds. Risk M1-R5.
+    GlobalIndex gid_space_high_water = 0;
+    /// True when this call ended with `compactAndRenumberGids()`.
+    bool gids_renumbered = false;
+    /// The gid space after the call: equal to `gid_space_high_water` unless
+    /// `gids_renumbered`, when it is V+E+F exactly.
+    GlobalIndex gid_space_after = 0;
 };
 
 //---------------------------------------------------------------------------//
@@ -987,7 +1001,7 @@ class DynamicRemesh
      *
      * `collapse_factor <= 0` returns 0 **before any collective or mutation**:
      * the reference's predicate `length < 0 * target` is false for every edge,
-     * and this is the configuration the `Solver` accepts until task T4d6.
+     * and this is how the split-only test members configure collapse off.
      * Note `--remesh-tight-collapse-factor` defaults to 0, i.e. the tight
      * parameter set **disables collapse entirely**: once the roll-up is tight,
      * coarsening is more likely to destroy a resolved feature than to save
@@ -1124,8 +1138,8 @@ class DynamicRemesh
      * At `flip_min_gain = kFlipsDisabledMinGain` no edge of a mesh without a
      * zero-quality face passes, so the mask is empty on every rank and the
      * sweep returns before calling `flipEdges`: nothing is mutated and
-     * `generation()` is unchanged. That is the configuration the `Solver`
-     * accepts until task T4d6.
+     * `generation()` is unchanged. That is how the split-only test members
+     * configure flips off.
      *
      * This flips for **quality**, never for **valence** — which is exactly the
      * gap `Beatnik_MeshQuality.hpp::isotropicCleanup` exists to fill.
@@ -1216,10 +1230,8 @@ class DynamicRemesh
      * `mesh_solver.py::improve_mesh_quality_tangential`, which has no guard
      * and a different trigger: this one runs inside the same
      * `if changed or needs_quality_repair` block as the flips, after them.
-     * `--remesh-smooth-iters > 0` is still rejected in
-     * `Solver::requireSupportedConfiguration` until task T4d6, so a `Solver`
-     * run reaches this only at `smoothing_iterations = 0`, which returns 0
-     * before any halo exchange, reduction or write.
+     * At `smoothing_iterations = 0` it returns 0 before any halo exchange,
+     * reduction or write.
      *
      * Does not re-base the AMR reference state; the `Solver` calls
      * `AdaptiveMesh::resetReferenceState` after every remesh (see `remesh`).
@@ -1392,10 +1404,9 @@ class DynamicRemesh
 
             // 4. Repair, if anything changed or the worst element is poor
             //    (`dynamic_remesh.py:169-175`): quality flips, then
-            //    tangential smoothing. Until task T4d6 the `Solver` accepts
-            //    only `flip_min_gain = kFlipsDisabledMinGain` and
-            //    `smoothing_iterations = 0`, at which both passes return
-            //    before any mutation.
+            //    tangential smoothing. At `flip_min_gain =
+            //    kFlipsDisabledMinGain` and `smoothing_iterations = 0` both
+            //    passes return before any mutation.
             const bool changed = ( splits > 0 ) || ( collapses > 0 );
             const bool needs_quality_repair =
                 globalMinQuality( mesh ) < _params.min_quality;
@@ -1412,8 +1423,32 @@ class DynamicRemesh
         diag.max_sagitta_after = globalMaxSagitta( mesh );
         measureShape( mesh, diag );
         auditLongEdges( mesh, state, diag );
+
+        // 5. The gid-space cadence (Beatnik-only; see
+        //    `RemeshParams::renumber_gids_every`). The high-water mark is
+        //    measured before renumbering, so a renumbering call still reports
+        //    the space it reclaimed. The call counter and the cadence are
+        //    identical on every rank, so every rank enters the collective
+        //    together. It runs last, after every measurement above, because
+        //    it reorders local storage; it moves no vertex, so it needs no
+        //    `resetReferenceState` (the AMR reference fields are face user
+        //    fields and travel with their faces).
+        ++_remesh_calls;
+        diag.gid_space_high_water = mesh.gidSpace();
+        diag.gid_space_after = diag.gid_space_high_water;
+        const int every = _params.renumber_gids_every;
+        if ( every > 0 && _remesh_calls % every == 0 )
+        {
+            const MeshEditReport r = mesh.compactAndRenumberGids();
+            diag.gids_renumbered = true;
+            diag.gid_space_after = r.gid_space_after;
+        }
         return diag;
     }
+
+    /// `remesh()` calls made so far — the counter
+    /// `RemeshParams::renumber_gids_every` is applied to.
+    long long remeshCalls() const { return _remesh_calls; }
 
   private:
     //-----------------------------------------------------------------------//
@@ -1729,6 +1764,8 @@ class DynamicRemesh
     }
 
     RemeshParams _params;
+    /// `remesh()` calls so far; see `remeshCalls()`.
+    long long _remesh_calls = 0;
 };
 
 } // namespace Beatnik

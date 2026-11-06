@@ -789,28 +789,25 @@ subsections above, which are intended behavior.
   members' check counts, 86/86 and 377/377, are unmoved. A green gate proves that mesh
   generation, the initial condition, the checkpoint write, the seven surface
   operators, the direct Birkhoff-Rott sum, ten fixed-mesh timesteps and **both
-  adaptivity paths' refinement halves** reproduce the reference. What it still
-  does not cover is **coarsening**. Edge collapse
-  (`DynamicRemesh::collapseShortEdges`, T4d2) is implemented and covered by the
-  `unit` member `Beatnik_Test_MeshEdits`, but the `Solver` still rejects
-  `--remesh-collapse-factor > 0` at setup until task T4d6. Quality flips
-  (`DynamicRemesh::flipEdgesForQuality` and
-  `MeshQuality::improveConnectivityByFlips`, T4d3) are implemented and covered
-  by the same member, but the `Solver` still rejects
-  `--remesh-flip-min-gain < 1e12` and `--flip-passes > 0` at setup until task
-  T4d6. Guarded tangential smoothing (`DynamicRemesh::tangentialSmooth`, T4d4)
-  is implemented and covered by the same member, but the `Solver` still rejects
-  `--remesh-smooth-iters > 0` at setup until task T4d6. The isotropic cleanup
-  (`MeshQuality::isotropicCleanup` and `valenceEqualizingFlips`, T4d5) is
-  implemented and covered by the same member, but the `Solver` still rejects
-  `--isotropic-cleanup` at setup until task T4d6. Its valence flips test each
+  adaptivity paths' refinement halves** reproduce the reference, and that the
+  refine branch's flips (`MeshQuality::improveConnectivityByFlips`, T4d3) flip
+  at `--flip-passes 2` without breaking Euler or conformity
+  (`Beatnik_Test_RefineSplitEdges` check 6). What it still does not cover is
+  **coarsening and the rest of the remesh repair**. Edge collapse
+  (`DynamicRemesh::collapseShortEdges`, T4d2), quality flips
+  (`DynamicRemesh::flipEdgesForQuality`, T4d3), guarded tangential smoothing
+  (`DynamicRemesh::tangentialSmooth`, T4d4) and the isotropic cleanup
+  (`MeshQuality::isotropicCleanup` and `valenceEqualizingFlips`, T4d5) are
+  implemented, run at the reference's defaults in a `Solver` run, and are
+  covered by the `unit` member `Beatnik_Test_MeshEdits`; the gate's dynamic-remesh
+  member configures all four off, because its gold counts were measured
+  that way. Every-step coverage of the default configuration is the milestone
+  comparison test (`tasks/milestone1.md`, M1-T2j, not yet written). The cleanup's valence flips test each
   new face against the old one with the winding Tessera writes, where the
   reference's literal `(c,d,a)`, `(d,c,b)` inverts the pair on every edge whose
   first-indexed face runs `a -> b` and so never flips those edges; Beatnik
   therefore accepts flips the reference does not (deliberate,
-  `tasks/milestone1.md`). Every configuration that would reach
-  collapse, a flip, smoothing or the cleanup in a run is rejected before the
-  first step by name and task ID. Resolves progressively as T4 lands its remaining regression
+  `tasks/milestone1.md`). Resolves progressively as T4 lands its remaining regression
   tests. See
   [CLAUDE.md](CLAUDE.md#minimum-test-set) and `tasks/framework.md`.
 
