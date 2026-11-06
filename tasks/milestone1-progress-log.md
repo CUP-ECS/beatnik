@@ -3486,3 +3486,59 @@ rewritten to the present state (cosmetic, inside this task).
     s_per_step=-0.058492`, negative because `cmp_wall` (1.184 s) is subtracted
     from a `wall` (0.599 s) that does not contain all of it in a run that stops
     at step 10.
+
+## M1-T2 review
+
+**Verdict:** Passed
+**Reviewed:** `d912735^..d912735`, the task's one commit. It touches only
+`tasks/milestone1.md` (the **Status** line, M1-T2j's closing sentence, M1-T2's
+**DONE** and **Met.**) and this log, which is the task's **Fill in**: a reading
+task with no code change and no resubmission. No code range exists, so the
+mechanical pass has nothing to run on.
+**Evidence:** implementing session's reading of M1-T2j's job `f3iYnNt9YPJP`,
+re-read here: `scripts/tuolumne/m1_milestone_run.flux
+/p/lustre5/stewartj/beatnik/M1-T2j/stage`, log
+`beatnik_m1_milestone.f3iYnNt9YPJP.log` (5468 lines) and
+`/p/lustre5/stewartj/beatnik/M1-T2j/out/<tag>/launch.log` for the six tags.
+Flux: FAILED rc 1 (the expected script rc when compare launches mismatch), no
+queue wait (submit and run 13:14:16), runtime 3.838 min. Provenance: the stage
+`COMMIT` is `347c2ef…`, M1-T2j's code commit, already confirmed against the
+staged binaries by the M1-T2j review. Completion: the log ends `launched=6
+skipped=0 total=204s budget=600s` and `[milestone] SUMMARY: FAIL (2/6
+launches)`, the script's normal end, well inside `-t 12m`. Checked against the
+output:
+- the four compare `[m1final]` lines read `steps=600/600`, `defects=0`,
+  `time_liveness_failures=0`, `first_failing_step=10`, `matched=1
+  mismatched=60`, counters 368/8/76/7/84, with `run_wall`, `cmp_wall` and
+  `wall` as the log's table records;
+- comparator exits across the job: 5 × `exit=0`, 242 × `exit=1`, none other;
+  244 `[FAIL]` lines, of which the only non-`comparison mismatch` lines are the
+  four `[FAIL] Beatnik_Test_Milestone1Bubble (8/68 checks)` summaries;
+- direction (a): `[m1fail] direction=a step=10 vs step-0 gold: comparator
+  exit 1`, `[PASS] (2/2 checks)`; direction (b): `cleanup_flips=0`, step 10
+  `V_cpp=642 F_cpp=1280` against `547/1090`, mismatch with no defect,
+  `[PASS] (3/3 checks)`;
+- step 0 matches with `max_e[vertices]=5.551115e-17`; step 10 is `518/1032`
+  against `547/1090`; step 600 `time=0.62239…` against `gold_time=0.55793…`,
+  `time_rel=1.155e-01`;
+- the `[m1traj]` lines with `time` and `elapsed` stripped hash identically in
+  all four compare launches; Beatnik's `F` changes only at steps 1, 2, 3, 246,
+  257, 398 and 516 (920, 1024, 1032, 1034, 1036, 1038, 1040), as recorded;
+- M1-G2's log (`beatnik_m1g2_gold.f3hyB1NchZz7.log:45`) reads `step= 1
+  t=0.0030 … V=462 F=920`, matching Beatnik's step 1, so the "parted in steps
+  2–10" bound stands.
+
+Every **Do** item is recorded per launch; the field-level items are "not
+reached", with the reason (the comparator stops at the count check,
+`compare_output.py:555-566`), which is what the output supports. **Affects:**
+names M1-A1j with the first failing step, the structural cause, and the walls
+for sizing `-t`. No listed defect occurred, so no resubmission was owed. No
+prompt file remains under `tasks/`.
+
+1. [follow-up] Already recorded by the task for M1-A1j, restated so it is not
+   lost: `Beatnik_Test_Milestone1Bubble.cpp` prints `rtol` in fixed-point
+   (`0.000000` for `1e-10`) on its `[FAIL]` lines, and `fail-no-cleanup`'s
+   `[m1final]` reports a negative `run_wall`/`s_per_step`. Both are output
+   formatting only; no verdict depends on them.
+
+**Affects:** none.
