@@ -3145,7 +3145,7 @@ commit that adds this section (`milestone1.md`, this log).
   SERIAL `1daa9626…`), output
   `/p/lustre5/stewartj/beatnik/M1-T2j/out/<tag>/` (`launch.log` plus the
   checkpoints) and `beatnik_m1_milestone.f3iYjQ4E4J8X.log` in the repo root.
-  **Pending: read by `M1-T2`.** Accepted, state `S`, 13:0x.
+  **Pending: read by `M1-T2`.** Accepted, state `S`, submitted 13:07.
 
 **Decisions** (given to the task and not reopened):
 - **The cleanup flip count is added in `src/`.** `MeshQuality::isotropicCleanup`
