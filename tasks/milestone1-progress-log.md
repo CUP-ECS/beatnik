@@ -4478,3 +4478,217 @@ ahead of M1-A1, and M1-A1 now depends on it. M1-A1 stays NOT STARTED; its
 prompt file `tasks/milestone1_M1-A1.md` was written before this ruling and
 should be rewritten by write-prompt once M1-D3 is reviewed. No code, tolerance
 or job changed.
+
+## M1-D3
+
+**Commits:** the commit that adds this section: `scripts/tuolumne/m1d3_drift.py`,
+`scripts/tuolumne/m1d3_refrun.py`, `scripts/tuolumne/m1d3_refruns.flux`,
+`scripts/tuolumne/m1d3_probe.flux`, `tasks/milestone1.md` and this log. No
+compiled file changed, so there was no rebuild and no gate run.
+
+**Jobs** (both `pdebug`, 1 node `--exclusive`, `--bank=unm`, dev env, no
+Beatnik binary; the reference is M1-G3j's stage
+`/p/lustre5/stewartj/beatnik/M1-G3j/stage`, `ec7d7bf` with `zmodel3d/` clean,
+read only):
+- `f3j7R4vqZF67`, `m1d3_probe.flux` (`-t 10m`), log
+  `beatnik_m1d3_probe.f3j7R4vqZF67.log` (repo root), output
+  `/p/lustre5/stewartj/beatnik/M1-D3/probe/probe.txt`. COMPLETED rc 0, 34 s, on
+  tuolumne1043. It applies one reference remesh plus cleanup
+  (`m1d2_refhooks.py probe`, M1-D2's `ref_params.json`) to Beatnik's
+  checkpoints at steps 800–1610 and the gold's at 900–1610. It showed that
+  both late meshes are fixed points of the reference's rules.
+- `f3j7Pykw2A6s`, `m1d3_refruns.flux` (`-t 45m`), log
+  `beatnik_m1d3.f3j7Pykw2A6s.log` (repo root), output
+  `/p/lustre5/stewartj/beatnik/M1-D3/ref/{ctl,bk10,dtpin}/` (checkpoints every
+  10 steps plus `run.log`). COMPLETED rc 0, 29.6 min, on tuolumne1044. All
+  three runs exited 0 and reached `time` 1.2382 (`--t-end`), with no
+  `nonfinite`, warning or error lines: `ctl` at step 1611 (162 checkpoints),
+  `bk10` at step 1474 (148), `dtpin` at step 1449 (146). It showed the
+  results below.
+
+Analysis output (login node, `m1d3_drift.py`, existing files only):
+`/p/lustre5/stewartj/beatnik/M1-D3/analysis/` (Beatnik HIP np1 against the
+gold) and `M1-D3/cmp_{gold_vs_ctl,gold_vs_bk10,gold_vs_dtpin,bk10_vs_beatnik}/`
+with their `.txt` tables. `M1-D3/inputs/` holds Beatnik's step-0 and step-10
+checkpoints converted to reference restart `.npz` files.
+
+**Decisions** (made before this session, recorded here, not reopened):
+- Every band, `kSteps` (1610) and the asserted depth stay as M1-A1j decided
+  (the user's ruling of 2026-11-09). This task is evidence for the user's band
+  choice and does not make it.
+- Every comparison is at matched physical time, never at equal step index.
+- Shapes are paired geometrically, never field-wise and never with
+  `compare_output.py`.
+
+**Session decisions:**
+- **One Beatnik launch, HIP np1**, stands for all four (`## M1-A1`: they agree
+  to `4e-16`). No new Beatnik run was needed.
+- **Methods** (`m1d3_drift.py`). For each reference checkpoint at `time` t,
+  the compared run is linearly interpolated in time between its two bracketing
+  checkpoints.
+  - **Statistics:** total area and centroid `z` come from
+    `milestone1_gold_stats.stats`, which the script imports, so the
+    definitions are the test's. At gold step 1610 it reproduces `## M1-A1`'s
+    `area_rel` `1.061e-2` and `rise_err` `-2.525e-3`. These differ from the
+    test's `1.063e-2` and `-2.545e-3` only because the checkpoints are 10
+    steps apart, where the test interpolates per step.
+  - **Radial function:** 864 rays on a (36 polar × 24 azimuth) grid are cast
+    from the reference's area-weighted centroid against each mesh, taking the
+    farthest hit. `dr = r_compared − r_reference`.
+  - **Polar bands:** faces are binned into 5° bands by the polar angle of
+    their centroid about the same point (θ = 0 is the top, 180° the bottom),
+    giving area, face count and mean edge length per band.
+- **One variable per run, using the reference's own code.** The reference has
+  `--restart-from` and `--t-end`, so each candidate cause became a reference
+  run that differs from the gold in exactly one input:
+  - `ctl`: a restart from the gold's own step 10, as a control;
+  - `bk10`: a restart from Beatnik's step-10 state. Only the mesh Tessera
+    selected at steps 1–3 changes;
+  - `dtpin`: a run from step 0 with Beatnik's step sizes, which
+    `m1d3_refrun.py` substitutes for `choose_step_dt`. Only the step-size
+    sequence changes.
+
+  The runs wrap the reference without editing it. Running the reference is
+  the cheaper and cleaner isolation, because it needs no Beatnik code or
+  parameter change. A Beatnik run with a pinned step size would need one.
+- **Converting Beatnik's step-10 state** (`m1d3_refrun.py convert`) takes
+  `potential` and `remesh_material_position` from the `.h5` vertex fields of
+  those names. Checked at step 0 against the gold, with vertices paired by
+  position: `potential` is identical and `remesh_material_position` agrees to
+  `5.6e-17`.
+
+**The shapes measurably part from gold step 600 (`time` 0.558)** (Beatnik
+steps 530–531). From gold step 50 to 250, Beatnik's shape differs from the
+gold's by a flat `dr_rms` of `0.99e-3`–`1.05e-3`. That plateau is the sampling
+difference of two meshes of the same surface, set by step 10. From gold step
+300 it grows monotonically: `1.54e-3` at 600 (1.5× the plateau), `2.67e-3` at
+1000, `4.97e-3` at 1300 and `1.15e-2` at 1610. Gold step 600 is also where the
+bottom jet's time lead turns positive. A time lead τ is the
+Beatnik-minus-gold difference of a quantity divided by the gold's rate of
+change of that quantity, so a positive τ means Beatnik is ahead. The bottom
+jet's τ (bottom three polar bands, 165–180°) is `-0.0006` at gold step 600,
+`+0.0033` at 700, `+0.0081` at 1000 and `+0.0226` at 1610. Where the shapes
+differ, per polar band at gold step 1610 (Beatnik step 1440), `dr` in units
+of 1e-3:
+
+| θ | 2–32° (top) | 42–62° | 72–132° (equator) | 142° | 152–172° (jet) |
+| --- | --- | --- | --- | --- | --- |
+| `dr` (1e-3) | −4.1 to −5.7 | −3.6 to −1.1 | +1.4 to +3.9 | −41.8 | −13.7 to −10.0 |
+
+Beatnik's bubble is ahead in its deformation: a flatter top, a wider equator
+and a bottom jet that has gone further up. The gold's bottom radius at
+152–172° falls from 0.247 (step 0) to 0.07–0.085 (step 1610), and that
+narrowing is where most of the late area grows. The −41.8 at 142° is where
+the jet meets the shoulder, at a steep slope in `r` (the gold's azimuthal
+spread there is `2.66e-2`).
+
+**Why the area misses only after gold step 1000.** Measured as time leads,
+the area gap grows only gently: τ is `+0.0124` at gold step 1000, `+0.0161` at
+1200 and `+0.0214` at 1610. Over the same steps the gold's area growth rate
+rises from `0.045` to `0.118` and then `0.42` per unit time. So a roughly
+constant lead in deformation turns into an area difference that grows
+quickly, and it crosses the band at gold step 1060. The rise lag works the
+same way: τ is `-0.0003` at 1000 and `-0.0093` at 1610.
+
+**The deciding runs**, each compared with the gold at matched time:
+
+| run (one variable) | worst `area_rel` | worst `rise_err` | first area > 1e-3 | first rise > 1e-3 | at gold step 1610 (area, rise) |
+| --- | --- | --- | --- | --- | --- |
+| Beatnik HIP np1 (M1-A1j) | `+1.061e-2` @1610 | `-2.525e-3` @1610 | 1060 | 1340 | `+1.061e-2`, `-2.525e-3` |
+| `ctl`: gold restart at step 10 | `+3.1e-15` | `+1.5e-15` | never | never | `+3.1e-15`, `+1.2e-15` |
+| `bk10`: Beatnik's step-10 state | `+1.047e-2` @1610 | `-2.808e-3` @1610 | 980 | 1200 | `+1.047e-2`, `-2.808e-3` |
+| `dtpin`: Beatnik's step sizes | `+9.93e-4` @1510 | `-2.31e-4` @1550 | never | never | `+7.90e-4`, `-2.26e-4` |
+
+The `bk10` row's thresholds and worsts are at gold steps. `bk10`'s gold steps
+1000 and 1610 are its own steps 890 and 1470.
+
+**`bk10` against Beatnik** (the same starting state, then the reference's code
+or Beatnik's), at `bk10`'s checkpoint times:
+- Identical through `bk10` step 240 (`time` 0.2649): `dr_rms` at most
+  `7.2e-16`, `area_rel` at most `3.3e-16`, `rise_err` at most `1.2e-15`, and
+  1032 faces on both sides. So for 230 steps on the same mesh, adaptive step
+  rule included, Beatnik's solver, remesh decisions and step sizes are the
+  reference's to round-off.
+- At step 250 (`time` 0.2755) they part on a remesh selection. The reference
+  splits to 1034 faces; Beatnik splits to 1036 between its steps 250 and 260.
+- From then to `time` 1.2382 they stay within area `4.38e-4` (worst at `bk10`
+  step 960, `time` 0.9107) and rise `5.68e-4` (step 1180). At the end (`bk10`
+  step 1474, Beatnik step 1447–1448) they differ by area `1.37e-4` and rise
+  `2.83e-4`, both inside the bands.
+
+**Verdicts on the four candidates:**
+- **Resolution: supported, as mesh realisation; ruled out as face count.**
+  The gap comes from which mesh the trajectory runs on. The reference, given
+  Beatnik's step-10 mesh (518/1032 against the gold's 547/1090, the product of
+  M1-D2's step-2 collapse selection), drifts from the gold by `1.047e-2` and
+  `2.81e-3`, which is Beatnik's drift. Face count is not the lever.
+  - At gold step 1610, `bk10` carries 1240 faces against the gold's 1216
+    (+2.0 %), where Beatnik carries 1197 (interpolated, −1.6 %). Both have
+    about 1.05 % more area than the gold.
+  - Per band at gold step 1610, Beatnik is coarser than the gold over 0–90°.
+    Mean edge length is `0.0534`/`0.0582`/`0.0528` against
+    `0.0502`/`0.0519`/`0.0500` in the 0–30/30–60/60–90° bands, with 34/94/185
+    faces there against 40/117/203. It is finer in the jet shoulder, with 594
+    faces against 553 at 120–150°.
+  - The excess area (`+9.0e-3` in total) is not concentrated in the coarse
+    bands. In units of 1e-3 it is +2.7 at 30–60°, +4.4 at 60–90° and +5.4 at
+    120–150°, and −2.2 at 0–30° and −2.3 at 150–180°.
+- **A physical-trajectory difference: supported as the mechanism, not as a
+  difference in the physics.** The bubble does deform faster and rise less on
+  Beatnik's mesh, as the parting described above shows. But the reference's
+  own physics does the same on that mesh, and it agrees with Beatnik to `7e-16`
+  while the meshes are the same. There is no solver difference.
+- **The gold's own late behaviour: ruled out as the cause.** `ctl` reproduces
+  the gold to `3.1e-15` through step 1610, so the gold is a deterministic
+  reference run. The drift starts from gold step 300 to 600, long before the
+  gold's mesh grows (from 1100) and its surge (1620: 1590 faces, still smooth;
+  1624: 4002 faces, area `3.1e144`). The reference from Beatnik's mesh,
+  `bk10`, shows the same drift on its own trajectory. Which of the two
+  trajectories is the more accurate cannot be decided from these data.
+- **A step-size effect: ruled out as the cause.** It contributes less than
+  10 %. `dtpin` gives the reference every step size Beatnik took
+  (`## M1-D2`'s minimum-edge lead: Beatnik's step is 3–42 % longer through
+  gold step 1450). Its worst miss is `9.93e-4` in area and `2.31e-4` in rise,
+  inside both bands, against Beatnik's `1.06e-2` and `2.5e-3`. In the existing
+  data the step-size ratio also swings from 1.22 at gold step 1450 to 0.93 at
+  1500 while the drift keeps growing smoothly.
+
+**What it implies for M1-A1's two missed bands: a measured discretisation gap,
+not a defect.** Two runs of the reference's own solver, rules and step rule
+that differ only in which collapses were selected at step 2 end `1.05e-2`
+apart in area and `2.8e-3` apart in rise at gold step 1610. That spread is
+larger than the decided bands (`1e-3` each) over gold steps 980–1610 (area)
+and 1200–1610 (rise). Beatnik sits inside that spread: within `4.4e-4` in
+area and `5.7e-4` in rise of the reference started from its own state. A
+single different split at `time` 0.276 is enough to produce that much.
+
+**Only running revealed:**
+- From a shared state, Beatnik and the reference agree to round-off through
+  230 adaptive steps, `time` 0.013–0.265. The first parting after M1-D2's
+  step-2 selection is another remesh selection, one split at step 250. It is
+  not floating-point growth.
+- Pinning only the step-size sequence moves the reference's area by up to
+  `9.9e-4` at gold step 1510, just under the band. The area band is tight
+  against the reference's own sensitivity even before the mesh differs.
+- The gold is deterministic: a restart reproduces it to `3e-15` over 1600
+  steps, so it is not noisy.
+
+**Affects:**
+- **M1-A1:** no defect to fix. The two missed bands measure a discretisation
+  gap. The user chooses among:
+  - widening `kAreaRtol` and `kRiseAtol` to cover Beatnik's measured worsts
+    (`1.063e-2` and `2.545e-3` at gold step 1610) with headroom. The
+    reference-only spread from mesh selection alone is `1.047e-2` and
+    `2.808e-3`;
+  - asserting the decided `1e-3` bands only through gold step 1050, the last
+    step where every band holds (a change to the decided depth);
+  - a time-varying band.
+  - (option) the multi-round collapse independent set that M1-D2 noted, to
+    bring Beatnik's step-2 selection toward the reference's. Even then,
+    `bk10` against Beatnik shows that a later single-edge selection
+    difference gives up to `4.4e-4` (area) and `5.7e-4` (rise), so `1e-3` to
+    1610 would still depend on matching every selection.
+
+  Its prompt file `tasks/milestone1_M1-A1.md` predates this finding and should
+  be rewritten after review.
+- No other task changes.

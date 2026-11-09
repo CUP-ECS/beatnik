@@ -16,8 +16,12 @@ non-zero, both failure directions pass) but **missed two bands** identically on
 all four compare launches: total area from gold step 1060 (worst `1.063e-2`
 against `1e-3`, step 1610) and rise from gold step 1340 (worst `2.545e-3`
 against `1e-3`, step 1610); log `## M1-A1`. The user ruled to keep every band
-as decided and diagnose the drift first: **M1-D3** (NOT STARTED) does that, and
-M1-A1 (NOT STARTED) now depends on it.
+as decided and diagnose the drift first. **M1-D3** is **DONE**. The drift is
+a discretisation gap, not a defect. The reference's own solver, restarted from
+Beatnik's step-10 mesh, misses the gold by the same amount (area `1.047e-2`,
+rise `2.808e-3` at step 1610). Step size, the gold's late behaviour and face
+count are ruled out (log `## M1-D3`). M1-A1 (NOT STARTED) awaits the user's
+band choice against those measured values.
 
 ## Problem
 
@@ -2288,7 +2292,7 @@ was accepted and was in state RUN at submission; its output is M1-A1's.
 
 ---
 
-### M1-D3 — why the trajectory drifts from the gold after gold step 1000 — **NOT STARTED**
+### M1-D3 — why the trajectory drifts from the gold after gold step 1000 — **DONE**
 
 **Depends on:** M1-A1j (its job `f3j79G2VDX4T`, read in the log's `## M1-A1`).
 
@@ -2303,8 +2307,8 @@ it changes no tolerance and no remesher behaviour.
 **Fill in:** a diagnostic script or job under `scripts/tuolumne/` (BSD header),
 output under `/p/lustre5/stewartj/beatnik/M1-D3/`, and the log's `## M1-D3`
 section. Beatnik's M1-A1j checkpoints
-(`/p/lustre5/stewartj/beatnik/M1-A1j/out/<tag>/beatnik_milestone1/`, every 10
-steps) and M1-G3's gold `.npz` (`/p/lustre5/stewartj/beatnik/M1-G3j/out/`) are
+(`/p/lustre5/stewartj/beatnik/M1-A1j/out/Beatnik_Test_Milestone1Bubble_MPI_<BACKEND>_np<N>/beatnik_milestone1/<Backend>_np<N>_compare/`,
+e.g. `HIP_np1_compare/`, every 10 steps) and M1-G3's gold `.npz` (`/p/lustre5/stewartj/beatnik/M1-G3j/out/`) are
 the first inputs; read them before running anything new.
 
 **Removes:** nothing.
@@ -2317,15 +2321,17 @@ nonfinite stop at step 1625), and
 
 **Do:** at matched physical time, separate the candidate causes and say which
 the numbers support:
-- **resolution** — Beatnik carries 2.5–5 % fewer faces late (1186 against
-  1216 at gold step 1610), yet has the *larger* area; compare the two meshes'
+- **resolution** — Beatnik carries 0.7–3.7 % fewer faces late (1.3 % at gold
+  step 1200, 2.9 % at 1300, 3.7 % at 1400, 0.7 % at 1500, 2.5 % at 1610:
+  1186 against 1216), yet has the *larger* area; compare the two meshes'
   shapes (e.g. per-region or by polar angle) rather than totals alone;
 - **a physical-trajectory difference** — the rise lags while the area grows,
   i.e. the bubble deforms more and rises less; locate where on the surface the
   shapes part and from what time;
 - **the gold's own late behaviour** — whether the reference's trajectory
-  approaching its step-1625 blow-up is itself the outlier (its mesh surges
-  from step 1100);
+  approaching its step-1625 blow-up is itself the outlier (its mesh grows
+  from step 1100, 1078 faces at 1150 to 1216 at 1610, and surges only at
+  steps 1620–1624);
 - **a step-size effect** — Beatnik reaches gold step 1610's time at its own
   step 1447–1448, so it takes longer steps late; whether the drift tracks the
   dt difference.
@@ -2336,6 +2342,26 @@ support and which they rule out, with the numbers that decide it, and states
 what it implies for M1-A1's two missed bands (a defect to fix, or a
 measured physical/resolution gap for the user to set a band against). No
 tolerance, `kSteps` or remesher change is made here.
+
+**Met.** Measured on M1-A1j's HIP np1 checkpoints, M1-G3's gold, and three
+reference runs (job `f3j7Pykw2A6s`), each changing one variable; log
+`## M1-D3`. The shapes measurably part from gold step 600 (`time` 0.558).
+**The drift is a mesh-realisation (discretisation) gap and not a defect.** The
+reference's own solver, rules and step rule, restarted from Beatnik's step-10
+state (`bk10`), miss the gold at gold step 1610 by area `+1.047e-2` and rise
+`-2.808e-3`, against Beatnik's `+1.063e-2` and `-2.545e-3`. `bk10` equals
+Beatnik to `7e-16` through its step 240 and stays within `4.4e-4` (area) and
+`5.7e-4` (rise) of it to `time` 1.2382. Four checks rule the other causes out:
+- **Step size:** the reference run with Beatnik's step sizes misses by at most
+  `9.9e-4` and `2.3e-4`, inside both bands.
+- **The gold's late behaviour:** a restart from the gold's own step 10
+  reproduces it to `3e-15`.
+- **Face count:** `bk10` carries *more* faces than the gold late (1240 against
+  1216) and the same excess area.
+- **Remesher:** both codes' late meshes are fixed points of the reference's
+  rules (probe job `f3j7R4vqZF67`).
+
+No compiled file changed.
 
 ---
 
