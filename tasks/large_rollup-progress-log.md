@@ -45,8 +45,8 @@ to stop describing the code.
 ## P1
 
 **Commits:** `560cb03` (`scripts/tuolumne/large_rollup_probe.flux`), `6cef416`
-(this section's first part and the P1 exit-criterion wording fix), and the
-P1b commit (`scripts/tuolumne/large_rollup_probe_b.flux`, the P1b
+(this section's first part and the P1 exit-criterion wording fix), and
+`c938e46` (`scripts/tuolumne/large_rollup_probe_b.flux`, the P1b
 subsection below, P1 marked **DONE**).
 **Jobs:**
 - `f3j99ZVqFY9d`, `scripts/tuolumne/large_rollup_probe.flux`, job log
