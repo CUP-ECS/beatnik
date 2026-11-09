@@ -319,7 +319,7 @@ explicit viscous limit $dt\,\mu/h_{min}^2 \approx 0.5$: `--mu 0` at
 Level-7 np4 direct cost is 0.44 s/step (4.5 s/step while remeshing heavily).
 Peak RSS is ≤ 1.7 GB/rank.
 
-### P1c — stability and cost at an edge-tied eps, np4 and np8 — **NOT STARTED**
+### P1c — stability and cost at an edge-tied eps, np4 and np8 — **DONE**
 
 **Depends on:** P1.
 **Fill in:** `scripts/tuolumne/large_rollup_probe_c.flux` (new). No source change.
@@ -378,6 +378,16 @@ and D1 does not resume until the log explains it. A nonfinite stop in an eps
 `8e-3` arm while the baseline reaches step 60 is a measured result (eps
 `8e-3` is unstable at this dt rule), recorded with its last progress lines,
 not a task failure.
+
+**Met.** Job `f3j9ihiaeo7u` (log `## P1c`), exit 0. All four launches rc 0
+and reached step 60 with no stop line: `L7_np4_eps0.025`, `L7_np4_eps8e-3` and
+`L7_np8_eps8e-3` at $t = 0.0234$, `L6_np4_eps1.6e-2` at $t = 0.0937$. The
+baseline's $dt\,\mu/h_{min}^2$ at step 60 is 0.343 (dt 3.13e-4, `minEdge`
+0.00135), within 0.41 and matching P1b's `L7_np4_dt8e-4_pow2`. Every arm ended
+at the same ratio, 0.343. Eps `8e-3` gives the same dt sequence as 0.025, so
+the steps to $t = 2.5$ are about 8,000–17,100 for both. np8/np4 s/step is
+0.428 / 0.440 = 0.97: no rank speedup over 4 → 8. No launch remeshed, so the
+raised caps and the remesh-interval scaling are unmeasured.
 
 ### D1 — choose the production parameter set — **NOT STARTED**
 

@@ -412,3 +412,139 @@ caps, ideally with an np8 arm. V1j — pilot is level 6 np4 on 1 node, two
 segments at `-t 90m` in `pbatch`; its eps and `--dt` await P1c. R1j —
 production is np8 on 2 nodes, 12h segments; the segment count and fit within
 35 node-h await P1c.
+
+## P1c
+
+**Commits:** `b014788` (`scripts/tuolumne/large_rollup_probe_c.flux`, new);
+the docs commit that adds this section and marks P1c DONE in
+`tasks/large_rollup.md`.
+**Jobs:** `f3j9ihiaeo7u`, `scripts/tuolumne/large_rollup_probe_c.flux`, job log
+`/p/lustre5/stewartj/beatnik/large_rollup/P1c/large_rollup_P1c.f3j9ihiaeo7u.log`,
+per-launch logs `/p/lustre5/stewartj/beatnik/large_rollup/P1c/<tag>/launch.log`
+for the four tags below (checkpoints beside each). COMPLETED, exit 0; queued
+11.4 min in `pdebug`, ran 2.6 min. Echoed HEAD `9e97da8`, porcelain 3
+(`commands.sh`, the P1c prompt, the uncommitted script), exe
+`.spack-env/view/bin/adaptive_mesh_bubble`, `beatnik@develop` `ckhvawf`, HIP
+6.4.43484. All four launches rc 0 and reached step 60. **The baseline
+`L7_np4_eps0.025` reached step 60 with $dt\,\mu/h_{min}^2 = 0.343$**
+($\le 0.41$), matching P1b's `L7_np4_dt8e-4_pow2` line for line (step-60 dt
+3.13e-4, `minEdge` 0.00135, `max|S|` 1.49e-2): the raised caps and the floor
+`5e-5` changed nothing at this horizon.
+
+An earlier submission, `f3j9ZmJVgkBy`, failed at `shell_init` (exception
+type=exec, nothing ran) because the `--output` directory `.../large_rollup/P1c`
+did not exist: the Flux shell opens the log before the script's own `mkdir`.
+The directory was created and the unchanged script resubmitted. The job's
+`jobid =` provenance line prints `unknown` (`FLUX_JOB_ID` is not set in the
+batch shell); the job ID is the one above.
+
+### Decisions (taken before the run)
+
+- The launch matrix, caps, `--steps 60` and job size are exactly P1c's
+  **Do** 1–4; no launch was added, dropped or resized.
+- The baseline reproduces P1b's `L7_np4_dt8e-4_pow2` plus only the raised caps
+  and `--min-dt 5e-5`. `--remesh-h-min 1.5e-3` and
+  `--remesh-sagitta-tolerance 0.004` are the example's defaults
+  (`examples/02_adaptive_mesh_bubble/InputFile.hpp:1148-1149`), so passing
+  them explicitly changes nothing relative to P1b.
+- `--mu 0.002` is in the base arguments (configuration (a)'s physics).
+- Implementation choice: the launch table carries a node-count field (1 for
+  np4, 2 for np8) beside the rank count; the launch line is otherwise P1b's.
+- No source change (`git diff 01e874f HEAD -- src examples tests
+  CMakeLists.txt` empty). `spack -e ~/spack_envs/tuolumne_beatnik install`
+  re-ran beatnik `ckhvawf`'s build stages in 41 s, rc 0, before submission.
+- Each solver header confirms the arguments took effect, e.g. `physics A 0.3,
+  g 1, eps 0.008, mu 0.002` and `time steps 60, dt 0.0008, adaptive on,
+  min_dt 5e-05` for `L7_np4_eps8e-3`.
+
+### Per-launch record
+
+s/step is the median over the post-step-1 progress intervals (every launch has
+one slow interval, 48→54: 0.55–0.78 s/step at level 7 and 0.18 at level 6.
+The median ignores it). Setup is launch start to the `step=    1` line. RSS is
+peak `rss_kb` per rank in **GB = `rss_kb`/10⁶**. The ratio column is
+$dt\,\mu/h_{min}^2$ at step 60 on the measured `minEdge`, with $\mu = 0.002$.
+
+| Tag | rc | Outcome | V / F step 1 | V / F step 60 | s/step | Setup s | dt step 60 | minQ / minEdge / volRel step 60 | max\|S\| step 60 | $dt\,\mu/h^2$ step 60 | Peak RSS per rank (GB) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `L7_np4_eps0.025` | 0 | reached step 60, t 0.0234 | 163842 / 327680 | 163842 / 327680 | 0.443 | 12.2 | 3.13e-4 | 0.974 / 0.00135 / 2.2e-16 | 1.48732e-2 | 0.343 | 1.21, 1.26, 1.21, 1.20 |
+| `L7_np4_eps8e-3` | 0 | reached step 60, t 0.0234 | 163842 / 327680 | 163842 / 327680 | 0.440 | 11.8 | 3.13e-4 | 0.974 / 0.00135 / 0 | 1.48730e-2 | 0.343 | 1.21, 1.24, 1.20, 1.28 |
+| `L7_np8_eps8e-3` | 0 | reached step 60, t 0.0234 | 163842 / 327680 | 163842 / 327680 | 0.428 | 9.2 | 3.13e-4 | 0.974 / 0.00135 / 2.2e-16 | 1.48730e-2 | 0.343 | 1.17, 1.16, 1.17, 1.16, 1.18, 1.17, 1.16, 1.17 |
+| `L6_np4_eps1.6e-2` | 0 | reached step 60, t 0.0937 | 40962 / 81920 | 40962 / 81920 | 0.118 | 7.2 | 1.25e-3 | 0.974 / 0.0027 / 0 | 5.93112e-2 | 0.343 | 1.05, 1.06, 1.06, 1.05 |
+
+No stop lines. `remesh_events=0`, `refine_events=0` and `flips=0` on every
+progress line of every launch: nothing was split or collapsed, so the raised
+caps were never exercised.
+
+**np8 binding (mpibind, verbose):** two shells, each printing `task 0..3 nths
+24 gpus 0..3` with cpus `1-7,9-15,17-23,97-103,105-111,113-119` (task 0)
+through `73-79,81-87,89-95,169-175,177-183,185-191` (task 3): one GPU and 24
+cores per rank, four ranks per node, on both nodes. The binding is correct, so
+the np8 s/step is not an oversubscription artifact.
+
+### Derived results
+
+**1. Stable dt and steps to $t = 2.5$, eps `8e-3` against 0.025.** Both are
+stable through step 60, and their dt sequences are identical (8.00e-4 →
+3.13e-4), because the `--dt-edge-power 2` rule sets dt from `minEdge` alone and
+eps does not enter it. The trajectories agree to five significant figures in
+`max|S|` and differ only in `centroid_z` (2.50094e-1 vs 2.50104e-1). The
+measured rule is $dt \approx 172\,h_{min}^2$ (ratio 0.343 in every arm, level 6
+included). By P1b's method, the steps to $t = 2.5$ are about **8,000** at
+`minEdge` 1.35e-3 and about **17,100** at the collapse floor
+$0.45\,h_{max} = 9.2\times10^{-4}$, for both eps. That is about 12 % above
+D1's 7,100–16,000, which used $c = 0.4$ ($200\,h^2$) where the run's rule gives
+0.343. Caveat: 60 steps reach only $t = 0.023$, where the sheet strength is
+small (`max|S|` 1.5e-2) and the eps difference has barely acted. "Stable at
+eps `8e-3`" is therefore shown only for the start; whether a smaller eps
+destabilises the rolled-up sheet later is not measured here.
+
+**2. np8/np4 s/step at eps `8e-3`.** 0.428 / 0.440 = **0.97**, an exponent of
+$P^{-0.04}$ from 4 to 8 ranks, against $P^{-0.68}$ from 1 to 4 (P1). Every
+interval is a no-remesh interval, so this is the direct-sum-plus-fixed-mesh
+cost only. **The ratio with remesh events is unmeasured**, because no launch
+remeshed. At 200,000 vertices ($N^2$ from 163,842): np4 0.656, np8 0.638
+s/step. Doubling the nodes buys about 3 %.
+
+**3. Production node-hours at np8 (2 nodes), against 35 node-h.** D1's three
+regimes, re-derived with the measured np8 cost and the 8,000–17,100 steps:
+
+| Regime | s/step (np8, 200k) | Wall | Node-h | ×1.25 (R1j chain margin), upper |
+| --- | --- | --- | --- | --- |
+| Direct sum only | 0.638 | 1.4–3.0 h | 2.8–6.1 | 7.6 |
+| Remeshing every step, scaled as the direct sum (×0.97) | 4.86 | 10.8–23.1 h | 21.6–46.2 | 57.8 |
+| Remeshing every step, not scaled | 5.0 | 11.1–23.8 h | 22.2–47.5 | 59.4 |
+
+The direct-sum regime fits 35 node-h with a wide margin. The two remeshing
+regimes now coincide, because the direct sum itself does not scale to np8:
+D1's middle row (3.12 s/step, $P^{-0.68}$) is not supported by the
+measurement. A run that remeshes every step fits 35 node-h at the 8,000-step
+end (21.6–22.2, 27.0–27.8 with the margin) and exceeds it at the 17,100-step
+end (46–48, 58–59 with the margin). Whether the run fits is set by how much it
+remeshes and how far `minEdge` falls, neither of which 60 steps measures.
+
+For comparison (not a run): np4 on 1 node costs the same wall for half the
+node-hours: direct only 1.5–3.1 node-h, remeshing every step 11.1–23.8
+node-h, 29.7 with the margin, inside 35 throughout.
+
+### Suggestions for D1 (not run)
+
+- Reconsider decision 5 (np8 on 2 nodes). At 164k vertices np8 is 3 % faster
+  than np4 on the measured intervals, at twice the node-hours. np4 on 1 node
+  fits 35 node-h in every regime above; np8 does not at the long end.
+- If D1 wants the eps `8e-3` stability shown past the start, a longer pilot
+  (V1j) is where it shows, not another 60-step probe.
+
+**Affects:** D1 — eps `8e-3` is stable at the start with the decided step-size
+rule, and gives the same dt as 0.025 (3.13e-4 at `minEdge` 1.35e-3; measured
+rule $dt \approx 172\,h_{min}^2$, ratio 0.343); steps to $t = 2.5$ are about
+8,000–17,100; np8 is 0.97× np4's s/step (no rank speedup measured), so np8
+production is 2.8–6.1 node-h direct-only and 21.6–47.5 node-h if it remeshes
+every step (≤ 35 only at the short end), while np4 on 1 node fits 35 node-h
+throughout; the raised edit caps and the remesh-interval scaling are
+unmeasured (no launch remeshed). V1j — the pilot candidate
+`L6_np4_eps1.6e-2` (`--eps 1.6e-2`, `--dt 3.2e-3`, `--min-dt 2e-4`) is stable
+through step 60 at the same 0.343 ratio, 0.118 s/step np4; by the same rule
+the pilot needs about 2,000–4,300 steps to $t = 2.5$ (`minEdge` 2.7e-3 to
+$0.45 \times 4.1\times10^{-3}$), about 4–8.4 min of step cost at np4 before
+remeshing.
