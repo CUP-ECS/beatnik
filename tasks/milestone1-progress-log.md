@@ -4094,3 +4094,159 @@ passed, so no verification job was submitted.
    change the code range.
 
 **Affects:** none
+
+## M1-A1j
+
+**Commits:** `f3a6c80` (the test, `Beatnik_Milestone1GoldStats.hpp`,
+`milestone1_gold_stats.py`, `Beatnik_Milestone1Params.hpp`,
+`tests/CMakeLists.txt` comments, `m1_milestone_run.flux`, `docs/testing.md`,
+README), and the commit that adds this section (`milestone1.md`, this log).
+
+**Jobs:** `f3j79G2VDX4T`, `scripts/tuolumne/m1_milestone_run.flux
+/p/lustre5/stewartj/beatnik/M1-A1j/stage` (`pdebug`, 1 node `--exclusive`,
+`-t 10m`, `--bank=unm`, dev env), stage
+`/p/lustre5/stewartj/beatnik/M1-A1j/stage/` (`COMMIT` = `f3a6c804a669…`,
+porcelain count 3: `milestone1.md`, `commands.sh` and the prompt file, none
+compiled; sha256 HIP `33d828fb…`, SERIAL `c1580498…`, comparator `4dde1cc2…`),
+output `/p/lustre5/stewartj/beatnik/M1-A1j/out/<tag>/` and
+`beatnik_m1_milestone.f3j79G2VDX4T.log` in the repo root. Submitted
+2026-11-09T09:51:05 through the loop's wrapper (rc 0); state RUN at once.
+**Pending: read by `M1-A1`.**
+
+**Decisions** (made before this session, recorded here, not reopened):
+everything under the task's **Decided** — step-0 field-wise depth at
+`--rtol 1e-10 --atol 1e-12`; physical-time matching with linear interpolation
+of Beatnik's per-step statistics; the five bands (rise `≤ 1e-3` absolute, area
+`≤ 1e-3` relative, Beatnik `|volume drift| ≤ 1e-12`, face count within
+`±0.10`, minimum quality `≥ 0.18`); valence and edge-length statistics printed,
+not asserted; one-round collapse kept and recorded as a Known Issue;
+`kSteps = 1610`; failure direction (b) failing on a statistics check. They were
+written into the design doc at `a9a0ae0` (reconciling M1-A1j after M1-D2) and
+narrowed to 1610 steps at `e798498`. This answers `## M1-D2 review` finding 3:
+**physical-time matching is a decided rule, not an inherited assumption**.
+
+**Rejected alternatives, and why:**
+- *Field-wise comparison past step 0.* The codes part on **selection**, not
+  floating point (`## M1-D2`): at step 1 Tessera cuts two-split quads on the
+  shorter diagonal (R13), 26 of 920 faces differ and the comparator's
+  `--match-eps 1e-9` pairing fails (M1-R8); from step 2 the counts differ
+  because Tessera's one-round collapse independent set accepts 8 of the 44
+  candidates the reference's serial walk accepts 31 of. No tolerance makes a
+  later step pass: the comparator stops at the count check
+  (`compare_output.py:555-566`) before any tolerance applies (`## M1-T2`).
+- *Step-indexed matching.* At equal step index Beatnik leads the gold in
+  `time` by `time_rel` 0.116–0.336 (`## M1-T2`), because its longer minimum
+  edge gives a longer adaptive step (`## M1-D2`). Comparing rise or area at
+  equal step would compare different physical times.
+- *A multi-round collapse.* It would bring Beatnik's step-2 collapse count
+  toward the reference's, but it is a behaviour change to the remesher that the
+  user chose not to make. Beatnik's mesh is already a fixed point of the
+  reference's own rules from step 3 on, so the difference is selection, not a
+  rule defect; it is recorded in README "Known Issues".
+- *Stopping at 600 steps.* The long gold set (M1-G3) exists to test past step
+  600: the mesh grows from step 1100 to 610/1216 at step 1610, which a 600-step
+  run never sees.
+
+**Implementation choices** (inside **Fill in**):
+- **Statistics by a rank-0 gather.** Every step every rank sends its owned
+  vertices (gid, position) and owned faces (corner gids, via `vertexGids()`)
+  to rank 0 by one `MPI_Gather` and three `MPI_Gatherv`; rank 0 computes the
+  statistics serially with the generator's definitions, quality through
+  `SurfaceOperators::triangleQuality` on host views. Counts, valences and the
+  minima are therefore rank-count independent exactly; the sums depend on the
+  rank count only through face order, at round-off. The gather is collective
+  on a parameter-only schedule (every step, every mode but `fail-step0`), and
+  `stop_now` is now broadcast every step. A face corner whose gid no rank owns
+  is a loud `[FAIL]`.
+- **Interpolation.** Every `MeshStats` field (counts included) is linearly
+  interpolated between the two Beatnik steps whose `time` brackets the gold's,
+  and the five bands are judged on the interpolant, including Beatnik's volume
+  drift and minimum quality. Step 0's `[m1stat]` line is printed
+  `verdict=unasserted`; the 161 checkpoints from step 10 are asserted. Gold
+  rows Beatnik's final `time` never reached are each a `[FAIL]`
+  (`stat_unreached`).
+- **Output contract.** `[m1traj]` is unchanged. `[m1step]` now appears only for
+  the step-0 comparison (and step 10 in `fail-step0`). New: `[m1stat]` per gold
+  checkpoint (`key=value`, Beatnik interpolant beside the gold value for every
+  statistic, `verdict=pass|FAIL|unasserted`, `failed=<bands>`), and one
+  `[m1statworst]` line with each band's worst value and its gold step.
+  `[m1final]` keeps every counter and adds `stat_wall`, `stat_checked`,
+  `stat_failed`, `stat_unreached` and `first_failing_stat_step`;
+  `first_failing_step` stays the field-wise comparison's.
+- **Liveness** keeps the five non-zero counter checks and the `time` bound
+  `|t/t_gold − 1| ≤ 1.0` at every step that is a multiple of 10, against the
+  gold `time` at the same step index from the new table.
+- **Failure direction (b)** stops at the first statistics failure and passes
+  iff a band failed, `cleanupFlips() == 0`, and the step-0 comparison had no
+  defect. Direction (a) is unchanged; its gold-count cross-check reads the new
+  table's step-0 row (162/320), which M1-G3 showed is `np.array_equal` to
+  M1-G2's step 0.
+- **Removed:** `toleranceForStep`, the `kDefaultTolerance` table, the 61-row
+  `kGold`, `kCheckpoints` and the per-step comparison loop. `goldForStep` and
+  the comparator wrapper stay: step 0 and direction (a) call them. Checked:
+  `grep -n "toleranceForStep\|kGold\b"` on the test prints nothing; the test
+  header, `kSteps`'s comment, `tests/CMakeLists.txt` (member list and argument
+  comment) and `docs/testing.md` no longer describe a 600-step field-wise
+  comparison.
+- **Formatting fixes** (`## M1-T2` **Affects:**): the step-0 mismatch message
+  prints `rtol`/`atol` with `%.3g`; `wall` now starts before the step-0
+  comparison, so `run_wall = wall − cmp_wall − stat_wall` is never negative.
+- **Generator** `tests/regression_tests/milestone1_gold_stats.py` (BSD header),
+  header `tests/regression_tests/Beatnik_Milestone1GoldStats.hpp` beside the
+  test, guarded by two `static_assert`s (162 rows, last step `kSteps`). Run
+  on the login node with `/usr/tce/bin/python3 -I` (numpy 2.1.2) over
+  `/p/lustre5/stewartj/beatnik/M1-G3j/out/`. It refuses to emit unless it finds
+  exactly one file for each of steps 0, 10, …, 1610 (steps above 1610 are never
+  read), all nine keys, every numeric field and every statistic finite, and
+  each row's step / `time` (6 decimals) / V / F equal to the README's
+  `## Per-checkpoint series` table. Its first run refused, correctly: the
+  README's cap section also lists 1620 and 1624 rows, so the parser reads only
+  that section. Its second run emitted 162 rows. Spot checks against
+  `## M1-D2`: gold step 10 minimum quality 0.78853, minimum edge 0.019534,
+  valence 91/378/69.
+- **`docs/testing.md`** milestone entry rewritten (time "at most twice the
+  gold's", `## M1-T2j review` nit 1); the walls row stays "not yet measured
+  (M1-A1)". README: the T4d coverage sentence names the new assertion, and
+  "Known Issues" gains the one-round collapse entry (pre-existing, by design).
+
+**Walltime sizing.** From `## M1-T2`'s run walls per 600 steps, 18.9 s (SERIAL),
+6.8 s (HIP np1) and 9.8 s (HIP np4), × 1610/600 × 1.13 for the gold's late
+mesh growth (`## M1-G3` **Affects:**): 57 s, 21 s and 30 s; with 5–9 s of launch
+overhead and one comparator call, a compare launch is about 70 s (SERIAL),
+31 s (HIP np1) and 44 s (HIP np4), the two failure directions about 5–10 s
+each, plus 26 s of job setup: about 4.5 min. `-t 10m` as **Submits:** says
+(about 2x; the statistics gather and the late O(N²) cost are unmeasured);
+`M1_BUDGET` 540 s, row estimates 140 / 140 / 70 / 90 / 30 / 40 s summing to
+510 s. No change to **Submits:** was needed.
+
+**Wait estimate:** about **8 minutes**: no queue wait (the job started at
+submission; recent `pdebug` jobs started at once or within 3 min) plus about
+5 minutes of run, rounded up.
+
+**Session notes:** one `spack install` (`spack -e ~/spack_envs/tuolumne_beatnik
+install`; the guard blocks `spack env activate`), rc 0, 13m09s,
+`HIPCC_*_FLAGS_APPEND` unset; log
+`/p/lustre5/stewartj/beatnik/M1-A1j/spack_install.log`, build output
+`build_out.txt` beside it. No `src/` file changed, so the gate was not run.
+clang-tidy does not apply (spack mode); clang-format was not run.
+
+**Affects:**
+- **M1-A1:** read `beatnik_m1_milestone.f3j79G2VDX4T.log` and
+  `M1-A1j/out/<tag>/launch.log`. The verdict lines are `[m1stat]` (one per gold
+  checkpoint, `failed=` names the band), `[m1statworst]` (each band's worst
+  value and gold step, the numbers to report against **Decided**), `[m1final]`
+  (`stat_checked` must be 161, `stat_failed` and `stat_unreached` 0) and the
+  step-0 `[m1step]`. Bands I expect to be tight:
+  - **Face count near step 1610.** The gold grows to 1216 faces at step 1610
+    while Beatnik held 1040 at step 600; if Beatnik's mesh does not grow with
+    it, `F_rel` reaches about 0.145 and misses `±0.10`.
+  - **Reaching `time` 1.238122 in 1610 steps.** Beatnik needs an average dt of
+    about 6.1e-4 over steps 600–1610 (the gold's falls to 5.82e-4 by step
+    1500). A shortfall is `stat_unreached > 0`, a loud failure.
+  - **Rise at late time.** The 1e-3 band was measured with 2.683e-4 of headroom
+    only through step 600; the rise grows to about 0.22 by `time` 1.238.
+  - **Late-run stability.** The reference went nonfinite at step 1625 after its
+    mesh surged; a Beatnik early stop is `run STOPPED EARLY`.
+
+  A missed band goes back to the user with the measured value (M1-R1); it is
+  not loosened here.
