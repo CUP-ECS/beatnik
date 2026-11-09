@@ -5215,3 +5215,45 @@ environment. All 80 warnings in the build log are in Kokkos's
 `Kokkos_HIP_KernelLaunch.hpp`.
 
 **Affects:** none; C1's review and the re-run sweep are next.
+
+## C1 review
+
+**Verdict:** Passed
+**Reviewed:** `47570c6^..47570c6` (code), with docs commit `64f12a8`
+(`tasks/milestone1.md`, this log).
+**Evidence:** no job; the criterion is greps, diff checks and the dev-env
+build, re-run here. The forbidden-text `git grep` over the four example and
+script files and `git grep -n 'unmeasured (T4d6' -- src` both return nothing
+(rc 1). `T4e` matches `CMakeLists.txt:23` and `adaptive_mesh_bubble.cpp:47`;
+`T5c` matches `CMakeLists.txt:25` and `adaptive_mesh_bubble.cpp:49`.
+`git show --stat 47570c6` lists exactly the five **Fill in** code files, and
+every `+`/`-` line of `git diff -w 47570c6~1 47570c6` is a `*`, `#` or `///`
+comment line. Dev-env install: `beatnik-develop-ckhvawf…` was installed with
+`bin/adaptive_mesh_bubble` stamped after the code commit, and its archived
+`spack-build-out.txt.gz` shows `adaptive_mesh_bubble.cpp.o` compiled (`:891`),
+no error lines, and `Install the project...` (`:1491`); every warning in it is
+in `Kokkos_HIP_KernelLaunch.hpp`. `## Problem` names no `Beatnik_Solver.hpp`
+line range, and M1-R1 and M1-R3 to M1-R8 each carry a status.
+
+Content checks: the four rejections the example headers name are exactly
+those in `requireSupportedConfiguration` (`src/Beatnik_Solver.hpp:791-829`),
+each off by default (`use_proximity = false`, `surgical_proximity = false`,
+`remesh_tight_after = -1.0`, `field_filter_every = 0`), the first three
+guarded by `remeshing`. The `renumber_gids_every` comment matches `## T4d6`'s
+ratio table (cadence 50: falls to 3098 at step 50, then 3104–3122; control:
+zero drops) and its RSS reading. Each Known-risk status matches the log
+section it cites. Read this first #4's two source references
+(`Beatnik_Solver.hpp:785-787`, `Beatnik_DynamicRemesh.hpp:97-99`) contain the
+T4d IDs. Mechanical pass (`review_checks.py --range 47570c6^..47570c6`): no
+candidates. No prompt file `tasks/milestone1_*.md` remains.
+
+1. [follow-up] `tasks/framework.md:1008-1011` (Phase 4's "Deliberate
+   deviations this decision introduces") says `--flip-passes > 0` and
+   `--isotropic-cleanup` are "rejected at setup" in the refine configuration,
+   in the present tense. C1's **Removes** wording reaches it, but its **Fill
+   in** does not include framework.md, and the implementing session recorded
+   the analogous `framework.md:770-773` T4a note as outside scope. Both
+   passages are framework.md's design record of T4a's scope; whether to
+   rewrite them is the user's call, alongside sweep follow-ups 6–8.
+
+**Affects:** none; the sweep is re-run next.
