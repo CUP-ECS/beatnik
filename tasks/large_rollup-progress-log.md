@@ -296,3 +296,53 @@ and RSS ≤ 1.7 GB/rank. V1j/R1j — segment sizing must use about 7,100 steps
 and a remesh-dependent s/step between 0.66 and about 5 (np4), not P1's
 first-job 1,340–4,500 range. R1 (risk text) — its remedy is superseded by the
 viscous-limit finding; D1 or a design-doc correction should restate it.
+
+## P1 review
+
+**Verdict:** Passed
+**Reviewed:** `560cb03^..964fab9` (code: `scripts/tuolumne/large_rollup_probe.flux`,
+`scripts/tuolumne/large_rollup_probe_b.flux`; the rest is `tasks/`)
+**Evidence:** the implementing session's jobs, output read; no verification job,
+since all four checks pass and the criterion is a measurement record, not a
+tolerance near its bound.
+- `f3j99ZVqFY9d`, `scripts/tuolumne/large_rollup_probe.flux`, log
+  `/p/lustre5/stewartj/beatnik/large_rollup/P1/large_rollup_P1.f3j99ZVqFY9d.log`:
+  COMPLETED, exit 0, queued 1.6 min, ran 14.84 min. Echoed HEAD `01e874f`,
+  porcelain 3; `git diff 01e874f 964fab9 -- src examples tests CMakeLists.txt`
+  is empty, so the binary is the one every P1 commit describes. Six summary
+  lines: `L6_np1` rc 0, `L6_np4` rc 0, `L7_np1` rc 142 (cap), `L7_np4`,
+  `L7_np4_dt1e-3`, `L7_np4_hmax_default` rc 1 with `nonfinite mesh-RHS state`
+  stop lines at steps 12, 33, 12.
+- `f3j9KFoF6Yto`, `scripts/tuolumne/large_rollup_probe_b.flux`, log
+  `/p/lustre5/stewartj/beatnik/large_rollup/P1/large_rollup_P1b.f3j9KFoF6Yto.log`:
+  COMPLETED, exit 0, queued 3.9 min, ran 7.0 min. Echoed HEAD `6cef416`
+  (only `tasks/` and scripts after `01e874f`). All four arms rc 0 and reached
+  step 60.
+- Both directions, read from each `<tag>/launch.log`: control
+  `L7_np4_hmax_default_dt4e-4` F 327678 (step 1) → 319952 (step 60),
+  `remesh_events` 4195; held `L7_np4_dt4e-4` F 327680 → 327680. At `--dt
+  0.003` the same pair shows F 327678 → 327502 against 327680 → 327680 at
+  step 6 before both blow up. Every V/F, dt, `minQ`, `minEdge`, `volRel`,
+  `max|S|`, stop line and `rss_kb` spot-checked in the two tables matches the
+  launch logs.
+
+The control pair was read at `--dt 4e-4` (P1b) rather than at the `--dt
+0.003` the exit criterion names, and P1b's script lies outside **Fill in**;
+both are the user's recorded decision in `## P1`, and are settled.
+
+1. [nit] `tasks/large_rollup-progress-log.md` `## P1` — the peak-RSS columns
+   use different units: the first table divides `rss_kb` by 10⁶ (`L7_np4`
+   1546632 → 1.55), the P1b table by 2²⁰ (`L7_np4_dt4e-4` 1218968 → 1.16).
+   "Matches P1's 1.5–1.7 GB/rank" therefore compares GB with GiB (P1's
+   range is 1.44–1.65 GiB). No conclusion changes; memory is not a
+   constraint either way. Accepted.
+2. [follow-up] `tasks/large_rollup.md` Known risks R1 — its remedy ("D1
+   lowers `--dt`; do not raise `--min-dt`") is contradicted by P1b's
+   viscous-limit finding ($dt\,\mu/h_{min}^2 \lesssim 0.4$; `--dt-edge-power
+   2` with a lowered `--min-dt`). Restating a risk's remedy is a design
+   correction for the user, to be taken up when D1's prompt is written.
+3. [follow-up] P1 measured no refinement (`refine_events=0` throughout), so
+   remesh cost at 200,000 vertices while refining is unmeasured; D1's cost
+   estimate brackets it at 0.66–about 5 s/step (np4).
+
+**Affects:** none beyond what `## P1`'s **Affects:** already states (D1, V1j/R1j, the R1 risk text).
