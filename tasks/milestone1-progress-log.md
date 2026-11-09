@@ -4250,3 +4250,53 @@ clang-tidy does not apply (spack mode); clang-format was not run.
 
   A missed band goes back to the user with the measured value (M1-R1); it is
   not loosened here.
+
+## M1-A1j review
+
+**Verdict:** Passed
+**Reviewed:** `f3a6c80^..f3a6c80` (code), with the doc and log commit `8da4caa`
+excluded from the code review.
+**Evidence:** submit task, verified without a verification job (the test's
+pass/fail is M1-A1's question).
+- **Job** `f3j79G2VDX4T` (`scripts/tuolumne/m1_milestone_run.flux
+  /p/lustre5/stewartj/beatnik/M1-A1j/stage`): the scheduler knows it, state
+  `RUN`, submitted 09:51:05, started 09:51:06 (about 1 s queue wait), about 2 min
+  of runtime at review.
+- **Stage:** `/p/lustre5/stewartj/beatnik/M1-A1j/stage/` exists. Its `COMMIT`
+  names `f3a6c804a669…`, the task's last code commit, and a porcelain count of 3.
+  sha256 of the staged `Beatnik_Test_Milestone1Bubble_MPI_HIP` (`33d828fb…`) and
+  `_SERIAL` (`c1580498…`) equals the dev view's
+  `share/Beatnik/tests/` copies.
+- **Script:** reads binaries, gold and comparator only from `$1` (the stage)
+  (`m1_milestone_run.flux:139-146`), and echoes `stage/COMMIT` in its
+  provenance block (`:172-174`); a missing `COMMIT` is a loud FAIL.
+- **Build:** `/p/lustre5/stewartj/beatnik/M1-A1j/spack_install.log` ends
+  `spack install rc=0 wall=792s`; `build_out.txt` has no `error` line.
+- **Exit criterion by reading:** `## Problem` states step-0 depth at
+  `--rtol 1e-10 --atol 1e-12`, the five bands and time matching, equal to
+  **Decided**. The test's `kStep0Tolerance` {1e-10, 1e-12}, `kRiseAtol` 1e-3,
+  `kAreaRtol` 1e-3, `kVolumeDriftMax` 1e-12, `kFaceCountRtol` 0.10,
+  `kMinQuality` 0.18 and `kSteps` 1610 equal them. The log's `## M1-A1j`
+  records the four rejected alternatives.
+- **Removes:** `git grep -w` for `toleranceForStep`, `kDefaultTolerance`, `kGold`
+  and `kCheckpoints` outside `tasks/` returns nothing. `goldForStep` and
+  `runComparator` still have callers (the step-0 comparison and direction (a)).
+- **Code read:** `gatherStats` is called on every rank on a parameter-only
+  schedule (every step, every mode but `fail-step0`). Its MPI buffers are host
+  `std::vector`s, filled after `Kokkos::fence()` and host mirrors. Owned rows
+  come first in `positions()`/`faceVertices()`, per
+  `Beatnik_MeshInterface.hpp:990`. `stop_now` is broadcast every loop
+  iteration, so no rank leaves the loop alone. The two `static_assert`s pin the
+  table to 162 rows ending at `kSteps`. The `review_checks.py` candidates
+  (K4 per-step host mirrors, M3 view data to MPI) were read and dismissed:
+  per-step host copies are the decided rank-0 statistics design in test code,
+  and the MPI buffers are host vectors.
+- **Prompt file:** no `tasks/milestone1_*.md` remains.
+
+1. [nit] The interpolant is applied to integer counts and to the minimum
+   quality, and the band is judged on it. This is recorded under the log's
+   **Implementation choices**, so it is not a finding against the code. If an
+   M1-A1 `min_quality` or `face_count` miss lands between two Beatnik steps, the
+   `[m1stat]` line's `step_lo`/`step_hi` say which raw steps to read.
+
+**Affects:** none
