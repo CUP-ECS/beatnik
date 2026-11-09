@@ -294,8 +294,9 @@ the launch line.
    for np 4, 8 and 16 (state the scaling exponent you assume and why), times
    the step count to `t = 2.5` at the measured dt.
 
-**Exit criterion:** the log's `## P1` section has the table above filled for
-all six launches. Each launch either reached `step=60`, or has its stop line or
+**Exit criterion:** the log's `## P1` section has a table with one row per
+launch of **Do** 2, holding every quantity **Do** 5 lists, for all six
+launches. Each launch either reached `step=60`, or has its stop line or
 its cap `rc` recorded with the last progress line before it. The control
 direction holds: `L7_np4_hmax_default`'s `F` at step 60 is **below** its
 step-1 `F`, while `L7_np4`'s step-60 `F` is within 5 % of its step-1 `F` or
