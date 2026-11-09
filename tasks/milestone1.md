@@ -15,8 +15,9 @@ statistics through step 1610 (code `f3a6c80`). Its confirming job
 non-zero, both failure directions pass) but **missed two bands** identically on
 all four compare launches: total area from gold step 1060 (worst `1.063e-2`
 against `1e-3`, step 1610) and rise from gold step 1340 (worst `2.545e-3`
-against `1e-3`, step 1610); log `## M1-A1`. M1-A1 is NOT STARTED, awaiting the
-user's ruling on those bands.
+against `1e-3`, step 1610); log `## M1-A1`. The user ruled to keep every band
+as decided and diagnose the drift first: **M1-D3** (NOT STARTED) does that, and
+M1-A1 (NOT STARTED) now depends on it.
 
 ## Problem
 
@@ -2287,9 +2288,61 @@ was accepted and was in state RUN at submission; its output is M1-A1's.
 
 ---
 
+### M1-D3 — why the trajectory drifts from the gold after gold step 1000 — **NOT STARTED**
+
+**Depends on:** M1-A1j (its job `f3j79G2VDX4T`, read in the log's `## M1-A1`).
+
+**Why this task exists.** M1-A1's confirming run has no defect, but the area
+band misses from gold step 1060 (worst `1.063e-2` at 1610) and the rise band
+from 1340 (worst `2.545e-3` at 1610), identically on SERIAL and HIP at ranks 1
+and 4. Through gold step 1050 every band holds. The user ruled (2026-11-09):
+keep every band, `kSteps` and the asserted depth as decided, and find out why
+the trajectory drifts **before** any tolerance is chosen. This task measures;
+it changes no tolerance and no remesher behaviour.
+
+**Fill in:** a diagnostic script or job under `scripts/tuolumne/` (BSD header),
+output under `/p/lustre5/stewartj/beatnik/M1-D3/`, and the log's `## M1-D3`
+section. Beatnik's M1-A1j checkpoints
+(`/p/lustre5/stewartj/beatnik/M1-A1j/out/<tag>/beatnik_milestone1/`, every 10
+steps) and M1-G3's gold `.npz` (`/p/lustre5/stewartj/beatnik/M1-G3j/out/`) are
+the first inputs; read them before running anything new.
+
+**Removes:** nothing.
+
+**Reference:** the log's `## M1-A1` (the growth tables), `## M1-D2` (the codes
+part on collapse selection from step 2; Beatnik's mesh obeys the reference's
+rules through step 600), `## M1-G3` (the gold's late mesh growth and its
+nonfinite stop at step 1625), and
+`tests/regression_tests/milestone1_gold_stats.py` (the statistic definitions).
+
+**Do:** at matched physical time, separate the candidate causes and say which
+the numbers support:
+- **resolution** — Beatnik carries 2.5–5 % fewer faces late (1186 against
+  1216 at gold step 1610), yet has the *larger* area; compare the two meshes'
+  shapes (e.g. per-region or by polar angle) rather than totals alone;
+- **a physical-trajectory difference** — the rise lags while the area grows,
+  i.e. the bubble deforms more and rises less; locate where on the surface the
+  shapes part and from what time;
+- **the gold's own late behaviour** — whether the reference's trajectory
+  approaching its step-1625 blow-up is itself the outlier (its mesh surges
+  from step 1100);
+- **a step-size effect** — Beatnik reaches gold step 1610's time at its own
+  step 1447–1448, so it takes longer steps late; whether the drift tracks the
+  dt difference.
+
+**Exit criterion:** the log's `## M1-D3` names the gold step (time) from which
+the shapes measurably part, which of the candidate causes the measurements
+support and which they rule out, with the numbers that decide it, and states
+what it implies for M1-A1's two missed bands (a defect to fix, or a
+measured physical/resolution gap for the user to set a band against). No
+tolerance, `kSteps` or remesher change is made here.
+
+---
+
 ### M1-A1 — the milestone test is green at the decided numbers — **NOT STARTED**
 
-**Depends on:** M1-A1j.
+**Depends on:** M1-A1j, M1-D3 (the user's ruling of 2026-11-09: no tolerance
+is chosen for the area and rise misses until M1-D3 explains the drift).
 
 **Fill in:** the progress log's `## M1-A1` section; the `Milestone1Bubble`
 row of the milestone walls table in [docs/testing.md](../docs/testing.md#the-tiers).

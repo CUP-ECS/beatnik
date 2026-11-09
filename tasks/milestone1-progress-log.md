@@ -4468,3 +4468,13 @@ about 20 s to each (job runtime 248.6 s against 220 s of launches). At about
   depth), or keep them and open a diagnostic task on the late drift first.
   M1-A1 resumes from that ruling; the milestone is not accomplished until it is
   made and a run passes.
+
+**User ruling (2026-11-09), recorded after the section above:** keep every
+band, `kSteps` and the asserted depth exactly as decided, and open a diagnostic
+task on why the trajectory drifts after about gold step 1000 before any
+tolerance is chosen. Done here: **M1-D3** ("why the trajectory drifts from the
+gold after gold step 1000", NOT STARTED) is added to `tasks/milestone1.md`
+ahead of M1-A1, and M1-A1 now depends on it. M1-A1 stays NOT STARTED; its
+prompt file `tasks/milestone1_M1-A1.md` was written before this ruling and
+should be rewritten by write-prompt once M1-D3 is reviewed. No code, tolerance
+or job changed.
