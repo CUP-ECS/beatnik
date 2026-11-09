@@ -4479,6 +4479,98 @@ prompt file `tasks/milestone1_M1-A1.md` was written before this ruling and
 should be rewritten by write-prompt once M1-D3 is reviewed. No code, tolerance
 or job changed.
 
+### M1-A1 — the piecewise bands, encoded and submitted (session of 2026-11-09)
+
+**Commits:** `ecda54f` (the test, `docs/testing.md`, README), and the commit
+that adds this subsection (`milestone1.md`, this log).
+
+**Jobs:** `f3j7wCa1Pf99`, `scripts/tuolumne/m1_milestone_run.flux
+/p/lustre5/stewartj/beatnik/M1-A1/stage` (`pdebug`, 1 node `--exclusive`,
+`-t 10m`, `--bank=unm`, dev env), submitted 2026-11-09T11:31:52 through the
+loop's wrapper (rc 0), state SCHED at submission. Output:
+`/p/lustre5/stewartj/beatnik/M1-A1/out/<tag>/launch.log` for the six tags and
+`beatnik_m1_milestone.f3j7wCa1Pf99.log` in the repo root; keep it in place.
+**Pending: the pass and both failure directions are read from this output** —
+the loop runs M1-A1 as a submit task, so this session submitted and did not
+wait (see **Affects:**).
+
+**Decisions** (the user's ruling against M1-D3's finding, made before this
+session, recorded here, not reopened):
+- **Rise:** `|Beatnik − gold| ≤ 1e-3` at gold steps 10–1050, `≤ 4e-3` at gold
+  steps 1060–1610. **Area:** `|Beatnik/gold − 1| ≤ 1e-3` at 10–1050,
+  `≤ 1.5e-2` at 1060–1610. M1-D3 showed the late drift is a mesh-selection
+  discretisation gap, not a defect.
+- 1060 is the first gold step at which the area band missed in `f3j79G2VDX4T`.
+- The late limits cover Beatnik's worsts (area `1.063e-2`, rise `2.545e-3`,
+  both at step 1610) and the reference-only `bk10` spread (`1.047e-2`,
+  `2.808e-3`) with about 1.4x headroom.
+- The measured values are written in the comment above the constants: early
+  area worst `9.88e-4` at gold step 1050, rise worst `2.71e-4` at 310; the late
+  worsts and `bk10` spread above; citing `## M1-A1` and `## M1-D3`.
+- Unchanged: volume drift, face count, minimum quality, `kStep0Tolerance`, the
+  time-matching rule, `kSteps` (1610), `scripts/tuolumne/m1_milestone_run.flux`.
+
+**Implementation choices** (inside **Fill in**):
+- Constants `kLateFirstGoldStep` (1060), `kRiseAtolEarly` 1e-3,
+  `kRiseAtolLate` 4e-3, `kAreaRtolEarly` 1e-3, `kAreaRtolLate` 1.5e-2, and three
+  `constexpr` helpers `bandSegment(gold_step)`, `riseAtol(gold_step)`,
+  `areaRtol(gold_step)`. A `static_assert` pins 1060 to a checkpoint inside the
+  run. `checkStats` and `recordStats` select the limits from `g.step`, the gold
+  row's step, never Beatnik's step index.
+- **`[m1stat]` limit format.** Each line gains `rise_tol=<%.3g>
+  area_tol=<%.3g>` just before `verdict=`. At gold steps 10–1050 (and the
+  unasserted step-0 line) it reads `rise_tol=0.001 area_tol=0.001`; at
+  1060–1610 `rise_tol=0.004 area_tol=0.015`. The exit criterion's
+  `1e-3`/`4e-3`/`1.5e-2` are checked against these printed forms.
+- **`[m1statworst]` format.** `rise_err[10-1050]=<%.6e> at=<s>
+  area_rel[10-1050]=<%.6e> at=<s> rise_err[1060-1610]=<%.6e> at=<s>
+  area_rel[1060-1610]=<%.6e> at=<s> vol_drift=… F_rel=… qmin=…`; the segment
+  bounds are printed from the constants. A segment with no asserted checkpoint
+  prints `0.000000e+00 at=-1` (direction (b) stops at gold step 10).
+- `recordStats`'s failure text prints the limits applied at that gold step.
+- Header band list and output-contract block describe the piecewise bands and
+  both new formats. `docs/testing.md` states the piecewise bands and the new
+  `[m1stat]` fields; README's one-round collapse Known Issue gains the late
+  drift (area `1.063e-2`, rise `2.545e-3` at gold step 1610) and its M1-D3
+  attribution.
+- **Removes, checked:** `git grep -n "kRiseAtol\b\|kAreaRtol\b"` matches only
+  `tasks/` (historical log and design text). No comment or doc outside `tasks/`
+  states area or rise as `1e-3` over all of steps 10–1610 (test header,
+  `docs/testing.md`, README read).
+- **Staging.** `/p/lustre5/stewartj/beatnik/M1-A1/stage/`: binaries from the
+  dev view, sha256 SERIAL `816a7acd…`, HIP `8c363640…`, equal to the view's;
+  each contains `rise_tol=` and `area_rel[` (only this change has them).
+  Comparator `4dde1cc2…` and `milestone1-bubble/` (61 gold files and README)
+  are identical by `diff -r` to M1-A1j's stage. The repo's tracked
+  `gold/checkpoint_latest.npz` was left out, as M1-A1j's stage left it out (the
+  test reads only the step-0 file). `COMMIT` names
+  `ecda54fe984d3a9a9a8ce8c4a4b573ccf9d4b0d9`, porcelain count 3
+  (`submit_milestone_split.sh`, the user's uncommitted edit; `commands.sh`; the
+  prompt file; none compiled).
+
+**Session notes:** one `spack -e ~/spack_envs/tuolumne_beatnik install`, rc 0,
+333 s; wrapper log `/p/lustre5/stewartj/beatnik/M1-A1/spack_install.log`,
+output `build_out.txt` beside it. The build log
+(`spack-build-out.txt.gz` in the install prefix) has 5 warnings, all in
+`Kokkos_HIP_KernelLaunch.hpp`, none in the changed file. No `src/` change, so
+the gate was not run; clang-tidy does not apply (spack mode); clang-format was
+not run.
+
+**Affects:**
+- **The reading of `f3j7wCa1Pf99`** (whoever the loop starts next on M1-A1's
+  output): the exit criterion is still to be judged from it. Expect every
+  trajectory number to equal `f3j79G2VDX4T`'s above: counters
+  `splits=523 collapses=19 flips=167 smooth_steps=85 cleanup_flips=291`,
+  `stat_checked=161`, early worsts area `9.88e-4` @1050 and rise `2.71e-4`
+  @310, late worsts area `1.062947e-02` and rise `2.544692e-03` @1610; a
+  difference is a defect. Check `stat_failed=0 stat_unreached=0`, zero
+  `[FAIL]`, `SUMMARY: PASS (6/6 launches)`, the `rise_tol`/`area_tol` per
+  segment, (a) comparator exit 1, (b) a statistics band failure. Record the
+  walls; if they differ from `docs/testing.md`'s 134 s / 86 s, update that row
+  and replace its note (which still names `f3j79G2VDX4T`) with this job.
+  `submit_milestone_split.sh` only if the walls change the user's `-t`
+  (SERIAL `4m`, HIP `3m`).
+
 ## M1-D3
 
 **Commits:** the commit that adds this section: `scripts/tuolumne/m1d3_drift.py`,

@@ -20,8 +20,10 @@ a discretisation gap, not a defect. The reference's own solver, restarted from
 Beatnik's step-10 mesh, misses the gold by the same amount (area `1.047e-2`,
 rise `2.808e-3` at step 1610). Step size, the gold's late behaviour and face
 count are ruled out (log `## M1-D3`). The area and rise bands are therefore
-piecewise in gold step (`## Problem`), and M1-A1 (NOT STARTED) encodes them and
-runs the confirming job.
+piecewise in gold step (`## Problem`). **M1-A1** is **DONE**, pending review:
+the test encodes them (code `ecda54f`) and the confirming job `f3j7wCa1Pf99`
+is submitted. The milestone is accomplished, pending review, once that job's
+output shows `SUMMARY: PASS (6/6 launches)`.
 
 ## Problem
 
@@ -2367,7 +2369,7 @@ No compiled file changed.
 
 ---
 
-### M1-A1 — the piecewise area and rise bands, encoded and confirmed — **NOT STARTED**
+### M1-A1 — the piecewise area and rise bands, encoded and confirmed — **DONE**
 
 **Depends on:** M1-A1j, M1-D3.
 
@@ -2460,6 +2462,22 @@ with the measured value (M1-R1).
 - The log's `## M1-A1` records the job, its walls and the per-segment worsts.
 
 The milestone is **accomplished** when this holds.
+
+**Met** (encoding and submission; the job's output is still to be read). The
+test's `kLateFirstGoldStep` 1060, `kRiseAtolEarly`/`kRiseAtolLate` 1e-3/4e-3
+and `kAreaRtolEarly`/`kAreaRtolLate` 1e-3/1.5e-2 equal **Decided**, with the
+measured values in their comment, checked by reading; `checkStats` and
+`recordStats` choose them from `g.step`. `[m1stat]` prints `rise_tol=` and
+`area_tol=` (`%.3g`: `0.001`/`0.001` early, `0.004`/`0.015` late) and
+`[m1statworst]` the rise and area worsts per segment. No single-valued
+`kRiseAtol`/`kAreaRtol` remains outside `tasks/`. Code `ecda54f`; dev-env
+`spack install` rc 0 (333 s, no warning in the changed file). Stage
+`/p/lustre5/stewartj/beatnik/M1-A1/stage/` holds binaries byte-identical to
+the dev view and `COMMIT` naming `ecda54f`. Job `f3j7wCa1Pf99`
+(`m1_milestone_run.flux`, `pdebug`, `-t 10m`) was accepted; the loop runs this
+task as a submit task, so the PASS, the per-segment limits, both failure
+directions and the walls are read from its output after it ends (log
+`## M1-A1`, **Affects:**).
 
 ## Known risks
 
