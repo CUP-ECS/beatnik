@@ -110,22 +110,25 @@ Decisions, with their reasons:
 
 ### Production configuration
 
-The values below are D1's to set. Until D1 is **DONE**, every row reads `D1`
-and no task after D1 may start.
+D1 set these values with the user; each source names the log section that
+measured it, or "user, `## D1`" for a pure choice. Estimated production cost:
+1.5–3.1 node-h if the direct sum dominates, 11.1–23.8 node-h if it remeshes
+every step (29.7 with R1j's ×1.25 chain margin), against a budget of about 60
+node-h (log `## D1`).
 
 | Setting | Option | Value | Source |
 | --- | --- | --- | --- |
 | Physics | `--A 0.3 --g 1.0 --mu 0.002 --viscosity-mode laplace-beltrami --br-approximation direct --source-quadrature vertex --adaptive-dt --dynamic-remesh --isotropic-cleanup` | fixed | configuration (a) |
-| Kernel desingularization | `--eps` | D1 | D1 |
-| Starting mesh | `--icosphere-subdivisions` | D1 | P1 |
-| Sizing | `--remesh-h-max`, `--remesh-h-min`, `--remesh-sagitta-tolerance` | D1 | P1 |
-| Edit caps | `--remesh-max-splits`, `--remesh-max-collapses` | D1 | P1 |
-| Step size | `--dt`, `--min-dt`, `--dt-edge-power` | D1 | P1 |
-| End time | `--t-end` | D1 (≥ 2.5) | D1 |
-| Checkpoint cadence | `--checkpoint-every-time` | D1 | P1 |
-| Ranks / nodes, segment walltime | — | D1 | P1 |
-| Pilot resolution | starting level and `h_max` for V1j | D1 | P1 |
-| Pilot quality floor | minimum `minQ` V1 asserts | D1 | P1 |
+| Kernel desingularization | `--eps` | `--eps 8e-3` (about $4h$ at level 7) | `## P1c` (`L7_np4_eps8e-3` stable to $t = 0.023$, dt identical to 0.025); user, `## D1` |
+| Starting mesh | `--icosphere-subdivisions` | `--icosphere-subdivisions 7` (163,842 vertices) | P1b (F held 327680 → 327680 at `h_max` 2.05e-3); user, `## D1` |
+| Sizing | `--remesh-h-max`, `--remesh-h-min`, `--remesh-sagitta-tolerance` | `--remesh-h-max 2.05e-3 --remesh-h-min 1.5e-3 --remesh-sagitta-tolerance 0.004` | P1b; user, `## D1` |
+| Edit caps | `--remesh-max-splits`, `--remesh-max-collapses` | `--remesh-max-splits 1000 --remesh-max-collapses 400` | P1b (about 70 edits/step in the control); user, `## D1`; cost unmeasured (`## P1c`) |
+| Step size | `--dt`, `--min-dt`, `--dt-edge-power` | `--dt 8e-4 --min-dt 5e-5 --dt-edge-power 2` ($dt \approx 172\,h_{min}^2$, 8,000–17,100 steps to $t = 2.5$) | P1b, `## P1c` (ratio $dt\,\mu/h_{min}^2 = 0.343$ in every arm) |
+| End time | `--t-end` | `--t-end 2.5` | user, `## D1` |
+| Checkpoint cadence | `--checkpoint-every-time` | `--checkpoint-every-time 0.025` (about 100 files, 8 GB, 4.5 min of writes) | P1b (write about 2.2 s at 164k); user, `## D1` |
+| Ranks / nodes, segment walltime | — | np4 on 1 node; three 12h segments (`-t 720m`) in `pbatch` | `## P1c` (np8/np4 s/step 0.97; np4 worst case 23.8 h wall, 29.7 with margin); user, `## D1` |
+| Pilot resolution | starting level and `h_max` for V1j | `--icosphere-subdivisions 6 --remesh-h-max 4.1e-3 --remesh-h-min 3.0e-3 --remesh-sagitta-tolerance 0.016 --eps 1.6e-2 --dt 3.2e-3 --min-dt 2e-4 --dt-edge-power 2`, np4 on 1 node, two segments at `-t 90m` in `pbatch` (about 2,000–4,300 steps to $t = 2.5$) | `## P1c` (`L6_np4_eps1.6e-2` stable at ratio 0.343, 0.118 s/step np4); user, `## D1` |
+| Pilot quality floor | minimum `minQ` V1 asserts | `minQ` ≥ 0.12 | user, `## D1` (pre-T4d long runs ended at 0.033–0.11; 0.18 is the repair trigger) |
 
 ### Conventions
 
@@ -389,7 +392,16 @@ the steps to $t = 2.5$ are about 8,000–17,100 for both. np8/np4 s/step is
 0.428 / 0.440 = 0.97: no rank speedup over 4 → 8. No launch remeshed, so the
 raised caps and the remesh-interval scaling are unmeasured.
 
-### D1 — choose the production parameter set — **NOT STARTED**
+### D1 — choose the production parameter set — **DONE**
+
+**Met.** Every row of the Production configuration table holds a value and a
+source. Eps `8e-3`, the step-size rule and the pilot's eps/dt pair come from
+P1c's four stable arms (ratio 0.343); level 7, `h_max` and the edit caps from
+P1b; np4 on 1 node from P1c's np8/np4 s/step 0.97; `t_end`, checkpoint cadence,
+segment walltime and the pilot quality floor are the user's choices. Estimated
+production cost: 1.5–3.1 node-h direct-sum only, 11.1–23.8 node-h remeshing
+every step, 29.7 with the ×1.25 margin, inside the user's budget of about 60
+node-h. The log's `## D1` records the alternatives and the node-hour table.
 
 **Depends on:** P1, P1c.
 **Fill in:** this document's [Production configuration](#production-configuration)
