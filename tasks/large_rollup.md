@@ -319,19 +319,79 @@ explicit viscous limit $dt\,\mu/h_{min}^2 \approx 0.5$: `--mu 0` at
 Level-7 np4 direct cost is 0.44 s/step (4.5 s/step while remeshing heavily).
 Peak RSS is ≤ 1.7 GB/rank.
 
-### D1 — choose the production parameter set — **NOT STARTED**
+### P1c — stability and cost at an edge-tied eps, np4 and np8 — **NOT STARTED**
 
 **Depends on:** P1.
+**Fill in:** `scripts/tuolumne/large_rollup_probe_c.flux` (new). No source change.
+**Removes:** nothing.
+**Reference:** `scripts/tuolumne/large_rollup_probe_b.flux` for the base
+arguments, launch line, caps, RSS wrapper, line timestamps and summary lines;
+log `## P1` (P1b subsection) for the arms being compared against, and `## D1`
+for the sizing, step-size and edit-cap values these launches carry.
+**Do:**
+
+1. Base arguments, every launch: configuration (a)'s physics (Production
+   configuration, first row), `--steps 60`, `--progress-time-interval 0`,
+   `--dt-edge-power 2`, `--remesh-max-splits 1000 --remesh-max-collapses 400`,
+   `--checkpoint-dir <out>/<tag> --checkpoint-every-steps 60`.
+2. Launches, each `flux run -t 8m`, with `--gpus-per-task=1
+   --cores-per-task=24` and the node count derived from the ranks (4 ranks
+   per node):
+
+   | Tag | Level | `--eps` | `--remesh-h-max` | `--remesh-h-min` | `--remesh-sagitta-tolerance` | `--dt` | `--min-dt` | Ranks |
+   | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+   | `L7_np4_eps0.025` | 7 | 0.025 | `2.05e-3` | `1.5e-3` | 0.004 | `8e-4` | `5e-5` | 4 |
+   | `L7_np4_eps8e-3` | 7 | `8e-3` | `2.05e-3` | `1.5e-3` | 0.004 | `8e-4` | `5e-5` | 4 |
+   | `L7_np8_eps8e-3` | 7 | `8e-3` | `2.05e-3` | `1.5e-3` | 0.004 | `8e-4` | `5e-5` | 8 |
+   | `L6_np4_eps1.6e-2` | 6 | `1.6e-2` | `4.1e-3` | `3.0e-3` | 0.016 | `3.2e-3` | `2e-4` | 4 |
+
+   `8e-3` is about four level-7 mean edges (`2.05e-3`). The first row is the
+   baseline: P1b's stable `L7_np4_dt8e-4_pow2` arm with the raised caps and
+   the floor `5e-5`, so a change between rows 1 and 2 is eps's alone. The
+   last row is the pilot candidate: every length doubled from level 7 and dt
+   scaled by 4, with eps at the same ratio to its edge.
+3. RSS and timestamps as in P1b: `/usr/bin/time -f "rss_kb=%M"` per rank,
+   each stdout line prefixed with `$(date +%s.%N)`, each launch's log in
+   `<out>/<tag>/launch.log`, then the summary line.
+4. Job: 2 nodes, `-t 45m`, `pdebug`, dev env, output under
+   `/p/lustre5/stewartj/beatnik/large_rollup/P1c/`. Expected run time is
+   about 10 minutes, an estimate from P1b (7.0 min for four level-7 arms at
+   0.44 s/step, 4.5 s/step when remeshing heavily); the four caps bound the
+   worst case at 32 min. The 1-node launches use one node of the allocation.
+5. Record in the log's `## P1c`, per launch, the quantities P1's **Do** 5
+   lists, plus $dt\,\mu/h_{min}^2$ at the last line (on the measured
+   `minEdge`) and `max|S|` at the last line. From them:
+   - the stable dt at eps `8e-3` against eps 0.025, and the steps to
+     $t = 2.5$ each implies, by P1b's method;
+   - the np8/np4 s/step ratio at eps `8e-3`, separately for intervals with
+     and without remesh events if both occur;
+   - the production node-hours at np8 (2 nodes), bracketed as in `## D1`,
+     against 35 node-h.
+
+**Exit criterion:** the log's `## P1c` section has one row per launch of
+**Do** 2 holding every quantity **Do** 5 lists, for all four launches. Each
+launch either reached `step=60` or has its stop line or cap `rc` recorded
+with the last progress line before it. The baseline `L7_np4_eps0.025` reaches
+`step=60` with $dt\,\mu/h_{min}^2 \le 0.41$ at its last line. If it does not,
+the raised caps or the lowered floor changed what P1b measured; record that,
+and D1 does not resume until the log explains it. A nonfinite stop in an eps
+`8e-3` arm while the baseline reaches step 60 is a measured result (eps
+`8e-3` is unstable at this dt rule), recorded with its last progress lines,
+not a task failure.
+
+### D1 — choose the production parameter set — **NOT STARTED**
+
+**Depends on:** P1, P1c.
 **Fill in:** this document's [Production configuration](#production-configuration)
 table; the log's `## D1`. No code or script.
 **Removes:** the `D1` placeholders in that table.
-**Reference:** P1's measurements; Current state's long-run table; R1–R4.
+**Reference:** P1's and P1c's measurements; Current state's long-run table; R1–R4.
 **Do:** this is a decision session held with the user. The session prepares
 options and their measured consequences, and the user chooses; the session
 does not fill the table alone. Present:
 
 - **eps:** 0.025 against a value tied to the edge length. For each, the
-  stable dt P1 implies and the step count to `t_end`.
+  stable dt P1 and P1c imply and the step count to `t_end`.
 - **Starting level and sizing:** level 7 held at `h_max` ≈ `2.05e-3`, against
   level 6 grown by AMR. Include `h_min`, sagitta and the edit caps.
 - **Step size:** `--dt`, `--min-dt` and `--dt-edge-power`, under the viscous
