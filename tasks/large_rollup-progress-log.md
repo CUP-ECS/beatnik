@@ -688,3 +688,50 @@ bound ($dt\,\mu/h_{min}^2 \le 0.41$) the baseline clears at 0.343.
    decision with the user, not a finding here.
 
 **Affects:** none beyond what `## P1c`'s **Affects:** already states (D1, V1j).
+
+## D1 review
+
+**Verdict:** Passed
+**Reviewed:** `422f0c3^..a4d3fc3` (`422f0c3`, `95dbe0c`, `2d1fedd`, `a4d3fc3`;
+all four touch only `tasks/large_rollup.md` and this log, matching D1's
+**Fill in**: "No code or script")
+**Evidence:** no job; D1 is a decision task, and its exit criterion is checked
+by reading. Every row of the Production configuration table holds a value and a
+source, and no `D1` placeholder remains (**Removes** met). `## D1` records the
+alternatives for every choice (the eleven-row table, then the final rows 1, 5,
+9, 11 and 12), the measured basis for each, and the node-hour estimate. The
+arithmetic re-derives from the stated inputs:
+- steps to $t = 2.5$ by $dt = 172\,h^2$: about 7,975 at `minEdge` 1.35e-3 and
+  17,080 at $0.45\,h_{max} = 9.2\times10^{-4}$;
+- np8 node-h: 0.638 s/step gives 1.42–3.03 h wall, 2.8–6.1 node-h, 7.6 with
+  the margin; 4.86 s/step gives 21.6–46.2, 57.7; 5.0 s/step gives
+  11.1–23.75 h wall, 22.2–47.5 node-h, 59.4 with the margin;
+- three 12h segments (36 h) cover the 29.7 h worst wall with the margin, and
+  `-t 720m` is within `pbatch`'s 1d limit;
+- pilot: the ×2 length scaling gives sagitta 0.016, `--dt 3.2e-3`, `--min-dt
+  2e-4`; about 1,990–4,270 steps; 4–8.5 min direct-only and 40–86 min at 1.2
+  s/step, so V1j's "estimate +10 %, `-t` 1.5×" per half-`t_end` segment fits
+  90m.
+Failure direction: the worst case with the margin, 59.4 node-h, is under the
+user's about 60 node-h, so it is not met, and the log says so. The
+ranks/nodes conflict between the user's answers 3 and 4 was put back to the
+user, and `a4d3fc3` applied the answer (np8 on 2 nodes) consistently to the
+table, the intro paragraph, **Met.** and the close-out subsection. No
+`np4 on 1 node` remains except in the pilot row, where it is correct.
+
+1. [nit] The close-out subsection's **Commits:** line names the closing
+   commit by description, not hash, and omits the correction commit; they are
+   `2d1fedd` and `a4d3fc3`. Accepted.
+2. [follow-up] The step-count upper bound (17,100) assumes `minEdge` stays
+   at or above the collapse floor $9.2\times10^{-4}$. The pre-T4d long runs
+   reached `minEdge` 5e-4 (Current state), where the `--min-dt 5e-5` floor
+   binds and the step count rises toward 50,000, far past 60 node-h. The
+   close-out names remesh cost as the bracket's only uncertainty; P1c's
+   derived result 3 names `minEdge` too. V1 should record `minEdge` against
+   `t` (it already records it every 0.1 time units), and R1j's estimate should
+   be refined by V1's step count as well as its s/step against `V`.
+3. [follow-up] eps `8e-3` is shown stable only to $t = 0.023$, and the raised
+   edit caps are unexercised (`## P1c review` follow-up 3). The pilot is the
+   test, as the design intends.
+
+**Affects:** none.
