@@ -436,6 +436,22 @@ and P1c's np8/np4 0.97 under ranks and nodes.
 
 **Affects:** D1 — waits on the user's four answers; table untouched.
 
+### User's answers to the four post-P1c questions (2026-11-09)
+
+1. **`--eps 8e-3`** for production (decision 1 fixed).
+2. **Pilot `--eps 1.6e-2 --dt 3.2e-3`** (decision 9's dt row superseded).
+3. **np8 on 2 nodes, node-hour budget raised to about 60 node-h** (decision 5
+   kept; decision 11 raised from 35).
+4. **"three 12h segments, np4 on 1 node, pbatch"**.
+
+Answers 3 and 4 conflict on ranks and nodes: 3 keeps np8 on 2 nodes with a
+budget sized for np8's worst case (59.4 node-h with the margin), while the
+option chosen in 4 names np4 on 1 node. The segment count (three 12h `pbatch`
+segments) is the same either way, but the R1j node count and the node-hour
+estimate are not, so the table is not filled until the user resolves it.
+
+**Affects:** D1 — waits on the ranks/nodes clarification; table untouched.
+
 ## P1c
 
 **Commits:** `b014788` (`scripts/tuolumne/large_rollup_probe_c.flux`, new);
