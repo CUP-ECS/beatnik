@@ -1726,22 +1726,15 @@ three-term recurrence, not the explicit polynomial.
 `--initial-shape mushroom-seed`, `--initial-shape skirt-seed`, and
 `--polar-mode 2 --polar-amp 0.05`.
 
-### T5b — Restart
+### T5b — Restart — **MOVED to `large_rollup.md`**
 
-**Fill in:** `Beatnik_IOInterface.hpp::read`; `Beatnik_Restart.hpp::load`.
-← *Python:* `::load_state_checkpoint` (993-1033), `::main` (1199-1214)
-
-**M2 CHANGE — `Comm::broadcastFromRoot` is no longer on this path.** `read` is
-`Tessera::readMesh`, which reconstructs the mesh and all three vertex fields
-collectively with no rank holding the global mesh. Two traps M2 found and both
-recorded on `CheckpointIO::read`: the halo comes back **1-deep** and must be
-widened with `rebuildHalo( mesh, halo, 2 )` before any RHS evaluation (R8), and
-a structural mismatch with the build is an **`MPI_Abort` inside Tessera**, not a
-catchable exception — so this task's cheap checks must run *before* the call.
-
-**Exit criterion:** a run checkpointed at step 5 and restarted reaches step 10
-and matches a Python restart of the same checkpoint. **It will not match an
-uninterrupted 10-step run** — see R3, and do not write a test that expects it to.
+**The design for T5b now lives in [`large_rollup.md`](large_rollup.md)**, the
+document that owns the long, restartable production run restart is needed for.
+The ID is unchanged, because source comments name "task T5b". That document's
+T5b carries both `readMesh` traps (the 1-deep halo, the uncatchable
+`MPI_Abort`), the restart master-XDMF issue, and the exit criterion: a
+frozen-mesh restart matching a Python restart of the same checkpoint, never an
+uninterrupted run (R3).
 
 ### T5c — Field filtering, redistribution, and the sheet-vector model
 
