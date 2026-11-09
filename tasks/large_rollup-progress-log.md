@@ -458,33 +458,37 @@ estimate are not, so the table is not filled until the user resolves it.
 `95dbe0c` (answers 1–4 recorded), and the commit that adds this subsection,
 fills the Production configuration table and marks D1 DONE.
 
-**Clarification answer:** R1j runs **np4 on 1 node, three 12h `pbatch`
-segments, with a node-hour budget of about 60 node-h** (headroom over np4's
-worst case). The user also asked how to raise the allowed node-hours; that is
-the task loop's job-limit policy, outside the design, and goes back to the user
-in the result.
+**Clarification answer:** R1j runs **np8 on 2 nodes, three 12h `pbatch`
+segments, with a node-hour budget of about 60 node-h** (option 1). The loop
+recorded option 2 (np4 on 1 node); the user had meant option 1 and corrected it
+in a follow-up session the same day, which rewrote this subsection, the
+Production configuration row and D1's **Met** paragraph to np8. The user also
+asked how to raise the allowed node-hours; that is the task loop's
+`.taskloop/large_rollup/policy.ini`, outside the design.
 
 Decisions beside the earlier eleven:
 
 | # | Choice | Decision | Alternatives considered | Measured basis |
 | --- | --- | --- | --- | --- |
 | 1 (final) | `--eps` | **`8e-3`** | 0.025 | `## P1c`: `L7_np4_eps8e-3` stable to $t = 0.023$, dt sequence identical to 0.025 (8.0e-4 → 3.13e-4), `max|S|` equal to five figures. Later stability unmeasured; V1 shows it. |
-| 5 (final) | Ranks / nodes | **np4 on 1 node** | np8 on 2 nodes; np16 | `## P1c` derived result 2: np8/np4 s/step 0.428/0.440 = 0.97 at twice the node-hours. |
+| 5 (final) | Ranks / nodes | **np8 on 2 nodes** (user's choice) | np4 on 1 node; np16 | `## P1c` derived result 2: np8/np4 s/step 0.428/0.440 = 0.97, so np8 costs about twice np4's node-hours for about 3 % less wall. |
 | 9 (final) | Pilot eps, dt | **`--eps 1.6e-2 --dt 3.2e-3`** | `--dt 2.8e-3`; pilot at production eps `8e-3` | `## P1c`: `L6_np4_eps1.6e-2` stable through step 60 at ratio 0.343, 0.118 s/step np4. |
 | 11 (final) | Node-hour budget | **about 60 node-h** | 35 node-h | the table below |
-| 12 | R1j segments | **three 12h segments (`-t 720m`) in `pbatch`** | two 12h segments | np4 worst case 23.8 h wall, 29.7 with the ×1.25 margin. |
+| 12 | R1j segments | **three 12h segments (`-t 720m`) in `pbatch`** | two 12h segments | np8 worst case 23.8 h wall (unscaled remesh), 29.7 with the ×1.25 margin. |
 
-**Production node-hours, np4 on 1 node, 200,000 vertices, 8,000–17,100
-steps** (`## P1c` derived results 1–3; remesh s/step from P1b's control, 4.51
+**Production node-hours, np8 on 2 nodes, 200,000 vertices, 8,000–17,100
+steps** (`## P1c` derived result 3; remesh s/step from P1b's control, 4.51
 at 164k on np4, about 5.0 at 200k):
 
-| Regime | s/step (np4, 200k) | Wall | Node-h | ×1.25, upper |
+| Regime | s/step (np8, 200k) | Wall | Node-h | ×1.25, upper |
 | --- | --- | --- | --- | --- |
-| Direct sum only | 0.656 | 1.5–3.1 h | 1.5–3.1 | 3.9 |
-| Remeshing every step | 5.0 | 11.1–23.8 h | 11.1–23.8 | 29.7 |
+| Direct sum only | 0.638 | 1.4–3.0 h | 2.8–6.1 | 7.6 |
+| Remeshing every step, scaled as the direct sum (×0.97) | 4.86 | 10.8–23.1 h | 21.6–46.2 | 57.8 |
+| Remeshing every step, not scaled | 5.0 | 11.1–23.8 h | 22.2–47.5 | 59.4 |
 
-Inside the 60 node-h budget in both regimes, so the failure direction is not
-met. The bracket's uncertainty is remesh cost while refining, which no probe
+Inside the 60 node-h budget in every regime, so the failure direction is not
+met, but the worst case with the margin (59.4) leaves under 1 node-h of
+headroom. The bracket's uncertainty is remesh cost while refining, which no probe
 measured (P1 review follow-up 3; no P1c launch remeshed); V1 measures it at
 pilot scale.
 
@@ -499,9 +503,9 @@ P1b's ×10 rate (about 1.2 s/step). Two 90m `pbatch` segments cover it, about
 1.6e-2`, `--dt 3.2e-3 --min-dt 2e-4 --dt-edge-power 2`, np4 on 1 node, two
 90m `pbatch` segments) and the `Pilot quality floor` row (`minQ` ≥ 0.12), with
 the production physics, caps, `--t-end` and checkpoint rows. R1j — reads every
-production row: np4 on 1 node, three 12h `pbatch` segments, `--eps 8e-3`, the
+production row: np8 on 2 nodes, three 12h `pbatch` segments, `--eps 8e-3`, the
 level-7 sizing, caps, step size, `--t-end 2.5`, `--checkpoint-every-time
-0.025`; expected 11.1–23.8 node-h. No Approach or Known-risks sentence is
+0.025`; expected 21.6–47.5 node-h, 59.4 with the margin. No Approach or Known-risks sentence is
 made wrong by these values.
 
 ## P1c
