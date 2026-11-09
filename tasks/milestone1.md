@@ -15,13 +15,13 @@ statistics through step 1610 (code `f3a6c80`). Its confirming job
 non-zero, both failure directions pass) but **missed two bands** identically on
 all four compare launches: total area from gold step 1060 (worst `1.063e-2`
 against `1e-3`, step 1610) and rise from gold step 1340 (worst `2.545e-3`
-against `1e-3`, step 1610); log `## M1-A1`. The user ruled to keep every band
-as decided and diagnose the drift first. **M1-D3** is **DONE**. The drift is
+against `1e-3`, step 1610); log `## M1-A1`. **M1-D3** is **DONE**. The drift is
 a discretisation gap, not a defect. The reference's own solver, restarted from
 Beatnik's step-10 mesh, misses the gold by the same amount (area `1.047e-2`,
 rise `2.808e-3` at step 1610). Step size, the gold's late behaviour and face
-count are ruled out (log `## M1-D3`). M1-A1 (NOT STARTED) awaits the user's
-band choice against those measured values.
+count are ruled out (log `## M1-D3`). The area and rise bands are therefore
+piecewise in gold step (`## Problem`), and M1-A1 (NOT STARTED) encodes them and
+runs the confirming job.
 
 ## Problem
 
@@ -50,8 +50,10 @@ Python `.npz` checkpoints with Beatnik's run, as decided at M1-A1j:
   statistics, computed every step and linearly interpolated to each gold
   checkpoint's `time`, at every M1-G3 checkpoint from step 10 to 1610 (161
   checkpoints, `--steps 1610`):
-  - rise (area-weighted centroid `z`): `|Beatnik − gold| ≤ 1e-3` absolute;
-  - total area: `|Beatnik/gold − 1| ≤ 1e-3`;
+  - rise (area-weighted centroid `z`): `|Beatnik − gold| ≤ 1e-3` absolute at
+    gold steps 10–1050, `≤ 4e-3` at gold steps 1060–1610;
+  - total area: `|Beatnik/gold − 1| ≤ 1e-3` at gold steps 10–1050, `≤ 1.5e-2`
+    at gold steps 1060–1610;
   - Beatnik's `|volume drift| ≤ 1e-12`;
   - face count: `|F_Beatnik/F_gold − 1| ≤ 0.10`;
   - Beatnik's minimum triangle quality `≥ 0.18`.
@@ -2365,32 +2367,98 @@ No compiled file changed.
 
 ---
 
-### M1-A1 — the milestone test is green at the decided numbers — **NOT STARTED**
+### M1-A1 — the piecewise area and rise bands, encoded and confirmed — **NOT STARTED**
 
-**Depends on:** M1-A1j, M1-D3 (the user's ruling of 2026-11-09: no tolerance
-is chosen for the area and rise misses until M1-D3 explains the drift).
+**Depends on:** M1-A1j, M1-D3.
 
-**Fill in:** the progress log's `## M1-A1` section; the `Milestone1Bubble`
-row of the milestone walls table in [docs/testing.md](../docs/testing.md#the-tiers).
-If the output shows a defect,
-fix it inside M1-T2j's or M1-A1j's **Fill in** and resubmit from
-`/p/lustre5/stewartj/beatnik/M1-A1/stage/`.
+M1-A1j's job `f3j79G2VDX4T` is clean (no defect, 1610/1610 steps, every
+liveness counter non-zero, both failure directions pass), but it misses the
+`1e-3` area band from gold step 1060 and the `1e-3` rise band from 1340 (log
+`## M1-A1`). M1-D3 shows that gap is the reference's own sensitivity to mesh
+selection, not a defect. This task makes the two bands piecewise in gold step
+and runs the confirming job. The job is about 4 minutes, so it is submitted and
+waited on inside this task.
 
-**Removes:** nothing.
+**Fill in:**
+- [tests/regression_tests/Beatnik_Test_Milestone1Bubble.cpp](../tests/regression_tests/Beatnik_Test_Milestone1Bubble.cpp):
+  the band constants (`kRiseAtol`, `kAreaRtol`, `:219-228`) become an early
+  and a late pair plus the first late gold step, 1060. The constants' comment
+  records the measured values below. `checkStats` (`:861-937`) picks the pair by
+  `g.step`. `recordStats`'s failure text (`:940-962`) prints the limits that
+  were applied. The file header's band list (`:30-45`) and its output-contract
+  block (`:95-115`) describe the piecewise bands. Each `[m1stat]` line gains
+  `rise_tol=` and `area_tol=`, the limits applied at that checkpoint.
+  `[m1statworst]` reports the rise and area worsts per segment (10–1050 and
+  1060–1610).
+- [docs/testing.md](../docs/testing.md#the-tiers), the `milestone` entry
+  (`:46-96`): the band sentence states the piecewise bands. Replace the note
+  that the walls run "missed two statistics bands" with this task's job, and
+  its walls if they differ.
+- README "Known Issues", the one-round collapse entry M1-A1j added: add the
+  measured late-time drift (area `1.063e-2`, rise `2.545e-3` at gold step
+  1610). Say it is a mesh-selection discretisation gap that the reference shows
+  from Beatnik's step-10 mesh (log `## M1-D3`), pre-existing, by design.
+- The progress log's `## M1-A1` section, appended below the existing reading.
 
-**Reference:** the M1-A1j job's log and its `out/` directory.
+The test's other bands, `kStep0Tolerance`, `kSteps` (1610) and
+`scripts/tuolumne/m1_milestone_run.flux` are unchanged.
 
-**Do:** judge the criterion, and record each launch pair's job wall in the
-log. Its `**Affects:**` line asks the user to set the two
-`Beatnik_Test_Milestone1Bubble` rows' `-t` in `submit_milestone_split.sh` to
-about 1.5x those walls and drop their `pending=M1-T2j` field. The task loop
-protects that file. A step that misses its decided tolerance is **not**
-a defect to fix by loosening the table. Take it back to the user with the
-measured `max|e|`, as M1-A1j's decision (M1-R1).
+**Removes:** the single-valued `kRiseAtol` and `kAreaRtol`, and every comment
+and doc sentence that states area or rise as `1e-3` over all of steps 10–1610.
 
-**Exit criterion,** judged from the M1-A1j job's output: PASS at ranks 1 and 4
-on SERIAL and HIP, zero `[FAIL]` lines and the `SUMMARY` line present; failure
-direction (a) exits exactly 1 from the comparator; and (b) fails the comparison.
+**Reference:** log `## M1-A1` (the per-checkpoint miss tables and the
+`[m1statworst]` values), `## M1-D3` (the `bk10` spread), and M1-A1j's
+**Submits:** for the job's shape.
+
+**Decided:**
+- **Rise:** `|Beatnik − gold| ≤ 1e-3` at gold steps 10–1050, `≤ 4e-3` at gold
+  steps 1060–1610.
+- **Area:** `|Beatnik/gold − 1| ≤ 1e-3` at gold steps 10–1050, `≤ 1.5e-2` at
+  gold steps 1060–1610.
+- **Measured values, written beside the constants:**
+  - Through gold step 1050, the worst area is `9.88e-4` (step 1050) and the
+    worst rise `2.71e-4` (step 310).
+  - From 1060 to 1610, Beatnik's worsts are area `1.063e-2` and rise
+    `2.545e-3`, both at step 1610.
+  - The reference, restarted from Beatnik's step-10 mesh (`bk10`), misses the
+    gold by `1.047e-2` and `2.808e-3` at step 1610.
+- 1060 is the first gold step at which the area band missed. Every band holds
+  through 1050.
+- The late limits cover both Beatnik's worst and the `bk10` spread with about
+  1.4x headroom. The early `1e-3` keeps the check tight where the trajectories
+  agree.
+- Volume drift, face count, minimum quality, the step-0 comparison, the
+  matching rule and `kSteps` are unchanged.
+
+**Do:**
+1. Make the code and doc changes. Build with the dev-env `spack install`. No
+   `src/` file changes, so the gate is not run.
+2. Stage into `/p/lustre5/stewartj/beatnik/M1-A1/stage/` as M1-A1j did (the
+   member's two binaries from the dev view, `regression_tests/compare_output.py`,
+   M1-G2's gold directory, and `COMMIT`).
+3. Submit `scripts/tuolumne/m1_milestone_run.flux
+   /p/lustre5/stewartj/beatnik/M1-A1/stage` (`pdebug`, 1 node `--exclusive`,
+   `-t 10m`, `--bank=unm`). Wait for it.
+4. The trajectory is unchanged by this task, so every counter, `rise_err`,
+   `area_rel` and wall value should match `f3j79G2VDX4T`'s (log `## M1-A1`).
+   A trajectory value that differs is a defect. Fix it inside M1-A1j's **Fill
+   in** and restage.
+
+If a band still misses, do not loosen it further. Take it back to the user
+with the measured value (M1-R1).
+
+**Exit criterion,** judged from this task's job output:
+- **PASS** at ranks 1 and 4 on SERIAL and HIP. Zero `[FAIL]` lines and
+  `[milestone] SUMMARY: PASS (6/6 launches)`. `stat_checked=161`,
+  `stat_failed=0` and `stat_unreached=0` on each compare launch.
+- **Each `[m1stat]` line shows the limits for its segment:** at gold steps
+  10–1050, `rise_tol=1e-3 area_tol=1e-3`; at 1060–1610,
+  `rise_tol=4e-3 area_tol=1.5e-2`.
+- **The failure directions still work:**
+  - (a) `fail-step0` exits exactly 1 from the comparator.
+  - (b) `fail-no-cleanup` fails on a statistics band.
+- The log's `## M1-A1` records the job, its walls and the per-segment worsts.
+
 The milestone is **accomplished** when this holds.
 
 ## Known risks
