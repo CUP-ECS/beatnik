@@ -20,10 +20,12 @@ a discretisation gap, not a defect. The reference's own solver, restarted from
 Beatnik's step-10 mesh, misses the gold by the same amount (area `1.047e-2`,
 rise `2.808e-3` at step 1610). Step size, the gold's late behaviour and face
 count are ruled out (log `## M1-D3`). The area and rise bands are therefore
-piecewise in gold step (`## Problem`). **M1-A1** is **DONE**, pending review:
-the test encodes them (code `ecda54f`) and the confirming job `f3j7wCa1Pf99`
-is submitted. The milestone is accomplished, pending review, once that job's
-output shows `SUMMARY: PASS (6/6 launches)`.
+piecewise in gold step (`## Problem`). **M1-A1** is **DONE**, reviewed
+**Rework**: the test encodes them (code `ecda54f`) and its confirming job
+`f3j7wCa1Pf99` shows `SUMMARY: PASS (6/6 launches)` (log `## M1-A1 review`),
+but `docs/testing.md` and the log's `## M1-A1` do not yet record that job.
+**M1-A1r** (NOT STARTED) records it; the milestone is accomplished when M1-A1r
+is reviewed Passed.
 
 ## Problem
 
@@ -2478,6 +2480,52 @@ the dev view and `COMMIT` naming `ecda54f`. Job `f3j7wCa1Pf99`
 task as a submit task, so the PASS, the per-segment limits, both failure
 directions and the walls are read from its output after it ends (log
 `## M1-A1`, **Affects:**).
+
+---
+
+### M1-A1r — Resolve the M1-A1 review — **NOT STARTED**
+
+**Depends on:** M1-A1.
+
+Job `f3j7wCa1Pf99` passed M1-A1's exit criterion (log `## M1-A1 review`, whose
+**Evidence** holds every number this task records). Two items of M1-A1's
+**Fill in** and exit criterion remain: the tier's walls note still describes
+the failing job `f3j79G2VDX4T`, and the log's `## M1-A1` ends with the job
+pending.
+
+**Fill in:**
+- [docs/testing.md](../docs/testing.md) `:94-101`: the `Milestone1Bubble` row
+  becomes `133 s | 74 s`; the note below it cites job `f3j7wCa1Pf99`
+  (1610 steps; compare np1 + np4 68 + 65 s SERIAL and 25 + 40 s HIP, HIP also
+  holding the failure-direction launches 5 + 4 s; setup about 20 s), and its
+  "That run missed two statistics bands" sentence is deleted. The node-time
+  total at `:103` (**8.75 h**) drops by 13 s; restate it to the precision the
+  sentence uses.
+- [tasks/milestone1-progress-log.md](milestone1-progress-log.md): a
+  `## M1-A1r` section at the log's end recording the reading of `f3j7wCa1Pf99`:
+  `SUMMARY: PASS (6/6 launches)`, zero `[FAIL]`, `stat_checked=161
+  stat_failed=0 stat_unreached=0` on the four compare launches, the per-segment
+  `rise_tol`/`area_tol` counts (420 early at `0.001/0.001`, 224 late at
+  `0.004/0.015`), the `[m1statworst]` per-segment worsts, both failure
+  directions, and the walls.
+- This document's status block: M1-A1 accomplished, the milestone's comparison
+  passing.
+
+**Removes:** the `docs/testing.md` sentence naming `f3j79G2VDX4T` as the
+walls' source and saying the run missed two bands.
+
+**Reference:** log `## M1-A1 review` (**Evidence** and findings 1–2), the job
+output `beatnik_m1_milestone.f3j7wCa1Pf99.log` in the repo root.
+
+**Do:** read the numbers from the job output, not from the review alone. No
+code, no build, no job. `scripts/tuolumne/submit_milestone_split.sh` is not
+changed: its `4m` / `3m` rows cover 1.5x the new walls.
+
+**Exit criterion:** `git grep -n f3j79G2VDX4T docs/` returns nothing and
+`docs/testing.md` states `133 s | 74 s` from `f3j7wCa1Pf99`; the log has a
+section recording that job's PASS, per-segment limits, per-segment worsts,
+failure directions and walls, each number matching the job output; the status
+block no longer describes the confirming job as pending.
 
 ## Known risks
 

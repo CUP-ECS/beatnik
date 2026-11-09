@@ -4844,3 +4844,79 @@ found no candidates. **Removes** is nothing. The prompt file
 
 **Affects:** none. M1-A1 still waits on the user's band choice, as `## M1-D3`
 **Affects:** states.
+
+## M1-A1 review
+
+**Verdict:** Rework
+**Reviewed:** `ecda54f^..ecda54f` (code: the test, `docs/testing.md`, README),
+with the doc and log commit `377a438` excluded from the code review.
+**Evidence:** the task's own job `f3j7wCa1Pf99`, output read in full
+(`beatnik_m1_milestone.f3j7wCa1Pf99.log`, 7505 lines, repo root;
+`/p/lustre5/stewartj/beatnik/M1-A1/out/<tag>/`). Script
+`scripts/tuolumne/m1_milestone_run.flux /p/lustre5/stewartj/beatnik/M1-A1/stage`,
+on tuolumne1019. Flux: COMPLETED, rc 0, submitted 11:31:51, started 11:31:52
+(about 1 s queue wait), runtime 3.90 min. Provenance: `stage/COMMIT` echoes
+`ecda54fe984d…`, the task's last code commit (`377a438` touches only
+`tasks/`), porcelain count 3.
+- **Pass direction.** `[milestone] SUMMARY: PASS (6/6 launches)`, zero
+  `[FAIL]` lines. Each compare launch (SERIAL np1/np4, HIP np1/np4): `PASS`,
+  `steps=1610/1610`, `defects=0`, `time_liveness_failures=0`,
+  `stat_checked=161 stat_failed=0 stat_unreached=0`, step 0 `verdict=match`
+  with `vertices` `max|e|` `5.551115e-17`.
+- **Per-segment limits.** Over the four compare launches, 420 asserted
+  `[m1stat]` lines at gold steps 10–1050 (4 × 105) read
+  `rise_tol=0.001 area_tol=0.001`, and 224 at 1060–1610 (4 × 56) read
+  `rise_tol=0.004 area_tol=0.015`; all `verdict=pass`. The step-0 lines are
+  `unasserted` at the early limits, as the output contract says.
+- **Trajectory unchanged from `f3j79G2VDX4T`.** Counters
+  `splits=523 collapses=19 flips=167 smooth_steps=85 cleanup_flips=291` on all
+  four; `[m1statworst]` `rise_err[10-1050]=2.711865e-04 at=310`,
+  `area_rel[10-1050]=9.877593e-04 at=1050`,
+  `rise_err[1060-1610]=2.544692e-03 at=1610`,
+  `area_rel[1060-1610]=1.062947e-02 at=1610` on all four; face-count worst
+  `5.321101e-02` at 10, `qmin` `0.762503` at 1440, `|vol drift|` at most
+  `2.58e-15`.
+- **Failure directions.** (a) `fail-step0`: `[m1step] step=10 verdict=mismatch
+  exit=1`, `[m1fail] direction=a … comparator exit 1`, PASS. (b)
+  `fail-no-cleanup`: step 0 matched, `defects=0`, gold step 10
+  `verdict=FAIL failed=face_count` (`F_rel 1.743119e-01`), `stat_failed=1`,
+  PASS.
+- **Walls** (`LAUNCH_WALL`): SERIAL 68 + 65 = **133 s**; HIP 25 + 40 + 5 + 4 =
+  **74 s**. `docs/testing.md` records 134 s / 86 s from `f3j79G2VDX4T`.
+- **Code read.** `bandSegment`/`riseAtol`/`areaRtol` select on `g.step`, the
+  gold row's step; `checkStats`, the `[m1stat]` line, `recordStats`'s failure
+  text and the per-segment worst arrays all use the same selection. The
+  `static_assert` pins 1060 to a checkpoint inside the run. The constants equal
+  **Decided**, with the measured values in their comment. Header band list and
+  output-contract block match the printed formats. No `src/` change.
+- **Removes.** `git grep -w kRiseAtol kAreaRtol` outside `tasks/` returns
+  nothing; no comment or doc outside `tasks/` states rise or area as `1e-3`
+  over all of steps 10–1610. `review_checks.py` reported two S2 candidates
+  (comment prose at `Beatnik_Test_Milestone1Bubble.cpp:243` and `:841`),
+  dismissed. No `tasks/milestone1_*.md` prompt file remains.
+
+1. [blocking] `docs/testing.md:94-101` — the `Milestone1Bubble` walls row and
+   its note still cite job `f3j79G2VDX4T` and say "That run missed two
+   statistics bands". M1-A1's **Fill in** requires replacing that note with
+   this task's job and its walls if they differ; they do (HIP 74 s against
+   86 s; SERIAL 133 s against 134 s). The doc now describes a failing run as
+   the tier's current measurement. Fix: set the row to `133 s | 74 s`, cite
+   `f3j7wCa1Pf99` (68 + 65 s SERIAL; 25 + 40 s HIP compare plus 5 + 4 s
+   failure directions), drop the missed-bands sentence, and adjust the tier's
+   node-time total (8.75 h) by the change (−13 s).
+2. [blocking] `tasks/milestone1-progress-log.md` `## M1-A1` — the exit
+   criterion's last item, "the log's `## M1-A1` records the job, its walls and
+   the per-segment worsts", is not met: the section ends with the job pending.
+   The task's **Do** step 3 ("Wait for it") was replaced by submit-and-return
+   (recorded as the loop's choice), so the reading was never written. Fix:
+   append the reading of `f3j7wCa1Pf99` (this review's evidence above is the
+   data), and update `milestone1.md`'s status block, which still says the
+   milestone is accomplished "pending review, once that job's output shows
+   `SUMMARY: PASS (6/6 launches)`".
+3. [nit] `scripts/tuolumne/submit_milestone_split.sh` `-t` for the two
+   `Milestone1Bubble` rows (the user's uncommitted edit, read-only to the
+   loop): at 1.5x the new walls, SERIAL about 200 s and HIP about 111 s
+   (about 230 s and 130 s with setup), so `4m` / `3m` still cover them; no
+   change needed.
+
+**Affects:** none (no task depends on M1-A1). M1-A1r carries findings 1 and 2.
