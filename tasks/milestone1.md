@@ -24,8 +24,10 @@ piecewise in gold step (`## Problem`). **M1-A1** is **accomplished**: the
 test encodes them (code `ecda54f`), and the milestone's comparison passes on
 job `f3j7wCa1Pf99`, `SUMMARY: PASS (6/6 launches)`, every compare launch
 `stat_checked=161 stat_failed=0` and both failure directions passing (log
-`## M1-A1r`). **M1-A1r** is **DONE**, recording that job in
-`docs/testing.md` and the log; it awaits review.
+`## M1-A1r`). **M1-A1r** is **DONE** and reviewed, Passed, recording that job
+in `docs/testing.md` and the log. The feature sweep's verdict is Rework (log
+`## Sweep`): descriptions of the deleted T4d rejections remain in the example,
+two batch scripts, one `Params` comment and this document. **C1** removes them.
 
 ## Problem
 
@@ -2534,6 +2536,84 @@ per-segment limits and counts, per-segment worsts, both failure directions and
 the six walls, each checked against `beatnik_m1_milestone.f3j7wCa1Pf99.log` by
 line number. The status block and M1-A1's **Met** no longer describe the job as
 pending. No code, build or job.
+
+---
+
+### C1 — no description of a T4d rejection survives — **NOT STARTED**
+
+**Depends on:** M1-A1r.
+
+T4d6j deleted the five T4d rejections in `Solver::requireSupportedConfiguration`,
+and the milestone's comparison runs the reference's default command. Comments
+and this document still describe that command as rejected (log `## Sweep`,
+findings 1–5). This task makes every one of them describe the code as it is.
+Comment and document text only: no behavior, flag or test changes.
+
+**Fill in:**
+- [examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp](../examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp)
+  `:38-46` (the `CURRENT BEHAVIOR` block) and
+  [examples/02_adaptive_mesh_bubble/CMakeLists.txt](../examples/02_adaptive_mesh_bubble/CMakeLists.txt)
+  `:18-26`: the default configuration runs, collapse, flips, smoothing and the
+  isotropic cleanup included. What `requireSupportedConfiguration` still
+  rejects is only what is off by default: T4e's two proximity paths, the T4f
+  tight profile and T5c's field filter, redistribution and sheet-vector model
+  (`## Problem`'s out-of-scope table). Read the current rejections in
+  [src/Beatnik_Solver.hpp](../src/Beatnik_Solver.hpp) (`requireSupportedConfiguration`)
+  and name exactly those.
+- [scripts/tuolumne/rising_bubble_l3.flux](../scripts/tuolumne/rising_bubble_l3.flux)
+  `:23-25` and [scripts/tuolumne/grouped_io_t1.flux](../scripts/tuolumne/grouped_io_t1.flux)
+  `:25-32`: the split-only flags they pass stay; the comments give the reason
+  the configuration is chosen (split-only remeshing, the T4b gate member's
+  configuration) instead of a throw that no longer happens.
+- [src/Beatnik_Params.hpp](../src/Beatnik_Params.hpp) `:703-706`, the
+  `renumber_gids_every` comment: replace "chosen while the leak rate on the
+  milestone run is unmeasured (T4d6 measures it)" with T4d6's measurement (log
+  `## T4d6`: at cadence 50 the gid space falls back to `3104–3122` at every
+  renumbering and stays bounded over 600 steps; per-rank RSS growth at 4 ranks
+  is the same with renumbering every 50 and never, and is a README Known
+  Issue).
+- This document, `## Problem` `:69-83`: state that the target command runs.
+  Keep the table as the map from each option at its default to the pass that
+  implements it (`MeshQuality::isotropicCleanup`,
+  `DynamicRemesh::collapseShortEdges`, `DynamicRemesh::tangentialSmooth`,
+  `DynamicRemesh::flipEdgesForQuality`), without the `Beatnik_Solver.hpp`
+  line references to deleted code.
+- This document, `## Known risks`: one status sentence per risk M1-R1 and
+  M1-R3 to M1-R8, closed (by which task, with the measured fact) or open (with
+  its reason), sourced from the log: R1 from `## M1-D1` (no rung fails through
+  step 600 on the frozen mesh); R3 from `## T4d2` and `## M1-D2`; R4 from
+  `## T4d4` (both guard directions asserted by `Beatnik_Test_MeshEdits` case
+  5); R5 from `## T4d6` (gid space bounded; RSS growth open as a README Known
+  Issue); R6 from `docs/testing.md`'s `Milestone1Bubble` walls; R7 from the
+  liveness counters every compare launch asserts (`## M1-A1r`); R8 from
+  `## M1-T2` and `## M1-A1j` (the comparison beyond step 0 is statistical, so
+  pairing applies only at step 0, where it is unambiguous).
+
+**Removes:** every sentence outside `tasks/*-progress-log.md` stating that
+collapse, quality flips, tangential smoothing or the isotropic cleanup is
+unimplemented, throws, or is rejected, and the `## Problem` line references to
+the deleted rejections.
+
+**Reference:** log `## Sweep` (findings 1–5), `## T4d6j`, `## T4d6`.
+
+**Do:** edit the text; follow CLAUDE.md's present-tense rule (no "used to",
+"no longer", "previously"). Rebuild with the dev-env `spack install`, since
+two compiled files change; the change is comments only, so no gate or job.
+`scripts/tuolumne/run_regression_minset.flux:219-224` and
+`scripts/tuolumne/run_milestone.flux:370-376` carry the same kind of stale
+text but are not in this task (log `## Sweep`, follow-ups 6–7).
+
+**Exit criterion:**
+`git grep -n -E 'T4d|still throw|still stubbed|DEFAULT configuration is' -- examples/02_adaptive_mesh_bubble/CMakeLists.txt examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp scripts/tuolumne/rising_bubble_l3.flux scripts/tuolumne/grouped_io_t1.flux`
+and `git grep -n 'unmeasured (T4d6' -- src` return nothing (they match today
+at `CMakeLists.txt:20-24`, `adaptive_mesh_bubble.cpp:41`, `grouped_io_t1.flux:27`,
+`rising_bubble_l3.flux:24-25` and `Beatnik_Params.hpp:706`). The still-true
+rejections survive the rewrite: `git grep -n -E 'T4e' -- examples/02_adaptive_mesh_bubble/CMakeLists.txt examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp`
+finds a line in each file, and `T5c` likewise. `git diff --stat` over the task's
+code commit lists only the files above; `git diff -w` shows no change outside
+comments in the `.cpp`, `.hpp`, `CMakeLists.txt` and `.flux` files. The dev-env
+`spack install` exits 0. Every Known risk M1-R1 to M1-R8 carries a closed or
+open status, and `## Problem` names no `Beatnik_Solver.hpp` line range.
 
 ## Known risks
 

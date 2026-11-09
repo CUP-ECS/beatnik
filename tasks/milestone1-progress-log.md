@@ -5015,3 +5015,112 @@ file `tasks/milestone1_*.md` remains. M1-A1 review findings 1 and 2 are
 resolved.
 
 **Affects:** none
+
+## Sweep
+
+**Verdict:** Rework
+**Reviewed:** `fe934b5..b412ae9` (81 commits; `fe934b5` creates
+`milestone1.md`, `b412ae9` is the M1-A1r review). The code commits are
+`14764a5` (T4d1), `848e009` (T4d2), `5fa0488` (T4d3), `4041aec` (T4d4),
+`8120fa1` (T4d5), `092e2e5` (T4d6j), `347c2ef` (M1-T2j), `f3a6c80` (M1-A1j) and
+`ecda54f` (M1-A1); the rest are `tasks/`, gold data, batch scripts and docs.
+Five commits in the range are the user's own and belong to no task (`187d1f1`,
+`adf55d0`, `a5dba69`, `38a612b`, `474f3d1`: `--bank=unm`, `pdebug` routing,
+`docs/dataflow.html`, `t8b_fallback_reasons.flux`); they are not reviewed as
+milestone code.
+**Evidence:** implementing session's jobs, output read; all four checks pass.
+- `milestone` tier: M1-A1's job `f3j7wCa1Pf99`,
+  `scripts/tuolumne/m1_milestone_run.flux /p/lustre5/stewartj/beatnik/M1-A1/stage`,
+  output `beatnik_m1_milestone.f3j7wCa1Pf99.log`. Flux: COMPLETED rc 0, queue
+  wait 1 s, run 3.902 min. Provenance: `stage/COMMIT` is `ecda54fe…`, the
+  last code commit; everything after it (`7f9ba15`, `b412ae9` and the M1-A1
+  docs commit) touches only `tasks/` and `docs/testing.md`. Completion: the log
+  ends `[milestone] SUMMARY: PASS (6/6 launches)`, zero `[FAIL]` lines.
+  Passing direction: `stat_checked=161 stat_failed=0 stat_unreached=0` on all
+  four compare launches (SERIAL and HIP, np 1 and 4), each `steps=1610/1610`
+  with `splits=523 collapses=19 flips=167 smooth_steps=85`. Failure
+  directions: (a) `fail-step0` comparator exit 1 at `:7453`; (b)
+  `fail-no-cleanup` fails a statistics band at gold step 10 with zero step-0
+  defects at `:7498`.
+- `regression` gate: M1-T2j's job `f3iYat4nhyXd`
+  (`run_regression_minset.flux`), COMPLETED rc 0, queue wait 0 s, run 7.923
+  min, `[gate] PASS (label=regression)` over 60 launches. `347c2ef` is the
+  last commit touching `src/`; `f3a6c80` and `ecda54f` change only the
+  milestone member, its headers, comments in `tests/CMakeLists.txt`, README
+  and docs, none of which a gate member compiles or reads.
+
+Mechanical pass (`review_checks.py --range fe934b5..b412ae9 --old-names
+kRiseAtol,kAreaRtol,toleranceForStep,checkFailureDirection`): 52 candidates,
+all dismissed. The K2 lambdas capture locals (`_params` is read into locals
+outside them, `DynamicRemesh.hpp:1047-1048`, `:1297`); the K4 copies are
+per-pass host mask building, designed in T4d3/T4d5; the M3 MPI buffers are
+host `std::vector`s; the S2 hits are prose. No S4 hit for any removed name.
+
+Cross-task staleness and consistency: every function and type the milestone
+added to `src/` (`collapseShortEdges`, `ReferenceCollapsePolicy`,
+`flipEdgesForQuality`, `improveConnectivityByFlips`, `qualityFlipSweep`,
+`QualityFlipCriterion`, `FlipSweepStats`, `FlippedEdge`, `gatherFlips`,
+`gatherNewDiagonals`, `hostPositions`, `oppositeCorner`, `unitNormal`,
+`tangentialSmooth`, `globalMinQuality`, `valenceEqualizingFlips`,
+`ValenceFlipPass`, `isotropicCleanup`, `rebuildState`, `collapseEdges`,
+`flipEdges`, `compact`, `compactAndRenumberGids`, `gidSpace`,
+`MeshEditReport`, `applyRatioThreshold`, `RatioKeep`, `renumber_gids_every`,
+`gid_space_high_water`) has a caller. Every **Removes** is still gone: the five
+T4d rejections, the four `checkRejected` cases, `checkFailureDirection`,
+`toleranceForStep`, `kGold`, `kRiseAtol`, `kAreaRtol` (`git grep -w` outside
+`tasks/` returns nothing). Provenance comments follow `Port of
+<file>::<fn> (lines N-M)` in every ported routine. No prompt file
+`tasks/milestone1_*.md` remains.
+
+1. [blocking] `examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp:38-46`
+   and `examples/02_adaptive_mesh_bubble/CMakeLists.txt:18-26` say the T4d
+   mesh-quality passes are unported and that the **default** configuration is
+   rejected before the first step because `--isotropic-cleanup` defaults on.
+   T4d6j deleted those rejections and the milestone's comparison runs that
+   exact command; these headers are the example's user-facing description of
+   the command this milestone delivers. CLAUDE.md "Describe the code as it is
+   now". First recorded as T4d6j review nit 1 and never applied; the sweep
+   raises it, because it is now the one thing a user reading the example is
+   told about the milestone and it is false. Fix: name only what is still
+   rejected (T4e proximity, the tight profile, T5c), each off by default.
+2. [blocking] `scripts/tuolumne/rising_bubble_l3.flux:23-25` (the T4d passes
+   are switched off "since they still throw") and
+   `scripts/tuolumne/grouped_io_t1.flux:25-32` (the four remesh flags are
+   "task T4d, not yet implemented, and throw") state as current a failure
+   T4d6j removed. Same rule. The flags those scripts pass are still a valid
+   split-only choice; the comments must give the reason they are chosen, not a
+   throw that no longer happens. `grouped_io_t1.flux` was T4d6j review
+   follow-up 3.
+3. [blocking] `src/Beatnik_Params.hpp:703-706`: the `renumber_gids_every`
+   comment says 50 was "chosen while the leak rate on the milestone run is
+   unmeasured (T4d6 measures it)". T4d6 measured it (log `## T4d6`: the gid
+   space falls back to `3104–3122` at every renumbering and is flat; RSS
+   growth is independent of the cadence). Same rule, and the convention that
+   a task ID names only pending work. Fix: state the measured result.
+4. [blocking] `tasks/milestone1.md` `## Problem` `:69-83` says "What exists
+   now is a Beatnik that rejects this command at setup", with a table of four
+   rejections at `Beatnik_Solver.hpp` line ranges that no longer exist. The
+   doc's current state must describe the code as it is (sweep, "The doc").
+   Fix: the command runs; keep the option-to-pass map without the deleted
+   rejection line references.
+5. [blocking] `tasks/milestone1.md` `## Known risks`: M1-R1 and M1-R3 to
+   M1-R8 carry no closed-or-open status (only M1-R2 has its measurement). Each
+   needs one: R1 did not materialize (M1-D1, no rung fails through 600 on a
+   frozen mesh), R5 is closed by T4d6 with the RSS growth an open README Known
+   Issue, R6 is measured (`f3j7wCa1Pf99` walls), R7 is guarded by the
+   liveness counters asserted in every compare launch, and R3, R4, R8 are
+   stated from the logs of T4d2, T4d4 and M1-T2/M1-A1j.
+6. [follow-up] `scripts/tuolumne/run_regression_minset.flux:219-224` says
+   collapse, flips and the isotropic cleanup are "T4d, blocked on Tessera gaps
+   G5b/G5c/G5d" and rejected before the first step. Stale since T4d6j. The
+   file is read-only to automated sessions, so it is the user's to change.
+7. [follow-up] `scripts/tuolumne/run_milestone.flux:370-376` says the
+   `milestone` tier has four members and sixteen launches; it has five
+   (Milestone1Bubble). Recorded at M1-T2j review follow-up 2; read-only to
+   automated sessions.
+8. [follow-up] `docs/dataflow.html:64-68` still says the defaults do not run
+   (T4d6j review follow-up 2). The file is the user's own commit, outside
+   every task's **Fill in**.
+
+**Affects:** C1 (new) — resolves findings 1–5; the status stays IN PROGRESS
+until C1 is reviewed and the sweep is re-run.
