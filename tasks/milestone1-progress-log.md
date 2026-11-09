@@ -4920,3 +4920,70 @@ on tuolumne1019. Flux: COMPLETED, rc 0, submitted 11:31:51, started 11:31:52
    change needed.
 
 **Affects:** none (no task depends on M1-A1). M1-A1r carries findings 1 and 2.
+
+## M1-A1r
+
+**Commits:** the commit that adds this section (`docs/testing.md`,
+`tasks/milestone1.md`, this log); no code.
+**Jobs:** `f3j7wCa1Pf99`, submitted by M1-A1:
+`scripts/tuolumne/m1_milestone_run.flux /p/lustre5/stewartj/beatnik/M1-A1/stage`,
+output `beatnik_m1_milestone.f3j7wCa1Pf99.log` (repo root, 7505 lines) and
+`/p/lustre5/stewartj/beatnik/M1-A1/out/<tag>/`. It shows the pass direction
+and both failure directions. Read, not run, by this task; line numbers below
+are in that log.
+
+- **PASS.** `[milestone] SUMMARY: PASS (6/6 launches)` (`:7505`); zero
+  `[FAIL]` lines in the file. Each compare launch's `[m1final]` (SERIAL np1
+  `:1921`, np4 `:3747`; HIP np1 `:5573`, np4 `:7399`) reads `steps=1610/1610`,
+  `defects=0`, `time_liveness_failures=0`,
+  `stat_checked=161 stat_failed=0 stat_unreached=0`, with counters
+  `splits=523 collapses=19 flips=167 smooth_steps=85 cleanup_flips=291` on all
+  four, as M1-A1's **Affects:** expected.
+- **Per-segment limits.** Each compare launch prints 162 `[m1stat]` lines: gold
+  step 0 `verdict=unasserted` at the early limits, 105 asserted at gold steps
+  10–1050 with `rise_tol=0.001 area_tol=0.001`, and 56 at 1060–1610 with
+  `rise_tol=0.004 area_tol=0.015`, all `verdict=pass`. Over the four: **420**
+  asserted early, **224** late. A raw `grep -c` of
+  `rise_tol=0.001 area_tol=0.001` over the whole file gives 426: the 420, the
+  four unasserted step-0 lines, and the two lines of the `fail-no-cleanup`
+  launch (its step 0 and its failing step 10). The `fail-step0` launch prints
+  none.
+- **Per-segment worsts.** `[m1statworst]` (`:1920`, `:3746`, `:5572`, `:7398`)
+  is identical on all four compare launches in the four band fields:
+  `rise_err[10-1050]=2.711865e-04 at=310`,
+  `area_rel[10-1050]=9.877593e-04 at=1050`,
+  `rise_err[1060-1610]=2.544692e-03 at=1610`,
+  `area_rel[1060-1610]=1.062947e-02 at=1610`; each inside its segment's limit
+  (late area against `1.5e-2`, late rise against `4e-3`). Also `F_rel=5.321101e-02
+  at=10`, `qmin=0.762503 at=1440`; `vol_drift` worst `2.578495e-15` (SERIAL np1,
+  at 70). These equal M1-A1's **Affects:** and the review's **Evidence**; no
+  number there was wrong.
+- **Failure directions.** (a) `fail-step0`: `[m1step] step=10
+  verdict=mismatch exit=1` (`:7452`), `[m1fail] direction=a … comparator exit
+  1` (`:7453`), `[m1final]` `mismatched=1 defects=0` (`:7454`); launch PASS.
+  (b) `fail-no-cleanup`: step 0 `verdict=match`, gold step 10
+  `verdict=FAIL failed=face_count` (`F_rel=1.743119e-01`, `:7496`),
+  `[m1final]` `stat_checked=1 stat_failed=1 defects=0 first_failing_stat_step=10`
+  (`:7499`), `[m1fail] direction=b` (`:7498`); launch PASS.
+- **Walls** (`LAUNCH_WALL`, all `rc=0`): SERIAL np1 68 s (`:1924`), np4 65 s
+  (`:3759`), sum **133 s**; HIP np1 25 s (`:5576`), np4 40 s (`:7411`),
+  `fail-step0` 5 s (`:7457`), `fail-no-cleanup` 4 s (`:7502`), sum **74 s**.
+- **`docs/testing.md`.** The `Milestone1Bubble` row reads `133 s | 74 s`; its
+  note cites `f3j7wCa1Pf99` (2026-11-09, 1610 steps) with the walls above and
+  about 20 s of setup per job, and the missed-bands sentence is deleted.
+  `git grep -n f3j79G2VDX4T docs/` returns nothing.
+- **Decisions (made before this task, recorded here).** The node-time total
+  becomes **8.74 h**: recomputed from the edited table, 31474 s = 8.743 h (it
+  was 31487 s = 8.746 h, shown 8.75). The reading goes in this new section, not
+  appended to `## M1-A1`, because the log is chronological and
+  `## M1-A1 review` already follows it. `submit_milestone_split.sh` is not
+  changed: its `4m`/`3m` rows cover 1.5x the new walls (review finding 3).
+- **Cosmetic fix.** M1-A1's **Met** in `milestone1.md` dropped "(encoding and
+  submission; the job's output is still to be read)" and its closing "read from
+  its output after it ends"; it now points to this section for the PASS. The
+  status block says M1-A1 is accomplished on `f3j7wCa1Pf99`, with no pending
+  job.
+
+**Session notes:** no formatter run; no build, no executable, no job.
+
+**Affects:** none

@@ -20,12 +20,12 @@ a discretisation gap, not a defect. The reference's own solver, restarted from
 Beatnik's step-10 mesh, misses the gold by the same amount (area `1.047e-2`,
 rise `2.808e-3` at step 1610). Step size, the gold's late behaviour and face
 count are ruled out (log `## M1-D3`). The area and rise bands are therefore
-piecewise in gold step (`## Problem`). **M1-A1** is **DONE**, reviewed
-**Rework**: the test encodes them (code `ecda54f`) and its confirming job
-`f3j7wCa1Pf99` shows `SUMMARY: PASS (6/6 launches)` (log `## M1-A1 review`),
-but `docs/testing.md` and the log's `## M1-A1` do not yet record that job.
-**M1-A1r** (NOT STARTED) records it; the milestone is accomplished when M1-A1r
-is reviewed Passed.
+piecewise in gold step (`## Problem`). **M1-A1** is **accomplished**: the
+test encodes them (code `ecda54f`), and the milestone's comparison passes on
+job `f3j7wCa1Pf99`, `SUMMARY: PASS (6/6 launches)`, every compare launch
+`stat_checked=161 stat_failed=0` and both failure directions passing (log
+`## M1-A1r`). **M1-A1r** is **DONE**, recording that job in
+`docs/testing.md` and the log; it awaits review.
 
 ## Problem
 
@@ -2465,7 +2465,7 @@ with the measured value (M1-R1).
 
 The milestone is **accomplished** when this holds.
 
-**Met** (encoding and submission; the job's output is still to be read). The
+**Met.** The
 test's `kLateFirstGoldStep` 1060, `kRiseAtolEarly`/`kRiseAtolLate` 1e-3/4e-3
 and `kAreaRtolEarly`/`kAreaRtolLate` 1e-3/1.5e-2 equal **Decided**, with the
 measured values in their comment, checked by reading; `checkStats` and
@@ -2476,14 +2476,13 @@ measured values in their comment, checked by reading; `checkStats` and
 `spack install` rc 0 (333 s, no warning in the changed file). Stage
 `/p/lustre5/stewartj/beatnik/M1-A1/stage/` holds binaries byte-identical to
 the dev view and `COMMIT` naming `ecda54f`. Job `f3j7wCa1Pf99`
-(`m1_milestone_run.flux`, `pdebug`, `-t 10m`) was accepted; the loop runs this
-task as a submit task, so the PASS, the per-segment limits, both failure
-directions and the walls are read from its output after it ends (log
-`## M1-A1`, **Affects:**).
+(`m1_milestone_run.flux`, `pdebug`, `-t 10m`) ran this change. Its output is
+read under log `## M1-A1r`: `SUMMARY: PASS (6/6 launches)`, the per-segment
+limits, both failure directions and the walls.
 
 ---
 
-### M1-A1r — Resolve the M1-A1 review — **NOT STARTED**
+### M1-A1r — Resolve the M1-A1 review — **DONE**
 
 **Depends on:** M1-A1.
 
@@ -2526,6 +2525,15 @@ changed: its `4m` / `3m` rows cover 1.5x the new walls.
 section recording that job's PASS, per-segment limits, per-segment worsts,
 failure directions and walls, each number matching the job output; the status
 block no longer describes the confirming job as pending.
+
+**Met.** `git grep -n f3j79G2VDX4T docs/` returns nothing. `docs/testing.md`
+states `| Milestone1Bubble | 133 s | 74 s |` from job `f3j7wCa1Pf99`, the
+missed-bands sentence is gone, and the node-time total reads **8.74 h**
+(31474 s, recomputed from the table). Log `## M1-A1r` records the job's PASS,
+per-segment limits and counts, per-segment worsts, both failure directions and
+the six walls, each checked against `beatnik_m1_milestone.f3j7wCa1Pf99.log` by
+line number. The status block and M1-A1's **Met** no longer describe the job as
+pending. No code, build or job.
 
 ## Known risks
 

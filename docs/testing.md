@@ -91,16 +91,14 @@ does not cover.
   | `Milestone0FrozenL4` | 1781 s | 168 s |
   | `Milestone0Fmm` | 9581 s | 613 s |
   | `Milestone0FmmL4` | 15130 s | 3614 s |
-  | `Milestone1Bubble` | 134 s | 86 s |
+  | `Milestone1Bubble` | 133 s | 74 s |
 
-  The `Milestone1Bubble` row is from M1-A1's reading of job `f3j79G2VDX4T`
-  (2026-11-09, 1610 steps): the sum of its `LAUNCH_WALL`s, compare np1 + np4
-  (69 + 65 s SERIAL, 30 + 47 s HIP), with HIP also holding the two
+  The `Milestone1Bubble` row is from job `f3j7wCa1Pf99` (2026-11-09,
+  1610 steps): the sum of its `LAUNCH_WALL`s, compare np1 + np4
+  (68 + 65 s SERIAL, 25 + 40 s HIP), with HIP also holding the two
   failure-direction launches (5 + 4 s); the job's own setup adds about 20 s.
-  That run missed two statistics bands (see `tasks/milestone1-progress-log.md`
-  `## M1-A1`); the walls are a measurement either way.
 
-  They sum to **8.75 h** of node time, but the split tier's wall-clock is the
+  They sum to **8.74 h** of node time, but the split tier's wall-clock is the
   slowest job, **level-4 FMM SERIAL at 4.2 h** (4 h 15 min submit to last exit).
   The wrapper requests about 1.5x each job's wall as its `-t`. The runner's own
   `-t 652m` (about 1.25x the sum) only covers a bare one-job submission, kept as
