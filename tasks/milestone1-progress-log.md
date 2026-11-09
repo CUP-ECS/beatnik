@@ -4692,3 +4692,63 @@ single different split at `time` 0.276 is enough to produce that much.
   Its prompt file `tasks/milestone1_M1-A1.md` predates this finding and should
   be rewritten after review.
 - No other task changes.
+
+## M1-D3 review
+
+**Verdict:** Passed
+**Reviewed:** `9bd51e2^..9bd51e2` (the log section's `**Commits:**` line names
+it as "the commit that adds this section"; it is the only commit touching the
+four `scripts/tuolumne/m1d3_*` files)
+**Evidence:** the implementing session's jobs and analysis output, read. The
+criterion is a measurement recorded in the log, so its evidence is the jobs'
+output and the analysis files they and the login-node analysis wrote.
+- `f3j7Pykw2A6s`, `m1d3_refruns.flux`, log `beatnik_m1d3.f3j7Pykw2A6s.log`:
+  COMPLETED rc 0, queue wait 0 s, run 29.61 min. All three reference runs
+  exit 0 and end with "saved final finite checkpoint" at `time` 1.2382
+  (`ctl` step 1611, 162 checkpoints; `bk10` step 1474, 148; `dtpin` step 1449,
+  146). Echoed HEAD `62670d5` with the scripts untracked; the echoed sha256 of
+  `m1d3_refrun.py` (`4467bf2a…`) equals the committed blob in `9bd51e2`, and
+  both `.flux` scripts' mtimes precede their submit times, so the committed
+  scripts are the ones that ran.
+- `f3j7R4vqZF67`, `m1d3_probe.flux`, log
+  `beatnik_m1d3_probe.f3j7R4vqZF67.log`: COMPLETED rc 0, queue wait 0 s, run
+  33.6 s.
+- Recomputed from `/p/lustre5/stewartj/beatnik/M1-D3/{analysis,cmp_gold_vs_*}/m1d3_drift.json`:
+  Beatnik HIP np1 worst `area_rel` `1.0605e-2` and `rise_err` `2.525e-3`, both
+  at gold step 1610, first over `1e-3` at 1060 and 1340; `bk10` `1.0468e-2`
+  and `2.808e-3` at 1610, first over at 980 and 1200; `dtpin` `9.93e-4` at
+  1510 and `2.31e-4` at 1550, never over; `ctl` `3.1e-15` and `1.5e-15`.
+  `dr_rms` `1.04e-3` at 250, `1.08e-3` at 300, `1.54e-3` at 600, `2.67e-3` at
+  1000, `4.97e-3` at 1300, `1.15e-2` at 1610. `cmp_bk10_vs_beatnik.txt` shows
+  `bk10` within `4.1e-4` (area) and `5.7e-4` (rise) of Beatnik on its 50-step
+  rows. Every number the log and the **Met.** paragraph cite agrees.
+- Both directions: the control (`ctl`, the gold's own step 10) reproduces the
+  gold to round-off, so the harness itself adds no drift; the one-variable
+  runs then separate a cause that reproduces the miss (`bk10`) from one that
+  does not (`dtpin`).
+
+Scope: four new files under `scripts/tuolumne/`, each with the BSD-3-Clause
+header, plus `tasks/`; no compiled file, tolerance, `kSteps` or remesher
+change, as the exit criterion requires. The wrappers import the reference
+from M1-G3j's stage and monkey-patch only `choose_step_dt` and
+`save_state_checkpoint`; the reference tree is not modified. `review_checks.py`
+found no candidates. **Removes** is nothing. The prompt file
+`tasks/milestone1_M1-D3.md` is gone.
+
+1. [nit] `tasks/milestone1-progress-log.md` (`## M1-D3`, Jobs and Verdicts)
+   — "both late meshes are fixed points of the reference's rules" is true of
+   every probed Beatnik step and of the gold at 900–1600, but the probe's gold
+   step 1610 row has one split candidate, one split and one cleanup edge
+   change (`F` 1216 → 1218). It does not affect the conclusion; the
+   statement is slightly too strong.
+2. [nit] `## M1-D3` **Affects:** says the prompt file
+   `tasks/milestone1_M1-A1.md` "predates this finding and should be
+   rewritten"; no such file exists in the tree or in git history. The next
+   `write-prompt` on M1-A1 writes it fresh, which is what the line intends.
+3. [nit] The `**Commits:**` line names the commit by description, not by
+   hash (`9bd51e2`), and the session's corrections to M1-D3's **Fill in**
+   path and **Do** face-count figures in the design doc are not listed among
+   its session decisions. Both are cosmetic.
+
+**Affects:** none. M1-A1 still waits on the user's band choice, as `## M1-D3`
+**Affects:** states.
