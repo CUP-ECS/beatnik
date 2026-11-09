@@ -2497,3 +2497,12 @@ full record is its `## T9b` in
   - Each job's `-t` is about 1.5x its wall. `run_milestone.flux` is at
     `-t 652m`, which replaces the `1440m` ceiling.
 - **Gate:** unchanged, five `regression` members and 60 launches.
+
+## Housekeeping: raw job logs deleted (2026-11-02)
+
+Every repo-root job log of this topic was deleted, including
+`beatnik_milestone.f3azynKNQFCb.log`, the T9b split-run logs
+`beatnik_milestone_Milestone0*.log`, and `T6-handoff.log`. The job IDs and
+figures in this log (T6's from `f3azynKNQFCb` and the handoff are in `## T6`)
+are now the only record; a log filename cited above names a file that no
+longer exists.

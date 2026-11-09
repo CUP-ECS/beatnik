@@ -3461,3 +3461,17 @@ README "Future Optimizations".
 **Affects:** O11 (installs the new default; its rows pass the knob as `0`);
 V1 (the milestone tier runs with it off, the serial loop that every
 milestone run before O6 used).
+
+## Housekeeping: raw job logs deleted (2026-11-02)
+
+The repo-root job logs of every DONE task in this topic were deleted: the four
+T9b `beatnik_milestone_Milestone0{Fmm,FmmL4}_*` logs (T0's inputs), and the
+`beatnik_cprof_*`, `beatnik_cpb_*`, `beatnik_o1_*`, `beatnik_o8_*`,
+`beatnik_o5_*`, `beatnik_o9_*` and both `beatnik_t4_fmm_vs_direct` logs. The
+job IDs and tables in this log are now the only record of those runs; a
+filename cited above names a file that no longer exists.
+
+**Kept:** O6's five SMS logs, `beatnik_o6_*.f3gpo*.log`. They are O11's
+by-state baseline (and their SERIAL rows O7's), and `## O6` records only
+selected columns per state. Delete them once O11 is DONE and O7 is DONE or
+NOT TAKEN.

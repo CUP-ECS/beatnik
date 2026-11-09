@@ -22,12 +22,10 @@
 # the shape that makes MeshSeries' strictly-increasing-time rule fire if the
 # equal-time branch in CheckpointIO::write is missing.
 #
-# The four remesh flags are not a weakened run and not optional: the example
-# defaults to dynamic remeshing with collapse, flips, smoothing and isotropic
-# cleanup all on, and all four are task T4d, not yet implemented, and throw, so
-# without them the solver aborts before the first step and only the startup
-# checkpoint is ever written. This is the SAME split-only configuration gate
-# member T4b uses
+# The four remesh flags switch off collapse, quality flips, smoothing and the
+# isotropic cleanup, which the example runs by default, leaving split-only
+# dynamic remeshing. That is the SAME split-only configuration gate member T4b
+# uses
 # (tests/regression_tests/Beatnik_Test_DynamicRemeshSplit.cpp:30-33), reached
 # through the reference's own knobs rather than a new switch.
 # `--source-quadrature vertex --br-approximation direct` pin the other two

@@ -789,12 +789,28 @@ subsections above, which are intended behavior.
   members' check counts, 86/86 and 377/377, are unmoved. A green gate proves that mesh
   generation, the initial condition, the checkpoint write, the seven surface
   operators, the direct Birkhoff-Rott sum, ten fixed-mesh timesteps and **both
-  adaptivity paths' refinement halves** reproduce the reference. What it still
-  does not cover is **coarsening**: edge collapse, quality flips and the
-  isotropic cleanup are T4d and not yet implemented in Beatnik (Tessera provides
-  the collapse, flip and compaction primitives they build on), and every
-  configuration that would reach one is rejected before the first step by name
-  and task ID. Resolves progressively as T4 lands its remaining regression
+  adaptivity paths' refinement halves** reproduce the reference, and that the
+  refine branch's flips (`MeshQuality::improveConnectivityByFlips`, T4d3) flip
+  at `--flip-passes 2` without breaking Euler or conformity
+  (`Beatnik_Test_RefineSplitEdges` check 6). What it still does not cover is
+  **coarsening and the rest of the remesh repair**. Edge collapse
+  (`DynamicRemesh::collapseShortEdges`, T4d2), quality flips
+  (`DynamicRemesh::flipEdgesForQuality`, T4d3), guarded tangential smoothing
+  (`DynamicRemesh::tangentialSmooth`, T4d4) and the isotropic cleanup
+  (`MeshQuality::isotropicCleanup` and `valenceEqualizingFlips`, T4d5) are
+  implemented, run at the reference's defaults in a `Solver` run, and are
+  covered by the `unit` member `Beatnik_Test_MeshEdits`; the gate's dynamic-remesh
+  member configures all four off, because its gold counts were measured
+  that way. Every-step coverage of the default configuration is the milestone
+  comparison test, the `milestone` member `Beatnik_Test_Milestone1Bubble`
+  (`tasks/milestone1.md`, M1-T2j and M1-A1j: step 0 field-wise, then
+  time-matched mesh statistics against the reference through step 1610),
+  which also asserts the cleanup flipped (`Solver::cleanupFlips()`). The cleanup's valence flips test each
+  new face against the old one with the winding Tessera writes, where the
+  reference's literal `(c,d,a)`, `(d,c,b)` inverts the pair on every edge whose
+  first-indexed face runs `a -> b` and so never flips those edges; Beatnik
+  therefore accepts flips the reference does not (deliberate,
+  `tasks/milestone1.md`). Resolves progressively as T4 lands its remaining regression
   tests. See
   [CLAUDE.md](CLAUDE.md#minimum-test-set) and `tasks/framework.md`.
 
@@ -859,6 +875,50 @@ subsections above, which are intended behavior.
   one registered region per direction, mirroring the `solve()` fix — **Canopy
   #22**. Once that lands and Beatnik picks up the new Canopy, the env bump becomes
   belt-and-suspenders.
+- **At 4 ranks on HIP, per-rank resident memory grows slowly at constant face
+  count during a dynamic-remesh run.** *Pre-existing; not the gid space and not
+  the gid-renumbering cadence (task T4d6).* Over a 600-step milestone-defaults
+  run (about 1040 faces), every rank's `VmRSS` rises in about 264 kB increments.
+  Without checkpoints it grows 6.4–9.5 MB per rank (3.7–7.7 MB of it while the face
+  count is unchanged, mostly after step 300, often on the same steps on every
+  rank and on steps that make no remesh edit). It grows as much with
+  renumbering off as at cadence 50, and the gid space stays flat. With a checkpoint every 10
+  steps it grows 12.8–21.7 MB per rank, 11.6–17.3 MB of that on checkpoint
+  steps. At 1 rank the same runs change RSS only 3–5 times in 600 steps
+  (about 1 MB in total). About 1 % of a rank's ~1 GB footprint over 600 steps;
+  whether it plateaus over a longer run is unmeasured.
+  **Reproduce:** `scripts/tuolumne/t4d6_gid_cadence.flux` — the `cadence_HIP_np4`
+  launch of the default `measure` selector (with checkpoints), or the `diag`
+  selector's `diag` and `diag0` launches (no checkpoints; renumbering every 50
+  and never), reading the `rss_kb=` field of the `[m1run]` lines.
+- **Beatnik's collapse pass accepts fewer collapses than the reference's in
+  one pass, so a dynamic-remesh run's mesh departs from the reference's from
+  step 2.** *Pre-existing, by design (Tessera's edit model; not a regression).*
+  `DynamicRemesh::collapseShortEdges` hands Tessera its whole candidate mask
+  and Tessera accepts one deterministic **independent set** per pass, one
+  round: no two accepted collapses share a vertex. The reference's serial walk
+  (`dynamic_remesh.py:388-401`) skips an edge only if an endpoint was already
+  removed, so it can collapse several edges into one surviving vertex in a
+  single pass. On the milestone-1 configuration at step 2 both see the same 44
+  candidates; Beatnik accepts 8 (36 lose the independent-set round, none fails
+  a geometric test) and the reference 31. The meshes then follow different
+  trajectories: Beatnik settles at 518/1032 (V/F) at step 3, the reference at
+  547/1090 at step 9, and the field-wise comparison against the reference
+  reaches step 0 only. Beatnik's mesh is a fixed point of the reference's own
+  remesh rules from step 3 on, so the difference is one of selection, not of
+  rules; the milestone test compares mesh statistics at matched time beyond
+  step 0 instead. A multi-round collapse would narrow the gap and is not
+  planned. Late in the run the different meshes carry a measurable drift in
+  the statistics: at gold step 1610 Beatnik's total area is `1.063e-2`
+  relative above the gold's and its rise `2.545e-3` behind. This is a
+  mesh-selection discretisation gap, not a defect: the reference's own
+  solver, restarted from Beatnik's step-10 mesh, misses its gold by area
+  `1.047e-2` and rise `2.808e-3` at the same step (`## M1-D3` in the progress
+  log). The milestone test's rise and area bands are therefore `1e-3` through
+  gold step 1050 and `4e-3` / `1.5e-2` from 1060. **Reproduce:** `scripts/tuolumne/m1d2_split_ab.flux` (part `diag`),
+  reading the step-2 `[m1rem]` line's `collapse_requested`,
+  `collapse_rejected_conflict` and `collapses`; the measurement is in
+  `tasks/milestone1-progress-log.md`, `## M1-D2`.
 
 Two further FMM defects — a Slingshot NIC registration exhaustion during Canopy
 `Rebalance` (RESOLVED 2026-06-17) and a premature FMM NaN at full rollup

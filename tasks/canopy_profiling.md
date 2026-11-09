@@ -325,11 +325,12 @@ and jobs are the dominant cost of this programme.
 - **Canopy prints every timing table on every call in a profiling build** (see
   [The instrument](#the-instrument)). The dev env's level is 1, so the
   operator-build and DTT timers are compiled out.
-- **The existing logs already hold per-solve Up/Down/P2P breakdowns** for every
-  T9b milestone launch: the eight `beatnik_milestone_Milestone0*_{SERIAL,HIP}.*.log`
-  files in this directory. Their `[Canopy Diagnostics] solve() phase breakdown`
-  blocks interleave with claim-A `[note]` lines (claim A's direct-driven
-  evaluations) and with claim B's FMM-driven steps.
+- **Per-solve Up/Down/P2P breakdowns for every T9b FMM milestone launch** are
+  tabulated in the progress log, `## T0`; the raw job logs are deleted. A
+  milestone log carries `[Canopy Diagnostics] solve() phase breakdown` blocks
+  interleaved with claim-A `[note]` lines (claim A's direct-driven
+  evaluations) and with claim B's FMM-driven steps, so V1's tier run is a fresh
+  input for `fmm_profile_reduce.py --format milestone`.
 - **No measurement exists above 2562 vertices on this solver.** The
   `/p/lustre5/stewartj/beatnik/fmm/` runs (`16p_*mesh`, `n1536_p256`) came from
   the pre-redesign planar solver removed in `89ec015` and cannot be re-run. The

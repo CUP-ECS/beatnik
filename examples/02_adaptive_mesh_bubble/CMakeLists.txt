@@ -15,15 +15,17 @@
 # example 01, this one targets the CURRENT solver API and builds unconditionally
 # under Beatnik_ENABLE_EXAMPLES=ON.
 #
-# It BUILDS and RUNS. The solver integrates: the RHS, the volume projection,
-# the TVD-RK3 integrator, indicator-driven refinement and split-only dynamic
-# remeshing are all implemented. What is still stubbed are the
-# follow-on mesh-quality passes (T4d, T4e) and the circulation field filter
-# (T5c); `Solver::requireSupportedConfiguration` rejects a configuration that
-# needs one of those before the first step, naming the option to change and the
-# task that owns it. The DEFAULT configuration is currently one of those, because
-# `--isotropic-cleanup` defaults on — so a real invocation either integrates to
-# completion or exits with that message, never dies in an unnamed stub.
+# It BUILDS and RUNS, and the default configuration runs. The RHS, the volume
+# projection, the TVD-RK3 integrator, indicator-driven refinement and dynamic
+# remeshing (split, collapse, quality flips, tangential smoothing) followed by
+# the isotropic cleanup are all implemented. `Solver::requireSupportedConfiguration`
+# rejects exactly four options before the first step, each off by default:
+# --remesh-proximity and --remesh-surgical-proximity (task T4e, unported) and
+# --remesh-tight-after >= 0 (the tight profile, unported), all three under
+# --dynamic-remesh, and --field-filter-every > 0 (task T5c, unported). Each
+# message names the option and the setting that satisfies it, so a real
+# invocation either integrates to completion or exits with that message, never
+# dies in an unnamed stub.
 #
 # The end-to-end regression cases are NOT registered here. They live in
 # tests/CMakeLists.txt as standalone self-validating binaries under

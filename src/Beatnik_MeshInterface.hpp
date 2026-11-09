@@ -15,9 +15,8 @@
  *
  * Every capability Beatnik needs from Tessera exists upstream, edge
  * collapse, edge flip and compaction included (`Tessera_EdgeCollapse.hpp`,
- * `Tessera_EdgeFlip.hpp`, `Tessera_Compact.hpp`). The adapters for those three
- * — `collapseEdges`, `flipEdges` and `compact` below — are not yet written;
- * they are task T4d1 in `tasks/milestone1.md`. *Nothing Tessera owns is
+ * `Tessera_EdgeFlip.hpp`, `Tessera_Compact.hpp`), and `collapseEdges`,
+ * `flipEdges` and `compact` below adapt those three. *Nothing Tessera owns is
  * worked around in Beatnik* — in particular Beatnik implements no haloing and
  * no partitioning of its own.
  *
@@ -366,10 +365,41 @@ enum : int
  *
  * There is no `parent_a` / `parent_b` / `weights` map: Tessera has none and
  * none is needed, because Tessera transfers vertex user fields itself through
- * the refinement policy (see the field-pack section in the file header). What
- * is reported is what `Tessera::RefineResult` / `Tessera::SplitResult`
- * actually report, plus the entity counts a caller wants for a progress line.
+ * the refinement and collapse policies (see the field-pack section in the file
+ * header). What is reported is what the Tessera result struct of the edit
+ * actually reports, plus the entity counts a caller wants for a progress line.
+ *
+ * One struct serves every edit, so each field says which edits fill it; a
+ * field an edit does not fill stays at its zero default.
+ *
+ *   - `splitEdges()`: `balance_rounds`, `split_edges_local`.
+ *   - `collapseEdges()`: `requested`, `accepted`, `rejected_boundary`,
+ *     `rejected_link_condition`, `rejected_normal_flip`, `rejected_quality`,
+ *     `rejected_conflict`, and the three `*_removed`
+ *     (`Tessera::CollapseResult`).
+ *   - `flipEdges()`: `requested`, `accepted`, `rejected_boundary`,
+ *     `rejected_duplicate_edge`, `rejected_geometric`, `rejected_conflict`
+ *     and `flipped` (`Tessera::FlipResult`).
+ *   - `compact()` and `compactAndRenumberGids()`: the three `*_removed` and
+ *     the two `gid_space_*` (`Tessera::CompactStats`).
+ *   - every edit: `owned_vertices_after`, `owned_faces_after`.
+ *
+ * **Every collapse, flip and compact counter is GLOBAL**, already summed over
+ * the communicator by Tessera, so every rank holds the same value and none of
+ * them may be reduced again. `split_edges_local` and `flipped` are the
+ * rank-local members. For collapse and flip the verdict counters partition
+ * `requested`: `requested == accepted + Σ rejected_*`.
  */
+/// One accepted flip, named by **vertex gids**: the old edge's two endpoints
+/// and the new diagonal's two endpoints, each pair ascending (Tessera's
+/// `EdgeKey`). The flipped edge and its two faces keep their gids, so gids, not
+/// local indices, are what survive the call.
+struct FlippedEdge
+{
+    std::uint64_t old_v[2];
+    std::uint64_t new_v[2];
+};
+
 struct MeshEditReport
 {
     /// 2:1 mark-propagation rounds Tessera's cross-rank fixpoint executed.
@@ -382,6 +412,55 @@ struct MeshEditReport
     /// (`Tessera::RefineResult::midpoints.size()`). Not a global count and not
     /// a partition — an edge on a rank boundary is counted on both sides.
     long long split_edges_local = 0;
+
+    /// Marked owned edges, summed globally (collapse, flip).
+    long long requested = 0;
+    /// Edges actually collapsed or flipped, globally (collapse, flip).
+    long long accepted = 0;
+    /// Rejected: the edge has other than exactly two incident faces
+    /// (collapse, flip).
+    long long rejected_boundary = 0;
+    /// Rejected: the endpoints' one-rings meet in more than the two opposite
+    /// corners, or the merge would fuse two faces into one (collapse).
+    long long rejected_link_condition = 0;
+    /// Rejected: a surviving incident face's normal would rotate by more than
+    /// the policy's `maxNormalRotation` (collapse).
+    long long rejected_normal_flip = 0;
+    /// Rejected: a surviving incident face's `policy.quality()` would fall
+    /// below the policy's `minQuality` (collapse).
+    long long rejected_quality = 0;
+    /// Rejected: the diagonal the flip would create already exists (flip).
+    long long rejected_duplicate_edge = 0;
+    /// Rejected: the flip policy's normal-deviation or quality test failed,
+    /// or a new face's normal is degenerate (flip).
+    long long rejected_geometric = 0;
+    /// Rejected: passed every test but lost Tessera's one-round independent
+    /// set to a higher-priority candidate (collapse, flip).
+    long long rejected_conflict = 0;
+
+    /// Owned entities removed, globally (collapse, compact). After a collapse
+    /// on a closed surface these are `accepted`, `3 * accepted` and
+    /// `2 * accepted`, and `collapseEdges()` throws if they are not.
+    long long vertices_removed = 0;
+    long long edges_removed = 0;
+    long long faces_removed = 0;
+
+    /// Size of the gid space, summed over vertices, edges and faces as
+    /// (global max live gid + 1) per kind, before and after (compact,
+    /// compactAndRenumberGids). The gap between it and the live entity count
+    /// is the gid-space growth that `compactAndRenumberGids()` reclaims;
+    /// `compact()` preserves gids, so for it the two are equal unless the
+    /// removal vacated the top of some kind's range.
+    long long gid_space_before = 0;
+    long long gid_space_after = 0;
+
+    /// The flip map (flip): every accepted flip **this rank touches** — owns
+    /// the edge or either incident face — sorted and unique by the old key
+    /// (`Tessera::FlipResult::flipped`). **Rank-local**: a flip on a rank
+    /// boundary appears on several ranks, and one far away appears on none
+    /// but its own, so a caller that needs every flip gathers it and
+    /// deduplicates by the old key.
+    std::vector<FlippedEdge> flipped;
 
     /// Owned vertex / face counts after the edit, for diagnostics.
     long long owned_vertices_after = 0;
@@ -447,6 +526,17 @@ class SurfaceMesh
 
     /// The three halo exchange plans (vertices, edges, faces).
     using tessera_halo_type = Tessera::MeshHalo<MemorySpace>;
+
+    /// The default policy `collapseEdges()` forwards. A caller that needs a
+    /// different admissibility test or quality metric derives from this alias
+    /// and shadows one member, as `Tessera_EdgeCollapse.hpp` documents; the
+    /// adapter contract is why it is spelled through `SurfaceMesh`.
+    using collapse_policy_type = Tessera::DefaultCollapsePolicy;
+
+    /// The default policy `flipEdges()` forwards, and the type of its
+    /// `conflict` member. Same derivation pattern as `collapse_policy_type`.
+    using flip_policy_type = Tessera::DefaultFlipPolicy;
+    using flip_conflict_type = Tessera::FlipConflict;
 
     /**
      * @brief `(Nv, 3)` vertex positions, as a generation-stamped Cabana slice.
@@ -1210,6 +1300,31 @@ class SurfaceMesh
     }
 
     /**
+     * @brief Global ids of **every local** vertex, owned then ghost, on the
+     *        host, in local index order.
+     *
+     * The vocabulary of `MeshEditReport::flipped`: a flip names its old edge
+     * and its new diagonal by vertex gids, and a caller tracking flipped
+     * edges across `flipEdges()` calls — where every local index is
+     * reassigned — resolves them through this. A host `std::vector` for the
+     * reason `ownedFaceGids()` gives; re-take it after every edit.
+     */
+    std::vector<std::uint64_t> vertexGids()
+    {
+        const std::size_t nv = static_cast<std::size_t>( totalVertexCount() );
+        Cabana::AoSoA<typename tessera_mesh_type::vertex_member_types,
+                      Kokkos::HostSpace>
+            hv( "beatnik_vertex_gids", _mesh.numVertices() );
+        Cabana::deep_copy( hv, _mesh.vertices() );
+        auto v_gid = Cabana::slice<Tessera::VertexField::Gid>( hv );
+
+        std::vector<std::uint64_t> out( nv );
+        for ( std::size_t v = 0; v < nv; ++v )
+            out[v] = static_cast<std::uint64_t>( v_gid( v ) );
+        return out;
+    }
+
+    /**
      * @brief Vertex one-ring adjacency, in local indices.
      *
      * Port of mesh.py::vertex_adjacency (lines 141-147)
@@ -1310,10 +1425,12 @@ class SurfaceMesh
      * Topology-preserving: does **not** bump `generation()`, so handles taken
      * before it stay valid.
      *
-     * @pre The halo plans must be live. **They always are**: `splitEdges()`
-     *      calls `rebuildHalo()` itself, at the recorded depth, before
-     *      returning, so there is no window in which this is a silent no-op on
-     *      an empty plan.
+     * @pre The halo plans must be live. **They always are**: every topological
+     *      edit ends in a halo rebuild at the recorded depth before returning
+     *      — `splitEdges()` calls `rebuildHalo()` itself, `flipEdges()` ends
+     *      with Tessera's `rebuildHalo`, and `collapseEdges()` and `compact()`
+     *      end with Tessera's `compact()`, which is a halo rebuild — so there
+     *      is no window in which this is a silent no-op on an empty plan.
      */
     void haloExchange() { Tessera::haloExchange( _mesh, _halo ); }
 
@@ -1428,17 +1545,20 @@ class SurfaceMesh
     // Topological edits
     //
     // EDITING FAMILIES — READ THE FILE HEADER. Every edit named below is in the
-    // REMESH family, which is the only family Beatnik uses: `splitEdges()`, and
-    // `collapseEdges()` / `flipEdges()` / `compact()` once task T4d1 writes
-    // their adapters. `SurfaceMesh` has no `refine` — the HIERARCHICAL family's
+    // REMESH family, which is the only family Beatnik uses: `splitEdges()`,
+    // `collapseEdges()`, `flipEdges()`, `compact()` and
+    // `compactAndRenumberGids()`. `SurfaceMesh` has no
+    // `refine` — the HIERARCHICAL family's
     // entry point — so Tessera's `EditFamily` guard is a backstop that should
     // never fire. The decision and its two findings are in
     // `tasks/framework.md`, Phase 4, *The editing-family question — RESOLVED*.
     //-----------------------------------------------------------------------//
 
     /**
-     * @brief Split a specified set of edges at their midpoints. **The only
-     *        topological edit Beatnik performs.**
+     * @brief Split a specified set of edges at their midpoints. One of the
+     *        three topological edits a `Solver` run performs, beside
+     *        `collapseEdges()` and `flipEdges()` (the remesh cycle, the
+     *        refine branch's flips and the isotropic cleanup).
      *
      * Port of dynamic_remesh.py::split_selected_edges (lines 261-298) **and**
      * of mesh.py::refine_marked_faces (lines 570-730)
@@ -1495,9 +1615,9 @@ class SurfaceMesh
      *       bumped, the adapter's four caches invalidate themselves, and every
      *       accessor must be re-taken.
      *
-     * **EDITING FAMILY — Remesh**, and this is the call that tags the mesh.
-     * Nothing can subsequently violate it, because this facade has no
-     * `refine()`.
+     * **EDITING FAMILY — Remesh**, the family every edit on this facade tags
+     * the mesh with. Nothing can subsequently violate it, because this facade
+     * has no `refine()`.
      */
     MeshEditReport splitEdges( const std::vector<char>& edgeMask )
     {
@@ -1516,72 +1636,315 @@ class SurfaceMesh
     }
 
     /**
-     * @brief Collapse a set of short edges onto their midpoints.
+     * @brief Collapse the marked edges that survive Tessera's tests, each onto
+     *        the point its policy chooses.
      *
-     * Port of dynamic_remesh.py::collapse_short_edges (lines 361-407)
+     * TESSERA MAPPING: `haloExchange()`, then
+     * `Tessera::collapseEdges( mesh, halo, edgeMask, policy )`
+     * (`Tessera_EdgeCollapse.hpp`). The reference operation this serves is
+     * dynamic_remesh.py::collapse_short_edges (lines 361-405); choosing the
+     * edges and the policy is `DynamicRemesh::collapseShortEdges` (task T4d2),
+     * not this adapter.
      *
-     * A collapse is rejected unless it is both **topologically safe** (the link
-     * condition: the one-rings of the two endpoints intersect in exactly the
-     * two vertices opposite the edge, else the collapse creates a non-manifold
-     * edge — `dynamic_remesh.py:509-518`) and **geometrically safe** (no
-     * incident face inverts its normal or becomes a sliver —
-     * `dynamic_remesh.py:519-551`).
+     * Each accepted collapse merges the two endpoints of `(a,b)` into the
+     * lower-gid one, at parameter `policy.t` along the edge, deletes the two
+     * incident faces, the edge and one edge of each coincident pair, and
+     * blends every vertex user field through the policy: net V-1, E-3, F-2.
+     * A marked edge is rejected, and counted in exactly one `rejected_*`
+     * field, if it
      *
-     * Not yet implemented in Beatnik (task T4d1). The primitive it adapts is
-     * `Tessera::collapseEdges` (`Tessera_EdgeCollapse.hpp`).
+     *   - has other than two incident faces (`rejected_boundary`);
+     *   - fails the link condition — the endpoints' one-rings meet in more
+     *     than the two opposite corners, or the merge would fuse two faces into
+     *     one (`rejected_link_condition`);
+     *   - would rotate a surviving incident face's normal by more than
+     *     `policy.maxNormalRotation` (`rejected_normal_flip`), or drop its
+     *     `policy.quality()` below `policy.minQuality` (`rejected_quality`);
+     *   - or loses the one-round independent set to a shorter candidate in
+     *     either endpoint's one-ring (`rejected_conflict`).
+     *
+     * The tests are checked in that order. Tessera's geometric tests are not
+     * the reference's at the default policy; `tasks/milestone1.md`, "Read this
+     * first" #6, gives the mapping and the policy T4d2 passes.
+     *
+     * **One independent set per call.** More progress means calling again
+     * until `accepted` is 0. The accepted set is not the reference's serial
+     * shortest-first set; compare statistics, not edit sets.
+     *
+     * **The adapter exchanges the halo first.** The merged position and the
+     * merged vertex user fields are blended by the surviving vertex's owner
+     * from its local copies of both endpoints, one of which is in general a
+     * ghost, so Tessera requires halo-consistent vertex data on entry. This is
+     * the opposite of `splitEdges()`, whose caller exchanges afterwards. The
+     * exchange is one collective; it makes the call correct after any
+     * position or field update without the caller having to remember.
+     *
+     * **The V/E/F identities are checked, and a mismatch throws.** On a closed
+     * surface — every surface Beatnik builds — the compaction must remove
+     * exactly `accepted` vertices, `3 * accepted` edges and `2 * accepted`
+     * faces. That is the cheapest end-to-end check that the connectivity
+     * rewrite closed.
+     *
+     * @param edgeMask Per-**owned-edge** marks, `1` = collapse. Exactly
+     *        `ownedEdgeCount()` long, the same host convention as
+     *        `splitEdges()`. An unreconciled, rank-local mask is legal: the
+     *        edge owner's mark is the verdict.
+     * @param policy Forwarded to Tessera unchanged. The caller chooses it.
+     * @tparam CollapsePolicy `collapse_policy_type` or a type deriving from
+     *         it.
+     * @return Tessera's global counters; see `MeshEditReport`.
+     *
+     * @throws std::runtime_error if the V/E/F identities fail, and whatever
+     *         Tessera throws (halo depth below 2, a wrong mask length, a
+     *         tombstone set that does not close).
+     *
+     * @note MPI. Collective.
+     *
+     * @note INVALIDATION. Ends with Tessera's own `compact()`, so the mesh is
+     *       compact, haloed at `halo_depth`, and `generation()` is bumped when
+     *       anything was accepted. Re-take every slice, CSR and accessor. A
+     *       call that accepts nothing changes nothing.
      *
      * **EDITING FAMILY — Remesh**: Tessera tags the mesh
      * `EditFamily::Remesh`, the same family `splitEdges()` tags this mesh
      * with — so the two compose freely, and Tessera's guard stays a backstop
      * that never fires.
      */
-    template <class EdgeListView>
-    MeshEditReport collapseEdges( const EdgeListView& edges )
+    template <class CollapsePolicy = collapse_policy_type>
+    MeshEditReport collapseEdges( const std::vector<char>& edgeMask,
+                                  const CollapsePolicy& policy = CollapsePolicy{} )
     {
-        (void)edges;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceMesh", "collapseEdges" );
+        haloExchange();
+        const Tessera::CollapseResult result =
+            Tessera::collapseEdges( _mesh, _halo, edgeMask, policy );
+
+        MeshEditReport report;
+        report.requested = result.requested;
+        report.accepted = result.accepted;
+        report.rejected_boundary = result.rejectedBoundary;
+        report.rejected_link_condition = result.rejectedLinkCondition;
+        report.rejected_normal_flip = result.rejectedNormalFlip;
+        report.rejected_quality = result.rejectedQuality;
+        report.rejected_conflict = result.rejectedConflict;
+        report.vertices_removed = result.verticesRemoved;
+        report.edges_removed = result.edgesRemoved;
+        report.faces_removed = result.facesRemoved;
+        report.owned_vertices_after = ownedVertexCount();
+        report.owned_faces_after = ownedFaceCount();
+
+        // Every counter here is Tessera's GLOBAL count, identical on every
+        // rank, so every rank throws or none does: no rank is left waiting in
+        // a collective its peers abandoned.
+        if ( report.vertices_removed != report.accepted ||
+             report.edges_removed != 3 * report.accepted ||
+             report.faces_removed != 2 * report.accepted )
+        {
+            throw std::runtime_error(
+                "SurfaceMesh::collapseEdges: the collapse did not close. "
+                "accepted=" +
+                std::to_string( report.accepted ) +
+                " but the compaction removed V=" +
+                std::to_string( report.vertices_removed ) +
+                " E=" + std::to_string( report.edges_removed ) +
+                " F=" + std::to_string( report.faces_removed ) +
+                "; a closed surface requires V=accepted, E=3*accepted, "
+                "F=2*accepted (Tessera_EdgeCollapse.hpp, CollapseResult)." );
+        }
+        return report;
     }
 
     /**
-     * @brief Flip a set of interior edges to the opposite diagonal.
+     * @brief Flip the marked interior edges that survive Tessera's tests to
+     *        the opposite diagonal of their quad.
      *
-     * Port of dynamic_remesh.py::flip_edges_for_quality (lines 408-458)
+     * TESSERA MAPPING: `Tessera::flipEdges( mesh, halo, edgeMask, policy )`
+     * (`Tessera_EdgeFlip.hpp`). Both the quality flips
+     * (`DynamicRemesh::flipEdgesForQuality`, task T4d3) and the valence flips
+     * of `MeshQuality::isotropicCleanup` (task T4d5) go through it; they build
+     * the mask and choose the policy.
      *
-     * A flip changes connectivity only, so per-vertex fields are untouched. A
-     * flip is rejected if the opposite diagonal already exists (non-manifold)
-     * or if either child face would invert relative to the pre-flip normal.
+     * A flip replaces edge `(a,b)`, whose incident faces are `(a,b,c)` and
+     * `(b,a,d)`, by `(c,d)`. V, E and F are unchanged, every gid is preserved
+     * (the edge and both faces keep theirs with new vertices), and vertex
+     * fields are untouched. What Tessera checks is **not** what the reference
+     * checks (`tasks/milestone1.md`, "Read this first" #6); a marked edge is
+     * rejected, and counted in exactly one `rejected_*` field, if it
      *
-     * Not yet implemented in Beatnik (task T4d1). The primitive it adapts is
-     * `Tessera::flipEdges` (`Tessera_EdgeFlip.hpp`). Both the quality flips
-     * (`DynamicRemesh::flipEdgesForQuality`) and the valence flips of
-     * `MeshQuality::isotropicCleanup` go through it.
+     *   - has other than two incident faces (`rejected_boundary`);
+     *   - would create a diagonal `(c,d)` that already exists
+     *     (`rejected_duplicate_edge`);
+     *   - gives a new face a degenerate normal, a normal more than
+     *     `policy.maxNormalDeviation` from the area-weighted mean of the two old
+     *     normals, or a `policy.quality()` below `policy.minQuality`
+     *     (`rejected_geometric`);
+     *   - or loses the one-round independent set under `policy.conflict`, or
+     *     claims the same new diagonal as a higher-priority candidate that
+     *     passed the geometric test (`rejected_conflict`).
+     *
+     * **One independent set per call**, longest edge first; call again for
+     * more progress. Tessera reads the four quad corners' positions as this
+     * rank holds them, ghosts included, so positions must be halo-consistent
+     * on entry, as for every Beatnik kernel that reads ghosts.
+     *
+     * @param edgeMask Per-**owned-edge** marks, `1` = flip. Exactly
+     *        `ownedEdgeCount()` long, the same host convention as
+     *        `splitEdges()`.
+     * @param policy Forwarded to Tessera unchanged. The caller chooses it.
+     * @tparam FlipPolicy `flip_policy_type` or a type deriving from it.
+     * @return Tessera's global counters; see `MeshEditReport`.
+     *
+     * @note MPI. Collective.
+     *
+     * @note INVALIDATION. Ends with `rebuildHalo()` at `halo_depth`, so every
+     *       slice, CSR and accessor taken before the call is dangling. A gid no
+     *       longer determines an edge's endpoints across the call.
      *
      * **EDITING FAMILY — Remesh**: the same family `splitEdges()` tags this
      * mesh with, so the two compose.
      */
-    template <class EdgeListView>
-    int flipEdges( const EdgeListView& edges )
+    template <class FlipPolicy = flip_policy_type>
+    MeshEditReport flipEdges( const std::vector<char>& edgeMask,
+                              const FlipPolicy& policy = FlipPolicy{} )
     {
-        (void)edges;
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceMesh", "flipEdges" );
+        const Tessera::FlipResult result =
+            Tessera::flipEdges( _mesh, _halo, edgeMask, policy );
+
+        MeshEditReport report;
+        report.requested = result.requested;
+        report.accepted = result.accepted;
+        report.rejected_boundary = result.rejectedBoundary;
+        report.rejected_duplicate_edge = result.rejectedDuplicateEdge;
+        report.rejected_geometric = result.rejectedGeometric;
+        report.rejected_conflict = result.rejectedConflict;
+        report.flipped.reserve( result.flipped.size() );
+        for ( const auto& kv : result.flipped )
+        {
+            FlippedEdge f;
+            f.old_v[0] = static_cast<std::uint64_t>( kv.first.id[0] );
+            f.old_v[1] = static_cast<std::uint64_t>( kv.first.id[1] );
+            f.new_v[0] = static_cast<std::uint64_t>( kv.second.id[0] );
+            f.new_v[1] = static_cast<std::uint64_t>( kv.second.id[1] );
+            report.flipped.push_back( f );
+        }
+        report.owned_vertices_after = ownedVertexCount();
+        report.owned_faces_after = ownedFaceCount();
+        return report;
     }
 
     /**
-     * @brief Drop unreferenced vertices and renumber contiguously.
+     * @brief Remove every tombstoned entity, restore the owned-first ordering,
+     *        and rebuild the CSRs, key tables and halo. **Gids are
+     *        preserved.**
      *
-     * Port of dynamic_remesh.py::compact_mesh (lines 492-508)
+     * TESSERA MAPPING: `Tessera::compact( mesh, halo )`
+     * (`Tessera_Compact.hpp`). The reference's counterpart is
+     * dynamic_remesh.py::compact_mesh (lines 492-508), which drops
+     * unreferenced vertices and renumbers them contiguously; here local
+     * indices are contiguous after the rebuild, and **gids are not
+     * renumbered**. Renumbering is `compactAndRenumberGids()`, which
+     * `DynamicRemesh::remesh` calls on the `RemeshParams::renumber_gids_every`
+     * cadence.
      *
-     * Not yet implemented in Beatnik (task T4d1). The primitive it adapts is
-     * `Tessera::compact` (`Tessera_Compact.hpp`). Collapse is the only edit
-     * that orphans a vertex, so this is needed exactly when
-     * `collapseEdges` runs.
+     * **The remesh cycle does not call this.** `collapseEdges()` — the only
+     * edit that orphans anything — runs Tessera's compaction as its own last
+     * step, so the mesh is already compact whenever a caller holds it. This
+     * entry point is called only by tests; the remesh cycle's periodic
+     * compaction is `compactAndRenumberGids()`, which compacts first.
+     *
+     * @return The removed counts and the gid-space size before and after;
+     *         see `MeshEditReport`. All global.
+     *
+     * @note MPI. Collective. Preserves `halo_depth`.
+     *
+     * @note INVALIDATION. Rebuilds the halo and bumps `generation()`, so every
+     *       slice, CSR and accessor taken before the call is dangling.
      *
      * **EDITING FAMILY — Remesh.**
      */
     MeshEditReport compact()
     {
-        BEATNIK_NOT_IMPLEMENTED( "SurfaceMesh", "compact" );
+        const Tessera::CompactStats stats = Tessera::compact( _mesh, _halo );
+
+        MeshEditReport report;
+        report.vertices_removed = stats.verticesRemoved;
+        report.edges_removed = stats.edgesRemoved;
+        report.faces_removed = stats.facesRemoved;
+        report.gid_space_before = stats.gidSpaceBefore;
+        report.gid_space_after = stats.gidSpaceAfter;
+        report.owned_vertices_after = ownedVertexCount();
+        report.owned_faces_after = ownedFaceCount();
+        return report;
     }
+
+    /**
+     * @brief `compact()`, then renumber every gid contiguously from 0 per
+     *        entity kind, so the gid space stops growing across edit rounds.
+     *
+     * TESSERA MAPPING: `Tessera::compactAndRenumberGids( mesh, halo )`
+     * (`Tessera_Compact.hpp`). Gids are minted by `MPI_Exscan` onto a
+     * monotonically rising global count, so a long split-and-collapse run
+     * grows the gid **space** without bound at constant mesh size, and
+     * several Tessera paths index a dense host array sized to the maximum gid
+     * (the leak note at the top of that header). This call reclaims the
+     * space.
+     *
+     * The new gid of an entity is the number of live entities of its kind
+     * with a smaller old gid, so the result is rank-count deterministic and
+     * order preserving. Geometry, connectivity and every vertex and face user
+     * field are unchanged; only gids and the local storage order change.
+     *
+     * **Cost.** Two halo rebuilds — the compaction's, and a second because
+     * the halo plans were keyed on the old gids — plus one whole-AoSoA halo
+     * exchange that carries the new gids to the ghosts. That is why it runs on
+     * a cadence (`RemeshParams::renumber_gids_every`) rather than after every
+     * edit.
+     *
+     * @return The removed counts and the gid-space size before (the
+     *         high-water mark) and after; see `MeshEditReport`. All global.
+     *
+     * @note MPI. Collective. Preserves `halo_depth`.
+     *
+     * @note INVALIDATION. Rebuilds the halo twice and bumps `generation()`,
+     *       so every slice, CSR and accessor taken before the call is
+     *       dangling, and every gid a caller saved names nothing (or a
+     *       different entity) afterwards.
+     *
+     * **EDITING FAMILY — Remesh.**
+     */
+    MeshEditReport compactAndRenumberGids()
+    {
+        const Tessera::CompactStats stats =
+            Tessera::compactAndRenumberGids( _mesh, _halo );
+
+        MeshEditReport report;
+        report.vertices_removed = stats.verticesRemoved;
+        report.edges_removed = stats.edgesRemoved;
+        report.faces_removed = stats.facesRemoved;
+        report.gid_space_before = stats.gidSpaceBefore;
+        report.gid_space_after = stats.gidSpaceAfter;
+        report.owned_vertices_after = ownedVertexCount();
+        report.owned_faces_after = ownedFaceCount();
+        return report;
+    }
+
+    /**
+     * @brief The current size of the gid space: the sum over vertices, edges
+     *        and faces of (global maximum live gid + 1). The quantity
+     *        `MeshEditReport::gid_space_*` reports, measured without editing.
+     *
+     * TESSERA MAPPING: `Tessera::detail::gidSpace( mesh )`, the function
+     * `Tessera::compact` itself reports `gidSpaceBefore` and `gidSpaceAfter`
+     * with, so the two measures cannot drift apart.
+     *
+     * Compare it against `globalVertexCount() + globalEdgeCount() +
+     * globalFaceCount()`: the gap is the gid-space growth that
+     * `compactAndRenumberGids()` reclaims.
+     *
+     * @note MPI. Collective: one `MPI_Allreduce`. It copies the three entity
+     *       AoSoAs to the host, so it is O(local entities) and not free; the
+     *       remesh cycle calls it once per remesh.
+     */
+    long long gidSpace() { return Tessera::detail::gidSpace( _mesh ); }
 
     /**
      * @brief Overwrite vertex positions in place, connectivity unchanged.

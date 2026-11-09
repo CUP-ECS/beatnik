@@ -2,6 +2,7 @@
 # flux: --job-name=beatnik_regression_minset
 # flux: --nodes=2
 # flux: --exclusive
+# flux: --bank=unm 
 # flux: -t 30m
 # flux: --output={{name}}.{{jobid}}.log
 # flux: -q pdebug

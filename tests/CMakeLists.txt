@@ -387,9 +387,8 @@ endforeach()
 ##--------------------------------------------------------------------------##
 ## milestone tier -- long end-to-end runs. NOT THE SHIP GATE.
 ##--------------------------------------------------------------------------##
-# The tier has four members: the two milestone-0 frozen-mesh members below and
-# the two FMM members described in the source list. milestone1.md's M1-T1, not
-# yet started, registers milestone 1.
+# The tier has five members: the two milestone-0 frozen-mesh members below,
+# the two FMM members described in the source list, and milestone 1:
 #
 #   Beatnik_Test_Milestone0Frozen    2000 TVD-RK3 timesteps of the reference's
 #                                    default physics on a frozen mesh at
@@ -403,6 +402,17 @@ endforeach()
 #                                    the file above, so the assertion body exists
 #                                    once and every per-level literal is
 #                                    re-derived inside it.
+#   Beatnik_Test_Milestone1Bubble    1610 steps of the reference's default
+#                                    rising-bubble configuration (dynamic
+#                                    remesh, collapse, flips, smoothing and the
+#                                    isotropic cleanup all live), compared
+#                                    field-wise against the M1-G2 gold at step
+#                                    0 only, then by time-matched mesh
+#                                    statistics against the M1-G3 steps 0-1610
+#                                    gold set (compiled in, 162 rows) at every
+#                                    gold checkpoint after step 0, with the
+#                                    remesh and cleanup counters asserted
+#                                    non-zero (tasks/milestone1.md, M1-A1j).
 #
 # TWO SOURCE STEMS, NOT ONE TARGET WITH TWO ARGUMENT LISTS. The loop below keys
 # arguments by source stem, one list per source, and each member needs its own
@@ -420,10 +430,11 @@ endforeach()
 #      property of the TIER, not of a test: it lives in
 #      BEATNIK_MILESTONE_MPI_RANKS here and in BEATNIK_MILESTONE_RANKS in the
 #      runner, never in a per-test list on a manifest line.
-#   3. The gold data is two 81-file sets, installed below.
+#   3. The gold data is two 81-file sets and one 61-file set, installed below.
 #
 # WHY A SEPARATE TIER AND NOT MORE REGRESSION MEMBERS. A milestone member is a
-# 2000-step run at 642 or 2562 vertices; putting one in `regression` would add
+# 2000-step run at 642 or 2562 vertices, or a 600-step remeshing run with 61
+# comparator calls; putting one in `regression` would add
 # it to every change's 60-launch gate. The gate stays at five members and 60
 # launches (CLAUDE.md "Minimum test set"), and this tier is run on demand.
 set(BEATNIK_MILESTONE_TEST_SOURCES
@@ -446,6 +457,11 @@ set(BEATNIK_MILESTONE_TEST_SOURCES
   # gate, which is five `regression` members and 60 launches.
   Beatnik_Test_Milestone0Fmm.cpp
   Beatnik_Test_Milestone0FmmL4.cpp
+  # Milestone 1 (tasks/milestone1.md, M1-T2j, M1-A1j): the reference's
+  # default rising-bubble run, against the M1-G2 step-0 gold file and the
+  # M1-G3 statistics in Beatnik_Milestone1GoldStats.hpp. Its makeParams() is
+  # in Beatnik_Milestone1Params.hpp, shared with the Milestone1Run driver.
+  Beatnik_Test_Milestone1Bubble.cpp
   )
 
 # The tier's rank sweep, overridable exactly as BEATNIK_TEST_MPI_RANKS is.
@@ -463,6 +479,8 @@ set(_beatnik_m0_sub3_dir
   ${_beatnik_compare_dir}/milestone0-sub3-2000-steps)
 set(_beatnik_m0_sub4_dir
   ${_beatnik_compare_dir}/milestone0-sub4-2000-steps)
+set(_beatnik_m1_bubble_dir
+  ${_beatnik_compare_dir}/milestone1-bubble)
 
 # The frozen members. Each takes the gold DIRECTORY for ITS OWN LEVEL (not a
 # single file): it compares one checkpoint per checkpointed step and finds each
@@ -511,6 +529,18 @@ set(_beatnik_args_Beatnik_Test_Milestone0FmmL4_rel
   regression_tests/milestone0-sub4-2000-steps/gold
   ${_beatnik_rel_compare_py}
   ${_beatnik_rel_ladder_py})
+
+# Milestone 1. Two arguments, the DirectSolve10Steps shape: the M1-G2 gold
+# DIRECTORY, of which the test reads only the step-0 file (found by its
+# `_step%07d.npz` suffix), and the comparator. The test's optional third
+# argument selects a failure direction; it is passed only by the batch script
+# that runs those, never from a manifest line.
+set(_beatnik_args_Beatnik_Test_Milestone1Bubble_abs
+  ${_beatnik_m1_bubble_dir}/gold
+  ${_beatnik_compare_dir}/compare_output.py)
+set(_beatnik_args_Beatnik_Test_Milestone1Bubble_rel
+  regression_tests/milestone1-bubble/gold
+  ${_beatnik_rel_compare_py})
 
 foreach(_src ${BEATNIK_MILESTONE_TEST_SOURCES})
   get_filename_component(_stem ${_src} NAME_WE)
@@ -611,6 +641,12 @@ set(BEATNIK_DRIVER_SOURCES
   # parameterize its BR approximation and FMM knobs, so the same driver
   # produces the FMM-driven 2000-step series.
   Beatnik_Test_Milestone0Run.cpp
+  # The milestone-1 run (tasks/milestone1.md, T4d6j): the reference's
+  # default rising-bubble configuration with every remesh pass live, one
+  # `[m1run] key=value` line per step (gid space, V/F, volume drift, minimum
+  # quality, cumulative edit counters, RSS). Asserts only that it reached its
+  # step budget. Its makeParams() is in Beatnik_Milestone1Params.hpp.
+  Beatnik_Test_Milestone1Run.cpp
   # The far-field fidelity scan (tasks/canopy/add-canopy.md). Evaluates
   # every arm against ONE spin-up state in one process and prints one
   # `[t5arm]` line each. Compiles no tolerance -- it produces the numbers the
@@ -856,6 +892,23 @@ if(Beatnik_INSTALL_TEST_EXECUTABLES)
             DESTINATION
               ${_beatnik_test_install}/regression_tests/milestone0-${_set}-2000-steps/gold)
   endforeach()
+
+  # -- the milestone-1 gold set (M1-G2) ----------------------------------------
+  # 61 numbered checkpoints, steps 0-600 every 10, with the same
+  # `*_step*.npz` glob and the same exclusion of `checkpoint_latest.npz` as the
+  # milestone-0 sets. Its README.md sits one level up, beside gold/, as
+  # direct-solve-10-steps/README.md does, and is installed there.
+  file(GLOB _beatnik_m1_gold ${_beatnik_m1_bubble_dir}/gold/*_step*.npz)
+  if(NOT _beatnik_m1_gold)
+    message(FATAL_ERROR
+      "tests/CMakeLists.txt: no numbered .npz gold files under "
+      "regression_tests/milestone1-bubble/gold. A milestone test installed "
+      "without its gold set is not installed.")
+  endif()
+  install(FILES ${_beatnik_m1_gold}
+          DESTINATION ${_beatnik_test_install}/regression_tests/milestone1-bubble/gold)
+  install(FILES ${_beatnik_m1_bubble_dir}/README.md
+          DESTINATION ${_beatnik_test_install}/regression_tests/milestone1-bubble)
 endif()
 
 ##--------------------------------------------------------------------------##

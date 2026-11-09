@@ -69,12 +69,18 @@
  *     `tasks/framework.md`**, deliberately NOT Tessera's own
  *     `kMinRadiusRatioFloor` of `0.25`, which is a statement about case 8's
  *     mask and not about `splitEdges()` (R12 says so explicitly).
- *  6. **The failure direction.** A second solver configured
- *     `--refine-every 5 --flip-passes 2` must be rejected by
- *     `requireSupportedConfiguration` with a message naming
- *     `MeshQuality::improveConnectivityByFlips` and **T4d** — not by a Tessera
- *     `EditFamily` throw, and not by silently running without flips. The
- *     example driver turns that throw into a non-zero exit status.
+ *  6. **The refine branch's flips are live (risk R15).** A second 20-step
+ *     solver, built from the same `makeParams()` with `--flip-passes 2`, must
+ *     complete all four refinement passes with Euler and conformity holding
+ *     after every one, and must reach a cumulative global
+ *     `Solver::edgeFlips() > 0`. With `--smooth-iters 0` that also drives the
+ *     branch's re-base of the AMR reference state
+ *     (`flips > 0 && smooth_iters == 0`). It compares nothing against the
+ *     Python, because `--flip-passes 2` changes the mesh the `kPy*` counts
+ *     describe. A zero flip count is a finding about
+ *     `MeshQuality::improveConnectivityByFlips`, not a literal to relax. The
+ *     member's loud failure modes are the exact integer identities of checks
+ *     2 and 3; no refine-branch rejection is left to target.
  *
  * WHAT IS DELIBERATELY NOT CHECKED
  * --------------------------------
@@ -302,13 +308,13 @@ Beatnik::SolverParams makeParams( const std::string& checkpoint_dir )
     p.amr.transition_quality_fraction = 0.45;
     p.amr.min_refine_edge = 0.0;
 
-    // --flip-passes 0 --smooth-iters 0 --no-isotropic-cleanup. Flips and
-    // isotropic cleanup are unimplemented (T4d) and
-    // `requireSupportedConfiguration` rejects each by name, so those two are
-    // not stylistic choices -- any other value aborts at setup. Smoothing is
-    // off so that no repair runs and `projectToVolume` stays gated off, as the
-    // file header says. `--isotropic-cleanup` is ON by default, which is why
-    // the command needs the extra flag.
+    // --flip-passes 0 --smooth-iters 0 --no-isotropic-cleanup. Flips and the
+    // isotropic cleanup are implemented; these values are a choice that
+    // reproduces the reference command the `kPy*` counts were measured at,
+    // not a forced one. With all three off no repair runs and
+    // `projectToVolume` stays gated off, as the file header says.
+    // `--isotropic-cleanup` is ON by default, which is why the command needs
+    // the extra flag. Check 6 turns `--flip-passes` on in a second solver.
     p.filter.flip_passes = 0;
     p.filter.smooth_iters = 0;
     p.cleanup.enabled = false;
@@ -376,47 +382,67 @@ void checkConformity( Beatnik::Test::Recorder& rec, MeshType& mesh,
 }
 
 //---------------------------------------------------------------------------//
-/// The failure direction: `--refine-every 5 --flip-passes 2` must be rejected
-/// before the first step, by name and by task ID.
+/// Check 6, the refine branch's flips are live: `--refine-every 5
+/// --flip-passes 2` must run all four refinement passes, keep Euler and
+/// conformity after each, and flip at least one edge over the run.
 ///
-/// Checked here rather than trusted because there are three ways for it to go
-/// wrong and only one of them is loud on its own: the run could silently
-/// proceed without flips (a plausible trajectory that is not the reference's),
-/// it could reach `MeshQuality::improveConnectivityByFlips`'s bare
-/// `BEATNIK_NOT_IMPLEMENTED` several steps in with no task ID on it, or it could
-/// abort inside Tessera on an `EditFamily` violation — which would mean Beatnik
-/// had reached for the hierarchical family after all. The message content is
-/// therefore part of the assertion, not decoration.
+/// Guards against risk R15 in the refine branch: a
+/// `MeshQuality::improveConnectivityByFlips` that silently did nothing would
+/// pass every other check in this member, because the main run is configured
+/// `--flip-passes 0`. Compares nothing against the Python -- `--flip-passes 2`
+/// changes the mesh the `kPy*` counts describe -- and asserts no flip count
+/// beyond `> 0`, which is a statement about liveness, not a measurement.
 template <class ExecSpace, class MemSpace>
-void checkFailureDirection( Beatnik::Test::Recorder& rec )
+void checkFlipsLiveness( Beatnik::Test::Recorder& rec )
 {
     Beatnik::SolverParams p = makeParams( std::string() );
     p.filter.flip_passes = 2;
 
     Beatnik::Solver<ExecSpace, MemSpace> solver( MPI_COMM_WORLD, p );
     solver.setup();
+    auto& mesh = solver.mesh();
 
-    bool threw = false;
-    std::string message;
-    try
+    int passes_seen = 0;
+    long long flips_before = solver.edgeFlips();
+    for ( int step = 1; step <= kSteps; ++step )
     {
-        solver.solve();
-    }
-    catch ( const std::exception& e )
-    {
-        threw = true;
-        message = e.what();
+        const bool ok = solver.advanceOneStep();
+        BEATNIK_CHECK_TRUE( rec, ok );
+        if ( !ok )
+            break;
+        if ( step % kRefineEvery != 0 )
+            continue;
+
+        ++passes_seen;
+        const auto& d = solver.lastRefinement();
+        const long long flips_now = solver.edgeFlips();
+        {
+            std::ostringstream os;
+            os << "flips liveness, pass " << passes_seen << " (step " << step
+               << "): faces " << d.old_faces << " -> " << d.new_faces
+               << ", marked faces " << d.marked_faces << ", flips this pass "
+               << ( flips_now - flips_before ) << ", cumulative " << flips_now;
+            rec.note( os.str() );
+        }
+        flips_before = flips_now;
+
+        BEATNIK_CHECK_EQ( rec, mesh.globalEulerCharacteristic(), 2 );
+        checkConformity( rec, mesh,
+                         "flips liveness, after pass " +
+                             std::to_string( passes_seen ) );
     }
 
-    rec.note( "failure direction, --flip-passes 2: " +
-              ( threw ? message : std::string( "NO THROW -- the run proceeded "
-                                               "without flips" ) ) );
-    BEATNIK_CHECK_TRUE( rec, threw );
-    BEATNIK_CHECK_TRUE(
-        rec, message.find( "improveConnectivityByFlips" ) != std::string::npos );
-    BEATNIK_CHECK_TRUE( rec, message.find( "T4d" ) != std::string::npos );
-    // NOT a Tessera EditFamily throw, which would name the two families.
-    BEATNIK_CHECK_TRUE( rec, message.find( "EditFamily" ) == std::string::npos );
+    BEATNIK_CHECK_EQ( rec, passes_seen, kPasses );
+    BEATNIK_CHECK_EQ( rec, solver.step(), static_cast<long long>( kSteps ) );
+
+    // `edgeFlips()` is the sum of `improveConnectivityByFlips`' global
+    // return values, so this holds or fails on every rank together.
+    rec.note( "flips liveness: cumulative flips " +
+              std::to_string( solver.edgeFlips() ) + " over " +
+              std::to_string( passes_seen ) + " refinement passes" );
+    BEATNIK_CHECK_TRUE( rec, solver.edgeFlips() > 0 );
+
+    solver.finalize();
 }
 
 //---------------------------------------------------------------------------//
@@ -611,10 +637,10 @@ void runChecks( Beatnik::Test::Recorder& rec )
     solver.finalize();
 
     //-----------------------------------------------------------------------//
-    // The failure direction, last: it constructs a second solver, and doing it
-    // first would leave the interesting run downstream of an exception path.
+    // Check 6, last: it constructs a second solver, and doing it first would
+    // leave the interesting run downstream of the flips' edits.
     //-----------------------------------------------------------------------//
-    checkFailureDirection<ExecSpace, MemSpace>( rec );
+    checkFlipsLiveness<ExecSpace, MemSpace>( rec );
 }
 
 } // namespace

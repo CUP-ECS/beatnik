@@ -219,6 +219,18 @@ The `# flux: --output={{name}}.{{jobid}}.log` line writes stdout/stderr to a
 Inside a batch script, pick `--ntasks` (a multiple of 4) and set
 `--nodes = ntasks / 4` in **both** the flux header and the `flux run` line.
 
+### Choosing a queue
+
+**A job on 1 or 2 nodes with `-t` of 45 minutes or less goes to `pdebug`.**
+Only a job that is longer or wider goes to `pbatch`. `pdebug` starts short jobs
+in minutes, while the same job in `pbatch` can sit queued for hours. This holds
+for every batch script, every task's **Submits:** line in `tasks/*.md`, and
+every row of
+[scripts/tuolumne/submit_milestone_split.sh](../../scripts/tuolumne/submit_milestone_split.sh),
+which picks the queue per row from its `-t`. A script whose `# flux: -q`
+directive does not fit the job's real size is overridden on the command line
+(`flux batch -q pdebug …`) or fixed in the script.
+
 The ship gate on this system is
 [scripts/tuolumne/run_regression_minset.flux](../../scripts/tuolumne/run_regression_minset.flux),
 and the diagnostic `unit` tier is
@@ -246,7 +258,7 @@ Defaults for batch runs of non-test binaries on tuolumne, unless the user says
 otherwise:
 
 - `--time=15` (15 minutes)
-- `-q pdebug`
+- `-q pdebug` (see [Choosing a queue](#choosing-a-queue))
 - `--nodes=1` (so `--ntasks=4`)
 
 For anything large or long-running, set `BEATNIK_USE_PROD=1` and confirm the

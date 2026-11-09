@@ -21,19 +21,19 @@
  * WHAT "SPLIT ONLY" MEANS HERE, AND WHY IT IS NOT A BEATNIK-ONLY MODE
  * ------------------------------------------------------------------
  * `dynamic_remesh.py` is three thirds — split, collapse, flip — plus a
- * tangential smoothing pass. Beatnik implements the sizing field and the
- * **split** third; the rest is T4d and not yet implemented. There is no
- * `--dynamic-remesh-split-only` switch. Instead the run is
- * configured so the **reference itself** would do nothing in the other three,
- * through its own knobs:
+ * tangential smoothing pass, and the driver follows it with an isotropic
+ * cleanup. Beatnik implements all of them; this member tests the sizing field
+ * and the **split** third alone. There is no `--dynamic-remesh-split-only`
+ * switch. Instead the run is configured so the **reference itself** would do
+ * nothing in the others, through its own knobs:
  *
  *     --remesh-collapse-factor 0   candidate predicate never true    (:373)
  *     --remesh-smooth-iters 0      the pass returns immediately  (:463-465)
  *     --remesh-flip-min-gain 1e12  every candidate is `continue`d (:449-450)
  *     --no-isotropic-cleanup       the driver skips the block   (:1493)
  *
- * Any other value is rejected by `requireSupportedConfiguration`, by method
- * name and task ID, which is what check 7 below asserts. Note
+ * These are the values the gold counts below were measured at, so they are a
+ * choice that reproduces the reference command, not a forced one. Note
  * `--remesh-max-collapses 0` is NOT one of the levers: the driver maps a
  * non-positive value to `None` = UNLIMITED, and Beatnik's
  * `max_collapses_per_pass` reproduces that. Only the collapse factor disables
@@ -106,10 +106,10 @@
  *     T2d measured `5.17e-11` at step 10 on a FIXED mesh with no projection, so
  *     `kVolumeDriftBound = 1e-14` separates the two by three decades. T2d's
  *     `kGoldVolumeDrift` is for that fixed mesh and is deliberately NOT reused.
- *  7. **The failure direction, five ways.** Each unimplemented third, at its
- *     reference default, must be rejected before the first step by name and by
- *     task ID — not by a Tessera `EditFamily` throw, and not by silently running
- *     without it.
+ *  7. **The failure direction.** The unimplemented nonlocal-proximity path
+ *     (`--remesh-proximity`, task T4e) must be rejected before the first step
+ *     by name and by task ID — not by a Tessera `EditFamily` throw, and not by
+ *     silently running without it.
  *
  * WHAT IS DELIBERATELY NOT CHECKED
  * --------------------------------
@@ -256,9 +256,9 @@ constexpr double kMinRadiusRatioFloor = 0.248;
 /// The reference's minimum triangle quality `4*sqrt(3)*A/sum(l^2)` never falls
 /// below this over the twenty steps (measured: `0.9773` initially, `0.6247` at
 /// its worst, `0.6732` at step 20). This is the scale `--remesh-min-quality`
-/// (0.18) is expressed on, and it answers **what T4d needs to know**:
-/// with no coarsening at all, quality does not approach the repair trigger
-/// within 20 steps, so the missing collapse third does not bite here.
+/// (0.18) is expressed on: with coarsening configured off, quality does not
+/// approach the repair trigger within 20 steps, so leaving the collapse third
+/// off does not bite here.
 constexpr double kMinTriangleQuality = 0.60;
 
 /// Per-step enclosed-volume drift `V/V0 - 1` of the reference, as 17-digit
@@ -344,9 +344,9 @@ Beatnik::SolverParams makeParams()
     p.remesh.target_gradation_iterations = 8;
     p.remesh.min_quality = kMinQuality;
 
-    // The three unimplemented thirds, configured off through the REFERENCE's
-    // own knobs -- see the file header. Any other value aborts at setup, which
-    // check 7 asserts.
+    // The collapse, flip and smoothing thirds and the cleanup, configured off
+    // through the REFERENCE's own knobs -- see the file header. These are the
+    // values the reference counts above were measured at.
     p.remesh.collapse_factor = 0.0;
     p.remesh.max_collapses_per_pass = 0;
     p.remesh.smoothing_iterations = 0;
@@ -666,8 +666,8 @@ void runChecks( Beatnik::Test::Recorder& rec )
     BEATNIK_CHECK_TRUE( rec, last_third_min_ratio > run_min_ratio );
 
     //-----------------------------------------------------------------------//
-    // What T4d needs to know: how badly the missing coarsening
-    // bites. It does not, within twenty steps -- the minimum triangle quality
+    // How much leaving coarsening off costs this configuration. Nothing,
+    // within twenty steps -- the minimum triangle quality
     // never approaches `--remesh-min-quality`, so the repair trigger the
     // reference gates its flip/smooth pass on is never reached for that reason.
     //-----------------------------------------------------------------------//
@@ -686,25 +686,13 @@ void runChecks( Beatnik::Test::Recorder& rec )
     solver.finalize();
 
     //-----------------------------------------------------------------------//
-    // The failure directions, last: each constructs a second solver, and doing
-    // them first would leave the interesting run downstream of an exception
+    // The failure direction, last: it constructs a second solver, and doing
+    // it first would leave the interesting run downstream of an exception
     // path.
     //-----------------------------------------------------------------------//
     checkRejected<ExecSpace, MemSpace>(
         rec, "--remesh-proximity", "nonlocalFaceCentroidDistance", "T4e",
         []( Beatnik::SolverParams& p ) { p.remesh.use_proximity = true; } );
-    checkRejected<ExecSpace, MemSpace>(
-        rec, "--remesh-collapse-factor 0.45", "collapseShortEdges", "T4d",
-        []( Beatnik::SolverParams& p ) { p.remesh.collapse_factor = 0.45; } );
-    checkRejected<ExecSpace, MemSpace>(
-        rec, "--remesh-smooth-iters 1", "tangentialSmooth", "T4d",
-        []( Beatnik::SolverParams& p ) { p.remesh.smoothing_iterations = 1; } );
-    checkRejected<ExecSpace, MemSpace>(
-        rec, "--remesh-flip-min-gain 1e-3", "flipEdgesForQuality", "T4d",
-        []( Beatnik::SolverParams& p ) { p.remesh.flip_min_gain = 1.0e-3; } );
-    checkRejected<ExecSpace, MemSpace>(
-        rec, "--isotropic-cleanup", "isotropicCleanup", "T4d",
-        []( Beatnik::SolverParams& p ) { p.cleanup.enabled = true; } );
 }
 
 } // namespace

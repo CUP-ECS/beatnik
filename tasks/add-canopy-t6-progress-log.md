@@ -3779,3 +3779,12 @@ provenance submit line.
 - **Any future milestone member** adds a row to
   `submit_milestone_split.sh` with `-t` at about 1.5x its first measured wall,
   and raises `run_milestone.flux`'s `-t` by the same 1.25x rule.
+
+## Housekeeping: raw job logs deleted (2026-11-02)
+
+The repo-root job logs this topic cites were deleted, among them
+`beatnik_milestone.f3azynKNQFCb.log`, the T9b split-run logs
+`beatnik_milestone_Milestone0*.log`, and `T6-handoff.log`. The job IDs and
+figures recorded here and in `tasks/canopy/add-canopy-progress-log.md` are now
+the only record; a log filename cited above names a file that no longer
+exists.

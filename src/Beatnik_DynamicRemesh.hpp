@@ -60,6 +60,11 @@
  *   4. if anything changed, or the worst quality is below `min_quality`:
  *      **flip** for quality, then **tangentially smooth**
  *
+ * After the passes, on every `RemeshParams::renumber_gids_every`-th call,
+ * the gids are renumbered (`SurfaceMesh::compactAndRenumberGids`) — a
+ * Beatnik-only step with no reference counterpart, which bounds the gid-space
+ * growth the split and collapse passes cause.
+ *
  * The sizing field is recomputed between split and collapse because splitting
  * changes the curvature estimate. Skipping that recomputation lets the collapse
  * pass undo the split pass.
@@ -88,27 +93,27 @@
  *
  * WHAT IS IMPLEMENTED, AND WHAT THROWS
  * ------------------------------------
- * The sizing field, the gradation and the **split** third of the cycle are
- * implemented. The collapse, flip and tangential-smoothing thirds are **T4d**
- * (not yet implemented) and throw; the two proximity paths are **T4e** and
- * throw.
+ * The sizing field, the gradation, the **split** pass, the **collapse** pass
+ * (`collapseShortEdges`, task T4d2), the **quality-flip** pass
+ * (`flipEdgesForQuality`, task T4d3) and the guarded **tangential-smoothing**
+ * pass (`tangentialSmooth`, task T4d4) are implemented; the two proximity
+ * paths are **T4e** and throw.
  *
- * A `--dynamic-remesh` run is therefore accepted only when the three
- * unimplemented thirds are configured off **through the reference's own knobs**,
- * so that what runs here is what the reference would run, not a Beatnik-only
- * subset of it:
+ * The `Solver` runs every implemented pass at the reference's defaults; it
+ * rejects only the two proximity paths (T4e). Each pass can still be
+ * configured off **through the reference's own knobs**, which is how the
+ * split-only test members run:
  *
- * | third | configured off by | reference becomes |
+ * | pass | configured off by | reference becomes |
  * | --- | --- | --- |
- * | collapse | `--remesh-collapse-factor 0` | `dynamic_remesh.py:373`'s candidate predicate `length < 0 * target` is never true, so the pass returns before any mutation |
- * | smoothing | `--remesh-smooth-iters 0` | `:463-465` returns immediately |
- * | flips | `--remesh-flip-min-gain >= 1e12` | `:449-450` `continue`s every candidate; see `kFlipsDisabledMinGain` |
- * | cleanup | `--no-isotropic-cleanup` | `run_adaptive_mesh_bubble.py:1493` skips the whole block |
+ * | collapse | `--remesh-collapse-factor 0` | `dynamic_remesh.py:373`'s candidate predicate `length < 0 * target` is never true, so the pass returns before any mutation; `collapseShortEdges` returns 0 before building a mask |
+ * | smoothing | `--remesh-smooth-iters 0` | `:463-465` returns immediately; so does `tangentialSmooth`, before any halo exchange |
+ * | flips | `--remesh-flip-min-gain >= 1e12` | `:449-450` `continue`s every candidate of a mesh with no zero-quality face; `flipEdgesForQuality` builds an empty mask and returns before calling `flipEdges`; see `kFlipsDisabledMinGain` |
+ * | cleanup | `--no-isotropic-cleanup` | `run_adaptive_mesh_bubble.py:1491` skips the whole block; the `Solver` skips `MeshQuality::isotropicCleanup` and the state rebuild after it, and the call itself returns before anything collective |
  *
- * `Solver::requireSupportedConfiguration` rejects anything else by name and by
- * task ID before the first step. **`--remesh-max-collapses 0` is NOT one of the
- * levers**, and reading it as one is the trap: the driver maps a non-positive
- * value to `None` = *unlimited* (`run_adaptive_mesh_bubble.py:1350-1352`), which
+ * **`--remesh-max-collapses 0` is NOT one of the levers**, and reading it as
+ * one is the trap: the driver maps a non-positive value to `None` =
+ * *unlimited* (`run_adaptive_mesh_bubble.py:1350-1352`), which
  * `RemeshParams::max_collapses_per_pass` reproduces ("<= 0 means unlimited").
  * Only the collapse factor disables the pass.
  */
@@ -118,6 +123,7 @@
 
 #include <Beatnik_MeshGeometry.hpp>
 #include <Beatnik_MeshInterface.hpp>
+#include <Beatnik_MeshQuality.hpp>
 #include <Beatnik_Params.hpp>
 #include <Beatnik_SurfaceState.hpp>
 #include <Beatnik_Types.hpp>
@@ -127,6 +133,7 @@
 #include <mpi.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cstddef>
 #include <vector>
 
@@ -188,11 +195,67 @@ struct RemeshDiagnostics
     /// Of those, the ones whose per-edge target sits **at** \f$h_{\min}\f$ —
     /// the population the sizing floor, not the algorithm, is holding back.
     GlobalIndex long_edges_at_h_min = 0;
+    /// Edges satisfying \f$\ell < f_c\max(h_{\text{target}}, h_{\min})\f$ over
+    /// the whole pass sequence — the collapse pass's **candidate** set before
+    /// the per-pass cap. Zero when `collapse_factor <= 0`, which returns before
+    /// the mask is built.
+    GlobalIndex collapse_candidates = 0;
+    /// Edges handed to `SurfaceMesh::collapseEdges` after the cap — Tessera's
+    /// `requested`. With `collapses` (Tessera's `accepted`) and
+    /// `max_collapses_per_pass`, this is risk M1-R3's triple: `collapses <
+    /// collapse_requested` with `collapse_capped` false means Tessera's
+    /// independent set or its geometric tests declined candidates the
+    /// reference's serial walk might have taken.
+    GlobalIndex collapse_requested = 0;
+    /// Of `collapse_requested`, the ones that passed every test and lost
+    /// Tessera's one-round independent set (`rejected_conflict`). The rest of
+    /// `collapse_requested - collapses` failed the link condition, the fold
+    /// guard or the quality floor.
+    GlobalIndex collapse_rejected_conflict = 0;
+    /// True when `max_collapses_per_pass` truncated the candidate list in any
+    /// pass. Risk M1-R3: a truncated pass keeps the smallest normalized
+    /// lengths by a global threshold search, not the reference's
+    /// sort-and-slice, and will not match it edge for edge.
+    bool collapse_capped = false;
+    /// Ratio \f$\ell/\max(h_{\text{target}},10^{-300})\f$ the collapse cap
+    /// settled on (edges strictly below it are kept), `0` when it did not
+    /// bind.
+    Real collapse_ratio_threshold = 0.0;
+    /// Quality-flip sweeps run — one per pass whose repair gate fired.
+    /// `flips` is their accepted total; the fields below are Tessera's
+    /// verdict counts summed over every round of every sweep, so
+    /// `flip_requested == flips + Σ flip_rejected_*`. Risk M1-R7 reads these:
+    /// a run that flips nothing anywhere is a silent no-op, not agreement.
+    int flip_sweeps = 0;
+    /// `SurfaceMesh::flipEdges` calls over all sweeps (see `FlipSweepStats`).
+    int flip_rounds = 0;
+    GlobalIndex flip_requested = 0;
+    GlobalIndex flip_rejected_boundary = 0;
+    /// The new diagonal already existed — the reference's own `diagonal in
+    /// edge_map` skip (`dynamic_remesh.py:430-431`), decided by Tessera.
+    GlobalIndex flip_rejected_duplicate_edge = 0;
+    GlobalIndex flip_rejected_geometric = 0;
+    /// Passed every test and lost a round's independent set; the next round
+    /// of the same sweep may take it.
+    GlobalIndex flip_rejected_conflict = 0;
     /// **R12 signal 1** — global minimum inradius/circumradius after the call.
     Real min_radius_ratio = 0.0;
     /// **R12 signal 2** — global count of faces below \f$r/R = 0.25\f$ after
     /// the call. Tessera's own `kTail` threshold.
     GlobalIndex faces_below_quarter = 0;
+
+    /// **The gid-space high-water mark** — `SurfaceMesh::gidSpace()` after
+    /// the last pass and before any renumbering, i.e. the largest gid space
+    /// this call reached (every edit only grows it). Summed over vertices,
+    /// edges and faces as (global max live gid + 1) per kind; compare it
+    /// against `new_vertices` (or V+E+F) to see the leak that
+    /// `RemeshParams::renumber_gids_every` bounds. Risk M1-R5.
+    GlobalIndex gid_space_high_water = 0;
+    /// True when this call ended with `compactAndRenumberGids()`.
+    bool gids_renumbered = false;
+    /// The gid space after the call: equal to `gid_space_high_water` unless
+    /// `gids_renumbered`, when it is V+E+F exactly.
+    GlobalIndex gid_space_after = 0;
 };
 
 //---------------------------------------------------------------------------//
@@ -851,17 +914,9 @@ class DynamicRemesh
         {
             const GlobalIndex cap =
                 static_cast<GlobalIndex>( _params.max_splits_per_pass );
-            const Real threshold = searchRatioThreshold( mesh, mask, ratio, cap );
-            auto m = mask;
-            auto r = ratio;
-            Kokkos::parallel_for(
-                "beatnik_remesh_apply_cap",
-                Kokkos::RangePolicy<ExecutionSpace>( 0, n_owned_e ),
-                KOKKOS_LAMBDA( const int e ) {
-                    if ( m( e ) && !( r( e ) > threshold ) )
-                        m( e ) = 0;
-                } );
-            Kokkos::fence();
+            const Real threshold = searchRatioThreshold(
+                mesh, mask, ratio, cap, RatioKeep::Largest );
+            applyRatioThreshold( mask, ratio, threshold, RatioKeep::Largest );
             splits = countMask( mesh, mask );
             diag.split_capped = true;
             diag.split_ratio_threshold = threshold;
@@ -876,71 +931,385 @@ class DynamicRemesh
     }
 
     /**
-     * @brief Collapse every edge shorter than `collapse_factor * target`.
+     * @brief The reference's collapse admissibility test, as a Tessera
+     *        collapse policy.
      *
-     * Port of dynamic_remesh.py::collapse_short_edges (lines 361-407)
+     * Port of dynamic_remesh.py::_edge_collapse_is_geometrically_safe
+     * (lines 519-549), on the metric of ::triangle_quality (lines 626-636)
      *
-     * Subject to the link condition and the geometric safety test — see
-     * `SurfaceMesh::collapseEdges`. Capped at `max_collapses_per_pass`,
-     * shortest-first. This is task T4d and is not yet implemented; Tessera's
-     * `Tessera_EdgeCollapse.hpp` provides the collapse primitive it needs.
-     * Note `--remesh-tight-collapse-factor` defaults to 0,
-     * i.e. the tight parameter set **disables collapse entirely**: once the
-     * roll-up is tight, coarsening is more likely to destroy a resolved feature
-     * than to save work.
+     * Derives from `SurfaceMesh::collapse_policy_type` and shadows only
+     * `quality()`, Tessera's hook (milestone-1 task M1-U1), with the
+     * reference's mean ratio \f$4\sqrt3 A/\sum\ell^2\f$ — the formula of
+     * `SurfaceOperators::triangleQuality`, here on host 3-vectors because
+     * Tessera evaluates the test on the host. A degenerate (zero edge-length
+     * sum) or non-finite triangle scores 0, so it fails any positive
+     * `minQuality`, as the reference's `np.isfinite` test rejects it.
+     *
+     * `collapseShortEdges` sets every member explicitly; see there. The
+     * position and field blend are inherited unchanged: the linear average at
+     * `t`, which is the reference's `0.5 * (x_i + x_j)` (`:395-398`).
+     *
+     * The topological predicate, ::_edge_collapse_is_topologically_safe
+     * (lines 509-516), needs no policy member: it is Tessera's link condition
+     * (two incident faces, exactly two common neighbours), which
+     * `collapseEdges` always applies.
+     */
+    struct ReferenceCollapsePolicy : public mesh_type::collapse_policy_type
+    {
+        double quality( const double* p0, const double* p1,
+                        const double* p2 ) const
+        {
+            const double q = QualityFlips::triangleQuality( p0, p1, p2 );
+            return std::isfinite( q ) ? q : 0.0;
+        }
+    };
+
+    /**
+     * @brief Collapse edges shorter than `collapse_factor * target`.
+     *
+     * Port of dynamic_remesh.py::collapse_short_edges (lines 361-405), with the
+     * safety predicates ::_edge_collapse_is_topologically_safe (lines 509-516)
+     * and ::_edge_collapse_is_geometrically_safe (lines 519-549)
+     *
+     * The per-edge target is the **minimum** of its two endpoints' targets. An
+     * owned edge is a candidate iff
+     * \f$\ell_e < f_c \max(\min(h_i,h_j),\ h_{\min})\f$ (`:370-373`), and is
+     * ranked by the **normalized** length
+     * \f$\ell_e/\max(\min(h_i,h_j),\ 10^{-300})\f$ (`:374`), ascending.
+     *
+     * **The cap is a global threshold search on that ratio, not a sort**, for
+     * the reason `splitLongEdges` gives: when the candidate count exceeds
+     * `max_collapses_per_pass > 0`, the edges strictly below the largest
+     * threshold whose survivor count fits are kept. Ties at the threshold are
+     * all dropped, so a capped pass may hand Tessera fewer than the cap.
+     * `max_collapses_per_pass <= 0` is **unlimited**, as the driver maps
+     * `--remesh-max-collapses 0` (`run_adaptive_mesh_bubble.py:1350-1352`).
+     *
+     * Admissibility is Tessera's, configured to be the reference's, through
+     * `ReferenceCollapsePolicy`: `minQuality = min_quality`,
+     * `maxNormalRotation = acos(0.1)` — the reference accepts iff every
+     * surviving face has \f$n_{\text{old}}\cdot n_{\text{new}} > 0.1\f$
+     * (`:546-549`), and Tessera rejects iff the angle exceeds the bound — and
+     * `t = 0.5`. `tasks/milestone1.md`, "Read this first" #6, derives each.
+     *
+     * **One `collapseEdges` call per pass.** The reference walks its candidate
+     * list once, skipping any edge whose endpoint an earlier collapse removed
+     * (`:388-390`). Tessera's call accepts one independent set over the mask,
+     * so its accepted set is never the serial walk's (risk M1-R3, framework
+     * risk R7); calling again on a re-marked mesh would collapse edges the
+     * reference's single pass leaves alone, so this does not loop.
+     *
+     * `collapse_factor <= 0` returns 0 **before any collective or mutation**:
+     * the reference's predicate `length < 0 * target` is false for every edge,
+     * and this is how the split-only test members configure collapse off.
+     * Note `--remesh-tight-collapse-factor` defaults to 0, i.e. the tight
+     * parameter set **disables collapse entirely**: once the roll-up is tight,
+     * coarsening is more likely to destroy a resolved feature than to save
+     * work.
+     *
+     * Does not re-base the AMR reference state; the `Solver` calls
+     * `AdaptiveMesh::resetReferenceState` after every remesh (see `remesh`).
+     *
+     * @param target Per-vertex target, halo-consistent, from
+     *        `vertexTargetEdgeLength` on the **current** mesh.
+     * @param[out] diag `collapse_candidates`, `collapse_requested`,
+     *             `collapse_rejected_conflict`, `collapse_capped` and
+     *             `collapse_ratio_threshold` are accumulated here.
+     * @return Edges collapsed, globally (Tessera's `accepted`).
+     *
+     * @note MPI. Collective. Every branch is on a parameter or a global count,
+     *       so every rank reaches the same `countMask`, bisection probes and
+     *       `collapseEdges` call. `collapseEdges` exchanges the halo first and
+     *       returns a compact, fully haloed mesh, so no exchange follows.
      */
     int collapseShortEdges( mesh_type& mesh, state_type& state,
-                            const scalar_view& target ) const
+                            const scalar_view& target,
+                            RemeshDiagnostics& diag ) const
     {
-        (void)mesh;
         (void)state;
-        (void)target;
-        BEATNIK_NOT_IMPLEMENTED( "DynamicRemesh", "collapseShortEdges" );
+        if ( !( _params.collapse_factor > Real( 0 ) ) )
+            return 0;
+
+        const int n_owned_e = mesh.ownedEdgeCount();
+
+        // Per owned edge: is it short, and by what ratio. The predicate floors
+        // the target at h_min (`:373`) and the ranking key at 1e-300 (`:374`),
+        // the same pair of floors as the split pass.
+        Kokkos::View<char*, device_type> mask( "beatnik_remesh_collapse_mask",
+                                               n_owned_e );
+        scalar_view ratio( "beatnik_remesh_collapse_ratio", n_owned_e );
+        {
+            auto pos = mesh.positions();
+            auto ev = mesh.edgeVertices();
+            auto t = target;
+            auto m = mask;
+            auto r = ratio;
+            const Real fc = _params.collapse_factor;
+            const Real hmin = _params.h_min;
+            Kokkos::parallel_for(
+                "beatnik_remesh_collapse_candidates",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, n_owned_e ),
+                KOKKOS_LAMBDA( const int e ) {
+                    m( e ) = 0;
+                    r( e ) = Real( 0 );
+                    const int i = ev( e, 0 );
+                    const int j = ev( e, 1 );
+                    if ( i < 0 || j < 0 )
+                        return;
+                    Real s = 0;
+                    for ( int d = 0; d < 3; ++d )
+                    {
+                        const Real dx = pos( j, d ) - pos( i, d );
+                        s += dx * dx;
+                    }
+                    const Real length = Kokkos::sqrt( s );
+                    const Real local =
+                        ( t( i ) < t( j ) ) ? t( i ) : t( j );
+                    const Real floored = ( local > hmin ) ? local : hmin;
+                    if ( length < fc * floored )
+                    {
+                        m( e ) = 1;
+                        const Real denom =
+                            ( local > Real( 1.0e-300 ) ) ? local
+                                                         : Real( 1.0e-300 );
+                        r( e ) = length / denom;
+                    }
+                } );
+            Kokkos::fence();
+        }
+
+        const GlobalIndex candidates = countMask( mesh, mask );
+        diag.collapse_candidates += candidates;
+        if ( candidates == 0 )
+            return 0;
+
+        GlobalIndex requested = candidates;
+        if ( _params.max_collapses_per_pass > 0 &&
+             candidates >
+                 static_cast<GlobalIndex>( _params.max_collapses_per_pass ) )
+        {
+            const GlobalIndex cap =
+                static_cast<GlobalIndex>( _params.max_collapses_per_pass );
+            const Real threshold = searchRatioThreshold(
+                mesh, mask, ratio, cap, RatioKeep::Smallest );
+            applyRatioThreshold( mask, ratio, threshold, RatioKeep::Smallest );
+            requested = countMask( mesh, mask );
+            diag.collapse_capped = true;
+            diag.collapse_ratio_threshold = threshold;
+        }
+
+        if ( requested == 0 )
+            return 0;
+
+        ReferenceCollapsePolicy policy;
+        policy.t = 0.5;
+        policy.minQuality = _params.min_quality;
+        policy.maxNormalRotation = std::acos( 0.1 );
+
+        const MeshEditReport report =
+            mesh.collapseEdges( ownedEdgeMaskToHost( mesh, mask ), policy );
+        diag.collapse_requested += static_cast<GlobalIndex>( report.requested );
+        diag.collapse_rejected_conflict +=
+            static_cast<GlobalIndex>( report.rejected_conflict );
+        return static_cast<int>( report.accepted );
     }
 
     /**
      * @brief Flip interior edges that improve the worst incident quality.
      *
-     * Port of dynamic_remesh.py::flip_edges_for_quality (lines 408-458)
+     * Port of dynamic_remesh.py::flip_edges_for_quality (lines 408-457)
      *
-     * A flip is accepted when
+     * A flip is accepted when the worse new face is at least
+     * `--remesh-min-quality` and
      * \f$\min(q_{\text{new}}) > \min(q_{\text{old}})\,(1+g)\f$ with \f$g\f$ =
-     * `--remesh-flip-min-gain`. The strict margin prevents a two-flip cycle
-     * that oscillates forever at equal quality.
+     * `--remesh-flip-min-gain` (`:446-451`), on the reference metric
+     * \f$4\sqrt3 A/\sum\ell^2\f$. The strict margin prevents a two-flip cycle
+     * that oscillates forever at equal quality. The test is
+     * `QualityFlips::accepts`, shared with
+     * `MeshQuality::improveConnectivityByFlips`, which has no floor.
+     *
+     * **One sweep**, as the reference walks its edge map once: that is
+     * `qualityFlipSweep`, several `flipEdges` rounds sharing a touched-face
+     * set. A flip never lowers the worse of its two faces' qualities and,
+     * with the floor, never leaves a face below it that was not, so the global
+     * minimum quality rises or holds and the count below `min_quality` does
+     * not grow.
+     *
+     * At `flip_min_gain = kFlipsDisabledMinGain` no edge of a mesh without a
+     * zero-quality face passes, so the mask is empty on every rank and the
+     * sweep returns before calling `flipEdges`: nothing is mutated and
+     * `generation()` is unchanged. That is how the split-only test members
+     * configure flips off.
      *
      * This flips for **quality**, never for **valence** — which is exactly the
      * gap `Beatnik_MeshQuality.hpp::isotropicCleanup` exists to fill.
+     *
+     * Does not re-base the AMR reference state; the `Solver` calls
+     * `AdaptiveMesh::resetReferenceState` after every remesh (see `remesh`),
+     * and the reference's cycle passes no re-base flag here.
+     *
+     * @pre Vertex positions halo-consistent. In the pass loop they are: the
+     *      split wrapper exchanges after splitting and `collapseEdges` ends in
+     *      `compact()`.
+     * @param[out] diag `flip_sweeps`, `flip_rounds`, `flip_requested` and the
+     *             `flip_rejected_*` counts are accumulated here.
+     * @return Edges flipped, globally.
+     *
+     * @note MPI. Collective; see `qualityFlipSweep`.
      */
-    int flipEdgesForQuality( mesh_type& mesh ) const
+    int flipEdgesForQuality( mesh_type& mesh, RemeshDiagnostics& diag ) const
     {
-        (void)mesh;
-        BEATNIK_NOT_IMPLEMENTED( "DynamicRemesh", "flipEdgesForQuality" );
+        QualityFlipCriterion criterion;
+        criterion.has_floor = true;
+        criterion.floor = _params.min_quality;
+        criterion.min_gain = _params.flip_min_gain;
+
+        const FlipSweepStats s = qualityFlipSweep( mesh, criterion );
+        diag.flip_sweeps += 1;
+        diag.flip_rounds += s.rounds;
+        diag.flip_requested += static_cast<GlobalIndex>( s.requested );
+        diag.flip_rejected_boundary +=
+            static_cast<GlobalIndex>( s.rejected_boundary );
+        diag.flip_rejected_duplicate_edge +=
+            static_cast<GlobalIndex>( s.rejected_duplicate_edge );
+        diag.flip_rejected_geometric +=
+            static_cast<GlobalIndex>( s.rejected_geometric );
+        diag.flip_rejected_conflict +=
+            static_cast<GlobalIndex>( s.rejected_conflict );
+        return static_cast<int>( s.accepted );
     }
 
     /**
-     * @brief Tangential vertex relaxation.
+     * @brief Guarded tangential vertex relaxation.
      *
-     * Port of dynamic_remesh.py::tangential_smooth_vertices (lines 459-491)
+     * Port of dynamic_remesh.py::tangential_smooth_vertices (lines 459-490)
      *
-     * \f$x_v \leftarrow x_v + \lambda\,\Pi_{\tan}\big(\mathrm{centroid}(N(v))
-     * - x_v\big)\f$, with the normal component projected out so the **shape is
-     * preserved** and only the parameterization moves. Removing the projection
-     * turns this into Laplacian smoothing of the interface itself, which
-     * shrinks the bubble — a subtle and destructive bug, because it looks like
-     * excessive numerical dissipation rather than a geometry error.
+     * Each iteration builds a **trial** position set
+     * \f$x_v' = x_v + \lambda\,\Pi_{\tan}\big(\mathrm{centroid}(N(v))
+     * - x_v\big)\f$, with \f$\lambda\f$ = `--remesh-smooth-relaxation` and
+     * the normal component projected out so the **shape is preserved** and
+     * only the parameterization moves. Removing the projection turns this
+     * into Laplacian smoothing of the interface itself, which shrinks the
+     * bubble — a subtle and destructive bug, because it looks like excessive
+     * numerical dissipation rather than a geometry error. The projection
+     * cancels the volume change to first order only; the reference itself
+     * changes the enclosed volume by about \f$-4\times10^{-7}\f$ relative per
+     * iteration at the default \f$\lambda = 0.04\f$ on the default icosphere.
      *
-     * This is task T4d and is not yet implemented. It is distinct from
-     * `MeshQuality::improveQualityTangential`, the port of
-     * `mesh_solver.py::improve_mesh_quality_tangential`: this one runs inside
-     * the same `if changed or needs_quality_repair` block as the flips, and
-     * that one has a different trigger. `--remesh-smooth-iters > 0` is
-     * rejected in `Solver::requireSupportedConfiguration` naming this method
-     * and T4d.
+     * **The quality guard.** With \f$q_{\text{old}}\f$ the global finite
+     * minimum of the reference metric \f$4\sqrt3 A/\sum\ell^2\f$ before the
+     * trial and \f$q_{\text{new}}\f$ the same over the trial, the trial is
+     * accepted unless
+     * \f[
+     *   q_{\text{new}} + 10^{-14} < \max\big(q_{\min},\ 0.85\,q_{\text{old}}\big),
+     * \f]
+     * with \f$q_{\min}\f$ = `--remesh-min-quality`. A rejected trial is
+     * discarded whole — every position is restored bit for bit — and the loop
+     * **stops**; only accepted iterations are counted. The guard does not
+     * keep the minimum from falling: within the 15 % allowance it may fall,
+     * and on the default icosphere the reference lowers it from 0.977274 to
+     * 0.977253 in one iteration while the mean rises. A port that held the
+     * minimum would smooth less than the reference (risk M1-R4).
+     *
+     * The stencil is `relaxTangential`'s: `MeshGeometry::compute` vertex
+     * normals, `SurfaceOperators::graphLaplacianVector` over
+     * `vertexOneRing()` (the unique neighbour set) and
+     * `SurfaceOperators::projectTangent`, called here directly. Three
+     * differences, each the reference's: the early return is
+     * `iterations == 0 or relaxation <= 0`; a vertex with fewer than three
+     * unique neighbours does not move; and the guard above.
+     *
+     * The update is **Jacobi**: the trial is built from the unmodified
+     * positions (the reference's `trial = vertices.copy()`). Only **owned**
+     * rows are written (risk R9); the halo is exchanged before the first
+     * stencil read, after each trial is written (the trial's owned faces read
+     * ghost corners), and after a rejected trial is restored, so the mesh is
+     * halo-consistent on return.
+     *
+     * Distinct from `MeshQuality::improveQualityTangential`, the port of
+     * `mesh_solver.py::improve_mesh_quality_tangential`, which has no guard
+     * and a different trigger: this one runs inside the same
+     * `if changed or needs_quality_repair` block as the flips, after them.
+     * At `smoothing_iterations = 0` it returns 0 before any halo exchange,
+     * reduction or write.
+     *
+     * Does not re-base the AMR reference state; the `Solver` calls
+     * `AdaptiveMesh::resetReferenceState` after every remesh (see `remesh`).
+     *
+     * @pre Vertex positions halo-consistent on entry, as for
+     *      `flipEdgesForQuality`.
+     * @return Accepted iterations, identical on every rank.
+     *
+     * @note MPI. Collective: every branch after the early return is on a
+     *       globally reduced quality or on the iteration count, so every rank
+     *       reaches the same halo exchanges and reductions.
      */
     int tangentialSmooth( mesh_type& mesh ) const
     {
-        (void)mesh;
-        BEATNIK_NOT_IMPLEMENTED( "DynamicRemesh", "tangentialSmooth" );
+        // `iterations = max(int(...), 0)`; `relaxation <= 0.0` as the Python
+        // compares it, so a negative relaxation is off as well as zero.
+        const int iterations = std::max( _params.smoothing_iterations, 0 );
+        const Real relaxation = _params.smoothing_relaxation;
+        if ( iterations == 0 || relaxation <= Real( 0 ) )
+            return 0;
+
+        MeshGeometry<ExecutionSpace, MemorySpace> geometry;
+        const Real w = relaxation;
+        int accepted = 0;
+
+        mesh.haloExchange();
+        for ( int it = 0; it < iterations; ++it )
+        {
+            const Real old_quality = globalMinQuality( mesh );
+
+            const int nv = mesh.totalVertexCount();
+            const int n_owned = mesh.ownedVertexCount();
+            auto pos = mesh.positions();
+            auto ring = mesh.vertexOneRing();
+
+            geometry.compute( pos, nv, mesh.faceVertices() );
+            vector_view displacement( "beatnik_remesh_smooth_displacement",
+                                      nv );
+            SurfaceOperators::graphLaplacianVector( ring, pos, displacement );
+            SurfaceOperators::projectTangent( displacement,
+                                              geometry.vertex_normal );
+
+            // Keep the pre-trial owned rows, then write the trial in place.
+            vector_view saved( "beatnik_remesh_smooth_saved", n_owned );
+            auto offsets = ring.offsets;
+            Kokkos::parallel_for(
+                "beatnik_remesh_smooth_trial",
+                Kokkos::RangePolicy<ExecutionSpace>( 0, n_owned ),
+                KOKKOS_LAMBDA( const int i ) {
+                    for ( int d = 0; d < 3; ++d )
+                        saved( i, d ) = pos( i, d );
+                    // `if len(nbrs) < 3: continue` -- the trial keeps x_v.
+                    if ( offsets( i + 1 ) - offsets( i ) < 3 )
+                        return;
+                    for ( int d = 0; d < 3; ++d )
+                        pos( i, d ) += w * displacement( i, d );
+                } );
+            Kokkos::fence();
+            mesh.haloExchange();
+
+            const Real new_quality = globalMinQuality( mesh );
+            if ( new_quality + Real( 1.0e-14 ) <
+                 std::max( _params.min_quality, Real( 0.85 ) * old_quality ) )
+            {
+                Kokkos::parallel_for(
+                    "beatnik_remesh_smooth_restore",
+                    Kokkos::RangePolicy<ExecutionSpace>( 0, n_owned ),
+                    KOKKOS_LAMBDA( const int i ) {
+                        for ( int d = 0; d < 3; ++d )
+                            pos( i, d ) = saved( i, d );
+                    } );
+                Kokkos::fence();
+                mesh.haloExchange();
+                break;
+            }
+            ++accepted;
+        }
+        return accepted;
     }
 
     /**
@@ -1018,33 +1387,33 @@ class DynamicRemesh
             const int splits = splitLongEdges( mesh, state, target, diag );
             diag.splits += splits;
 
-            // 3. Recompute the sizing field, then collapse. T4d, not yet
-            //    implemented. The only configuration accepted here has
-            //    `collapse_factor <= 0`, which makes the reference's own
-            //    `collapse_short_edges` return before touching anything
-            //    (`dynamic_remesh.py:373` -- the candidate predicate
-            //    `length < 0 * target` is false for every edge). The sizing
-            //    recompute at `:151` exists ONLY to feed that call, so without
-            //    the call it is dead arithmetic and is not performed. It is
-            //    listed here rather than silently absent because the recompute
-            //    is load-bearing for a working collapse pass: without it the
-            //    collapse pass undoes the split pass.
-            const int collapses = 0;
+            // 3. Recompute the sizing field on the post-split mesh, then
+            //    collapse (`dynamic_remesh.py:158-165`). The recompute is
+            //    load-bearing: the split pass changed the curvature estimate,
+            //    and collapsing against the pre-split target undoes the split
+            //    pass. It writes only this local View, so at
+            //    `collapse_factor <= 0`, where `collapseShortEdges` returns
+            //    before any mutation, it changes nothing. A new View, because
+            //    the split pass changed the vertex count.
+            scalar_view collapse_target( "beatnik_remesh_collapse_target",
+                                         mesh.totalVertexCount() );
+            vertexTargetEdgeLength( mesh, state, collapse_target );
+            const int collapses =
+                collapseShortEdges( mesh, state, collapse_target, diag );
+            diag.collapses += collapses;
 
-            // 4. Repair, if anything changed or the worst element is poor.
-            //    Both repairs are T4d and both are configured off, so the gate
-            //    is transcribed in full rather than folded away, so
-            //    implementing T4d turns it on by deleting a rejection rather
-            //    than by remembering to add a call.
+            // 4. Repair, if anything changed or the worst element is poor
+            //    (`dynamic_remesh.py:169-175`): quality flips, then
+            //    tangential smoothing. At `flip_min_gain =
+            //    kFlipsDisabledMinGain` and `smoothing_iterations = 0` both
+            //    passes return before any mutation.
             const bool changed = ( splits > 0 ) || ( collapses > 0 );
             const bool needs_quality_repair =
                 globalMinQuality( mesh ) < _params.min_quality;
             if ( changed || needs_quality_repair )
             {
-                //   flipEdgesForQuality   T4d
-                //   tangentialSmooth      T4d
-                diag.flips += 0;
-                diag.smooth_steps += 0;
+                diag.flips += flipEdgesForQuality( mesh, diag );
+                diag.smooth_steps += tangentialSmooth( mesh );
             }
         }
 
@@ -1054,8 +1423,32 @@ class DynamicRemesh
         diag.max_sagitta_after = globalMaxSagitta( mesh );
         measureShape( mesh, diag );
         auditLongEdges( mesh, state, diag );
+
+        // 5. The gid-space cadence (Beatnik-only; see
+        //    `RemeshParams::renumber_gids_every`). The high-water mark is
+        //    measured before renumbering, so a renumbering call still reports
+        //    the space it reclaimed. The call counter and the cadence are
+        //    identical on every rank, so every rank enters the collective
+        //    together. It runs last, after every measurement above, because
+        //    it reorders local storage; it moves no vertex, so it needs no
+        //    `resetReferenceState` (the AMR reference fields are face user
+        //    fields and travel with their faces).
+        ++_remesh_calls;
+        diag.gid_space_high_water = mesh.gidSpace();
+        diag.gid_space_after = diag.gid_space_high_water;
+        const int every = _params.renumber_gids_every;
+        if ( every > 0 && _remesh_calls % every == 0 )
+        {
+            const MeshEditReport r = mesh.compactAndRenumberGids();
+            diag.gids_renumbered = true;
+            diag.gid_space_after = r.gid_space_after;
+        }
         return diag;
     }
+
+    /// `remesh()` calls made so far — the counter
+    /// `RemeshParams::renumber_gids_every` is applied to.
+    long long remeshCalls() const { return _remesh_calls; }
 
   private:
     //-----------------------------------------------------------------------//
@@ -1100,9 +1493,20 @@ class DynamicRemesh
         return static_cast<GlobalIndex>( total );
     }
 
+    /// Which end of a ratio-ranked candidate set a per-pass cap keeps: the
+    /// split pass keeps the most over-long edges (`Largest`, kept iff
+    /// `ratio > threshold`), the collapse pass the most under-short
+    /// (`Smallest`, kept iff `ratio < threshold`).
+    enum class RatioKeep
+    {
+        Largest,
+        Smallest
+    };
+
     /**
-     * @brief Smallest ratio threshold whose surviving candidate count fits the
-     *        per-pass split cap.
+     * @brief The ratio threshold whose surviving candidate count fits a
+     *        per-pass cap: the smallest one for `RatioKeep::Largest`, the
+     *        largest one for `RatioKeep::Smallest`.
      *
      * A fixed 60-iteration bisection, exactly as `AdaptiveMesh::searchThreshold`
      * and for the same reason: every probe is a collective, so the loop bound
@@ -1111,17 +1515,21 @@ class DynamicRemesh
      * deadlock. 60 halvings takes any double-precision interval below its own
      * ulp, so this is exact rather than approximate.
      *
-     * The predicate is monotone in the threshold (a higher threshold keeps a
-     * subset), and the upper bracket is above every candidate's ratio and
-     * therefore keeps nothing.
+     * The survivor count is monotone in the threshold in both directions. The
+     * bracket is `[0, hi]` with `hi` above every candidate's ratio: for
+     * `Largest`, `hi` keeps nothing and so fits; for `Smallest`, `0` keeps
+     * nothing (ratios are non-negative) and so fits. The returned end is the
+     * one that fits. Survivors are selected by `applyRatioThreshold`.
      */
     Real searchRatioThreshold( mesh_type& mesh,
                                const Kokkos::View<char*, device_type>& mask,
-                               const scalar_view& ratio, GlobalIndex cap ) const
+                               const scalar_view& ratio, GlobalIndex cap,
+                               RatioKeep keep ) const
     {
         const int n = static_cast<int>( mask.extent( 0 ) );
         auto m = mask;
         auto r = ratio;
+        const bool largest = ( keep == RatioKeep::Largest );
 
         Real local_max = Real( 0 );
         Kokkos::parallel_reduce(
@@ -1143,7 +1551,7 @@ class DynamicRemesh
                 "beatnik_remesh_ratio_count",
                 Kokkos::RangePolicy<ExecutionSpace>( 0, n ),
                 KOKKOS_LAMBDA( const int e, long long& acc ) {
-                    if ( m( e ) && r( e ) > t )
+                    if ( m( e ) && ( largest ? ( r( e ) > t ) : ( r( e ) < t ) ) )
                         ++acc;
                 },
                 local );
@@ -1153,15 +1561,39 @@ class DynamicRemesh
             return static_cast<GlobalIndex>( total ) <= cap;
         };
 
+        // `Largest`: a fitting threshold moves the upper end down. `Smallest`:
+        // a fitting threshold moves the lower end up.
         for ( int i = 0; i < 60; ++i )
         {
             const Real mid = Real( 0.5 ) * ( lo + hi );
-            if ( fits( mid ) )
+            const bool ok = fits( mid );
+            if ( ok == largest )
                 hi = mid;
             else
                 lo = mid;
         }
-        return hi;
+        return largest ? hi : lo;
+    }
+
+    /// Clear every mask entry that `threshold` does not keep, in the
+    /// direction `keep` (see `RatioKeep`).
+    void applyRatioThreshold( const Kokkos::View<char*, device_type>& mask,
+                              const scalar_view& ratio, Real threshold,
+                              RatioKeep keep ) const
+    {
+        const int n = static_cast<int>( mask.extent( 0 ) );
+        auto m = mask;
+        auto r = ratio;
+        const bool largest = ( keep == RatioKeep::Largest );
+        Kokkos::parallel_for(
+            "beatnik_remesh_apply_cap", Kokkos::RangePolicy<ExecutionSpace>( 0, n ),
+            KOKKOS_LAMBDA( const int e ) {
+                const bool kept =
+                    largest ? ( r( e ) > threshold ) : ( r( e ) < threshold );
+                if ( m( e ) && !kept )
+                    m( e ) = 0;
+            } );
+        Kokkos::fence();
     }
 
     /// The owned prefix of an edge mask, on the host, in the exact shape
@@ -1332,6 +1764,8 @@ class DynamicRemesh
     }
 
     RemeshParams _params;
+    /// `remesh()` calls so far; see `remeshCalls()`.
+    long long _remesh_calls = 0;
 };
 
 } // namespace Beatnik

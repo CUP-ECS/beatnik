@@ -192,6 +192,13 @@ class Solver
     // concrete type once known.
     using vector_view = Kokkos::View<Real* [3], device_type>;
 
+    /// The gain of the refine branch's quality flips: the default of
+    /// mesh_solver.py::improve_mesh_connectivity_by_edge_flips's `min_gain`
+    /// (line 1708). The reference's call site
+    /// (`run_adaptive_mesh_bubble.py:1440-1444`) passes no gain and no CLI
+    /// option sets one, so it is a constant here, not a parameter.
+    static constexpr Real kRefineFlipMinGain = 1.0e-3;
+
     /**
      * @param comm   Communicator to decompose the surface over.
      * @param params The whole run configuration.
@@ -326,7 +333,8 @@ class Solver
      * **Post-step passes that are not implemented THROW rather than being
      * skipped.** `requireSupportedConfiguration()` is called once before the
      * loop and rejects, by name and by task ID, any configuration whose
-     * post-step passes are stubs (pending T4d/T4e/T5c). It
+     * post-step passes are stubs (pending T4e/T5c) or unported (the tight
+     * remesh set). It
      * is a configuration check and not a mid-loop guard on purpose: the
      * conditions are global and time-independent, so failing before the first
      * step is both cheaper and more honest than aborting at step 5. Silently
@@ -441,11 +449,10 @@ class Solver
         // globally identical (it is built from the step counter and two
         // parameters), so every rank enters the collective refiner together.
         //
-        // The filter branch (T5c) is a stub, as are the collapse/flip/smooth
-        // thirds of the remesh branch below (T4d) and both of its proximity
-        // paths (T4e); `requireSupportedConfiguration` rejects any
-        // configuration that would reach one — so there is nothing to skip
-        // here and nothing that could be silently skipped.
+        // The filter branch (T5c) is a stub, as are both proximity paths of
+        // the remesh branch below (T4e); `requireSupportedConfiguration`
+        // rejects any configuration that would reach one, so there is nothing
+        // to skip here and nothing that could be silently skipped.
         if ( !_params.dynamic_remesh && _params.amr.refine_every > 0 &&
              _step % _params.amr.refine_every == 0 )
         {
@@ -454,33 +461,56 @@ class Solver
             {
                 _refine_events += _last_refinement.marked_faces;
 
-                // The reference's three quality repairs go here
-                // (lines 1440-1464). Two of the three are unimplemented and
-                // rejected at setup, by name and task ID, so the counter below
-                // is a transcription of the reference's own gate rather than a
-                // placeholder:
+                // The reference's three quality repairs (lines 1440-1464).
                 //
-                //   improveConnectivityByFlips   T4d
-                //   isotropicCleanup             T4d
-                const int flips = 0;
+                // 1. MeshQuality::improveConnectivityByFlips (lines 1440-1445),
+                //    at `--flip-passes` and the reference function's default
+                //    gain, which its call site does not override. At
+                //    `--flip-passes 0` the pass returns before anything
+                //    collective.
+                //
+                //    The reference passes `reset_reference=(smooth_iters ==
+                //    0)`, and `_state_with_faces` re-seeds the reference area
+                //    and curvature only when a flip happened
+                //    (`mesh_solver.py:1770-1772`). That re-base is done here,
+                //    under the same two conditions; `flips` is a global count,
+                //    so every rank enters the collective together.
+                const int flips = _quality->improveConnectivityByFlips(
+                    _mesh, _params.filter.flip_passes, kRefineFlipMinGain );
+                _edge_flips += flips;
+                if ( flips > 0 && _params.filter.smooth_iters == 0 )
+                    _amr->resetReferenceState( _mesh );
 
-                // MeshQuality::improveQualityTangential (lines 1446-1450).
+                // 2. MeshQuality::improveQualityTangential (lines 1446-1450).
                 // Called UNCONDITIONALLY once anything was marked, with
                 // `--smooth-iters` (default 1) and `--smooth-relaxation`
                 // (0.12); the pass makes its own no-op decision when either is
                 // zero, exactly as the reference's early return does.
                 //
-                // NOTHING RE-BASES THE AMR REFERENCE STATE AFTER IT. The
-                // reference passes `reset_reference=False` here (`:1449`) and
-                // `reset_reference=(smooth_iters == 0)` to the flip pass above
-                // — which, with `--flip-passes 0`, returns having changed
-                // nothing and re-bases nothing. An `AdaptiveMesh::
-                // resetReferenceState` call here would change every subsequent
-                // refinement decision, so there is none; T4d owns the question
-                // for the flip path.
+                // The tangential pass does not re-base the AMR reference state
+                // itself: the reference passes `reset_reference=False` here
+                // (`:1449`). With `smooth_iters > 0` the flip pass above does
+                // not re-base either. Under `--no-isotropic-cleanup` the
+                // reference state therefore stays the refinement's; under
+                // `--isotropic-cleanup` the state rebuild after the cleanup
+                // (step 3) re-bases it.
                 _quality->improveQualityTangential(
                     _mesh, _params.filter.smooth_iters,
                     _params.filter.smooth_relaxation );
+
+                // 3. MeshQuality::isotropicCleanup (lines 1452-1464), under
+                // `--isotropic-cleanup`. The reference replaces the state with
+                // a fresh `MeshPotentialZModelState` on the cleaned arrays
+                // (`:1462-1464`), whose `__post_init__`
+                // (`mesh_solver.py:138-163`) re-seeds the reference area and
+                // curvature and re-centres the potential; `rebuildState` is
+                // that rebuild. The flag is a parameter, so every rank enters
+                // the collectives together.
+                if ( _params.cleanup.enabled )
+                {
+                    _cleanup_flips += _quality->isotropicCleanup( _mesh );
+                    rebuildState();
+                }
 
                 // `project_state_to_volume` is gated on a repair having
                 // ACTUALLY RUN (lines 1465-1468), not on the refinement having
@@ -518,26 +548,25 @@ class Solver
                 _remesh_events += _last_remesh.splits + _last_remesh.collapses +
                                   _last_remesh.flips;
 
-                // `mesh_quality.isotropic_cleanup` runs here (`:1493-1504`).
-                // It is T4d and unimplemented, and `--isotropic-cleanup` is
-                // rejected at setup rather than skipped.
-
                 // The reference rebuilds the state from the remeshed arrays,
                 // which (a) re-bases the reference area and curvature —
                 // `dynamic_remesh_state_with_material` passes both as `None`
                 // (`:1099-1101`) and `TriangleSurfaceState.__post_init__`
                 // re-seeds them from the current geometry — and (b) re-centres
                 // the potential against the NEW area weights
-                // (`mesh_solver.py:155-162`). Both are done here, in that
-                // order, because both are properties of state construction
-                // rather than of the remesher.
-                _amr->resetReferenceState( _mesh );
+                // (`mesh_solver.py:155-162`). Both are properties of state
+                // construction rather than of the remesher.
+                rebuildState();
+
+                // `mesh_quality.isotropic_cleanup` (`:1491-1504`), gated on
+                // the remesh having RUN (`remesh_diag is not None`), as the
+                // projection below is. The reference then builds a fresh
+                // `MeshPotentialZModelState` on the cleaned arrays
+                // (`:1502-1504`), so the state is rebuilt a second time.
+                if ( _params.cleanup.enabled )
                 {
-                    MeshGeometry<ExecutionSpace, MemorySpace> geometry;
-                    geometry.compute( _mesh.positions(),
-                                      _mesh.totalVertexCount(),
-                                      _mesh.faceVertices() );
-                    _state.centerPotential( _mesh, geometry );
+                    _cleanup_flips += _quality->isotropicCleanup( _mesh );
+                    rebuildState();
                 }
             }
 
@@ -703,6 +732,21 @@ class Solver
     /// the difference between them.
     const RemeshDiagnostics& lastRemesh() const { return _last_remesh; }
 
+    /// Cumulative edge flips of the refine branch's
+    /// `MeshQuality::improveConnectivityByFlips` — the `flips` field of the
+    /// progress line. A global count. Exposed so the T4a regression test can
+    /// assert that `--flip-passes > 0` actually flips (risk R15).
+    long long edgeFlips() const { return _edge_flips; }
+
+    /// Cumulative valence flips of `MeshQuality::isotropicCleanup`, summed
+    /// over every call from both adaptivity branches. A global count,
+    /// identical on every rank, because each call returns
+    /// `valenceEqualizingFlips`'s reduced total; 0 under
+    /// `--no-isotropic-cleanup`. Not part of `lastRemesh().flips` or of
+    /// `edgeFlips()`, which count other passes. Exposed so the milestone
+    /// comparison test can assert the cleanup actually flipped (risk M1-R7).
+    long long cleanupFlips() const { return _cleanup_flips; }
+
     /// Path of the last checkpoint written, empty if none. Exposed so a test
     /// can find the file to compare without reconstructing the naming rule —
     /// which would be a second implementation of `CheckpointIO::timeKey`, and
@@ -727,54 +771,23 @@ class Solver
     void requireSupportedConfiguration() const
     {
         // The two adaptivity modes are mutually exclusive per run
-        // (`run_adaptive_mesh_bubble.py:1424` versus `:1469-1471`), and each
-        // has its own set of unimplemented follow-on passes. Each is rejected
-        // by name and by task ID rather than silently skipped, because a run
-        // that omitted one would produce a plausible trajectory that is not the
-        // reference's.
-        //
-        // Each rejection is guarded by the mode it belongs to: `refining` for
-        // the indicator-AMR branch, `remeshing` for the dynamic-remesh branch.
-        // `--isotropic-cleanup` defaults to TRUE and the reference runs it
-        // after every refinement and every dynamic remesh, so it is guarded by
-        // both.
-        const bool refining =
-            !_params.dynamic_remesh && _params.amr.refine_every > 0;
+        // (`run_adaptive_mesh_bubble.py:1424` versus `:1469-1471`). Every
+        // follow-on pass of the refine branch — `improveConnectivityByFlips`,
+        // `improveQualityTangential` and `isotropicCleanup` — is implemented,
+        // so that branch has no rejection. A rejection is guarded by the mode
+        // it belongs to.
         const bool remeshing =
             _params.dynamic_remesh && _params.remesh_every > 0;
 
-        if ( refining && _params.filter.flip_passes > 0 )
-            throw std::logic_error(
-                "Beatnik::Solver::solve: --flip-passes > 0 under "
-                "--refine-every needs MeshQuality::improveConnectivityByFlips, "
-                "which is task T4d and not yet implemented. Pass "
-                "--flip-passes 0." );
-
-        // `--smooth-iters` and `--redistribute-every` need no check:
-        // `MeshQuality::improveQualityTangential` is implemented, and it is the
-        // refine branch's unconditional tangential pass
-        // (`run_adaptive_mesh_bubble.py:1446-1450`) and the whole of the
-        // redistribute branch.
-
-        if ( ( refining || remeshing ) && _params.cleanup.enabled )
-            throw std::logic_error(
-                "Beatnik::Solver::solve: --isotropic-cleanup (the default) "
-                "under --refine-every or --dynamic-remesh needs "
-                "MeshQuality::isotropicCleanup (valence-equalizing flips plus "
-                "tangential relaxation), which is task T4d and not yet "
-                "implemented. Pass --no-isotropic-cleanup." );
-
         //-- the metric remesher's own rejections ----------------------------//
         //
-        // `DynamicRemesh` implements the sizing field and the SPLIT third of
-        // `dynamic_remesh.py`. The collapse, flip and smoothing thirds are T4d
-        // and the two proximity paths are T4e, all unimplemented; Tessera
-        // provides the edge collapse and edge flip that T4d builds on
-        // (`Tessera_EdgeCollapse.hpp`, `Tessera_EdgeFlip.hpp`). Rather than invent a `--dynamic-remesh-split
-        // -only` switch, a run is accepted exactly when the reference's OWN
-        // knobs make those thirds no-ops — so what Beatnik runs is what the
-        // reference would run, not a Beatnik-only subset of it. Each rejection
-        // below names the method, the task, and the knob that satisfies it.
+        // `DynamicRemesh` implements the sizing field and the split, collapse
+        // (task T4d2), quality-flip (task T4d3) and tangential-smoothing
+        // (task T4d4) passes of `dynamic_remesh.py`, and the isotropic cleanup
+        // after it (task T4d5) is implemented too. The two proximity paths are
+        // T4e and unimplemented, and they are off by default in the reference,
+        // so each is rejected by name, by task ID and with the knob that
+        // satisfies it, rather than silently skipped.
         if ( remeshing && _params.remesh.use_proximity )
             throw std::logic_error(
                 "Beatnik::Solver::solve: --remesh-proximity under "
@@ -793,48 +806,6 @@ class Solver
                 "::nonlocalFaceProximityPairs, which are task T4e and still "
                 "throw. Off by default (dynamic_remesh.py:41); pass "
                 "--no-remesh-surgical-proximity." );
-
-        // The collapse third. `--remesh-collapse-factor 0` makes the
-        // reference's candidate predicate `length < 0 * target`
-        // (dynamic_remesh.py:373) false for every edge, so the pass returns
-        // before any mutation -- and the reference's own tight profile ships
-        // that value (run_adaptive_mesh_bubble.py:520), so it is an in-family
-        // configuration rather than an invention.
-        //
-        // `--remesh-max-collapses 0` is NOT a second lever, however plausible
-        // it looks: the driver maps a non-positive value to `None` = UNLIMITED
-        // (`:1350-1352`), which `RemeshParams::max_collapses_per_pass`
-        // reproduces. Accepting on it would accept a run in which the reference
-        // still collapses.
-        if ( remeshing && _params.remesh.collapse_factor > Real( 0 ) )
-            throw std::logic_error(
-                "Beatnik::Solver::solve: --remesh-collapse-factor > 0 (the "
-                "default is 0.45) under --dynamic-remesh needs "
-                "DynamicRemesh::collapseShortEdges, which is task T4d and not "
-                "yet implemented. Pass --remesh-collapse-factor 0, which is "
-                "what the reference's own tight profile passes and which makes "
-                "its collapse pass an exact no-op. NOTE: --remesh-max-collapses 0 "
-                "does NOT disable collapse -- it means UNLIMITED." );
-
-        if ( remeshing && _params.remesh.smoothing_iterations > 0 )
-            throw std::logic_error(
-                "Beatnik::Solver::solve: --remesh-smooth-iters > 0 (the "
-                "default is 1) under --dynamic-remesh needs "
-                "DynamicRemesh::tangentialSmooth, which is task T4d and not yet "
-                "implemented. Pass --remesh-smooth-iters 0, which makes the "
-                "reference's own pass return immediately "
-                "(dynamic_remesh.py:463-465)." );
-
-        if ( remeshing &&
-             _params.remesh.flip_min_gain < kFlipsDisabledMinGain )
-            throw std::logic_error(
-                "Beatnik::Solver::solve: --remesh-flip-min-gain below 1e12 "
-                "(the default is 1e-3) under --dynamic-remesh needs "
-                "DynamicRemesh::flipEdgesForQuality, which is task T4d and not "
-                "yet implemented. Pass --remesh-flip-min-gain 1e12: triangle "
-                "quality lies in [0,1], so the reference's accept test "
-                "min(new) > min(old)*(1+gain) (dynamic_remesh.py:449-450) is "
-                "then unsatisfiable and its flip pass mutates nothing." );
 
         // The tight parameter set is UNPORTED: `--remesh-tight-*` has no
         // representation in `RemeshParams` beyond the prose note on it, so
@@ -856,6 +827,31 @@ class Solver
                 "Beatnik::Solver::solve: --field-filter-every > 0 needs "
                 "Solver::filterCirculationField, which is task T5c and still "
                 "throws. Pass --field-filter-every 0." );
+    }
+
+    /**
+     * @brief What constructing a `MeshPotentialZModelState` on the current
+     *        arrays does: re-seed the AMR reference area and curvature, then
+     *        re-centre the potential against the current area weights.
+     *
+     * Port of mesh_solver.py::MeshPotentialZModelState.__post_init__
+     * (lines 138-163)
+     *
+     * The reference builds a fresh state after a remesh and after an
+     * isotropic cleanup, with the reference fields passed as `None`, so
+     * `TriangleSurfaceState.__post_init__` re-seeds them from the current
+     * geometry; it then subtracts the area-weighted mean of the potential.
+     * Both are done here, in that order.
+     *
+     * @note MPI. Collective: both calls reduce over the mesh.
+     */
+    void rebuildState()
+    {
+        _amr->resetReferenceState( _mesh );
+        MeshGeometry<ExecutionSpace, MemorySpace> geometry;
+        geometry.compute( _mesh.positions(), _mesh.totalVertexCount(),
+                          _mesh.faceVertices() );
+        _state.centerPotential( _mesh, geometry );
     }
 
     /// Rank 0 prints the reference's stop line verbatim
@@ -1125,6 +1121,9 @@ class Solver
     long long _refine_events = 0;
     long long _edge_flips = 0;
     long long _remesh_events = 0;
+
+    /// Cumulative `isotropicCleanup` valence flips, for `cleanupFlips()`.
+    long long _cleanup_flips = 0;
 };
 
 } // namespace Beatnik
