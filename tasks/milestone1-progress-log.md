@@ -5124,3 +5124,94 @@ T4d rejections, the four `checkRejected` cases, `checkFailureDirection`,
 
 **Affects:** C1 (new) — resolves findings 1–5; the status stays IN PROGRESS
 until C1 is reviewed and the sweep is re-run.
+
+## C1
+
+**Commits:** `47570c6` (code comments), plus this docs commit.
+
+Comment and document text only; no flag, default, behavior or test change.
+No job.
+
+**What changed:**
+- `examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp` (`CURRENT
+  BEHAVIOR`) and `examples/02_adaptive_mesh_bubble/CMakeLists.txt`: the default
+  configuration runs, with split, collapse, quality flips, tangential smoothing
+  and the isotropic cleanup. They name the four options
+  `requireSupportedConfiguration` rejects (`src/Beatnik_Solver.hpp:791-829`):
+  `--remesh-proximity` and `--remesh-surgical-proximity` (T4e) and
+  `--remesh-tight-after >= 0` (the unported tight profile), these three only
+  under `--dynamic-remesh`, and `--field-filter-every > 0` (T5c).
+- `scripts/tuolumne/rising_bubble_l3.flux:23-26` and
+  `scripts/tuolumne/grouped_io_t1.flux:25-29`: the split-only flags stay
+  exactly as they were; the comments give the T4b gate member's split-only
+  configuration as the reason instead of a throw.
+- `src/Beatnik_Params.hpp`, `renumber_gids_every`: states T4d6's measurement.
+- `tasks/milestone1.md`: the status block, `## Problem` (the command runs;
+  the table maps each option to its pass and T4d task, with no
+  `Beatnik_Solver.hpp` line range), Read this first #4, C1's **Fill in**, and
+  a status sentence on M1-R1 and M1-R3 to M1-R8.
+
+**Decisions** (given to the task, not reopened):
+- The tight profile is named by its option, `--remesh-tight-after`, and as
+  unported, not given a task ID; the Solver comment at
+  `src/Beatnik_Solver.hpp:810-815` calls it unassigned. `## Problem`'s
+  out-of-scope table still calls it T4f and is kept as is.
+- Comment and document text only; the flags the two batch scripts pass are
+  unchanged.
+
+**Implementation choices / cosmetic doc fixes** (mine):
+- C1's **Fill in** first bullet said the remaining rejections include T5c's
+  "redistribution and sheet-vector model". The code rejects only the field
+  filter; the bullet now names the four rejected options and says
+  redistribution and the sheet-vector model are not rejected.
+- Read this first #4 said four `requireSupportedConfiguration` messages name
+  "task T4d". Those messages are deleted; it now says source comments name the
+  IDs (`Beatnik_Solver.hpp:785-787`, `Beatnik_DynamicRemesh.hpp:97-99`). The
+  `Beatnik_DynamicRemesh.hpp:1020-1047` reference is dropped: no `T4d` text
+  is in that range.
+- The prompt and the sweep give the cadence-50 gid space as `3104–3122`. The
+  T4d6 ratio table shows the first renumbering (step 50) falls to 3098, and
+  later ones to 3104, 3110, 3116 and 3122. The Params comment and M1-R5 say
+  `3098–3122`.
+- The `## Problem` table gains a Task column (T4d5, T4d2, T4d4, T4d3, as in
+  the Solver comment at `:784-787`) in place of the deleted Rejection column.
+
+**Known-risk statuses and their sources:**
+- M1-R1, closed, did not materialize: `## M1-D1` — no (backend, rank)
+  combination fails at any rung through step 600 on the frozen mesh.
+- M1-R2: already carries its M1-D2 measurement; unchanged.
+- M1-R3, closed: `## T4d2` (the per-pass `collapse_candidates`,
+  `collapse_requested`, `collapses`, `collapse_capped`,
+  `collapse_rejected_conflict` fields) and `## M1-D2` (step 2: 44 requested,
+  8 accepted, 36 lost to conflict, `collapse_capped=0`).
+- M1-R4, closed: `## T4d4` — `Beatnik_Test_MeshEdits` case 5 asserts both
+  guard directions, job `f3iLqpsgPez3`.
+- M1-R5, closed for the gid space, open for RSS: `## T4d6` — bounded gid space
+  at cadence 50; 4-rank RSS growth independent of cadence, a README Known
+  Issue.
+- M1-R6, closed, measured: `docs/testing.md` — `Milestone1Bubble` 133 s
+  SERIAL, 74 s HIP, job `f3j7wCa1Pf99`.
+- M1-R7, closed, guarded: `## M1-A1r` — every compare launch asserts the
+  liveness counters, `splits=523 collapses=19 flips=167 smooth_steps=85
+  cleanup_flips=291` on all four.
+- M1-R8, closed by design: `## M1-A1j` (comparison beyond step 0 is
+  statistical) and `## M1-T2` (step 0 `ambiguous=0/0`,
+  `max_e[vertices]=5.551115e-17` on every compare launch).
+
+**Observed, not changed:** `tasks/framework.md:770-773` says T4a rejects the
+three repair options; it describes T4a's scope inside framework.md's T4a/T4b
+note, outside this task's **Fill in**. Sweep follow-ups 6–8
+(`run_regression_minset.flux`, `run_milestone.flux`, `docs/dataflow.html`)
+remain the user's.
+
+**Verified:** the exit criterion's greps (forbidden text: none; `unmeasured
+(T4d6`: none; `T4e` and `T5c` each in both example files); `git show --stat
+47570c6` lists only the five code files; `git diff -w` on it changes only
+comment lines. Dev-env `spack -e ~/spack_envs/tuolumne_beatnik install` with
+`HIPCC_*_FLAGS_APPEND` unset exited 0 after a 13m41s rebuild (cmake, build,
+install; `adaptive_mesh_bubble.cpp.o` built). `spack env activate` is blocked
+by the loop's guard, so `spack -e` was used; it installs the same
+environment. All 80 warnings in the build log are in Kokkos's
+`Kokkos_HIP_KernelLaunch.hpp`.
+
+**Affects:** none; C1's review and the re-run sweep are next.

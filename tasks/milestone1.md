@@ -25,9 +25,10 @@ test encodes them (code `ecda54f`), and the milestone's comparison passes on
 job `f3j7wCa1Pf99`, `SUMMARY: PASS (6/6 launches)`, every compare launch
 `stat_checked=161 stat_failed=0` and both failure directions passing (log
 `## M1-A1r`). **M1-A1r** is **DONE** and reviewed, Passed, recording that job
-in `docs/testing.md` and the log. The feature sweep's verdict is Rework (log
-`## Sweep`): descriptions of the deleted T4d rejections remain in the example,
-two batch scripts, one `Params` comment and this document. **C1** removes them.
+in `docs/testing.md` and the log. The feature sweep's verdict was Rework (log
+`## Sweep`, findings 1–5); **C1** is **DONE** (log `## C1`): the example, two
+batch scripts, the `Params` comment and this document describe the command as
+running. The feature awaits C1's review and the re-run sweep.
 
 ## Problem
 
@@ -68,21 +69,20 @@ Python `.npz` checkpoints with Beatnik's run, as decided at M1-A1j:
   asserted. A gold checkpoint later than Beatnik's final `time` is a failure,
   not a skip.
 
-What exists now is a Beatnik that **rejects this command at setup**, by name and
-by task ID, from `Solver::requireSupportedConfiguration`
-([src/Beatnik_Solver.hpp:759-892](../src/Beatnik_Solver.hpp#L759-L892)). Four
-rejections fire and every one of them is **T4d**:
+Beatnik **runs this command**. `Solver::requireSupportedConfiguration` rejects
+none of its options; the four options at their defaults that need a T4d pass
+map to the pass that implements each:
 
-| Option, at its default | Rejection | Needs |
+| Option, at its default | Pass | Task |
 | --- | --- | --- |
-| `--isotropic-cleanup` (default **on**) | [:791-797](../src/Beatnik_Solver.hpp#L791-L797) | `MeshQuality::isotropicCleanup` |
-| `--remesh-collapse-factor 0.45` | [:830-850](../src/Beatnik_Solver.hpp#L830-L850) | `DynamicRemesh::collapseShortEdges` |
-| `--remesh-smooth-iters 1` | [:852-859](../src/Beatnik_Solver.hpp#L852-L859) | `DynamicRemesh::tangentialSmooth` |
-| `--remesh-flip-min-gain 1e-3` | [:861-870](../src/Beatnik_Solver.hpp#L861-L870) | `DynamicRemesh::flipEdgesForQuality` |
+| `--isotropic-cleanup` (default **on**) | `MeshQuality::isotropicCleanup` | T4d5 |
+| `--remesh-collapse-factor 0.45` | `DynamicRemesh::collapseShortEdges` | T4d2 |
+| `--remesh-smooth-iters 1` | `DynamicRemesh::tangentialSmooth` | T4d4 |
+| `--remesh-flip-min-gain 1e-3` | `DynamicRemesh::flipEdgesForQuality` | T4d3 |
 
-Nothing else on the command line is stubbed. The end state is: the command runs,
-and the depth, tolerances and statistics bands above are asserted by
-`Beatnik_Test_Milestone1Bubble` in the `milestone` tier.
+Nothing else on the command line is stubbed. The depth, tolerances and
+statistics bands above are asserted by `Beatnik_Test_Milestone1Bubble` in the
+`milestone` tier.
 
 **Out of scope**, because every option that reaches them is at a default that
 switches them off — this is the whole list, and it is what makes the milestone
@@ -181,11 +181,10 @@ divergence is therefore *not* in play on this path, and the cost of the
 ### 4. T4d1–T4d6 have moved here, and keep their IDs
 
 framework.md carried the T4d design; it now points here. **The IDs are
-unchanged** — `T4d`, `T4d1`…`T4d6` — because four `requireSupportedConfiguration`
-messages, several header comments and
-[src/Beatnik_DynamicRemesh.hpp:1020-1047](../src/Beatnik_DynamicRemesh.hpp#L1020-L1047)
-all name "task T4d" in text a user will read at a failed run. Renaming them to
-`M1-*` would make every one of those strings wrong. Tasks that are new with this
+unchanged** — `T4d`, `T4d1`…`T4d6` — because source comments name them, among
+them [src/Beatnik_Solver.hpp:785-787](../src/Beatnik_Solver.hpp#L785-L787) and
+[src/Beatnik_DynamicRemesh.hpp:97-99](../src/Beatnik_DynamicRemesh.hpp#L97-L99).
+Renaming them to `M1-*` would make every one of those comments wrong. Tasks that are new with this
 milestone carry an `M1-` prefix.
 
 Everything framework.md says about **Tessera's** collapse/flip/compact contract
@@ -2539,7 +2538,7 @@ pending. No code, build or job.
 
 ---
 
-### C1 — no description of a T4d rejection survives — **NOT STARTED**
+### C1 — no description of a T4d rejection survives — **DONE**
 
 **Depends on:** M1-A1r.
 
@@ -2555,9 +2554,11 @@ Comment and document text only: no behavior, flag or test changes.
   [examples/02_adaptive_mesh_bubble/CMakeLists.txt](../examples/02_adaptive_mesh_bubble/CMakeLists.txt)
   `:18-26`: the default configuration runs, collapse, flips, smoothing and the
   isotropic cleanup included. What `requireSupportedConfiguration` still
-  rejects is only what is off by default: T4e's two proximity paths, the T4f
-  tight profile and T5c's field filter, redistribution and sheet-vector model
-  (`## Problem`'s out-of-scope table). Read the current rejections in
+  rejects is only what is off by default, exactly four options:
+  `--remesh-proximity` and `--remesh-surgical-proximity` (T4e),
+  `--remesh-tight-after >= 0` (the unported tight profile) and
+  `--field-filter-every > 0` (T5c). Redistribution and the sheet-vector model
+  are not rejected. Read the current rejections in
   [src/Beatnik_Solver.hpp](../src/Beatnik_Solver.hpp) (`requireSupportedConfiguration`)
   and name exactly those.
 - [scripts/tuolumne/rising_bubble_l3.flux](../scripts/tuolumne/rising_bubble_l3.flux)
@@ -2615,6 +2616,23 @@ comments in the `.cpp`, `.hpp`, `CMakeLists.txt` and `.flux` files. The dev-env
 `spack install` exits 0. Every Known risk M1-R1 to M1-R8 carries a closed or
 open status, and `## Problem` names no `Beatnik_Solver.hpp` line range.
 
+**Met.** Code commit `47570c6`. The forbidden-text `git grep` over the four
+example/script files returns nothing (rc 1), and so does
+`git grep -n 'unmeasured (T4d6' -- src`. `T4e` matches
+`CMakeLists.txt:23` and `adaptive_mesh_bubble.cpp:47`; `T5c` matches
+`CMakeLists.txt:25` and `adaptive_mesh_bubble.cpp:49`. `git show --stat
+47570c6` lists exactly the five **Fill in** code files, and every `+`/`-`
+line of `git diff -w 47570c6~1 47570c6` is a `*`, `#` or `///` comment line.
+The dev-env `spack install` exited 0 after a real rebuild (cmake, build and
+install, 13m41s, `adaptive_mesh_bubble.cpp` compiled); all 80 compiler
+warnings in its log are in Kokkos's `Kokkos_HIP_KernelLaunch.hpp`, none in a
+changed file. M1-R1 and M1-R3 to M1-R8 each carry a status sentence (M1-R2
+its measurement), and `## Problem` contains no `Beatnik_Solver.hpp` reference.
+The **Removes** grep outside the progress logs finds no sentence saying
+collapse, quality flips, smoothing or the cleanup is unimplemented, throws or is
+rejected, other than DONE task bodies and framework.md's T4a note (log
+`## C1`). No job.
+
 ## Known risks
 
 **M1-R1 — the divergence horizon is shorter than the milestone's premise.** The
@@ -2623,6 +2641,9 @@ reporting a first-failing step in the tens, on a run with no adaptivity at all.
 *Do:* this is information, not a bug — take it to M1-A1j. Do **not** loosen
 `--rtol` to make a step pass without recording the measured `max|e|` beside it;
 an unrecorded loosening is how a comparison stops being a test.
+*Status: closed, did not materialize* — M1-D1 found no (backend, rank)
+combination failing at any rung through step 600 on the frozen mesh (log
+`## M1-D1`).
 
 **M1-R2 — edit-set divergence (R7) makes the comparison fail structurally.** The
 first flip or collapse Beatnik accepts differently from the reference changes
@@ -2644,7 +2665,12 @@ independent-set round uses its own priority, so the accepted subsets differ
 whenever the cap binds or two candidates conflict. *Presents as:* a collapse count
 that agrees with the reference when the cap does not bind and diverges when it
 does. *Do:* log `requested` vs `accepted` vs the cap per pass, so the three cases
-are distinguishable.
+are distinguishable. *Status: closed* — T4d2 records
+`collapse_candidates`, `collapse_requested`, `collapses`, `collapse_capped`
+and `collapse_rejected_conflict` per pass (log `## T4d2`), and M1-D2 used them
+to show the cap did not bind at step 2 (`collapse_capped=0`): the divergence
+is the conflict case, 8 of 44 accepted with 36 lost to Tessera's independent
+set (log `## M1-D2`).
 
 **M1-R4 — a `tangentialSmooth` without the quality guard is plausible and
 wrong.** Omitting the trial/accept/reject step (Read this first #5) produces a
@@ -2652,11 +2678,18 @@ smoother mesh and a slightly different trajectory, with no error anywhere.
 *Presents as:* a comparison that fails a few steps later than expected with small,
 diffuse position errors and a *better* minimum quality than the gold. *Do:* T4d4's
 exit criterion asserts both directions of the guard precisely because nothing
-downstream would notice.
+downstream would notice. *Status: closed* — T4d4 implements the guard and case 5
+of `Beatnik_Test_MeshEdits` asserts both of its directions, passing on job
+`f3iLqpsgPez3` (log `## T4d4`).
 
 **M1-R5 — the gid-space leak.** *Presents as:* resident memory growing with step
 count at constant face count, or an allocation failure deep inside Tessera late in
 a long run. Owned by T4d6j and T4d6; suspect it first for any late-run memory symptom.
+*Status: closed for the gid space, open for RSS* — T4d6 measured the gid space
+at renumbering cadence 50 falling back to 3098–3122 at every renumbering over
+600 steps at ranks 1 and 4; the 4-rank per-rank RSS growth is the same with
+renumbering off, so it is not the gid space, and it stays open as a README Known
+Issue (log `## T4d6`).
 
 **M1-R6 — cost.** The direct Birkhoff-Rott sum is `O(N^2)` per RK stage, three
 stages per step, and nothing caps the face count on this path (Read this first
@@ -2664,7 +2697,9 @@ stages per step, and nothing caps the face count on this path (Read this first
 M1-D1 and M1-T2 both report the face-count trajectory and wall time; if the
 trajectory is superlinear in step index, raise it at M1-A1j rather than silently
 lowering the step count — a quietly truncated milestone run is a gate that
-shrank.
+shrank. *Status: closed, measured* — the full 1610-step `Milestone1Bubble`
+member takes 133 s of launch wall on SERIAL and 74 s on HIP, ranks 1 and 4
+together, on job `f3j7wCa1Pf99` (`docs/testing.md`, the tier's wall table).
 
 **M1-R7 — a milestone test that passes because nothing happened.** R15's trap in
 this milestone's shape: if the sizing field never triggers a split, or
@@ -2672,6 +2707,9 @@ this milestone's shape: if the sizing field never triggers a split, or
 comparison passes while testing none of T4d. *Presents as:* it does not — a green
 test and no signal. *Distinguished by:* the four cumulative edit counters and the
 cleanup flip count, asserted non-zero (T4d6's umbrella clause, M1-T2j step 3).
+*Status: closed, guarded* — every compare launch asserts them, and on job
+`f3j7wCa1Pf99` all four read `splits=523 collapses=19 flips=167
+smooth_steps=85 cleanup_flips=291` (log `## M1-A1r`).
 
 **M1-R8 — the quantized pairing degrades silently.** `compare_output.py` sorts
 each file's vertices *independently* at `--match-eps 1e-9`. Once positions
@@ -2681,5 +2719,9 @@ with the field. *Presents as:* huge, uniform `max|e|` across all fields at once,
 often with `ambiguous cpp=0 gold=0`. *Distinguished from a real field error by:*
 `vertices` itself failing first and by the same magnitude as the other fields.
 *Do:* report it as a pairing failure and record the step; do not raise
-`--match-eps` without stating what it now cannot detect.
+`--match-eps` without stating what it now cannot detect. *Status: closed by
+design* — M1-A1j made the comparison beyond step 0 statistical (log
+`## M1-A1j`), so pairing applies only at step 0, where M1-T2 measured
+`ambiguous=0/0` and `max_e[vertices]=5.551115e-17` on every compare launch (log
+`## M1-T2`).
 
