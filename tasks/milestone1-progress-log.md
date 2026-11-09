@@ -5257,3 +5257,66 @@ candidates. No prompt file `tasks/milestone1_*.md` remains.
    rewrite them is the user's call, alongside sweep follow-ups 6–8.
 
 **Affects:** none; the sweep is re-run next.
+
+## Sweep (re-run)
+
+**Verdict:** Passed
+**Reviewed:** `fe934b5..28c482c`, the whole milestone. The milestone's code
+commits are the nine `## Sweep` lists, plus C1's `47570c6`. The first sweep
+covered `fe934b5..b412ae9`, and this one reads its findings against the code at
+`28c482c`. The new part of the range is `6144241..28c482c`: C1's code commit,
+its docs commit and its review.
+**Evidence:** the implementing sessions' jobs, output read. All four checks pass.
+- `milestone` tier: M1-A1's job `f3j7wCa1Pf99`
+  (`scripts/tuolumne/m1_milestone_run.flux /p/lustre5/stewartj/beatnik/M1-A1/stage`,
+  output `beatnik_m1_milestone.f3j7wCa1Pf99.log`). Flux reports COMPLETED, rc
+  0, submitted 11:31:51, started 11:31:52 (1 s queue wait), runtime 3.902 min.
+  The log ends `[milestone] SUMMARY: PASS (6/6 launches)` with zero `[FAIL]`
+  lines. The pass direction and both failure directions are as `## Sweep` and
+  `## M1-A1r` record.
+  Provenance: the job ran `ecda54f`. The only code commit after it is
+  `47570c6` (C1). `git diff -w ecda54f 28c482c` outside `tasks/` and `docs/`
+  has no `+`/`-` line that is not a `//`, `*`, `#`, `///` or `/*` comment line,
+  so the binaries the job ran are the code at HEAD.
+- `regression` gate: M1-T2j's job `f3iYat4nhyXd`, `[gate] PASS
+  (label=regression)` over 60 launches, as `## Sweep` records. Nothing after
+  `347c2ef` changes non-comment `src/` code.
+
+The mechanical pass (`review_checks.py`) over `fe934b5..HEAD` returns the same
+candidate set `## Sweep` dismissed (K2 local captures, K4 host-mask mirrors,
+M3 host `std::vector` MPI buffers, S2 prose), plus nothing new. Over
+`6144241..HEAD` it finds no candidates. Searching for the removed names
+`kRiseAtol|kAreaRtol|toleranceForStep|checkFailureDirection|kGold` with
+`git grep -w` outside `tasks/` returns nothing. No `tasks/milestone1_*.md`
+prompt file remains.
+
+Findings 1–5 of `## Sweep` are resolved, re-checked at HEAD:
+- Outside `tasks/` and CLAUDE.md, the only `T4d` line that describes a T4d
+  pass as unimplemented, throwing, rejected or blocked is
+  `scripts/tuolumne/run_regression_minset.flux:223`. That line is follow-up 6,
+  and the file is read-only to the loop.
+- A search of `README.md`, `docs/*.md`, `examples` and `src` finds no sentence
+  that calls `--isotropic-cleanup`, the collapse factor, smooth iterations or
+  the flip gain rejected, thrown or unported.
+- `## Problem` says the command runs and names no `Beatnik_Solver.hpp` line
+  range.
+- M1-R1 and M1-R3 to M1-R8 each carry a status, and M1-R2 carries its
+  measurement.
+
+The doc's Current state was re-read against the source. Five line references
+were stale, and the doc was corrected with this sweep (a cosmetic decision):
+`MeshQuality::isotropicCleanup` `:937` → `:945`,
+`improveConnectivityByFlips` `:986` → `:995`, `Solver::rebuildState` `:839` →
+`:848`, `SurfaceMesh::halo_depth` `Beatnik_MeshInterface.hpp:423` → `:502`, and
+the `splitEdges()` wrapper's exchange `Beatnik_DynamicRemesh.hpp:873-874` →
+`:928-929`. Every other reference in Current state, Read this first #3, #4 and
+#6 points at the line it names. The references inside DONE task bodies, such as
+`MeshQuality.hpp:937-943` in M1-T2j, describe the code as it was when each task
+was written and are left as they are.
+
+Follow-ups 6–8 of `## Sweep` and C1 review follow-up 1 remain the user's.
+They are `run_regression_minset.flux:219-224` and `run_milestone.flux:370-376`
+(both read-only), `docs/dataflow.html:64-68`, and framework.md's T4a-scope
+notes (`:770-773`, `:1008-1011`). No blocking finding.
+
+**Affects:** none; the design's status is COMPLETE.

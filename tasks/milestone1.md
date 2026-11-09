@@ -1,8 +1,8 @@
 # Milestone 1 — the reference's default rising-bubble configuration
 
-**Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1, M1-G2, M1-D1, T4d1,
-T4d2, T4d3, T4d4, T4d5, T4d6j, T4d6, M1-T2j, M1-T2, M1-D2 and M1-G3j are
-**DONE** and reviewed, Passed. The codes part at step 2, where Tessera's one-round
+**Status:** COMPLETE — every task below is **DONE** and reviewed, Passed; C1
+resolved the first feature sweep's findings 1–5, and the re-run sweep Passed
+(log `## Sweep (re-run)`). The codes part at step 2, where Tessera's one-round
 collapse independent set accepts 8 of the 44 collapse candidates the reference's
 serial walk accepts 31 of, and Beatnik's mesh obeys the reference's rules at every
 probed step after (log `## M1-D2`). M1-G3 is **DONE**: the reference job
@@ -25,10 +25,9 @@ test encodes them (code `ecda54f`), and the milestone's comparison passes on
 job `f3j7wCa1Pf99`, `SUMMARY: PASS (6/6 launches)`, every compare launch
 `stat_checked=161 stat_failed=0` and both failure directions passing (log
 `## M1-A1r`). **M1-A1r** is **DONE** and reviewed, Passed, recording that job
-in `docs/testing.md` and the log. The feature sweep's verdict was Rework (log
-`## Sweep`, findings 1–5); **C1** is **DONE** (log `## C1`): the example, two
-batch scripts, the `Params` comment and this document describe the command as
-running. The feature awaits C1's review and the re-run sweep.
+in `docs/testing.md` and the log. **C1** is **DONE** and reviewed, Passed
+(log `## C1`): the example, two batch scripts, the `Params` comment and this
+document describe the command as running.
 
 ## Problem
 
@@ -373,7 +372,7 @@ True at HEAD, and specific about what is *defined but wrong* versus what
   ([src/Beatnik_DynamicRemesh.hpp:1160](../src/Beatnik_DynamicRemesh.hpp#L1160)),
   called from the pass loop's repair gate, and
   `MeshQuality::improveConnectivityByFlips`
-  ([src/Beatnik_MeshQuality.hpp:986](../src/Beatnik_MeshQuality.hpp#L986)),
+  ([src/Beatnik_MeshQuality.hpp:995](../src/Beatnik_MeshQuality.hpp#L995)),
   called from the refine branch
   ([src/Beatnik_Solver.hpp:478](../src/Beatnik_Solver.hpp#L478)), which
   re-bases the AMR reference state under `flips > 0 && smooth_iters == 0`
@@ -423,12 +422,12 @@ True at HEAD, and specific about what is *defined but wrong* versus what
 - **Implemented and reachable from a `Solver` run** (T4d5; the rejection
   deleted by T4d6j): `MeshQuality::valenceEqualizingFlips`
   ([src/Beatnik_MeshQuality.hpp:652](../src/Beatnik_MeshQuality.hpp#L652))
-  and `MeshQuality::isotropicCleanup` ([:937](../src/Beatnik_MeshQuality.hpp#L937)),
+  and `MeshQuality::isotropicCleanup` ([:945](../src/Beatnik_MeshQuality.hpp#L945)),
   called from both branches of `Solver::advanceOneStep` under
   `_params.cleanup.enabled`
   ([src/Beatnik_Solver.hpp:511](../src/Beatnik_Solver.hpp#L511),
   [:568](../src/Beatnik_Solver.hpp#L568)), each call followed by
-  `Solver::rebuildState` ([:839](../src/Beatnik_Solver.hpp#L839):
+  `Solver::rebuildState` ([:848](../src/Beatnik_Solver.hpp#L848):
   `resetReferenceState` + `centerPotential`); the remesh branch also rebuilds
   before the cleanup. The valence flips run several `EndpointInQuad` rounds per
   pass with a pass-wide touched set of vertex gids. The cleanup is on by
@@ -667,13 +666,13 @@ caller obligations from them apply to every sub-task and are not restated in
 each:
 
 1. **Halo depth ≥ 2** or `collapseEdges` throws. `SurfaceMesh::halo_depth` is
-   already 2 ([src/Beatnik_MeshInterface.hpp:423](../src/Beatnik_MeshInterface.hpp#L423));
+   already 2 ([src/Beatnik_MeshInterface.hpp:502](../src/Beatnik_MeshInterface.hpp#L502));
    do not lower it.
 2. **`haloExchange()` *before* collapsing** — the surviving vertex's owner blends
    positions and every vertex user field from local copies of both endpoints, one
    of which is generally a ghost. Note the asymmetry with `splitEdges()`, whose
    wrapper exchanges *after*
-   ([src/Beatnik_DynamicRemesh.hpp:873-874](../src/Beatnik_DynamicRemesh.hpp#L873-L874)).
+   ([src/Beatnik_DynamicRemesh.hpp:928-929](../src/Beatnik_DynamicRemesh.hpp#L928-L929)).
 3. **One independent set per call.** More progress means calling again:
    `while ( collapseEdges( … ).accepted > 0 ) {}`.
 4. **All three invalidate every slice, CSR and key View.** Re-slice afterwards.
