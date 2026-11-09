@@ -346,3 +346,69 @@ both are the user's recorded decision in `## P1`, and are settled.
    estimate brackets it at 0.66–about 5 s/step (np4).
 
 **Affects:** none beyond what `## P1`'s **Affects:** already states (D1, V1j/R1j, the R1 risk text).
+
+## D1
+
+**Commits:** this section only (D1 is open, so nothing else is committed for it yet).
+
+D1 is **not DONE**. The first session prepared eleven choices from P1's
+record, with no new measurement, and put them to the user. The user's answers
+are below as decisions. Answer 1 picks an edge-tied eps, which needs a new
+probe, **P1c**, before dt and the step count can be fixed. That probe is a new
+task and is not in the design, so D1 stops here. The Production configuration
+table is left at `D1`, because the exit criterion requires every row to be
+filled and the eps, step-count and node-hour rows depend on P1c.
+
+### Decisions (the user's answers)
+
+| # | Choice | Decision | Alternatives considered | Measured basis |
+| --- | --- | --- | --- | --- |
+| 1 | `--eps` | **edge-tied, about `8e-3`** (about $4h$ at level 7); value fixed after P1c | 0.025, configuration (a)'s value and the only one measured | At 0.025 the smoothing length is about 12 level-7 edges (design Approach). No P1 launch ran a smaller eps, so its stable dt and step count are unmeasured. |
+| 2 | Start and sizing | **level 7, `--remesh-h-max 2.05e-3`, `--remesh-h-min 1.5e-3`, `--remesh-sagitta-tolerance 0.004`** | level 7 with `h_min` 1.0e-3; level 7 with sagitta about 3e-5; level 6 grown by AMR | P1b: F 327680 → 327680 held, against 327678 → 319952 for the default-`h_max` control. With sagitta 0.004, curvature sizing falls below `h_max` only where $\kappa > 8\cdot0.004/(2.05\times10^{-3})^2 \approx 7600$, so growth comes from stretched edges splitting at $1.35\,h_{max}$. Whether V passes 200,000 is unmeasured, and the pilot shows the growth ratio. |
+| 3 | Edit caps | **`--remesh-max-splits 1000 --remesh-max-collapses 400`** | the defaults, 300 / 120 | The P1b control made about 70 edits per step at 4.51 s/step, against 0.44 held. The cost of the raised caps is unmeasured. |
+| 4 | Step size | **`--dt 8e-4 --dt-edge-power 2 --min-dt 5e-5`** | `--dt 7e-4` with the same power and floor; `--min-dt 2.5e-5` | P1b's `L7_np4_dt8e-4_pow2` held $dt\,\mu/h_{min}^2$ at 0.34–0.41 and stayed off the floor. A floor of 5e-5 is stable down to $h = \sqrt{5\times10^{-5}\cdot0.002/0.4} = 5.0\times10^{-4}$. At eps 0.025 this gives about 7,100 steps to $t = 2.5$ (minEdge near 1.35e-3) up to about 16,000 (minEdge near the collapse floor $0.45\,h_{max} = 9.2\times10^{-4}$). P1c must re-measure this at the chosen eps. |
+| 5 | Ranks / nodes | **np8 on 2 nodes** | np4 on 1 node; np16 on 4 nodes | Level-7 scaling is $P^{-0.68}$ (np1 1.134, np4 0.442 s/step). At 200k vertices the direct-sum cost is 0.41 s/step at np8. How remeshing cost scales with ranks is unmeasured. |
+| 6 | Segment walltime | **12h** in `pbatch` | 24h (the `pbatch` maximum); 6h | `flux queue list`: `pbatch` TDEFAULT 12h, TLIMIT 1d. |
+| 7 | Checkpoint cadence | **`--checkpoint-every-time 0.025`** | 0.01; 0.05 | A level-7 checkpoint is 64.57 MB, about 79 MB at 200k. A write costs about 2.2 s at 164k (P1b step 54→60 ran 0.81 s/step against 0.44), about 2.7 s at 200k. That makes about 100 files, about 8 GB and about 4.5 min of writes to $t = 2.5$. |
+| 8 | `--t-end` | **2.5** | 3.0 | No Beatnik run has passed $t$ 2.53 (design Current state table). |
+| 9 | Pilot | **level 6, `--remesh-h-max 4.1e-3 --remesh-h-min 3.0e-3 --remesh-sagitta-tolerance 0.016`, `--dt 2.8e-3 --min-dt 2e-4 --dt-edge-power 2`, np4 on 1 node, two segments at `-t 90m` in `pbatch`** | level 6 with production's `h_min` and sagitta; level 5 | Level 6 holds at `h_max` 4.1e-3 and costs 0.118 s/step np4. Doubling the lengths leaves the curvature threshold $\propto \mathrm{tol}/h^2$ unchanged and scales the viscous dt by 4. The dt row was scaled from `--dt 7e-4`. At the chosen `--dt 8e-4` the same rule gives `3.2e-3`, which is open for P1c (below). |
+| 10 | Pilot quality floor | **`minQ` ≥ 0.12** | 0.18 (the repair trigger); 0.05 | The pre-T4d long runs ended at `minQ` 0.033–0.11. `--remesh-min-quality` 0.18 triggers the repair pass, so `minQ` dips below 0.18 are repaired, not failures. |
+| 11 | Node-hour budget | **about 35 node-h** for R1j | about 15 node-h | the estimate below |
+
+### Production node-hours, under the decisions (eps 0.025 inputs)
+
+np8 on 2 nodes, `--dt 8e-4`, 7,100–16,000 steps:
+
+| Regime | s/step | Wall | Node-h | ×1.25 (R1j chain margin) |
+| --- | --- | --- | --- | --- |
+| Direct sum only | 0.41 | 0.8–1.8 h | 1.6–3.6 | 4.6 |
+| Remeshing every step, scaled $P^{-0.68}$ | 3.12 | 6.2–13.9 h | 12.3–27.7 | 34.7 |
+| Remeshing every step, not scaled | 5.0 | 9.9–22.2 h | 19.7–44.4 | 55.6 |
+
+The budget answer was framed for np4's worst case (25.4 node-h). At np8 the
+worst case is within 35 node-h only if remeshing scales with ranks as the
+direct sum does. If it does not scale, the worst case exceeds the budget
+(44 node-h, 56 with the margin). The edge-tied eps and the raised caps can
+raise the step count and the remesh cost, and neither is measured yet. So D1
+cannot yet say whether the run fits the budget. The failure direction is
+neither met nor ruled out.
+
+### Open, for P1c and the resumed D1
+
+- **P1c probe (proposed shape, for the design):** P1b-shaped, 60 steps,
+  level 7, `--remesh-h-max 2.05e-3`, the decided step-size and edit-cap flags,
+  at the chosen eps, on np4. An np8 arm on 2 nodes in `pdebug` (≤ 45 min) would
+  also measure the np8 direct-sum and remesh scaling that the budget question
+  now turns on.
+- The pilot's eps under "same eps" (production's edge-tied value, or the same
+  ratio to level 6's edge, about `1.6e-2`), and the pilot's `--dt` at the
+  chosen production `--dt 8e-4` (`3.2e-3` by the ×4 rule).
+- The design's Approach `--eps` bullet stays true ("decided in D1"). Adding
+  P1c to the task sequence is a design change, for design-doc-writer.
+
+**Affects:** D1 — blocked on P1c; table untouched. P1c (new, not in the design)
+— measures stable dt, step count and cost at the edge-tied eps with the raised
+caps, ideally with an np8 arm. V1j — pilot is level 6 np4 on 1 node, two
+segments at `-t 90m` in `pbatch`; its eps and `--dt` await P1c. R1j —
+production is np8 on 2 nodes, 12h segments; the segment count and fit within
+35 node-h await P1c.
