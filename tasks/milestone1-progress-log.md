@@ -4987,3 +4987,31 @@ are in that log.
 **Session notes:** no formatter run; no build, no executable, no job.
 
 **Affects:** none
+
+## M1-A1r review
+
+**Verdict:** Passed
+**Reviewed:** `7f9ba15^..7f9ba15` (`docs/testing.md`, `tasks/milestone1.md`,
+this log); no code, test or CMake file in the range.
+**Evidence:** the exit criterion needs no job (docs and log only), checked on
+the login node. `git grep -n f3j79G2VDX4T docs/` and a grep for "missed two"
+over `docs/` and `README.md` return nothing. `docs/testing.md` reads
+`| Milestone1Bubble | 133 s | 74 s |` with a note citing `f3j7wCa1Pf99`.
+Every number in `## M1-A1r` was re-read from
+`beatnik_m1_milestone.f3j7wCa1Pf99.log` (7505 lines) at the cited lines:
+`SUMMARY: PASS (6/6 launches)` at `:7505`, zero `[FAIL]` lines; the six
+`LAUNCH_WALL`s 68/65/25/40/5/4 s, all `rc=0` (`:1924`, `:3759`, `:5576`,
+`:7411`, `:7457`, `:7502`); the four compare `[m1statworst]` lines
+(`:1920`, `:3746`, `:5572`, `:7398`) identical in the four band fields
+(`2.711865e-04`@310, `9.877593e-04`@1050, `2.544692e-03`@1610,
+`1.062947e-02`@1610); 426 lines at `rise_tol=0.001 area_tol=0.001` and 224 at
+`rise_tol=0.004 area_tol=0.015`, none of the latter other than
+`verdict=pass`; counters `splits=523 collapses=19 flips=167 smooth_steps=85
+cleanup_flips=291` on all four `[m1final]` compare lines; failure directions
+(a) `:7452-7454` and (b) `:7496-7499` as recorded. The node-time total
+recomputes from the table to 31474 s = 8.743 h, shown **8.74 h**. The status
+block and M1-A1's **Met** no longer describe the job as pending. No prompt
+file `tasks/milestone1_*.md` remains. M1-A1 review findings 1 and 2 are
+resolved.
+
+**Affects:** none
