@@ -239,7 +239,7 @@ question this document treats as settled.
 
 ## Task sequence
 
-### P1 — measure cost, memory and early stability at levels 6 and 7 — **NOT STARTED**
+### P1 — measure cost, memory and early stability at levels 6 and 7 — **DONE**
 
 **Depends on:** none.
 **Fill in:** `scripts/tuolumne/large_rollup_probe.flux` (new). No source change.
@@ -302,6 +302,22 @@ direction holds: `L7_np4_hmax_default`'s `F` at step 60 is **below** its
 step-1 `F`, while `L7_np4`'s step-60 `F` is within 5 % of its step-1 `F` or
 above it. If the control does not coarsen, `h_max` is not what holds the
 resolution; record that and do not proceed to D1 until the log explains it.
+
+**Met.** Two jobs (log `## P1`). In `f3j99ZVqFY9d`, the six **Do** 2 launches
+were recorded: `L6_np1` and `L6_np4` reached step 60 (0.120 / 0.118 s/step,
+no remeshing). `L7_np1` was killed by its cap (rc 142) after step 6.
+`L7_np4`, `L7_np4_dt1e-3` and `L7_np4_hmax_default` stopped `nonfinite
+mesh-RHS state` at steps 12, 33 and 12. Each has its last progress line in the
+log. Every level-7 arm blew up with `minQ` 0.974, so the control direction
+could not be read at step 60. By the user's decision, the follow-up job
+`f3j9KFoF6Yto` (`scripts/tuolumne/large_rollup_probe_b.flux`) repeated the
+pair at `--dt 4e-4`. There, `L7_np4_hmax_default_dt4e-4`'s F went 327678 →
+319952 (below), while `L7_np4_dt4e-4`'s F stayed 327680 → 327680 (within
+5 %): the control direction holds. P1b also showed the level-7 blow-up is the
+explicit viscous limit $dt\,\mu/h_{min}^2 \approx 0.5$: `--mu 0` at
+`--dt 1e-3` and `--dt-edge-power 2` at `--dt 8e-4` both reached step 60.
+Level-7 np4 direct cost is 0.44 s/step (4.5 s/step while remeshing heavily).
+Peak RSS is ≤ 1.7 GB/rank.
 
 ### D1 — choose the production parameter set — **NOT STARTED**
 

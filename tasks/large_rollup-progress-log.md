@@ -44,19 +44,25 @@ to stop describing the code.
 
 ## P1
 
-**Commits:** `560cb03` (`scripts/tuolumne/large_rollup_probe.flux`); this
-section and the P1 exit-criterion wording fix in `large_rollup.md` are the
-following commit.
-**Jobs:** `f3j99ZVqFY9d`, `scripts/tuolumne/large_rollup_probe.flux`, job log
-`/p/lustre5/stewartj/beatnik/large_rollup/P1/large_rollup_P1.f3j99ZVqFY9d.log`,
-per-launch logs `/p/lustre5/stewartj/beatnik/large_rollup/P1/<tag>/launch.log`
-(checkpoints beside them). It did **not** show the control direction at step
-60: no level-7 launch reached step 60. Over steps 1–6 the direction holds (see
-below).
+**Commits:** `560cb03` (`scripts/tuolumne/large_rollup_probe.flux`), `6cef416`
+(this section's first part and the P1 exit-criterion wording fix), and the
+P1b commit (`scripts/tuolumne/large_rollup_probe_b.flux`, the P1b
+subsection below, P1 marked **DONE**).
+**Jobs:**
+- `f3j99ZVqFY9d`, `scripts/tuolumne/large_rollup_probe.flux`, job log
+  `/p/lustre5/stewartj/beatnik/large_rollup/P1/large_rollup_P1.f3j99ZVqFY9d.log`,
+  per-launch logs `/p/lustre5/stewartj/beatnik/large_rollup/P1/<tag>/launch.log`
+  (checkpoints beside them). It did **not** show the control direction at step
+  60, because no level-7 launch reached step 60. Over steps 1–6 the direction
+  holds (see below).
+- `f3j9KFoF6Yto`, `scripts/tuolumne/large_rollup_probe_b.flux`, job log
+  `/p/lustre5/stewartj/beatnik/large_rollup/P1/large_rollup_P1b.f3j9KFoF6Yto.log`,
+  per-launch logs under the same `P1/<tag>/launch.log`. It **showed** the
+  control direction at step 60 at `--dt 4e-4` (P1b subsection).
 
-**Status: NOT DONE — open on a user decision.** Every level-7 launch went
-nonfinite within 6–33 steps, so the control-direction clause of the exit
-criterion cannot be evaluated as written. The question is with the user.
+The first job left P1 open on a user decision: every level-7 launch went
+nonfinite within 6–33 steps, so the control-direction clause could not be
+evaluated. The user chose a follow-up probe, P1b, recorded below.
 
 ### Decisions (taken before the run)
 
@@ -195,8 +201,98 @@ s/step np4**. `dt1e-3` repeats 0.442 over steps 1→24.
 - **R8** — not reached: no launch refined, and `minEdge` reached `h_min` 1.5e-3
   only in the blown-up `dt1e-3` arm.
 
-**Affects:** D1 — cannot choose a level-7 start, a dt or an `h_min` until the
-level-7 instability is explained; the s/step and RSS numbers above are its
-cost inputs. V1j/R1j — segment sizing changes with the step count (3,650 to
-4,500+ steps at level-7 dt, against 1,340 at level 6's dt); RSS is not a
-constraint. R1 (risk) — its "D1 lowers `--dt`" remedy is unproven at 3×.
+### P1b — level-7 viscous-limit probe (user decision)
+
+**User decision:** after the first job, the user was asked how P1 should
+proceed. The answer was to add a follow-up probe (P1b) at level 7 testing the
+viscous-limit hypothesis (`--dt-edge-power 2` and/or `--dt 4e-4`, so
+$dt\,\mu/h^2 \lesssim 0.4$), plus the control row at the same dt, then
+re-evaluate the control direction at step 60. P1b therefore extends P1's fixed
+launch matrix with the user's approval. The second script,
+`scripts/tuolumne/large_rollup_probe_b.flux`, is outside P1's **Fill in** for
+the same reason. It copies the first script's base arguments, launch line,
+caps and logging, with level 7 on 4 ranks for every arm.
+
+Implementation choice within that decision: a fourth, diagnostic arm,
+`L7_np4_dt1e-3_mu0`. It is P1's blown-up `dt1e-3` arm with `--mu 0`, the
+direct discriminator for "viscosity is the cause". The job ran 7.0 min (queued
+3.9 min in `pdebug`), exit 0; no rebuild between the two jobs.
+
+| Tag | rc | Outcome | V / F step 1 | V / F step 60 | s/step | Setup s | dt step 60 | minQ / minEdge / volRel step 60 | max\|S\| step 60 | $dt\,\mu/h^2$ step 60 | Peak RSS per rank (GB) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `L7_np4_dt4e-4` | 0 | reached step 60 | 163842 / 327680 | 163842 / 327680 | 0.441 | 12.5 | 2.50e-4 (= `--min-dt`) | 0.974 / 0.00135 / -2.2e-16 | 1.06e-2 | 0.27 | 1.16, 1.18, 1.14, 1.15 |
+| `L7_np4_dt8e-4_pow2` | 0 | reached step 60 | 163842 / 327680 | 163842 / 327680 | 0.438 | 8.7 | 3.13e-4 | 0.974 / 0.00135 / 0 | 1.49e-2 | 0.34 | 1.15, 1.15, 1.16, 1.18 |
+| `L7_np4_hmax_default_dt4e-4` | 0 | reached step 60 | 163841 / 327678 | 159978 / 319952 | 4.51 | 10.0 | 3.48e-4 | 0.704 / 0.00186 / 6.7e-16 | 1.66e-2 | 0.20 | 1.50, 1.53, 1.55, 1.48 |
+| `L7_np4_dt1e-3_mu0` | 0 | reached step 60 | 163842 / 327680 | 163842 / 327680 | 0.441 | 15.2 | 6.25e-4 | 0.974 / 0.00135 / 1.3e-15 | 2.81e-2 | — ($\mu = 0$) | 1.14, 1.16, 1.15, 1.29 |
+
+(s/step is the median over the post-step-1 intervals. The step 54→60 interval,
+about 0.81 s/step, includes the step-60 checkpoint write.)
+
+**Control direction holds at step 60.** The control's F fell from 327678 to
+319952 (−2.4 %, 4,195 remesh events). `L7_np4_dt4e-4`, at the same dt with
+`h_max` 2.05e-3, held F at 327680 (0 %). `h_max` is what holds the fine
+start's resolution. P1's `L7_np4` / `L7_np4_hmax_default` pair at `--dt 0.003`
+cannot show the same thing, because both blow up first.
+
+**The viscous-limit hypothesis is confirmed.** At `--dt 1e-3`, `mu` 0.002
+blew up (P1: `max|S|` 252 at step 24, nonfinite at step 33). `mu` 0 at the
+same dt ran to step 60 and `t` 0.0416, past where the viscous run died, with
+`max|S|` growing smoothly to 2.8e-2. Both arms that keep
+$dt\,\mu/h^2 \le 0.34$ are stable. Across both jobs, every stable line sits at
+0.20–0.51 and every unstable one at 0.61 or above. The limit for explicit
+Laplace-Beltrami viscosity here is near $dt\,\mu/h_{min}^2 \approx 0.5$.
+
+Two consequences for D1:
+
+- **Linear dt scaling hits the floor.** `L7_np4_dt4e-4` reached
+  `--min-dt` 2.5e-4 by step 60, because `minEdge` fell from 1.97e-3 to 1.35e-3
+  with no remeshing: the deforming sphere compresses edges below `h_min`
+  without a split or collapse. At the floor, stability needs
+  $h \ge \sqrt{2.5\times10^{-4}\cdot0.002/0.5} = 1.0\times10^{-3}$. Below that,
+  the floor itself is unstable. `--dt-edge-power 2` tracks the limit at a
+  constant ratio (about 0.34–0.41 in the run) and stayed off the floor; it is
+  the natural choice, with `--min-dt` lowered rather than raised.
+- **Remeshing dominates cost when it is active.** The control did about 70
+  remesh edits per step and cost 4.5 s/step. The arms whose mesh `h_max` held
+  cost 0.44 s/step, so remeshing at that rate is about 10× the direct BR sum.
+  No arm of either job refined (`refine_events=0` throughout), so
+  refinement-driven remesh cost at 200k vertices is still unmeasured.
+
+**Revised extrapolation.** BR s/step is unchanged: level-7 np4 is 0.44 s/step
+over 60 steps on three arms, confirming P1's step 1→6 number. At 200k
+vertices that gives np4 0.66, np8 0.41 and np16 0.26 s/step. dt is set by the
+viscous limit at $c \approx 0.4$, i.e. $dt \approx 200\,h_{min}^2$: about
+4.5e-4 at $h$ 1.5e-3, 3.6e-4 at 1.35e-3, and 2.0e-4 at 1.0e-3. Taking about
+3.5e-4 gives about **7,100 steps to $t = 2.5$**. BR alone is then about 78 min
+at np4, 49 at np8 and 31 at np16. If remeshing runs at the control's rate
+throughout (4.5 s/step at np4, 164k vertices), the run is about 9 h at np4.
+The truth lies between these and is set by how much the run remeshes, which
+P1 cannot measure.
+
+**Memory:** 1.14–1.29 GB/rank on the held-mesh arms and 1.48–1.55 GB/rank on
+the remeshing control, at about 164k vertices on 4 ranks. That matches P1's
+1.5–1.7 GB/rank on the remeshing/blown-up arms. Remeshing adds about
+0.35 GB/rank. Memory is not a constraint.
+
+### Risks, updated by P1b
+
+- **R1** is confirmed as a dt instability, and P1b identifies it as the
+  explicit viscous limit $dt \lesssim 0.5\,h^2/\mu$. Its remedy should read
+  "D1 keeps $dt\,\mu/h_{min}^2 \lesssim 0.4$, e.g. `--dt-edge-power 2` with a
+  lowered `--min-dt`". "Lowers `--dt`" alone is not enough when dt scales
+  linearly with $h$, because `--min-dt` 2.5e-4 becomes unstable once $h$ falls
+  below 1.0e-3.
+- **R4** — unchanged (level-6 np4 no faster; level-7 np4 2.57× on 4 ranks).
+- **R8** — `minEdge` fell below `h_min` 1.5e-3 (to 1.35e-3) by compression,
+  not refinement, so `h_min` does not bound `minEdge` and does not bound the
+  viscous dt. D1 should size dt on the measured `minEdge`, not on `h_min`.
+
+**Affects:** D1 — the step size must respect the viscous limit
+$dt\,\mu/h_{min}^2 \lesssim 0.4$; `--dt-edge-power 2` with a lowered `--min-dt`
+is the measured-stable choice, and `--dt 0.003` at level 7 is not viable. Its
+cost inputs are 0.44 s/step BR at 164k vertices np4 (0.66 projected at 200k)
+and about 4.5 s/step while remeshing heavily, about 7,100 steps to $t = 2.5$,
+and RSS ≤ 1.7 GB/rank. V1j/R1j — segment sizing must use about 7,100 steps
+and a remesh-dependent s/step between 0.66 and about 5 (np4), not P1's
+first-job 1,340–4,500 range. R1 (risk text) — its remedy is superseded by the
+viscous-limit finding; D1 or a design-doc correction should restate it.
