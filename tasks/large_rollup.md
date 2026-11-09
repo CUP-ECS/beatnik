@@ -334,8 +334,10 @@ does not fill the table alone. Present:
   stable dt P1 implies and the step count to `t_end`.
 - **Starting level and sizing:** level 7 held at `h_max` ≈ `2.05e-3`, against
   level 6 grown by AMR. Include `h_min`, sagitta and the edit caps.
-- **Step size:** `--dt`, `--min-dt` and `--dt-edge-power`, from the
-  `L7_np4` and `L7_np4_dt1e-3` arms.
+- **Step size:** `--dt`, `--min-dt` and `--dt-edge-power`, under the viscous
+  limit of R1, from P1b's stable arms `L7_np4_dt4e-4`, `L7_np4_dt8e-4_pow2`
+  and `L7_np4_dt1e-3_mu0`. P1's `L7_np4` and `L7_np4_dt1e-3` arms bound it
+  from the unstable side.
 - **Ranks and nodes:** from the np1/np4 scaling and P1's cost extrapolation.
 - **Segment walltime and checkpoint cadence:** `pbatch`'s maximum `-t`, from
   `flux queue list` or the system documentation, and checkpoint write cost
@@ -580,11 +582,18 @@ checkpoint. The same failure twice stops the task.
 
 **R1 — the fine start is unstable at its starting dt.** The adaptive dt is
 relative to the starting mesh, so a level-7 start begins at the same `dt` as a
-level-2 one. *Presents as:* a nonfinite stop within the first tens of steps at
-level 7 but not at level 6, while `minQ` stays above about 0.3. *Distinguished
-from R2 by:* `minQ` and `minEdge` at the last progress line both stay near
-their starting values. P1's `L7_np4_dt1e-3` arm is the direct test. *Do:*
-D1 lowers `--dt`; do not raise `--min-dt` to compensate.
+level-2 one. The instability is the explicit Laplace-Beltrami viscous limit,
+$dt\,\mu/h_{min}^2 \approx 0.5$ (log `## P1`, P1b subsection): a dt linear in
+$h$ cannot track a limit in $h^2$, and at the default `--min-dt` 2.5e-4 the
+floor itself is unstable once `minEdge` falls below about `1.0e-3`. *Presents
+as:* a nonfinite stop within the first tens of steps at level 7 but not at
+level 6, while `minQ` stays above about 0.3. *Distinguished from R2 by:* `minQ`
+and `minEdge` at the last progress line both stay near their starting values.
+P1b's `L7_np4_dt1e-3_mu0` arm (stable at the `--dt` where the viscous arm blew
+up) is the direct test. *Do:* D1 keeps $dt\,\mu/h_{min}^2 \lesssim 0.4$,
+evaluated on the measured `minEdge`, not on `h_min`, e.g. with
+`--dt-edge-power 2` and a lowered `--min-dt`. Lowering `--dt` alone is not
+enough.
 
 **R2 — mesh quality collapses late.** The pre-T4d sweeps stopped with `minQ`
 0.03–0.11 and dt at or near its floor (Current state). The T4d passes
