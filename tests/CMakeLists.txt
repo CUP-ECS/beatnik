@@ -402,15 +402,17 @@ endforeach()
 #                                    the file above, so the assertion body exists
 #                                    once and every per-level literal is
 #                                    re-derived inside it.
-#   Beatnik_Test_Milestone1Bubble    600 steps of the reference's default
+#   Beatnik_Test_Milestone1Bubble    1610 steps of the reference's default
 #                                    rising-bubble configuration (dynamic
 #                                    remesh, collapse, flips, smoothing and the
 #                                    isotropic cleanup all live), compared
-#                                    against the M1-G2 gold set at all 61
-#                                    checkpointed steps at a per-step tolerance
-#                                    table, continuing past a failing step, with
-#                                    the remesh and cleanup counters asserted
-#                                    non-zero (tasks/milestone1.md, M1-T2j).
+#                                    field-wise against the M1-G2 gold at step
+#                                    0 only, then by time-matched mesh
+#                                    statistics against the M1-G3 steps 0-1610
+#                                    gold set (compiled in, 162 rows) at every
+#                                    gold checkpoint after step 0, with the
+#                                    remesh and cleanup counters asserted
+#                                    non-zero (tasks/milestone1.md, M1-A1j).
 #
 # TWO SOURCE STEMS, NOT ONE TARGET WITH TWO ARGUMENT LISTS. The loop below keys
 # arguments by source stem, one list per source, and each member needs its own
@@ -455,9 +457,10 @@ set(BEATNIK_MILESTONE_TEST_SOURCES
   # gate, which is five `regression` members and 60 launches.
   Beatnik_Test_Milestone0Fmm.cpp
   Beatnik_Test_Milestone0FmmL4.cpp
-  # Milestone 1 (tasks/milestone1.md, M1-T2j): the reference's default
-  # rising-bubble run against the M1-G2 gold set. Its makeParams() is in
-  # Beatnik_Milestone1Params.hpp, shared with the Milestone1Run driver.
+  # Milestone 1 (tasks/milestone1.md, M1-T2j, M1-A1j): the reference's
+  # default rising-bubble run, against the M1-G2 step-0 gold file and the
+  # M1-G3 statistics in Beatnik_Milestone1GoldStats.hpp. Its makeParams() is
+  # in Beatnik_Milestone1Params.hpp, shared with the Milestone1Run driver.
   Beatnik_Test_Milestone1Bubble.cpp
   )
 
@@ -528,10 +531,10 @@ set(_beatnik_args_Beatnik_Test_Milestone0FmmL4_rel
   ${_beatnik_rel_ladder_py})
 
 # Milestone 1. Two arguments, the DirectSolve10Steps shape: the M1-G2 gold
-# DIRECTORY (61 files, steps 0-600 every 10, each found by its `_step%07d.npz`
-# suffix) and the comparator. The test's optional third argument selects a
-# failure direction; it is passed only by the batch script that runs those,
-# never from a manifest line.
+# DIRECTORY, of which the test reads only the step-0 file (found by its
+# `_step%07d.npz` suffix), and the comparator. The test's optional third
+# argument selects a failure direction; it is passed only by the batch script
+# that runs those, never from a manifest line.
 set(_beatnik_args_Beatnik_Test_Milestone1Bubble_abs
   ${_beatnik_m1_bubble_dir}/gold
   ${_beatnik_compare_dir}/compare_output.py)

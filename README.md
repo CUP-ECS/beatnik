@@ -803,8 +803,9 @@ subsections above, which are intended behavior.
   member configures all four off, because its gold counts were measured
   that way. Every-step coverage of the default configuration is the milestone
   comparison test, the `milestone` member `Beatnik_Test_Milestone1Bubble`
-  (`tasks/milestone1.md`, M1-T2j), which also asserts the cleanup flipped
-  (`Solver::cleanupFlips()`). The cleanup's valence flips test each
+  (`tasks/milestone1.md`, M1-T2j and M1-A1j: step 0 field-wise, then
+  time-matched mesh statistics against the reference through step 1610),
+  which also asserts the cleanup flipped (`Solver::cleanupFlips()`). The cleanup's valence flips test each
   new face against the old one with the winding Tessera writes, where the
   reference's literal `(c,d,a)`, `(d,c,b)` inverts the pair on every edge whose
   first-indexed face runs `a -> b` and so never flips those edges; Beatnik
@@ -890,6 +891,27 @@ subsections above, which are intended behavior.
   launch of the default `measure` selector (with checkpoints), or the `diag`
   selector's `diag` and `diag0` launches (no checkpoints; renumbering every 50
   and never), reading the `rss_kb=` field of the `[m1run]` lines.
+- **Beatnik's collapse pass accepts fewer collapses than the reference's in
+  one pass, so a dynamic-remesh run's mesh departs from the reference's from
+  step 2.** *Pre-existing, by design (Tessera's edit model; not a regression).*
+  `DynamicRemesh::collapseShortEdges` hands Tessera its whole candidate mask
+  and Tessera accepts one deterministic **independent set** per pass, one
+  round: no two accepted collapses share a vertex. The reference's serial walk
+  (`dynamic_remesh.py:388-401`) skips an edge only if an endpoint was already
+  removed, so it can collapse several edges into one surviving vertex in a
+  single pass. On the milestone-1 configuration at step 2 both see the same 44
+  candidates; Beatnik accepts 8 (36 lose the independent-set round, none fails
+  a geometric test) and the reference 31. The meshes then follow different
+  trajectories: Beatnik settles at 518/1032 (V/F) at step 3, the reference at
+  547/1090 at step 9, and the field-wise comparison against the reference
+  reaches step 0 only. Beatnik's mesh is a fixed point of the reference's own
+  remesh rules from step 3 on, so the difference is one of selection, not of
+  rules; the milestone test compares mesh statistics at matched time beyond
+  step 0 instead. A multi-round collapse would narrow the gap and is not
+  planned. **Reproduce:** `scripts/tuolumne/m1d2_split_ab.flux` (part `diag`),
+  reading the step-2 `[m1rem]` line's `collapse_requested`,
+  `collapse_rejected_conflict` and `collapses`; the measurement is in
+  `tasks/milestone1-progress-log.md`, `## M1-D2`.
 
 Two further FMM defects — a Slingshot NIC registration exhaustion during Canopy
 `Rebalance` (RESOLVED 2026-06-17) and a premature FMM NaN at full rollup

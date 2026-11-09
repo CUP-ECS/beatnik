@@ -59,9 +59,11 @@ namespace Test
 namespace Milestone1
 {
 
-/// `--steps 600`.
-constexpr int kSteps = 600;
-/// `--checkpoint-every-steps 10`: 61 files, step 0 included.
+/// The milestone run's length: the last step of the M1-G3 gold set (steps
+/// 0-1610, `tests/regression_tests/milestone1-bubble-1610/README.md`). M1-G2's
+/// own command runs `--steps 600`; M1-G3's ran the same command for longer.
+constexpr int kSteps = 1610;
+/// `--checkpoint-every-steps 10`: 162 files at 1610 steps, step 0 included.
 constexpr int kCheckpointEvery = 10;
 
 //---------------------------------------------------------------------------//
@@ -111,7 +113,7 @@ inline SolverParams makeParams( const std::string& checkpoint_dir )
     p.zmodel.br_approximation = BRApproximation::Direct;
     p.zmodel.source_quadrature = SourceQuadrature::Vertex;
 
-    // --steps 600 (explicit), --adaptive-dt (explicit; default true, :143-148),
+    // --steps (kSteps above), --adaptive-dt (explicit; default true, :143-148),
     // --dt 0.003 (:135), --min-dt 2.5e-4 (:150), --dt-edge-power 1.0 (:151),
     // --max-sheet-dt-product 0 (:152-157), --dt-switch-time -1 (:136-141),
     // --t-end None (:134).
@@ -172,7 +174,7 @@ inline SolverParams makeParams( const std::string& checkpoint_dir )
     p.filter.field_filter_every = 0;
 
     // --checkpoint-every-steps 10 (explicit). `setup()` writes step 0
-    // unconditionally, so 600 steps every 10 give the gold set's 61 files.
+    // unconditionally, so kSteps = 1610 steps every 10 give 162 files.
     p.checkpoint.every_steps = kCheckpointEvery;
     p.checkpoint.every_time = 0.0;
     p.checkpoint.directory = checkpoint_dir;
