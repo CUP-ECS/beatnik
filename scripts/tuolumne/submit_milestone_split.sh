@@ -80,8 +80,8 @@ _rows=(
     "Beatnik_Test_Milestone0FmmL4     HIP     91m"   #  3614 s
     # Not yet measured. ~1.5x the M1-G2 Python bound for two 600-step launches
     # (2 x 707 s); tasks/milestone1.md M1-T2j adds the member, M1-T2 times it.
-    "Beatnik_Test_Milestone1Bubble    SERIAL  40m  pending=M1-T2j"
-    "Beatnik_Test_Milestone1Bubble    HIP     40m  pending=M1-T2j"
+    "Beatnik_Test_Milestone1Bubble    SERIAL  4m"
+    "Beatnik_Test_Milestone1Bubble    HIP     3m"
 )
 
 # The installed milestone manifest, looked up only if a row is pending. The
