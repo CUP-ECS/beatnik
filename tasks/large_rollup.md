@@ -1,6 +1,6 @@
 # Large roll-up — the default rising bubble past 200,000 vertices
 
-**Status:** NOT STARTED
+**Status:** IN PROGRESS
 
 ## Problem
 
@@ -406,9 +406,11 @@ does not fill the table alone. Present:
   level 6 grown by AMR. Include `h_min`, sagitta and the edit caps.
 - **Step size:** `--dt`, `--min-dt` and `--dt-edge-power`, under the viscous
   limit of R1, from P1b's stable arms `L7_np4_dt4e-4`, `L7_np4_dt8e-4_pow2`
-  and `L7_np4_dt1e-3_mu0`. P1's `L7_np4` and `L7_np4_dt1e-3` arms bound it
-  from the unstable side.
-- **Ranks and nodes:** from the np1/np4 scaling and P1's cost extrapolation.
+  and `L7_np4_dt1e-3_mu0`, and P1c's four arms, all at
+  $dt\,\mu/h_{min}^2 = 0.343$ ($dt \approx 172\,h_{min}^2$). P1's `L7_np4` and
+  `L7_np4_dt1e-3` arms bound it from the unstable side.
+- **Ranks and nodes:** from the np1/np4 scaling, P1c's np8 measurement (np8/np4
+  s/step 0.97) and P1's cost extrapolation.
 - **Segment walltime and checkpoint cadence:** `pbatch`'s maximum `-t`, from
   `flux queue list` or the system documentation, and checkpoint write cost
   from P1's final checkpoint.

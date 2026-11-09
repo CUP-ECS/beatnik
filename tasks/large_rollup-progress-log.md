@@ -413,6 +413,29 @@ segments at `-t 90m` in `pbatch`; its eps and `--dt` await P1c. R1j —
 production is np8 on 2 nodes, 12h segments; the segment count and fit within
 35 node-h await P1c.
 
+### Resumed after P1c — questions prepared (2026-11-09)
+
+The resumed session read `## P1c` and `## P1c review` and put four items to the
+user; no measurement was added and the table is still at `D1`. Cosmetic
+design-doc corrections made in the same commit: the doc's **Status** reads
+IN PROGRESS, and D1 **Do** cites P1c's four arms (ratio 0.343) under step size
+and P1c's np8/np4 0.97 under ranks and nodes.
+
+1. **Final production eps** — recommended `--eps 8e-3`: stable to $t = 0.023$
+   with dt identical to 0.025 (`## P1c` derived result 1); later stability is
+   unmeasured (P1c review follow-up 3), V1 shows it.
+2. **Pilot eps and `--dt`** — recommended `--eps 1.6e-2 --dt 3.2e-3`: P1c's
+   `L6_np4_eps1.6e-2` ran stable at ratio 0.343, 0.118 s/step np4.
+3. **Ranks and nodes (decision 5)** — recommended np4 on 1 node (11.1–23.8
+   node-h remeshing every step, 29.7 with the ×1.25 margin, inside 35) over
+   np8 on 2 nodes (21.6–47.5, 59.4 with the margin; fits 35 only at the
+   8,000-step end). Remesh cost while refining, and its rank scaling, are
+   unmeasured and bracket both.
+4. **Segment count** — at np4, worst case about 23.8 h wall, 29.7 h with the
+   margin: three 12h `pbatch` segments for R1j.
+
+**Affects:** D1 — waits on the user's four answers; table untouched.
+
 ## P1c
 
 **Commits:** `b014788` (`scripts/tuolumne/large_rollup_probe_c.flux`, new);
