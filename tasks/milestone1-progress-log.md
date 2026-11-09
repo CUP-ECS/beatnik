@@ -4040,3 +4040,57 @@ Python 3.13.2, numpy 2.1.2 (scipy 1.15.3 in the generation job).
 and Beatnik must reach `time` 1.238122 (1.2381221993625053) at step 1610. The
 peak mesh in the set is `610`/`1216` at the last step, so a Beatnik run sized
 from M1-G2's ~1074 faces underestimates the tail by about 13 %.
+
+## M1-G3 review
+
+**Verdict:** Passed
+**Reviewed:** `8952c39^..8952c39` (code: `scripts/tuolumne/m1g3_check.flux`,
+`tests/regression_tests/milestone1-bubble-1610/README.md`), with the doc and log
+commit `4ecaa4a` excluded from the code review.
+**Evidence:** the implementing session's jobs, output read. All four checks
+passed, so no verification job was submitted.
+- **Generation job** `f3iZLsmfWYw1` (`scripts/tuolumne/m1g3_gold.flux`, log
+  `beatnik_m1g3_gold.f3iZLsmfWYw1.log`). Flux reports `FAILED` rc 1. It was
+  submitted at 2026-11-06T14:25:33 and started at 22:09:21, a queue wait of about
+  7.7 h, and ran for 30.1 min. The rc 1 comes only from the expected step-1624
+  self-compare (log :432–433, the only `CHECK FAIL` lines). The generation
+  itself returned `rc=0 wall=1782s` (:237) after
+  `stopping at step=1625 t=1.2540: nonfinite mesh-RHS state` (:233).
+  - Provenance: `stage/COMMIT` is echoed at :10–32. It names Beatnik `2a38355`,
+    M1-G3j's last code commit, and reference `ec7d7bf4…`, with an empty
+    `zmodel3d/` status.
+  - Passing direction: step 0 and step 600 are `np.array_equal` on all nine keys
+    (:242–243), and the script reports no nonfinite field. Its finiteness check
+    (`m1g3_gold.flux:250–253`) prints only on failure.
+  - Failing direction: the step-1624 self-compare exits 1 with
+    `1/1993 unambiguous, ambiguous cpp=1992 gold=1992` (:245), and fails for the
+    stated reason, ambiguous pairing.
+- **Verification job** `f3j6vKt4EQS3` (`scripts/tuolumne/m1g3_check.flux`, log
+  `beatnik_m1g3_check.f3j6vKt4EQS3.log`). Flux reports `COMPLETED` rc 0, with
+  no queue wait and a 20.8 s runtime. It echoes the same `stage/COMMIT`.
+  - The step-1610 self-compare at `--rtol 1e-12 --atol 1e-14` gives rc 0,
+    `610/610 unambiguous, ambiguous cpp=0 gold=0`, `RESULT: match`.
+  - It found 164 numbered files, 162 of them with step ≤ 1610, exactly
+    0, 10, …, 1610, each with the nine keys. It found 0 with a nonfinite field,
+    and step 1610's `time` is 1.2381221993625053.
+  - `ls` of `M1-G3j/out/` shows 165 entries: the 164 numbered files plus
+    `checkpoint_latest.npz`.
+- **README table:** the README's 162 rows equal the verification job's table
+  lines by `diff`. That table equals the generation job's first 162 table lines
+  by `diff`. The two excluded rows (1620, 1624) in the README's cap section match
+  the generation log.
+- **Mechanical checks:** `review_checks.py` reported no candidates. There is no
+  build: the task adds no Beatnik code.
+- **Prompt file:** no `tasks/milestone1_*.md` remains. The only untracked file
+  is `commands.sh`.
+
+1. [nit] `scripts/tuolumne/m1g3_check.flux` is not in M1-G3's **Fill in**, which
+   names only the README. The exit criterion requires a step-1610 self-compare
+   that the generation job did not run, so a job was needed. The log's `## M1-G3`
+   **Decisions** record the script, and it reads the stage and `out/` without
+   writing to either, so this is accepted.
+2. [nit] The `## M1-G3` **Commits:** line names the doc and log commit only as
+   "the commit that adds this section". Its SHA is `4ecaa4a`. This does not
+   change the code range.
+
+**Affects:** none
