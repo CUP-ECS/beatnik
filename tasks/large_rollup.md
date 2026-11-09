@@ -534,9 +534,13 @@ change made here.
    the master-series behaviour chosen in step 4.
 
 **Exit criterion:**
-- the unit tier passes at 1 and 4 ranks through
-  `scripts/tuolumne/unit_tests.flux`, including `Beatnik_Test_Restart`, whose
-  failure-direction checks each print their own PASS line;
+- the unit tier passes through `scripts/tuolumne/unit_tests.flux` at 1 rank,
+  and at `BEATNIK_UNIT_RANKS=4`, read member by member, every member passes
+  except `Beatnik_Test_T2bOperators`, whose `comm_size == 1` check fails by
+  design at more than one rank
+  (`tests/unit_tests/Beatnik_Test_T2bOperators.cpp:183-199`). At both rank
+  counts `Beatnik_Test_Restart` passes, and its failure-direction checks each
+  print their own PASS line;
 - the T5b job shows both restarted Beatnik step-10 files matching the
   reference restart under `compare_output.py` defaults (`RESULT: match`);
 - the dynamic-remesh restart reaches step 70 with `volRel` ≤ `1e-12`, and its
