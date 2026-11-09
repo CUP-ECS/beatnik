@@ -4300,3 +4300,171 @@ pass/fail is M1-A1's question).
    `[m1stat]` line's `step_lo`/`step_hi` say which raw steps to read.
 
 **Affects:** none
+
+## M1-A1
+
+**Status:** the confirming run **missed two bands**; M1-A1 stays NOT STARTED,
+awaiting the user's ruling. This section records the reading; the prompt file
+`tasks/milestone1_M1-A1.md` stays in place.
+
+**Commits:** the commit that adds this section (`milestone1.md` status block and
+**Fill in**, this log, `docs/testing.md` walls row). No code changed.
+
+**Jobs:** `f3j79G2VDX4T` (M1-A1j's job, read here, not resubmitted),
+`scripts/tuolumne/m1_milestone_run.flux /p/lustre5/stewartj/beatnik/M1-A1j/stage`
+(`pdebug`, 1 node `--exclusive`, `-t 10m`, `--bank=unm`, dev env), on
+tuolumne1009, submitted 09:51:05, started 09:51:06. Flux: INACTIVE, FAILED,
+rc 1, runtime 248.6 s. Provenance: `stage/COMMIT` names
+`f3a6c804a669bc024614b201f7f4825f4069ef20` (M1-A1j's last code commit,
+porcelain count 3); sha256 SERIAL `c1580498…`, HIP `33d828fb…`, as M1-A1j
+recorded. Output stays where it is: `beatnik_m1_milestone.f3j79G2VDX4T.log` in
+the repo root (7734 lines) and `/p/lustre5/stewartj/beatnik/M1-A1j/out/<tag>/`
+(`launch.log` plus checkpoints) for the six tags. The job showed: no defect of
+any kind; two statistics bands (area, rise) failing on all four compare
+launches; both failure directions passing; `SUMMARY: FAIL (2/6 launches)`
+(the summary counts passed/run, so the two passes are the failure-direction
+launches).
+
+**Verdict against the exit criterion:** not met. The four compare launches
+are FAIL (rc 1) on statistics bands only; there are 228 `[FAIL]` lines
+(4 × (1 summary + 56 checks)); `SUMMARY` is present; direction (a) exits
+exactly 1 from the comparator; direction (b) fails the comparison.
+
+**Defect checklist** (all clean, so nothing to fix and resubmit): every compare
+launch reached `steps=1610/1610`; all five liveness counters non-zero;
+`time_liveness_failures=0`; the comparator exited 0 (step 0) or 1 (direction
+(a)), nothing else; `defects=0` everywhere; `stat_checked=161` on all four
+compare launches; `stat_unreached=0` (Beatnik reached gold `time` 1.238122 at
+its step 1447–1448 of 1610); no `run STOPPED EARLY`; `SUMMARY` present. A
+statistic computed differently from the generator is not suspected: at step 0,
+on identical meshes, `rise_err` is `3.9e-16` and `area_rel` `1.6e-15`, and the
+miss grows smoothly from round-off over a thousand steps rather than appearing
+as an offset, so the two definitions agree; the gap is trajectory, not
+definition.
+
+**Per launch.** Counters are identical on all four compare launches:
+`splits=523 collapses=19 flips=167 smooth_steps=85 cleanup_flips=291`.
+
+| launch | `[milestone]` | `LAUNCH_WALL` | steps | defects | time_liveness_failures | stat_checked / failed / unreached | first_failing_stat_step |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| SERIAL np1 compare | FAIL rc=1 | 69 s | 1610/1610 | 0 | 0 | 161 / 56 / 0 | 1060 |
+| SERIAL np4 compare | FAIL rc=1 | 65 s | 1610/1610 | 0 | 0 | 161 / 56 / 0 | 1060 |
+| HIP np1 compare | FAIL rc=1 | 30 s | 1610/1610 | 0 | 0 | 161 / 56 / 0 | 1060 |
+| HIP np4 compare | FAIL rc=1 | 47 s | 1610/1610 | 0 | 0 | 161 / 56 / 0 | 1060 |
+| HIP np1 `fail-step0` | PASS rc=0 | 5 s | 10/10 | 0 | 0 | 0 / 0 / 0 | none |
+| HIP np1 `fail-no-cleanup` | PASS rc=0 | 4 s | 7/1610 (stops at first band failure) | 0 | 0 | 1 / 1 / 0 | 10 |
+
+`fail-step0` counters: `splits=364 collapses=8 flips=76 smooth_steps=3
+cleanup_flips=76`; `fail-no-cleanup`: `splits=480 collapses=0 flips=272
+smooth_steps=2 cleanup_flips=0`. Test `wall` (s) 60.9 / 58.7 / 25.4 / 39.4 on
+the four compare launches, `run_wall` 59.4 / 57.1 / 23.3 / 36.9, `stat_wall`
+0.67 / 0.69 / 1.27 / 1.60.
+
+**Step 0, field-wise**, all four compare launches and `fail-no-cleanup`:
+`[m1step] step=0 verdict=match exit=0`, 162/320 against 162/320, faces
+320/320 identical, `vertices` `max|e|` `5.551115e-17` (as M1-A1j's
+`kStep0Tolerance` comment records).
+
+**`[m1statworst]` against Decided**, compare launches:
+
+| band (Decided) | SERIAL np1 | SERIAL np4 | HIP np1 | HIP np4 | holds? |
+| --- | --- | --- | --- | --- | --- |
+| rise `≤ 1e-3` | 2.544692e-03 @1610 | 2.544692e-03 @1610 | 2.544692e-03 @1610 | 2.544692e-03 @1610 | **missed** |
+| area rel `≤ 1e-3` | 1.062947e-02 @1610 | 1.062947e-02 @1610 | 1.062947e-02 @1610 | 1.062947e-02 @1610 | **missed** |
+| `\|vol drift\|` `≤ 1e-12` | 2.578495e-15 @70 | 1.742141e-15 @330 | 2.123924e-15 @720 | 1.265476e-15 @550 | yes |
+| face count `≤ 0.10` | 5.321101e-02 @10 | 5.321101e-02 @10 | 5.321101e-02 @10 | 5.321101e-02 @10 | yes |
+| min quality `≥ 0.18` | 0.762503 @1440 | 0.762503 @1440 | 0.762503 @1440 | 0.762503 @1440 | yes |
+
+The four launches agree on every missed-band value: rank 4 differs from rank 1
+by at most `4.2e-16` in `rise_err` and `2.2e-16` in `area_rel` at any
+checkpoint, and HIP np1 equals SERIAL np1 exactly. The face-count band, which
+M1-A1j's **Affects:** expected to be tight late, is not: its late maximum is
+`4.46e-2` (gold step 1430), its worst is step 10.
+
+**Missed band 1 — total area** (`kAreaRtol` 1e-3). First fails at gold step
+**1060** (Beatnik steps 942–943), and fails at **56 of 161** checkpoints: every
+one from 1060 to 1610. Worst `1.062947e-02` at gold step 1610, 10.6x the band.
+Beatnik's area is the larger throughout the miss. Through gold step 1050 the
+worst is `9.88e-4` (step 1050); at step 500 it is `1.48e-4`.
+
+| gold step | Beatnik steps | area_rel | Beatnik area | gold area | F (B / gold) |
+| --- | --- | --- | --- | --- | --- |
+| 500 | 437–438 | 1.480e-04 | 0.771910 | 0.771796 | 1038 / 1076 |
+| 1000 | 887–888 | 7.153e-04 | 0.778319 | 0.777762 | 1062 / 1072 |
+| 1060 | 942–943 | 1.050e-03 | 0.780713 | 0.779894 | 1064 / 1072 |
+| 1200 | 1071–1072 | 2.416e-03 | 0.789655 | 0.787751 | 1074 / 1088 |
+| 1300 | 1164–1165 | 4.084e-03 | 0.800026 | 0.796772 | 1086 / 1118 |
+| 1400 | 1252–1253 | 6.157e-03 | 0.814621 | 0.809636 | 1106 / 1148 |
+| 1500 | 1336–1337 | 8.317e-03 | 0.833645 | 0.826769 | 1170 / 1178 |
+| 1610 | 1447–1448 | 1.063e-02 | 0.859562 | 0.850522 | 1186 / 1216 |
+
+Growth from 1060 to 1610 is monotone and close to linear in gold step after
+1200 (about `2.1e-5` per gold step), 10x over 550 gold steps.
+
+**Missed band 2 — rise** (`kRiseAtol` 1e-3). First fails at gold step **1340**
+(Beatnik steps 1200–1201), and fails at **28 of 161** checkpoints: every one
+from 1340 to 1610. Worst `2.544692e-03` at gold step 1610, 2.5x the band.
+Beatnik's bubble lags the gold (its centroid `z` is the lower) throughout the
+miss. Through gold step 1330 the worst is `9.74e-4` (step 1330); through step
+1050 it is `2.71e-4` (step 310), and it dips to `6.2e-5` at step 900 before
+growing.
+
+| gold step | rise_err | Beatnik `z_c` | gold `z_c` |
+| --- | --- | --- | --- |
+| 900 | 6.250e-05 | — | — |
+| 1060 | 1.368e-04 | 0.379040 | 0.379177 |
+| 1200 | 4.726e-04 | 0.403182 | 0.403654 |
+| 1300 | 8.595e-04 | 0.420024 | 0.420884 |
+| 1340 | 1.029e-03 | 0.426629 | 0.427658 |
+| 1400 | 1.374e-03 | 0.436269 | 0.437642 |
+| 1500 | 1.909e-03 | 0.451650 | 0.453560 |
+| 1610 | 2.545e-03 | 0.468091 | 0.470635 |
+
+At step 1610 the gold has risen `0.2206` from 0.25, so the lag is 1.15 % of the
+displacement. Growth is monotone after step 900, about `5.6e-6` per gold step
+over 1340–1610.
+
+**Last gold step at which every band holds: 1050** (105 of the 161 asserted
+checkpoints, steps 10–1050).
+
+**Failure directions.** (a) `fail-step0`: Beatnik's step 10 (518 V / 1032 F)
+against the step-0 gold (162 / 320), comparator `exit=1` on vertex and face
+count, `[m1fail] direction=a … comparator exit 1`, PASS. (b)
+`fail-no-cleanup`: step 0 matched, `defects=0`, `cleanup_flips=0`, and the
+**face-count band** caught it at gold step 10 (`F_rel 1.743e-01`, Beatnik 1280
+faces against 1090, interpolated between Beatnik steps 6–7); the run stopped
+at the first band failure (`steps=7/1610`), PASS.
+
+**Decisions** (made before this session, recorded here, not reopened):
+- A band that misses is not a defect and the table is not changed here:
+  `kRiseAtol`, `kAreaRtol`, `kVolumeDriftMax`, `kFaceCountRtol`, `kMinQuality`,
+  `kStep0Tolerance` and `kSteps` are untouched and the asserted range is not
+  shortened. They are M1-A1j's decisions, made with the user (M1-R1, M1-R6).
+  The miss goes to the user with the measured values above.
+- Defects are what M1-A1 fixes and resubmits for; the checklist above found
+  none, so nothing was resubmitted.
+- The `submit_milestone_split.sh:83-84` row edit is the user's (below).
+
+**Session decisions:** the walls in `docs/testing.md` were filled in despite
+the miss (the prompt's instruction; they are a measurement either way), with a
+note naming the job; the table's total moved from 8.69 h to 8.75 h (+220 s).
+`docs/testing.md` was added to M1-A1's **Fill in**. The status block notes the
+miss. No code, no build, no job.
+
+**Walls.** SERIAL job wall (compare np1 + np4) **134 s**; HIP job wall
+(compare np1 + np4 + both failure directions) **86 s**; the job's setup adds
+about 20 s to each (job runtime 248.6 s against 220 s of launches). At about
+1.5x: SERIAL 201 s, HIP 129 s; with setup, about 230 s and 160 s.
+
+**Affects:**
+- **User, `scripts/tuolumne/submit_milestone_split.sh:83-84`** (read-only to
+  the loop): set the two `Beatnik_Test_Milestone1Bubble` rows' `-t` from `40m`
+  to about 1.5x the measured job walls — **`4m` for SERIAL** (1.5 × 134 s =
+  201 s, ~230 s with setup) and **`3m` for HIP** (1.5 × 86 s = 129 s, ~160 s
+  with setup) — and drop their `pending=M1-T2j` field.
+- **User ruling on the two missed bands** (the area band from gold step 1060,
+  the rise band from 1340): widen them with headroom and a recorded measured
+  value (M1-R1), assert only through gold step 1050 (a change to the decided
+  depth), or keep them and open a diagnostic task on the late drift first.
+  M1-A1 resumes from that ruling; the milestone is not accomplished until it is
+  made and a run passes.

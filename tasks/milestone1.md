@@ -10,8 +10,13 @@ probed step after (log `## M1-D2`). M1-G3 is **DONE**: the reference job
 checkpoints ending at `time` 1.238122, recorded in
 `tests/regression_tests/milestone1-bubble-1610/README.md` (Read this first #1).
 M1-A1j is **DONE**: the test asserts step 0 field-wise and time-matched
-statistics through step 1610 (code `f3a6c80`), and its confirming job
-`f3j79G2VDX4T` is submitted. M1-A1, which reads that job, is NOT STARTED.
+statistics through step 1610 (code `f3a6c80`). Its confirming job
+`f3j79G2VDX4T` ran clean (no defect, 1610/1610 steps, every liveness counter
+non-zero, both failure directions pass) but **missed two bands** identically on
+all four compare launches: total area from gold step 1060 (worst `1.063e-2`
+against `1e-3`, step 1610) and rise from gold step 1340 (worst `2.545e-3`
+against `1e-3`, step 1610); log `## M1-A1`. M1-A1 is NOT STARTED, awaiting the
+user's ruling on those bands.
 
 ## Problem
 
@@ -2286,7 +2291,9 @@ was accepted and was in state RUN at submission; its output is M1-A1's.
 
 **Depends on:** M1-A1j.
 
-**Fill in:** the progress log's `## M1-A1` section. If the output shows a defect,
+**Fill in:** the progress log's `## M1-A1` section; the `Milestone1Bubble`
+row of the milestone walls table in [docs/testing.md](../docs/testing.md#the-tiers).
+If the output shows a defect,
 fix it inside M1-T2j's or M1-A1j's **Fill in** and resubmit from
 `/p/lustre5/stewartj/beatnik/M1-A1/stage/`.
 
