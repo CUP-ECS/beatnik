@@ -548,3 +548,48 @@ through step 60 at the same 0.343 ratio, 0.118 s/step np4; by the same rule
 the pilot needs about 2,000–4,300 steps to $t = 2.5$ (`minEdge` 2.7e-3 to
 $0.45 \times 4.1\times10^{-3}$), about 4–8.4 min of step cost at np4 before
 remeshing.
+
+## P1c review
+
+**Verdict:** Passed
+**Reviewed:** `b014788^..dea2ae9` (code: `scripts/tuolumne/large_rollup_probe_c.flux`
+in `b014788`; `dea2ae9` is `tasks/` only)
+**Evidence:** the implementing session's job, output read; no verification job,
+since all four checks pass and the criterion is a measurement record whose
+bound ($dt\,\mu/h_{min}^2 \le 0.41$) the baseline clears at 0.343.
+- `f3j9ihiaeo7u`, `scripts/tuolumne/large_rollup_probe_c.flux`, log
+  `/p/lustre5/stewartj/beatnik/large_rollup/P1c/large_rollup_P1c.f3j9ihiaeo7u.log`:
+  COMPLETED, exit 0, queued 11.4 min in `pdebug`, ran 2.6 min (Flux
+  accounting). Echoed HEAD `9e97da8`, porcelain 3, dev-env exe, `beatnik`
+  `ckhvawf`. `git diff 01e874f dea2ae9 -- src examples tests CMakeLists.txt`
+  is empty, so the binary is the code every P1c commit describes. The script
+  was uncommitted at run time; each `<tag>/launch.log`'s first line echoes
+  the full argument list, and all four match `b014788`'s `BASE` and
+  `LAUNCHES` exactly.
+- Four summary lines, all rc 0 (walls 40.5, 40.0, 35.6, 14.4 s); every
+  launch reached `step=60` with no stop line. Each solver header confirms its
+  eps (0.025, 0.008, 0.008, 0.016), `mu 0.002` and `min_dt`.
+- Baseline direction: `L7_np4_eps0.025` step 60 dt 3.13e-4, `minEdge`
+  0.00135, ratio 0.343 ≤ 0.41. Every table cell (V/F at steps 1 and 60,
+  median s/step 0.443 / 0.440 / 0.428 / 0.118 recomputed from the line
+  timestamps, setup 12.2 / 11.8 / 9.2 / 7.2 s, dt, `minQ`/`minEdge`/`volRel`,
+  `max|S|`, peak `rss_kb`) matches the launch logs. The derived steps to
+  $t = 2.5$ (about 7,990 and 17,170 by $dt = 172\,h^2$) and the node-hour
+  table re-derive from the stated inputs.
+
+1. [nit] The job ran with `large_rollup_probe_c.flux` uncommitted, so the
+   echoed HEAD does not pin the script that ran (Conventions: provenance via
+   the echoed commit). The per-launch argument echo shows the run matches
+   `b014788`, so no conclusion is affected. Accepted.
+2. [nit] The provenance line prints `jobid = unknown` because `FLUX_JOB_ID` is
+   unset in the batch shell; the log records the ID. Accepted; later scripts
+   could use `flux getattr jobid`.
+3. [follow-up] eps `8e-3` is shown stable only to $t = 0.023$ (`max|S|`
+   1.5e-2), and no launch remeshed, so the raised edit caps and remesh cost
+   scaling with ranks are unmeasured. `## P1c` states both; D1 and the pilot
+   (V1) carry them.
+4. [follow-up] `## P1c` suggests D1 reconsider decision 5 (np8 on 2 nodes),
+   since np8 is 0.97× np4's s/step at twice the node-hours. That is D1's
+   decision with the user, not a finding here.
+
+**Affects:** none beyond what `## P1c`'s **Affects:** already states (D1, V1j).
