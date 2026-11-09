@@ -5,9 +5,9 @@ T4d2, T4d3, T4d4, T4d5, T4d6j, T4d6, M1-T2j, M1-T2 and M1-D2 are **DONE** and
 reviewed, Passed. The codes part at step 2, where Tessera's one-round collapse
 independent set accepts 8 of the 44 collapse candidates the reference's serial
 walk accepts 31 of, and Beatnik's mesh obeys the reference's rules at every
-probed step after (log `## M1-D2`). M1-G3j is **DONE**: its 5000-step
-reference job `f3iZLsmfWYw1` is submitted. M1-G3, M1-A1j and M1-A1 are NOT
-STARTED.
+probed step after (log `## M1-D2`). M1-G3j is **DONE**: its reference job
+`f3iZLsmfWYw1` ran and stopped at step 1625, and its gold set is steps 0–1610
+(Read this first #1). M1-G3, M1-A1j and M1-A1 are NOT STARTED.
 
 ## Problem
 
@@ -79,8 +79,12 @@ reach step 500.
 
 **Resolved with the user:** the milestone gold set is a **600-step** run
 checkpointing **every 10 steps** — see M1-G2 for the exact command — and a
-**5000-step** run of the same command at the same cadence (M1-G3j), whose
-statistics the milestone test asserts through step 5000.
+long run of the same command at the same cadence (M1-G3j, `--steps 5000`),
+whose statistics the milestone test asserts. The reference itself stops at
+step 1625 (`t = 1.254`, nonfinite mesh-RHS state) after its vertex count jumps
+from 610 at step 1610 to 1993 at step 1624, so that gold set is **steps 0–1610
+(162 checkpoints, final `time` 1.238122)**; the step-1620 and step-1624 files
+are excluded.
 
 ### 2. Steps 500 / 1000 / 2000 / 5000 are not a criterion this port can be assumed to meet
 
@@ -266,7 +270,7 @@ Three strands, run in this order of *risk*, not of code size:
    adapter layer, T4d2–T4d5 are one reference function each, T4d6j and T4d6 are an
    operational decision.
 3. **Wire the milestone test and measure it** (M1-T2j, M1-T2, M1-D2), generate
-   the 5000-step gold set (M1-G3j, M1-G3), then **fix the acceptance and
+   the long gold set, steps 0–1610 (M1-G3j, M1-G3), then **fix the acceptance and
    confirm it** (M1-A1j, M1-A1).
 
 ### Conventions
@@ -2073,31 +2077,37 @@ and the wrapper submitted job `f3iZLsmfWYw1` (rc 0). `flux jobs` shows it in sta
 
 ---
 
-### M1-G3 — the 5000-step gold set is complete and recorded *(no code)* — **NOT STARTED**
+### M1-G3 — the steps 0–1610 gold set is complete and recorded *(no code)* — **NOT STARTED**
 
 **Depends on:** M1-G3j.
 
-**Fill in:** `tests/regression_tests/milestone1-bubble-5000/README.md`, new: the
-command verbatim, the job ID and log, the Lustre path of the 501 files, and the
-per-checkpoint step / `time` / V / F table, as
+**Fill in:** `tests/regression_tests/milestone1-bubble-1610/README.md`, new: the
+command verbatim, the job ID and log, the Lustre path of the files, the stop
+(`stopping at step=1625 t=1.2540: nonfinite mesh-RHS state`), the cap at step
+1610 and why steps 1620 and 1624 are excluded, and the per-checkpoint step /
+`time` / V / F table for steps 0–1610, as
 [tests/regression_tests/milestone1-bubble/README.md](../tests/regression_tests/milestone1-bubble/README.md)
-does for M1-G2. If the output shows a defect, fix it inside M1-G3j's
-**Fill in** and resubmit from `/p/lustre5/stewartj/beatnik/M1-G3/stage/`.
+does for M1-G2. There is no resubmission: the reference's own stop sets the cap.
 
 **Removes:** nothing.
 
-**Reference:** the M1-G3j job's log and its `out/` directory.
+**Reference:** the M1-G3j job's log `beatnik_m1g3_gold.f3iZLsmfWYw1.log` and its
+`out/` directory, `/p/lustre5/stewartj/beatnik/M1-G3j/out/`.
 
-**Do:** check the run, write the README. A reference run that stops early
-(`stopping at step=… nonfinite …`) is recorded with its stop step, which then
-caps the milestone's asserted depth; take that to the user before M1-A1j.
+**Do:** check the run, write the README. The job's in-job checks report one
+failure, the self-compare of the degenerate step-1624 file (1992 of 1993
+vertices ambiguous at `--match-eps 1e-9`); every other in-job check passed. The
+gold set is steps 0–1610 (Read this first #1). The step-1620 and step-1624 files
+stay on Lustre but are not part of it: V/F go 610/1216 at step 1610, 793/1590 at
+1620 and 1993/4002 at 1624, against a smooth rise from 538/1072 before.
 
-**Exit criterion,** judged from the M1-G3j job's output: 501 numbered
-`_step%07d.npz` checkpoints (steps 0, 10, …, 5000), every field finite; the
+**Exit criterion,** judged from the M1-G3j job's output: 162 numbered
+`_step%07d.npz` checkpoints (steps 0, 10, …, 1610), every field finite; the
 step-600 file is `np.array_equal` on every key to M1-G2's step-600 file (the
 reference is serial and deterministic, so a difference means the staged
-reference is not M1-G2's); a self-compare of the step-5000 file at
-`--rtol 1e-12 --atol 1e-14` exits 0; and the README exists with the table.
+reference is not M1-G2's); a self-compare of the step-1610 file at
+`--rtol 1e-12 --atol 1e-14` exits 0, where the step-1624 file's fails on
+ambiguous pairing; and the README exists with the table.
 
 ---
 
@@ -2110,16 +2120,21 @@ reference is not M1-G2's); a self-compare of the step-5000 file at
   below as numbers;
 - [tests/regression_tests/Beatnik_Test_Milestone1Bubble.cpp](../tests/regression_tests/Beatnik_Test_Milestone1Bubble.cpp),
   restructured: field-wise comparison at step 0 only; the time-matched
-  statistics checks below at every gold checkpoint from step 10 to 5000; the
-  `time` liveness check against the 5000-step gold times; the failure
+  statistics checks below at every gold checkpoint from step 10 to 1610; the
+  `time` liveness check against the steps 0–1610 gold times; the failure
   directions kept;
 - `kSteps` in
   [tests/regression_tests/Beatnik_Milestone1Params.hpp](../tests/regression_tests/Beatnik_Milestone1Params.hpp)
-  (`:63`), set to 5000. `Beatnik_Test_Milestone1Run` takes its step count from
-  `argv[1]` and does not read it;
-- a compiled-in gold-statistics table, one row per M1-G3 checkpoint (step,
-  `time`, V, F, total area, area-weighted centroid `z`, volume drift, minimum
-  triangle quality, valence 5/6/7 counts, minimum and mean edge length), in a
+  (`:63`), set to 1610, the gold set's last step. At equal step index Beatnik
+  leads the gold in `time` (`time_rel` 0.116–0.336 through step 600, log
+  `## M1-D2`), so 1610 steps carry it past the gold's final `time` 1.238122.
+  A shortfall is the loud failure under **Decided**, not a skip.
+  `Beatnik_Test_Milestone1Run` takes its step count from `argv[1]` and does
+  not read it;
+- a compiled-in gold-statistics table, one row per M1-G3 checkpoint of steps
+  0–1610, 162 rows, never the step-1620 or step-1624 file (step, `time`, V, F,
+  total area, area-weighted centroid `z`, volume drift, minimum triangle
+  quality, valence 5/6/7 counts, minimum and mean edge length), in a
   new header beside the test, generated at 17 digits by a new committed script
   under `tests/regression_tests/` that reads M1-G3's `.npz` files. The
   definitions are those of M1-D2's
@@ -2127,7 +2142,7 @@ reference is not M1-G2's); a self-compare of the step-5000 file at
   `Σ ½|(b−a)×(c−a)|`, centroid `z` area-weighted over face centroids, volume
   drift `vol/initial_volume − 1`, quality `4√3·A / Σℓ²`;
 - [scripts/tuolumne/m1_milestone_run.flux](../scripts/tuolumne/m1_milestone_run.flux):
-  `-t` and the per-row deadline-guard estimates, for 5000 steps;
+  `-t` and the per-row deadline-guard estimates, for 1610 steps;
 - the `milestone` entry in [docs/testing.md](../docs/testing.md#the-tiers): what
   the member asserts. Reword its `time` sentence to "at most twice the gold's"
   (M1-T2j review, nit 1);
@@ -2138,10 +2153,10 @@ reference is not M1-G2's); a self-compare of the step-5000 file at
 
 **Submits:** `scripts/tuolumne/m1_milestone_run.flux
 /p/lustre5/stewartj/beatnik/M1-A1j/stage`, `pdebug`, 1 node `--exclusive`,
-`-t 15m`, `--bank=unm`, the dev env, the same six launches as M1-T2j. Expected
-run time **about 9 minutes**, scaled from M1-T2's measured walls (log
+`-t 10m`, `--bank=unm`, the dev env, the same six launches as M1-T2j. Expected
+run time **about 5 minutes**, scaled from M1-T2's measured walls (log
 `## M1-T2`): `run_wall` per 600 steps of 18.9 s (SERIAL), 6.8 s (HIP np1) and
-9.8 s (HIP np4) times 5000/600 is about 160 + 160 + 57 + 82 s; the comparator,
+9.8 s (HIP np4) times 1610/600 is about 51 + 51 + 18 + 26 s; the comparator,
 which was 26–30 s of each compare launch, runs once per launch; plus the two
 short failure-direction launches and about 30 s of setup. Staged directory
 `/p/lustre5/stewartj/beatnik/M1-A1j/stage/`, the layout M1-T2j staged (the
@@ -2152,7 +2167,7 @@ and to `beatnik_m1_milestone.<jobid>.log` in the repo root.
 **Removes:** the field-wise comparison of steps 10–600 in
 `Beatnik_Test_Milestone1Bubble.cpp`, and `toleranceForStep`'s every-step table
 with it, replaced by the step-0 tolerance; the 61-row `kGold` table, replaced
-by the generated 501-row table. Any helper left without a caller goes too.
+by the generated 162-row table. Any helper left without a caller goes too.
 
 **Reference:** the measured inputs below, and M1-T2j's output contract (log
 `## M1-T2j`), which the restructured test keeps for its `[m1traj]`, `[m1fail]`
@@ -2182,7 +2197,7 @@ and `[m1final]` lines.
 - **Beyond step 0, matched on physical time.** Beatnik's statistics are
   computed every step and linearly interpolated to each gold checkpoint's
   `time`; a gold checkpoint later than Beatnik's final `time` is a loud
-  failure, not a skip. At every gold checkpoint from step 10 to 5000 the test
+  failure, not a skip. At every gold checkpoint from step 10 to 1610 the test
   asserts:
   - rise, the area-weighted centroid `z`: `|Beatnik − gold| ≤ 1e-3` absolute;
   - total area: `|Beatnik/gold − 1| ≤ 1e-3`;
@@ -2194,7 +2209,7 @@ and `[m1final]` lines.
   the gold's at each such checkpoint, not asserted.
 - **Collapse stays one independent-set round per pass.** The accepted-collapse
   difference is recorded in README "Known Issues", not changed.
-- **`--steps 5000`**, against M1-G3's gold set.
+- **`--steps 1610`**, against M1-G3's steps 0–1610 gold set.
 - Failure direction (a) is unchanged. Failure direction (b),
   `--no-isotropic-cleanup`, must fail on a statistics check, which the face
   count band catches at step 10.
