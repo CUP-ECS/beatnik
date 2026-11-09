@@ -908,7 +908,14 @@ subsections above, which are intended behavior.
   remesh rules from step 3 on, so the difference is one of selection, not of
   rules; the milestone test compares mesh statistics at matched time beyond
   step 0 instead. A multi-round collapse would narrow the gap and is not
-  planned. **Reproduce:** `scripts/tuolumne/m1d2_split_ab.flux` (part `diag`),
+  planned. Late in the run the different meshes carry a measurable drift in
+  the statistics: at gold step 1610 Beatnik's total area is `1.063e-2`
+  relative above the gold's and its rise `2.545e-3` behind. This is a
+  mesh-selection discretisation gap, not a defect: the reference's own
+  solver, restarted from Beatnik's step-10 mesh, misses its gold by area
+  `1.047e-2` and rise `2.808e-3` at the same step (`## M1-D3` in the progress
+  log). The milestone test's rise and area bands are therefore `1e-3` through
+  gold step 1050 and `4e-3` / `1.5e-2` from 1060. **Reproduce:** `scripts/tuolumne/m1d2_split_ab.flux` (part `diag`),
   reading the step-2 `[m1rem]` line's `collapse_requested`,
   `collapse_rejected_conflict` and `collapses`; the measurement is in
   `tasks/milestone1-progress-log.md`, `## M1-D2`.

@@ -37,15 +37,21 @@
  *      `time` to each gold checkpoint's `time` (the table
  *      `Beatnik_Milestone1GoldStats.hpp`, 162 rows, generated from the M1-G3
  *      `.npz` files). At each of the 161 checkpoints after step 0:
- *        - rise (area-weighted centroid `z`): `|Beatnik - gold| <= 1e-3`;
- *        - total area: `|Beatnik / gold - 1| <= 1e-3`;
+ *        - rise (area-weighted centroid `z`): `|Beatnik - gold| <= 1e-3`
+ *          at gold steps 10-1050, `<= 4e-3` at gold steps 1060-1610;
+ *        - total area: `|Beatnik / gold - 1| <= 1e-3` at gold steps
+ *          10-1050, `<= 1.5e-2` at gold steps 1060-1610;
  *        - Beatnik's `|volume drift| <= 1e-12`;
  *        - face count: `|F_Beatnik / F_gold - 1| <= 0.10`;
  *        - Beatnik's minimum triangle quality `>= 0.18`
  *          (`--remesh-min-quality`).
  *      Valence 5/6/7 counts and the minimum and mean edge length are printed
  *      beside the gold's, never asserted. A gold checkpoint whose `time` is
- *      later than Beatnik's final `time` is a `[FAIL]`, never a skip.
+ *      later than Beatnik's final `time` is a `[FAIL]`, never a skip. The
+ *      rise and area segment is chosen by the gold row's step, never by
+ *      Beatnik's step index. The late limits cover a mesh-selection
+ *      discretisation gap that the reference itself shows when restarted from
+ *      Beatnik's step-10 mesh (progress log, `## M1-D3`).
  *   3. **Liveness (risk M1-R7).** By the last step the cumulative remesh
  *      counters `splits`, `collapses`, `flips` and `smooth_steps` and
  *      `Solver::cleanupFlips()` are all non-zero, and at every step that is a
@@ -102,14 +108,22 @@
  *       area_gold=<A> area_rel=<r> vol_drift=<Beatnik> vol_drift_gold=<d>
  *       qmin=<Beatnik> qmin_gold=<q> v5=<Beatnik> v5_gold=<n> v6=.. v6_gold=..
  *       v7=.. v7_gold=.. lmin=<Beatnik> lmin_gold=<l> lmean=<Beatnik>
- *       lmean_gold=<l> verdict=<pass|FAIL|unasserted> failed=<bands|none>
+ *       lmean_gold=<l> rise_tol=<limit> area_tol=<limit>
+ *       verdict=<pass|FAIL|unasserted> failed=<bands|none>
  *
  * where `step_lo`/`step_hi` are the Beatnik steps whose `time` brackets the
- * gold's and every Beatnik value is the interpolant between them. The worst
- * value of each asserted band over the run follows on one line:
+ * gold's and every Beatnik value is the interpolant between them.
+ * `rise_tol`/`area_tol` are the rise and area limits of the gold step's
+ * segment, printed `%.3g`: `0.001`/`0.001` at gold steps 10-1050 (and at the
+ * unasserted step 0), `0.004`/`0.015` at 1060-1610. The worst value of each
+ * asserted band over the run follows on one line, rise and area per segment:
  *
- *     [m1statworst] rise_err=<max> at=<gold step> area_rel=<max> at=<s>
- *       vol_drift=<max |d|> at=<s> F_rel=<max> at=<s> qmin=<min> at=<s>
+ *     [m1statworst] rise_err[10-1050]=<max> at=<gold step>
+ *       area_rel[10-1050]=<max> at=<s> rise_err[1060-1610]=<max> at=<s>
+ *       area_rel[1060-1610]=<max> at=<s> vol_drift=<max |d|> at=<s>
+ *       F_rel=<max> at=<s> qmin=<min> at=<s>
+ *
+ * A segment with no asserted checkpoint prints `0.000000e+00 at=-1`.
  *
  * Closing summary:
  *
@@ -217,15 +231,56 @@ constexpr Tolerance kStep0Tolerance = { 1.0e-10, 1.0e-12 };
 
 //---------------------------------------------------------------------------//
 // The statistics bands, asserted at every gold checkpoint from step 10 to
-// 1610 (tasks/milestone1.md, M1-A1j **Decided**). Measured through step 600 at
-// matched time (progress log, `## M1-D2`): rise within 2.683e-4, area within
-// 1.805e-4 relative, |volume drift| at most 4.4e-16 on both sides, Beatnik
-// 3-5 % fewer faces, its minimum quality 0.840-0.870.
+// 1610 (tasks/milestone1.md, M1-A1j and M1-A1 **Decided**). Measured through
+// step 600 at matched time (progress log, `## M1-D2`): rise within 2.683e-4,
+// area within 1.805e-4 relative, |volume drift| at most 4.4e-16 on both sides,
+// Beatnik 3-5 % fewer faces, its minimum quality 0.840-0.870.
+//
+// Rise and area are piecewise in the GOLD row's step, split at
+// `kLateFirstGoldStep`. Measured at matched time on all four compare launches
+// of job f3j79G2VDX4T (progress log, `## M1-A1`):
+//   - gold steps 10-1050: worst area_rel 9.88e-4 (step 1050), worst rise_err
+//     2.71e-4 (step 310);
+//   - gold steps 1060-1610: worst area_rel 1.063e-2 and worst rise_err
+//     2.545e-3, both at step 1610. The reference's own solver restarted from
+//     Beatnik's step-10 mesh (`bk10`) misses the gold there by area 1.047e-2
+//     and rise 2.808e-3 (progress log, `## M1-D3`): a mesh-selection
+//     discretisation gap, not a defect. The late limits hold both with about
+//     1.4x headroom. 1060 is the first gold step at which area drifts past
+//     the early limit.
 //---------------------------------------------------------------------------//
-/// `|zc_Beatnik - zc_gold|`, absolute, units of length.
-constexpr double kRiseAtol = 1.0e-3;
-/// `|area_Beatnik / area_gold - 1|`.
-constexpr double kAreaRtol = 1.0e-3;
+/// The first gold step of the late rise/area segment.
+constexpr int kLateFirstGoldStep = 1060;
+/// `|zc_Beatnik - zc_gold|`, absolute, units of length, gold steps 10-1050.
+constexpr double kRiseAtolEarly = 1.0e-3;
+/// `|zc_Beatnik - zc_gold|`, absolute, units of length, gold steps 1060-1610.
+constexpr double kRiseAtolLate = 4.0e-3;
+/// `|area_Beatnik / area_gold - 1|`, gold steps 10-1050.
+constexpr double kAreaRtolEarly = 1.0e-3;
+/// `|area_Beatnik / area_gold - 1|`, gold steps 1060-1610.
+constexpr double kAreaRtolLate = 1.5e-2;
+
+static_assert( kLateFirstGoldStep % kEvery == 0 &&
+                   kEvery < kLateFirstGoldStep && kLateFirstGoldStep <= kSteps,
+               "the late segment must start at a gold checkpoint after "
+               "step 10 and within the run" );
+
+/// The rise/area segment of a gold checkpoint: 0 early, 1 late.
+constexpr int bandSegment( int gold_step )
+{
+    return gold_step >= kLateFirstGoldStep ? 1 : 0;
+}
+/// The rise limit applied at a gold checkpoint.
+constexpr double riseAtol( int gold_step )
+{
+    return bandSegment( gold_step ) == 1 ? kRiseAtolLate : kRiseAtolEarly;
+}
+/// The area limit applied at a gold checkpoint.
+constexpr double areaRtol( int gold_step )
+{
+    return bandSegment( gold_step ) == 1 ? kAreaRtolLate : kAreaRtolEarly;
+}
+
 /// Beatnik's `|vol / initial_volume - 1|`.
 constexpr double kVolumeDriftMax = 1.0e-12;
 /// `|F_Beatnik / F_gold - 1|`.
@@ -783,11 +838,13 @@ void runChecks( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
     int stat_failed = 0;
     int stat_unreached = 0;
     int first_failing_stat = -1;
-    // The worst value of each asserted band, and the gold step it occurs at.
-    double worst_rise = 0.0, worst_area = 0.0, worst_vol = 0.0,
-           worst_faces = 0.0, worst_q = std::numeric_limits<double>::infinity();
-    int worst_rise_at = -1, worst_area_at = -1, worst_vol_at = -1,
-        worst_faces_at = -1, worst_q_at = -1;
+    // The worst value of each asserted band, and the gold step it occurs at;
+    // rise and area per segment (`bandSegment`).
+    double worst_rise[2] = { 0.0, 0.0 }, worst_area[2] = { 0.0, 0.0 };
+    int worst_rise_at[2] = { -1, -1 }, worst_area_at[2] = { -1, -1 };
+    double worst_vol = 0.0, worst_faces = 0.0,
+           worst_q = std::numeric_limits<double>::infinity();
+    int worst_vol_at = -1, worst_faces_at = -1, worst_q_at = -1;
     // The next gold row to match; row 0 is step 0, printed unasserted.
     int next_gold = 1;
     bool mesh_ok_all = true;
@@ -867,6 +924,10 @@ void runChecks( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
         const double rise_err = std::fabs( b.centroid_z - g.centroid_z );
         const double area_rel = std::fabs( b.area / g.area - 1.0 );
         const double vol = std::fabs( b.volume_drift );
+        // The segment is the gold row's, never Beatnik's step index.
+        const int seg = bandSegment( g.step );
+        const double rise_tol = riseAtol( g.step );
+        const double area_tol = areaRtol( g.step );
 
         std::string failed;
         auto band = [&]( bool holds, const char* name ) {
@@ -877,8 +938,8 @@ void runChecks( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
             failed += name;
         };
         // Each band is written `x <= tol`, so a NaN fails it.
-        band( rise_err <= kRiseAtol, "rise" );
-        band( area_rel <= kAreaRtol, "area" );
+        band( rise_err <= rise_tol, "rise" );
+        band( area_rel <= area_tol, "area" );
         band( vol <= kVolumeDriftMax, "volume_drift" );
         band( f_rel <= kFaceCountRtol, "face_count" );
         band( b.min_quality >= kMinQuality, "min_quality" );
@@ -891,28 +952,29 @@ void runChecks( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
             "rise_err=%.6e area=%.17g area_gold=%.17g area_rel=%.6e "
             "vol_drift=%.6e vol_drift_gold=%.6e qmin=%.6f qmin_gold=%.6f "
             "v5=%.3f v5_gold=%lld v6=%.3f v6_gold=%lld v7=%.3f v7_gold=%lld "
-            "lmin=%.6e lmin_gold=%.6e lmean=%.6e lmean_gold=%.6e verdict=%s "
-            "failed=%s\n",
+            "lmin=%.6e lmin_gold=%.6e lmean=%.6e lmean_gold=%.6e "
+            "rise_tol=%.3g area_tol=%.3g verdict=%s failed=%s\n",
             g.step, g.time, step_lo, step_hi, w, b.faces, g.faces, f_rel,
             b.centroid_z, g.centroid_z, rise_err, b.area, g.area, area_rel,
             b.volume_drift, g.volume_drift, b.min_quality, g.min_quality,
             b.valence5, g.valence5, b.valence6, g.valence6, b.valence7,
             g.valence7, b.min_edge, g.min_edge, b.mean_edge, g.mean_edge,
-            verdict, failed.empty() ? "none" : failed.c_str() );
+            rise_tol, area_tol, verdict,
+            failed.empty() ? "none" : failed.c_str() );
         std::fflush( stdout );
         if ( !asserted )
             return true;
 
         ++stat_checked;
-        if ( !( rise_err <= worst_rise ) )
+        if ( !( rise_err <= worst_rise[seg] ) )
         {
-            worst_rise = rise_err;
-            worst_rise_at = g.step;
+            worst_rise[seg] = rise_err;
+            worst_rise_at[seg] = g.step;
         }
-        if ( !( area_rel <= worst_area ) )
+        if ( !( area_rel <= worst_area[seg] ) )
         {
-            worst_area = area_rel;
-            worst_area_at = g.step;
+            worst_area[seg] = area_rel;
+            worst_area_at[seg] = g.step;
         }
         if ( !( vol <= worst_vol ) )
         {
@@ -956,7 +1018,8 @@ void runChecks( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
             "%.6e (<= %.3g), F_rel %.6e (<= %.3g; F %.3f vs %lld), qmin %.6f "
             "(>= %.3g)",
             g.step, g.time, std::fabs( b.centroid_z - g.centroid_z ),
-            kRiseAtol, std::fabs( b.area / g.area - 1.0 ), kAreaRtol,
+            riseAtol( g.step ), std::fabs( b.area / g.area - 1.0 ),
+            areaRtol( g.step ),
             std::fabs( b.volume_drift ), kVolumeDriftMax,
             std::fabs( b.faces / g.faces - 1.0 ), kFaceCountRtol, b.faces,
             g.faces, b.min_quality, kMinQuality );
@@ -1151,11 +1214,17 @@ void runChecks( Beatnik::Test::Recorder& rec, int argc, char* argv[] )
                 rec.fail( os.str() );
             }
         }
-        std::printf( "[m1statworst] rise_err=%.6e at=%d area_rel=%.6e at=%d "
-                     "vol_drift=%.6e at=%d F_rel=%.6e at=%d qmin=%.6f at=%d\n",
-                     worst_rise, worst_rise_at, worst_area, worst_area_at,
-                     worst_vol, worst_vol_at, worst_faces, worst_faces_at,
-                     worst_q, worst_q_at );
+        const int early_last = kLateFirstGoldStep - kEvery;
+        std::printf( "[m1statworst] rise_err[%d-%d]=%.6e at=%d "
+                     "area_rel[%d-%d]=%.6e at=%d rise_err[%d-%d]=%.6e at=%d "
+                     "area_rel[%d-%d]=%.6e at=%d vol_drift=%.6e at=%d "
+                     "F_rel=%.6e at=%d qmin=%.6f at=%d\n",
+                     kEvery, early_last, worst_rise[0], worst_rise_at[0],
+                     kEvery, early_last, worst_area[0], worst_area_at[0],
+                     kLateFirstGoldStep, kSteps, worst_rise[1],
+                     worst_rise_at[1], kLateFirstGoldStep, kSteps,
+                     worst_area[1], worst_area_at[1], worst_vol, worst_vol_at,
+                     worst_faces, worst_faces_at, worst_q, worst_q_at );
         std::fflush( stdout );
     }
 
