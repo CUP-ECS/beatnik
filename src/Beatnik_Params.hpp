@@ -702,8 +702,13 @@ struct RemeshParams
     /// a milestone run: at `--remesh-every 1` a 600-step run renumbers 12
     /// times, and every 200-step stretch of it (task T4d6's window) holds at
     /// least three renumberings. Tessera's own advice is "every few hundred
-    /// steps"; 50 is the conservative end of that, chosen while the leak rate
-    /// on the milestone run is unmeasured (T4d6 measures it).
+    /// steps"; 50 is the conservative end of that. Measured over a 600-step
+    /// milestone-defaults run at ranks 1 and 4 (tasks/milestone1-progress-log.md
+    /// `## T4d6`): at 50 the gid space falls back to 3098–3122 at every
+    /// renumbering and stays bounded, while with renumbering off it never
+    /// falls.
+    /// Per-rank RSS growth at 4 ranks is the same at 50 as with renumbering
+    /// off, so it is not the gid space; it is a README Known Issue.
     int renumber_gids_every = 50;
 
     // --- nonlocal proximity sizing -----------------------------------------

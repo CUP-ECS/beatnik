@@ -37,13 +37,16 @@
  *
  * CURRENT BEHAVIOR
  * ----------------
- * The solver integrates. The still-unported passes are
- * the mesh-quality ones (T4d, T4e) and the circulation field filter (T5c), and
- * a configuration that needs one of them is rejected by
- * `Solver::requireSupportedConfiguration` before the first step, with a message
- * naming the option to change and the task that owns it. The DEFAULT
- * configuration is one of those today, because `--isotropic-cleanup` defaults
- * on; that message is the thing to read when picking up the next task.
+ * The solver integrates, and the default configuration runs: dynamic remeshing
+ * with its split, collapse, quality-flip and tangential-smoothing passes, and
+ * the isotropic cleanup after it. `Solver::requireSupportedConfiguration`
+ * rejects, before the first step, exactly four options, each off by default
+ * and each named in its message with the setting that satisfies it (the first
+ * three only under `--dynamic-remesh`):
+ *
+ *   --remesh-proximity, --remesh-surgical-proximity   (task T4e, unported)
+ *   --remesh-tight-after >= 0                         (tight profile, unported)
+ *   --field-filter-every > 0                          (task T5c, unported)
  */
 
 #include <Beatnik_Config.hpp>

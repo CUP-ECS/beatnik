@@ -20,9 +20,10 @@
 # for presentation output. One script, two modes, chosen at submit time:
 #
 #   RB_MODE=no_amr  frozen mesh: --no-dynamic-remesh --refine-every 0
-#   RB_MODE=amr     split-only dynamic remeshing: --dynamic-remesh with the
-#                   T4d passes (collapse, flips, smoothing, isotropic cleanup)
-#                   switched off, since they still throw
+#   RB_MODE=amr     split-only dynamic remeshing: --dynamic-remesh with
+#                   collapse, quality flips, smoothing and the isotropic
+#                   cleanup switched off, the configuration of the T4b gate
+#                   member (Beatnik_Test_DynamicRemeshSplit)
 #
 #   RB_MODE=no_amr flux batch --job-name=rb_l3_no_amr \
 #       --output=/p/lustre5/stewartj/beatnik/rising_bubble_no_amr/{{name}}.{{jobid}}.log \
