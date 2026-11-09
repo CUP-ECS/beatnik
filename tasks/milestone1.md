@@ -1,13 +1,15 @@
 # Milestone 1 — the reference's default rising-bubble configuration
 
 **Status:** IN PROGRESS — M1-U1, M1-U2, M1-U3, M1-G1, M1-G2, M1-D1, T4d1,
-T4d2, T4d3, T4d4, T4d5, T4d6j, T4d6, M1-T2j, M1-T2 and M1-D2 are **DONE** and
-reviewed, Passed. The codes part at step 2, where Tessera's one-round collapse
-independent set accepts 8 of the 44 collapse candidates the reference's serial
-walk accepts 31 of, and Beatnik's mesh obeys the reference's rules at every
-probed step after (log `## M1-D2`). M1-G3j is **DONE**: its reference job
-`f3iZLsmfWYw1` ran and stopped at step 1625, and its gold set is steps 0–1610
-(Read this first #1). M1-G3, M1-A1j and M1-A1 are NOT STARTED.
+T4d2, T4d3, T4d4, T4d5, T4d6j, T4d6, M1-T2j, M1-T2, M1-D2 and M1-G3j are
+**DONE** and reviewed, Passed. The codes part at step 2, where Tessera's one-round
+collapse independent set accepts 8 of the 44 collapse candidates the reference's
+serial walk accepts 31 of, and Beatnik's mesh obeys the reference's rules at every
+probed step after (log `## M1-D2`). M1-G3 is **DONE**: the reference job
+`f3iZLsmfWYw1` stopped at step 1625, and the gold set is steps 0–1610, 162
+checkpoints ending at `time` 1.238122, recorded in
+`tests/regression_tests/milestone1-bubble-1610/README.md` (Read this first #1).
+M1-A1j and M1-A1 are NOT STARTED.
 
 ## Problem
 
@@ -2077,7 +2079,7 @@ and the wrapper submitted job `f3iZLsmfWYw1` (rc 0). `flux jobs` shows it in sta
 
 ---
 
-### M1-G3 — the steps 0–1610 gold set is complete and recorded *(no code)* — **NOT STARTED**
+### M1-G3 — the steps 0–1610 gold set is complete and recorded *(no code)* — **DONE**
 
 **Depends on:** M1-G3j.
 
@@ -2108,6 +2110,24 @@ reference is serial and deterministic, so a difference means the staged
 reference is not M1-G2's); a self-compare of the step-1610 file at
 `--rtol 1e-12 --atol 1e-14` exits 0, where the step-1624 file's fails on
 ambiguous pairing; and the README exists with the table.
+
+**Met.** Job `f3iZLsmfWYw1` (`beatnik_m1g3_gold.f3iZLsmfWYw1.log`, stage `COMMIT`
+naming Beatnik `2a38355` and reference `ec7d7bf`) stopped by itself with
+`stopping at step=1625 t=1.2540: nonfinite mesh-RHS state` after a 1782 s
+generation, leaving 164 numbered checkpoints (0..1620 every 10, plus 1624). Its
+in-job checks show step 0 `np.array_equal` to the initial-condition gold and step
+600 `np.array_equal` to M1-G2's step-600 file on all nine keys, every numeric
+field of every file finite, and the step-1624 self-compare failing with 1992 of
+1993 vertices ambiguous. The verification job `f3j6vKt4EQS3`
+(`scripts/tuolumne/m1g3_check.flux`, `beatnik_m1g3_check.f3j6vKt4EQS3.log`,
+COMPLETED rc 0) self-compared the step-1610 file with the staged
+`compare_output.py` at `--rtol 1e-12 --atol 1e-14`: rc 0, `610/610 unambiguous,
+ambiguous cpp=0 gold=0`. It found exactly 162 files for steps 0, 10, …, 1610,
+each with the nine keys, the matching stored `step`, and every numeric field
+finite; step 1610's `time` is 1.2381221993625053. The README
+`tests/regression_tests/milestone1-bubble-1610/README.md` carries the command,
+provenance, stop, cap, checks and the 162-row table, identical to the generation
+job's table for those steps.
 
 ---
 

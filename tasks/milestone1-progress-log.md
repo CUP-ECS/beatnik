@@ -3959,3 +3959,84 @@ excluded from the code review.
    with no SHA. That SHA is `0535a45`. It does not change the code range.
 
 **Affects:** none
+
+## M1-G3
+
+**Commits:** Beatnik `8952c39` (`tests/regression_tests/milestone1-bubble-1610/README.md`,
+`scripts/tuolumne/m1g3_check.flux`); the commit that adds this section and the
+`milestone1.md` edits.
+
+**Jobs:**
+- `f3iZLsmfWYw1` (M1-G3j's generation, `scripts/tuolumne/m1g3_gold.flux`), log
+  `beatnik_m1g3_gold.f3iZLsmfWYw1.log`, output
+  `/p/lustre5/stewartj/beatnik/M1-G3j/out/`. Exited 1, as expected: the
+  generation itself exited 0 (`generation rc=0 wall=1782s`, log :237) and the
+  checks exited 1 on the step-1624 self-compare only. Read for the stop (:233),
+  the step-0 and step-600 equalities (:242–243), the step-1624 failure (:245,
+  :432–433) and the table (:266–430).
+- `f3j6vKt4EQS3` (this task's verification, `scripts/tuolumne/m1g3_check.flux`,
+  `pdebug`, 1 node `--exclusive`, `-t 10m`, `--bank=unm`), log
+  `beatnik_m1g3_check.f3j6vKt4EQS3.log`. COMPLETED rc 0, 21 s runtime, on
+  `tuolumne1046`. Read for the step-1610 self-compare and the 0..1610
+  finiteness check.
+
+**Decisions** (made before this session, recorded here):
+- The gold set is steps 0–1610: 162 checkpoints, final `time` 1.238122
+  (1.2381221993625053). Step 1610 is the last checkpoint before the V/F surge:
+  610/1216 at 1610, 793/1590 at 1620, 1993/4002 at 1624. Steps 1620 and 1624 are
+  excluded and stay on Lustre untouched. There is no resubmission. The design
+  doc states this as of `e798498`.
+- The README is `tests/regression_tests/milestone1-bubble-1610/README.md`. No
+  `.npz` files are copied into the repo.
+- The step-1610 self-compare was not part of the generation job, so it runs in
+  a short verification job, `m1g3_check.flux`, which also re-asserts the 162
+  files and their finiteness. It reads the stage and `out/` and writes nothing
+  into either.
+
+**Decisions** (this session):
+- `m1g3_check.flux` also prints the step / `time` / V / F table for steps
+  0..1610, read from the files. It matches the generation job's table for the
+  same rows line for line (`diff` empty), and the README's table is that output.
+- The check job `cd`s to `/tmp` before running Python, so the comparator runs
+  with no stage or repo directory as its working directory.
+
+**Provenance:** `stage/COMMIT` (echoed at the top of both logs) names Beatnik
+`2a38355cd838…`, M1-G3j's last code commit, and reference `ec7d7bf4…` with an
+empty `zmodel3d/` status and the one-line `--source-quadrature` default diff.
+Python 3.13.2, numpy 2.1.2 (scipy 1.15.3 in the generation job).
+
+**Result.**
+- **Stop:** `stopping at step=1625 t=1.2540: nonfinite mesh-RHS state`, preceded
+  by numpy overflow warnings in `zmodel3d/mesh_solver.py`; then `saved final
+  finite checkpoint …_step0001624.npz`. 164 numbered checkpoints: 0..1620 every
+  10, plus 1624. `checkpoint_latest.npz` is byte-identical to the step-1624 file.
+- **Step 0** `np.array_equal` to `initial_conditions/gold.npz` on all nine keys;
+  its `compare_output.py` rc 0, `162/162 unambiguous`.
+- **Step 600** `np.array_equal` on all nine keys to M1-G2's step-600 file. The
+  table's steps 0–600 also equal M1-G2's README table row for row.
+- **Step-1624 self-compare** (generation job): rc 1, `1/1993 unambiguous,
+  ambiguous cpp=1992 gold=1992`. These are the job's only `CHECK FAIL` lines.
+- **Step-1610 self-compare** (verification job), `--rtol 1e-12 --atol 1e-14`:
+  rc 0, `matching (eps=1e-09): 610/610 unambiguous, ambiguous cpp=0 gold=0`,
+  `RESULT: match`.
+- **Finiteness** (verification job): 162 files for steps ≤ 1610, exactly
+  0, 10, …, 1610, with the nine keys and matching stored `step`; 0 files with a
+  nonfinite numeric field. The generation job's check over all 164 files also
+  found none.
+- **Generation wall:** 1782 s for 1625 steps, 1.10 s/step.
+
+**Only running revealed:**
+- The mesh does not stay at M1-G2's ~1074 faces. It dips to `534`/`1064` at
+  steps 870–890, is back at `538`/`1072` by step 1000, and grows from step 1100
+  on: `541`/`1078` at 1150, `576`/`1148` at 1400, `610`/`1216` at 1610. Then
+  it surges, `793`/`1590` at step 1620 and `1993`/`4002` at step 1624, and the
+  run goes nonfinite at step 1625. `V = F/2 + 2` holds in every row.
+- `dt` falls with the mesh: `9.06e-4` at step 500, `6.80e-4` at 1000, `5.82e-4`
+  at 1500 (progress lines).
+
+**Affects:** M1-A1j: its gold-statistics table is these 162 files (steps 0, 10,
+…, 1610, read from `/p/lustre5/stewartj/beatnik/M1-G3j/out/`, table in
+`tests/regression_tests/milestone1-bubble-1610/README.md`); `kSteps` is 1610;
+and Beatnik must reach `time` 1.238122 (1.2381221993625053) at step 1610. The
+peak mesh in the set is `610`/`1216` at the last step, so a Beatnik run sized
+from M1-G2's ~1074 faces underestimates the tail by about 13 %.
