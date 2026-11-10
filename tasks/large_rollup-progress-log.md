@@ -1080,3 +1080,39 @@ finishes. The cap bounds each segment at 80 min.
 `scripts/tuolumne/large_rollup_segment.flux` (its stage copy edits the
 `--output` directive to R1j's directory, created before submitting) and the
 cap-kill behaviour above.
+
+## V1j review
+
+**Verdict:** Passed
+**Reviewed:** `dbd8e0f^..dbd8e0f` (code; `a54af2c` is the docs commit)
+**Evidence:** submit task, verified without a verification job (review-task
+§4). Both jobs are known to the scheduler: `f3jBPQzmiXhq` (seg1, submitted
+18:51:01, started 18:51:24, running at the review, writing checkpoints to
+`V1/out/` at step 420, $t = 0.43$) and `f3jBPi5KJgJb` (seg2, `DEPEND`). Their
+jobspecs carry `pbatch`, a 5400 s duration, the arguments
+`V1/stage/args.txt V1/out 1.25 seg1` and
+`V1/stage/args.txt V1/out 2.5 seg2 V1/out/checkpoint_latest.h5`, and seg2 an
+`afterok` dependency on seg1. `stage/segment1.flux` is byte-identical to the
+repository script at `dbd8e0f`; `stage/segment2.flux` differs only by the
+`--dependency=afterok:f3jBPQzmiXhq` directive. `stage/bin/adaptive_mesh_bubble`
+is `cmp`-identical to the production install `beatnik-develop-jrgarvack…`.
+`stage/COMMIT` names production beatnik `4b33843`, the binary's embedded hash,
+and records that `git diff 4b33843 dbd8e0f -- src examples tests CMakeLists.txt`
+is empty; `dbd8e0f` touches only the new script, so the staged code is the
+task's code. The seg1 job log echoes the PRODUCTION env, the staged exe and
+`stage/COMMIT`. `bash -n` passes; `review_checks.py` found no candidates.
+
+Conventions read against the script: SPDX header; `beatnik_find_repo` block
+reused and the resolver sourced before any work (only `BEATNIK_USE_PROD` and
+the repo lookup precede it, as they must); `set -u`; `BEATNIK_USE_PROD=1`;
+1 node at `-t 90m` in `pbatch`; output under
+`/p/lustre5/stewartj/beatnik/large_rollup/V1/`; `flux run -t 80m` with one
+`[large_rollup] <tag> rc=<rc> wall=<s>` summary per launch (also on the
+missing-restart path); the binary is the staged copy and the job echoes
+`stage/COMMIT`. Exit logic checked against
+`examples/02_adaptive_mesh_bubble/adaptive_mesh_bubble.cpp`: a non-finite stop
+returns `EXIT_FAILURE`, so it reaches the `nonfinite` branch and breaks the
+`afterok` chain; reaching `--t-end` returns 0. The explicit restart argument in
+place of Do step 2's auto-detection is recorded in `## V1j` with its reason.
+
+**Affects:** none
