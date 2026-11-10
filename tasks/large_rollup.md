@@ -48,9 +48,9 @@ Restart (`--restart-from`) is implemented as part of this work (T5b).
 **Measure, decide, pilot, then run.** P1 measures cost, memory and early
 stability at the two candidate starting resolutions with no code change. D1
 turns those numbers into the production parameter set. T5b makes restart work.
-V1j/V1 run the parameter set to `t_end` at reduced resolution, across one
-restart, which shows that the configuration survives before the expensive run
-is spent. R1j/R1 is the production run.
+V1j, V1k and V1 run the pilot: the parameter set at reduced resolution, to
+`t_end`, across chained restarts. That shows the configuration survives before
+the expensive run is spent. R1j/R1 is the production run.
 
 Decisions, with their reasons:
 
@@ -127,7 +127,7 @@ node-h, at np8 on 2 nodes (log `## D1`).
 | End time | `--t-end` | `--t-end 2.5` | user, `## D1` |
 | Checkpoint cadence | `--checkpoint-every-time` | `--checkpoint-every-time 0.025` (about 100 files, 8 GB, 4.5 min of writes) | P1b (write about 2.2 s at 164k); user, `## D1` |
 | Ranks / nodes, segment walltime | — | np8 on 2 nodes; three 12h segments (`-t 720m`) in `pbatch` | `## P1c` (np8/np4 s/step 0.97; np8 worst case 23.8 h wall, 29.7 with margin, 59.4 node-h); user, `## D1` |
-| Pilot resolution | starting level and `h_max` for V1j | `--icosphere-subdivisions 6 --remesh-h-max 4.1e-3 --remesh-h-min 3.0e-3 --remesh-sagitta-tolerance 0.016 --eps 1.6e-2 --dt 3.2e-3 --min-dt 2e-4 --dt-edge-power 2`, np4 on 1 node, two segments at `-t 90m` in `pbatch` (about 2,000–4,300 steps to $t = 2.5$) | `## P1c` (`L6_np4_eps1.6e-2` stable at ratio 0.343, 0.118 s/step np4); user, `## D1` |
+| Pilot resolution | starting level and `h_max` for V1j | `--icosphere-subdivisions 6 --remesh-h-max 4.1e-3 --remesh-h-min 3.0e-3 --remesh-sagitta-tolerance 0.016 --eps 1.6e-2 --dt 3.2e-3 --min-dt 2e-4 --dt-edge-power 2`, np4 on 1 node, chained segments at `-t 90m` in `pbatch`: two from V1j, up to seven more from V1k (about 2,000–4,300 steps to $t = 2.5$) | `## P1c` (`L6_np4_eps1.6e-2` stable at ratio 0.343, 0.118 s/step np4); user, `## D1`; segment count from V1j's measured cost (V1k) |
 | Pilot quality floor | minimum `minQ` V1 asserts | `minQ` ≥ 0.12 | user, `## D1` (pre-T4d long runs ended at 0.033–0.11; 0.18 is the repair trigger) |
 
 ### Conventions
@@ -631,9 +631,62 @@ ID is on the log's `**Jobs:**` line. The stage directory holds `bin/`, the
 arguments file and `COMMIT`. The prod env's installed beatnik spec has the
 commit that `stage/COMMIT` names.
 
-### V1 — read the pilot — **NOT STARTED**
+### V1k — pilot continuation to `t_end`, submitted — **NOT STARTED**
+
+V1j's two segments end short of `t_end`. Seg1 `f3jBPQzmiXhq` reached
+`--t-end 1.25` (`seg1 end=t_end`). Seg2 `f3jBPi5KJgJb` restarted at step 1764,
+$t = 1.25$. Its 80-minute launch cap killed it at step 2326, $t = 1.577$
+(`seg2 rc=142`, `end=cap checkpoint=checkpoint_t00001p577250_step0002326.h5`,
+job log `V1/large_rollup_segment.f3jBPi5KJgJb.log`). Its last progress line
+is step 2322, $t = 1.575$, dt 5.83e-4, V 81,028, `minQ` 0.67, `volRel`
+-4.4e-16 (`V1/out/seg2.launch.log`).
 
 **Depends on:** V1j.
+**Fill in:** the stage directory only: new files
+`V1/stage/segment3.flux` … `segment9.flux`. No change to
+`scripts/tuolumne/large_rollup_segment.flux`, `args.txt`, `bin/` or `COMMIT`.
+**Submits:** `scripts/tuolumne/large_rollup_segment.flux` as staged copies, as
+a chain of seven segments seg3–seg9. Each is 1 node, np4, `-t 90m` (launch cap
+`flux run -t 80m`), in `pbatch`, from stage
+`/p/lustre5/stewartj/beatnik/large_rollup/V1/stage`, writing to
+`/p/lustre5/stewartj/beatnik/large_rollup/V1/out/` (job logs in `V1/`).
+Expected run time:
+- about 1,580 steps remain from $t = 1.577$ to $2.5$ at dt about 5.85e-4;
+- seg2 ended at about 10.6 s/step at V 81k, rising with V (seg2's launch
+  log; seg1 ran 0.13 s/step at 41k with no remeshing, and 5.0 s/step at 64k);
+- at 10–20 s/step that is 4.4–8.8 h, i.e. 4–7 segments at the 80-minute cap,
+  10.5 node-h at most.
+**Removes:** nothing.
+**Do:**
+
+1. Do not rebuild or re-stage. The chain continues the V1j run with the
+   staged binary, `args.txt` and `COMMIT` unchanged, so every segment runs
+   the same code.
+2. Write `segment3.flux` as a byte copy of `segment1.flux`. Seg2 has
+   finished, so seg3 has no dependency. Write `segment<k>.flux` for
+   $k = 4…9$ as the same copy plus `# flux: --dependency=afterok:<seg k−1
+   id>`, after seg $k-1$ is accepted, as V1j did for seg2.
+3. Submit every segment with the arguments
+   `V1/stage/args.txt V1/out 2.5 seg<k> V1/out/checkpoint_latest.h5` (full
+   paths). Each restarts from the latest checkpoint, into the same
+   `--checkpoint-dir`, which T5b's `resumeSeries` accepts.
+4. A segment that starts after the run has reached `t_end` restarts at
+   $t = 2.5$. `Solver::solve` breaks before its first step
+   (`src/Beatnik_Solver.hpp:359-361`), so the segment rewrites the
+   equal-time checkpoint and exits 0. Surplus segments are therefore harmless,
+   and V1 reads past them. A `nonfinite` stop exits non-zero and breaks the
+   `afterok` chain, so later segments never run.
+5. Append every job ID to the log's `**Jobs:**` line.
+
+**Exit criterion:** all seven segments are accepted by the scheduler, seg4–seg9
+each with an `afterok` dependency on its predecessor. Every ID is on the log's
+`**Jobs:**` line. `segment3.flux` is `cmp`-identical to `segment1.flux`, and
+each later copy differs from it only by its dependency directive. `args.txt`,
+`bin/adaptive_mesh_bubble` and `COMMIT` in the stage are unchanged from V1j.
+
+### V1 — read the pilot — **NOT STARTED**
+
+**Depends on:** V1k.
 **Fill in:** the log's `## V1`; this document's Current state, if the pilot
 changes a fact stated there.
 **Removes:** nothing.
@@ -641,8 +694,12 @@ changes a fact stated there.
 - `t`, `V`, `F`, `minQ`, `minEdge` and `dt`, every 0.1 time units;
 - s/step against `V`;
 - RSS per rank against step;
-- the restart point (the last pre-restart step and `t`, and the first
-  post-restart progress line).
+- each restart point, seg2 through the last segment that ran (the last
+  pre-restart step and `t`, the `restarted from … at step= t=` line, and the
+  first post-restart progress line).
+
+Read every segment's job log and `<tag>.launch.log` from V1j and V1k. A
+segment that restarted at `t_end` and took no step is recorded as surplus.
 
 If the pilot stopped, record its stop line, the last three progress lines,
 and which of R1–R3 the measurements point to, by the distinctions those risks
@@ -653,10 +710,11 @@ give. Then return to D1. This task does not change parameters.
   with no `nonfinite` stop line in any segment.
 - At every progress line: `|volRel| ≤ 1e-12`, and `minQ` at or above D1's
   pilot floor.
-- The post-restart segment's first progress line has `step` and `t` greater
-  than the restart checkpoint's.
-- **Failure direction:** a pilot that stopped early, or broke the volume or
-  quality bound, is recorded as a failed V1 with the diagnosis above, and R1j
+- Every post-restart segment's first progress line has `step` and `t` greater
+  than its restart checkpoint's.
+- **Failure direction:** a pilot that stopped early (a `nonfinite` stop, or
+  seg9 ending on its cap short of `t_end`), or broke the volume or quality
+  bound, is recorded as a failed V1 with the diagnosis above, and R1j
   does not start.
 
 ### R1j — production run, submitted — **NOT STARTED**
