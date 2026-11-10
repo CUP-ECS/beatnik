@@ -1225,3 +1225,32 @@ to this.
 
 **Affects:** V1 reads seg3–seg9's job and launch logs (above), as well as
 V1j's seg1 and seg2. Any segment that starts at $t = 2.5$ is surplus.
+
+## V1k review
+
+**Verdict:** Passed
+**Reviewed:** `12c48ff` (docs only; V1k has no code commit, its deliverables
+are the stage copies on Lustre)
+**Evidence:** submit task, verified without a verification job (review-task
+§4). All seven segments are known to the scheduler: seg3 `f3jGfa2qqqNX` `RUN`
+(submitted 06:02:33, started 06:02:34), and seg4 `f3jGg4ENVXpK`, seg5
+`f3jGhvGwFoiF`, seg6 `f3jGi9bd7VU3`, seg7 `f3jGiNrJD7yh`, seg8
+`f3jGic4He3u9`, seg9 `f3jGiqL31AFH` each `DEPEND` with `after-success=` its
+predecessor, matching the `**Jobs:**` line. The seg3 and seg9 jobspecs carry
+`pbatch`, a 5400 s duration and the arguments `V1/stage/args.txt V1/out 2.5
+seg<k> V1/out/checkpoint_latest.h5` (full paths). In the stage,
+`segment1.flux` is `cmp`-identical to
+`scripts/tuolumne/large_rollup_segment.flux` and to `segment3.flux`;
+`diff segment1.flux segment<k>.flux` for k = 4…9 prints only `8a9` with
+`# flux: --dependency=afterok:<seg k−1 id>`, each ID the correct predecessor.
+`bin/adaptive_mesh_bubble` is `cmp`-identical to the production install
+`beatnik-develop-jrgarvack…`; `args.txt` (18:50:15), `COMMIT` (18:50:20),
+`segment1.flux` and `segment2.flux` keep their V1j timestamps, and `COMMIT`
+names production beatnik `4b33843`. Seg3's job log echoes the PRODUCTION
+env, the staged exe and `COMMIT` (embedded hash `4b33843`); its launch log
+shows `restarted from …/checkpoint_latest.h5 at step=2326 t=1.577250 with
+V=81142`, then steps 2344 and 2362 with `volRel` ~1e-15. The run's outcome is
+V1's to read. `12c48ff` touches only `tasks/`; no V1k prompt file remains
+under `tasks/`.
+
+**Affects:** none
