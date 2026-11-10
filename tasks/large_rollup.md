@@ -575,7 +575,22 @@ its last frame throws. Log `## T5b`.
 - the regression gate (`scripts/tuolumne/run_regression_minset.flux`) passes,
   since `Solver::setup` is on every member's path.
 
-### V1j — pilot run to `t_end`, across one restart, submitted — **NOT STARTED**
+### V1j — pilot run to `t_end`, across one restart, submitted — **DONE**
+
+**Met.** The user pulled the production clones and ran the production
+`spack install` by hand. This session checked the result: beatnik
+`4b33843` (contains `d94ff8e`), tessera `308885b` and canopy `9cb0682` are
+each an ancestor-check pass. The production view's `adaptive_mesh_bubble`
+(`beatnik-develop-jrgarvack…`, dated 2026-11-09 18:47, after beatnik HEAD's
+18:25) embeds `Beatnik_GIT_COMMIT_HASH` `4b33843`, the production beatnik
+HEAD that `stage/COMMIT` names. `git diff 4b33843 dbd8e0f -- src examples
+tests CMakeLists.txt` is empty. `V1/stage/` holds `bin/adaptive_mesh_bubble`
+(`cmp`-identical to the view), `args.txt`, `COMMIT`, `segment1.flux` and
+`segment2.flux`. The scheduler accepted both segments: `f3jBPQzmiXhq` (seg1,
+running at the check) and `f3jBPi5KJgJb` (seg2, `D`,
+`depends:after-success=f3jBPQzmiXhq`). Their IDs are on the log's
+`## V1j` **Jobs:** line. The segment script passes `bash -n` and carries the
+SPDX header and `set -u`. The run's output is for V1 to read.
 
 **Depends on:** D1, T5b.
 **Fill in:** `scripts/tuolumne/large_rollup_segment.flux` (new; also used by

@@ -970,3 +970,113 @@ No prompt file remains under `tasks/`.
 
 **Affects:** none. V1j and R1j may build on T5b as the `## T5b` **Affects**
 line states.
+
+## V1j
+
+**Commits:** `dbd8e0f` (`scripts/tuolumne/large_rollup_segment.flux`); the
+docs commit that adds this section and marks V1j DONE in
+`tasks/large_rollup.md`.
+**Jobs:** production env, staged binary built at beatnik `4b33843`, from stage
+`/p/lustre5/stewartj/beatnik/large_rollup/V1/stage/`, writing to
+`/p/lustre5/stewartj/beatnik/large_rollup/V1/out/`; 1 node, np4, `-t 90m`,
+`pbatch`, each approved by the user, once, through the loop's wrapper (exit 3,
+pbatch and 90 min over the agent limits).
+- `f3jBPQzmiXhq`, seg1, `stage/segment1.flux`, cold start to `--t-end 1.25`,
+  job log `V1/large_rollup_segment.f3jBPQzmiXhq.log`, launch log
+  `V1/out/seg1.launch.log` — pending: read by `V1`.
+- `f3jBPi5KJgJb`, seg2, `stage/segment2.flux`
+  (`# flux: --dependency=afterok:f3jBPQzmiXhq`), `--restart-from
+  V1/out/checkpoint_latest.h5` to `--t-end 2.5`, job log
+  `V1/large_rollup_segment.f3jBPi5KJgJb.log`, launch log
+  `V1/out/seg2.launch.log` — pending: read by `V1`.
+
+At the acceptance check seg1 was `R` on `tuolumne1513` and seg2 was `D`
+(`depends:after-success=f3jBPQzmiXhq`).
+
+### Decisions (made before the session; recorded here)
+
+- **The user updates and builds the production env by hand; this session only
+  checks it.** The first check found the clones pulled but the view's binary
+  still the 2026-10-15 build, embedding `c22d346` (108 commits before
+  `d94ff8e`). The session asked, and the user ran
+  `spack -e ~/spack_envs/tuolumne_beatnik_production install`. Re-check:
+  - beatnik HEAD `4b33843172367e6a8b934ff2a831c8fdf1dbe087` (branch
+    `large-rollup`), `merge-base --is-ancestor d94ff8e HEAD` passes;
+  - tessera HEAD `308885beaddbd820b041f00392f37a8ad625be0a` (`develop`),
+    ancestor check against `308885b` passes;
+  - canopy HEAD `9cb068254a42a68a238bf4271025c14c93dfabd2`
+    (`profiling-canopy`), ancestor check against `9cb0682` passes;
+  - `.spack-env/view/bin/adaptive_mesh_bubble` resolves to
+    `beatnik-develop-jrgarvack5rup44kphc4vjxpp7jxzt6q`, dated 2026-11-09
+    18:47:47, newer than beatnik HEAD (18:25:28); `strings` finds the
+    embedded hash `4b33843172367e6a8b934ff2a831c8fdf1dbe087`, the production
+    beatnik HEAD.
+- **`stage/COMMIT`** records production beatnik HEAD `4b33843` (the code the
+  binary was built from), tessera `308885b`, canopy `9cb0682`, the binary's
+  embedded hash, this checkout's HEAD `dbd8e0f` (the segment script's commit)
+  and its porcelain count 2 (`commands.sh` and the V1j prompt), and the check
+  `git diff 4b33843 dbd8e0f -- src examples tests CMakeLists.txt`: empty. The
+  exit criterion's "commit that `stage/COMMIT` names" is the production
+  beatnik HEAD `4b33843`.
+- **Chaining through the wrapper.** `stage/segment1.flux` is a copy of the
+  repository script; `stage/segment2.flux` is the same copy plus
+  `# flux: --dependency=afterok:f3jBPQzmiXhq`, written after seg1 was
+  accepted. The arguments file, output directory, `--t-end` and tag (and,
+  for seg2, the restart path) go after `--`, so the repository script stays
+  generic for R1j.
+- **How a segment ends.** `g_interrupted` is set on SIGINT and read by
+  nothing (`adaptive_mesh_bubble.cpp:78-83, 213`), so a launch killed by its
+  `flux run -t 80m` cap writes no final checkpoint; `checkpoint_latest.h5` is
+  the last one written on the 0.025 cadence. The script exits 0 on rc 0
+  (reached `--t-end`) or on a cap kill with `<out>/checkpoint_latest.h5`
+  present, and non-zero on a `nonfinite` stop, a missing restart file, or no
+  checkpoint to continue from, which breaks the `afterok` chain on purpose.
+- **Segment arguments.** `stage/args.txt` holds the base arguments only: the
+  Physics row; the Pilot resolution row (`--icosphere-subdivisions 6
+  --remesh-h-max 4.1e-3 --remesh-h-min 3.0e-3 --remesh-sagitta-tolerance
+  0.016 --eps 1.6e-2 --dt 3.2e-3 --min-dt 2e-4 --dt-edge-power 2`); the Edit
+  caps row; `--checkpoint-every-time 0.025 --steps 1000000
+  --progress-time-interval 0.01`. The script appends `--checkpoint-dir <out>
+  --t-end <t>` and seg2's `--restart-from`.
+- **Walltime.** Each segment `-t 90m` in `pbatch`, 1 node, np4, `flux run -t
+  80m`. A third segment is V1's call if seg2 ends on its cap short of
+  $t = 2.5$.
+
+### Implementation choices (this session)
+
+- The script takes `<args file> <out> <t_end> <tag> [restart path]`. The
+  stage is the args file's directory (the batch script is spooled, so
+  `BASH_SOURCE` cannot find it). The restart is explicit, not detected from
+  `<out>`, so a resubmitted seg1 never silently restarts; a restart path that
+  does not exist fails the segment.
+- A cap kill is detected as Flux's timeout exception text in the launch log
+  (`type=timeout` or `expired`) **or** a launch wall of at least 4740 s,
+  because no earlier large_rollup log held a `flux run -t` timeout to copy
+  the exact text from. Each segment's last line in the job log names the
+  outcome: `end=t_end`, `end=solver_stop`, `end=cap checkpoint=<target>`, or
+  `end=failure`.
+- The guard does not resolve shell variables in paths, so the stage was
+  built with literal paths and the Write tool.
+
+### Wait estimate
+
+`pbatch`'s recent waits (`flux jobs -a -q pbatch`) were mostly under 11 min,
+with one 7.7 h outlier on 2026-11-06; seg1 started 23 s after submission.
+Run time: two segments of up to about 45 min each (D1's worst case), plus a
+short `pbatch` wait for seg2 once seg1 ends: about 110 min until seg2
+finishes. The cap bounds each segment at 80 min.
+
+### Findings
+
+1. [R1j] The binary's SIGINT flag is never read, so a segment killed on its
+   cap loses everything after its last cadence checkpoint (up to 0.025 time
+   units here) and writes no final checkpoint. R1j's 12h segments end on the
+   cap, so each one discards that tail. Fixing it is out of V1j's scope.
+
+**Affects:** V1 reads `V1/out/seg1.launch.log`, `V1/out/seg2.launch.log`,
+`V1/out/rss.log` and the job logs
+`V1/large_rollup_segment.{f3jBPQzmiXhq,f3jBPi5KJgJb}.log` (the summary line
+`[large_rollup] <tag> rc=<rc> wall=<s>` and the `end=` line). R1j inherits
+`scripts/tuolumne/large_rollup_segment.flux` (its stage copy edits the
+`--output` directive to R1j's directory, created before submitting) and the
+cap-kill behaviour above.
