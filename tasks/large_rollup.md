@@ -631,7 +631,7 @@ ID is on the log's `**Jobs:**` line. The stage directory holds `bin/`, the
 arguments file and `COMMIT`. The prod env's installed beatnik spec has the
 commit that `stage/COMMIT` names.
 
-### V1k — pilot continuation to `t_end`, submitted — **NOT STARTED**
+### V1k — pilot continuation to `t_end`, submitted — **DONE**
 
 V1j's two segments end short of `t_end`. Seg1 `f3jBPQzmiXhq` reached
 `--t-end 1.25` (`seg1 end=t_end`). Seg2 `f3jBPi5KJgJb` restarted at step 1764,
@@ -683,6 +683,18 @@ each with an `afterok` dependency on its predecessor. Every ID is on the log's
 `**Jobs:**` line. `segment3.flux` is `cmp`-identical to `segment1.flux`, and
 each later copy differs from it only by its dependency directive. `args.txt`,
 `bin/adaptive_mesh_bubble` and `COMMIT` in the stage are unchanged from V1j.
+
+**Met.** At the 2026-11-10 06:09 check all seven segments were accepted: seg3
+`f3jGfa2qqqNX` `RUN`, and seg4 `f3jGg4ENVXpK`, seg5 `f3jGhvGwFoiF`, seg6
+`f3jGi9bd7VU3`, seg7 `f3jGiNrJD7yh`, seg8 `f3jGic4He3u9` and seg9
+`f3jGiqL31AFH` each `DEPEND` with `after-success=` its predecessor's ID.
+`cmp segment1.flux segment3.flux` is silent. `diff segment1.flux segment<k>.flux`
+for $k = 4…9$ prints only `8a9 > # flux: --dependency=afterok:<seg k−1 id>`.
+`bin/adaptive_mesh_bubble` is `cmp`-identical to the
+`beatnik-develop-jrgarvack5rup44kphc4vjxpp7jxzt6q` install that `COMMIT` names.
+`args.txt` (18:50:15) and `COMMIT` (18:50:20) keep their 2026-11-09 timestamps,
+and `COMMIT` names `4b33843`. Seg3's launch log shows the restart at step 2326,
+$t = 1.577$. IDs and logs: progress log `## V1k`.
 
 ### V1 — read the pilot — **NOT STARTED**
 

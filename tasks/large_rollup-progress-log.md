@@ -1116,3 +1116,112 @@ returns `EXIT_FAILURE`, so it reaches the `nonfinite` branch and breaks the
 place of Do step 2's auto-detection is recorded in `## V1j` with its reason.
 
 **Affects:** none
+
+## V1k
+
+**Commits:** the docs commit that adds this section and marks V1k DONE in
+`tasks/large_rollup.md`. There is no code commit: the stage copies live on
+Lustre, outside the repository.
+**Jobs:** production env, staged binary built at beatnik `4b33843`, from stage
+`/p/lustre5/stewartj/beatnik/large_rollup/V1/stage/`, writing to
+`/p/lustre5/stewartj/beatnik/large_rollup/V1/out/`. Each segment is 1 node,
+np4, `-t 90m`, `pbatch`, submitted through the loop's wrapper with arguments
+`V1/stage/args.txt V1/out 2.5 seg<k> V1/out/checkpoint_latest.h5` (full paths).
+- `f3jGfa2qqqNX`, seg3, `V1/stage/segment3.flux`, no dependency, job log
+  `V1/large_rollup_segment.f3jGfa2qqqNX.log`, launch log
+  `V1/out/seg3.launch.log` — pending: read by `V1`.
+- `f3jGg4ENVXpK`, seg4, `V1/stage/segment4.flux`, `afterok:f3jGfa2qqqNX`, job
+  log `V1/large_rollup_segment.f3jGg4ENVXpK.log`, launch log
+  `V1/out/seg4.launch.log` — pending: read by `V1`.
+- `f3jGhvGwFoiF`, seg5, `V1/stage/segment5.flux`, `afterok:f3jGg4ENVXpK`, job
+  log `V1/large_rollup_segment.f3jGhvGwFoiF.log`, launch log
+  `V1/out/seg5.launch.log` — pending: read by `V1`.
+- `f3jGi9bd7VU3`, seg6, `V1/stage/segment6.flux`, `afterok:f3jGhvGwFoiF`, job
+  log `V1/large_rollup_segment.f3jGi9bd7VU3.log`, launch log
+  `V1/out/seg6.launch.log` — pending: read by `V1`.
+- `f3jGiNrJD7yh`, seg7, `V1/stage/segment7.flux`, `afterok:f3jGi9bd7VU3`, job
+  log `V1/large_rollup_segment.f3jGiNrJD7yh.log`, launch log
+  `V1/out/seg7.launch.log` — pending: read by `V1`.
+- `f3jGic4He3u9`, seg8, `V1/stage/segment8.flux`, `afterok:f3jGiNrJD7yh`, job
+  log `V1/large_rollup_segment.f3jGic4He3u9.log`, launch log
+  `V1/out/seg8.launch.log` — pending: read by `V1`.
+- `f3jGiqL31AFH`, seg9, `V1/stage/segment9.flux`, `afterok:f3jGic4He3u9`, job
+  log `V1/large_rollup_segment.f3jGiqL31AFH.log`, launch log
+  `V1/out/seg9.launch.log` — pending: read by `V1`.
+
+At the 2026-11-10 06:09:49 check, seg3 was `RUN` (submitted 06:02:33, started
+06:02:34). seg4–seg9 were each `DEPEND` with `after-success=` their
+predecessor's ID. Seg3's launch log already showed
+`restarted from .../V1/out/checkpoint_latest.h5 at step=2326 t=1.577250 with
+V=81142`, then steps 2344 and 2362 at about 10.7 s/step.
+
+### Pre-submit check
+
+`flux jobs` gave `f3jBPQzmiXhq INACTIVE COMPLETED` and
+`f3jBPi5KJgJb INACTIVE COMPLETED`. `V1/out/checkpoint.xmfindex` ended at
+`checkpoint_t00001p577250_step0002326 1.5772498367604835`, and
+`checkpoint_latest.h5` pointed to `checkpoint_t00001p577250_step0002326.h5`.
+
+### Decisions (made before the session; recorded here)
+
+- **Nothing was rebuilt or re-staged.** `args.txt`, `COMMIT` and `bin/` stay
+  byte-for-byte as V1j left them, so every segment runs the code `COMMIT`
+  names. Neither env was `spack install`ed, because a production install while
+  a segment is live is R5.
+- **Seven segments, every one with `--t-end 2.5`.** The count comes from the
+  task's estimate: about 1,580 steps at 10–20 s/step is 4–7 segments at the
+  80-minute cap. Surplus segments restart at $t = 2.5$, take no step and exit
+  0, and V1 records them as surplus.
+- **Every segment restarts from `V1/out/checkpoint_latest.h5`**, seg3
+  included, into `V1/out` (accepted at equal time: `## T5b`, "Master-series
+  resolution: reopen").
+- **The repository script is unchanged.** `segment1.flux` is still
+  `cmp`-identical to `scripts/tuolumne/large_rollup_segment.flux`, and the
+  stage copies are the only new files.
+
+### Approvals and resubmissions
+
+- seg3, seg4 and seg5 each got exit 3 from the wrapper
+  (`queue 'pbatch' is not in allowed_queues ['pdebug']; 90 min walltime exceeds
+  max_walltime_minutes 60`; script sha256 `5f8f90fe7184`, `4bc70d274693` and
+  `1c4dc6168408`). The user approved each, once, and each was resubmitted
+  unchanged.
+- seg5's first approved resubmission got exit 4:
+  `Refused: 2 loop jobs already active (f3jGfa2qqqNX, f3jGg4ENVXpK);
+  max_concurrent_jobs is 2.` The session asked rather than serialize the
+  chain. The user chose to raise `max_concurrent_jobs` to at least 7 for the
+  loop, and seg5 was then resubmitted unchanged and accepted.
+- seg6–seg9 were accepted on first submission (rc 0, no exit 3) under the
+  loop's updated policy.
+- No segment was cancelled.
+
+### Implementation choices
+
+- Each stage copy was written with the Write tool to a literal absolute path,
+  from the content of `segment1.flux`, with no `cp` through a variable (as in
+  `## V1j`). `cmp segment1.flux segment3.flux` is silent. For $k = 4…9$,
+  `diff segment1.flux segment<k>.flux` prints only `8a9` with
+  `# flux: --dependency=afterok:<seg k−1 id>`, the same position as in
+  `segment2.flux`.
+
+### Stage unchanged
+
+`cmp V1/stage/bin/adaptive_mesh_bubble
+/usr/WS2/stewartj/spack/opt/spack/linux-zen4/beatnik-develop-jrgarvack5rup44kphc4vjxpp7jxzt6q/bin/adaptive_mesh_bubble`
+is silent. `args.txt` (2026-11-09 18:50:15) and `COMMIT` (18:50:20) keep their
+V1j timestamps, as do `segment1.flux` and `segment2.flux`. `COMMIT`'s first
+line is `prod_beatnik_HEAD 4b33843172367e6a8b934ff2a831c8fdf1dbe087`.
+
+### Wait estimate
+
+540 min. Inputs:
+- run time: the task's upper end, 530 min (1,580 steps at up to 20 s/step),
+  less about 8 min already run;
+- six hand-offs at about 2 min each (seg2 started 14 s after seg1 ended);
+- no queue wait for seg3, which started 1 s after submission.
+
+Recent `pbatch` waits were mostly under 11 min, so a queued hand-off can add
+to this.
+
+**Affects:** V1 reads seg3–seg9's job and launch logs (above), as well as
+V1j's seg1 and seg2. Any segment that starts at $t = 2.5$ is surplus.
