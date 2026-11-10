@@ -542,6 +542,9 @@ inline bool readString( hid_t loc, const std::string& path, std::string& out )
         {
             const hid_t mtype = H5Tcopy( H5T_C_S1 );
             H5Tset_size( mtype, H5T_VARIABLE );
+            // HDF5 converts no string between character sets, so the memory
+            // type takes the file's (Beatnik writes UTF-8, `writeString`).
+            H5Tset_cset( mtype, H5Tget_cset( ftype ) );
             char* raw = nullptr;
             if ( H5Dread( dset, mtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, &raw ) >=
                      0 &&
@@ -558,6 +561,7 @@ inline bool readString( hid_t loc, const std::string& path, std::string& out )
             const std::size_t size = H5Tget_size( ftype );
             const hid_t mtype = H5Tcopy( H5T_C_S1 );
             H5Tset_size( mtype, size );
+            H5Tset_cset( mtype, H5Tget_cset( ftype ) );
             std::vector<char> buffer( size + 1, '\0' );
             if ( H5Dread( dset, mtype, H5S_ALL, H5S_ALL, H5P_DEFAULT,
                           buffer.data() ) >= 0 )
