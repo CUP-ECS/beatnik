@@ -895,3 +895,78 @@ written.
 new directory for that); the `restarted from … at step= t=` line gives the
 restart point. V1 — the first post-restart progress line follows that line;
 `remesh_events` restarts at 0. R1j — as V1j.
+
+## T5b review
+
+**Verdict:** Passed
+**Reviewed:** `0774838^..ede206a` (code in `0774838` and `d94ff8e`; `ede206a`
+touches only `tasks/`). The eight code files are all in T5b's **Fill in**, or
+are the `src/Beatnik_MeshInterface.hpp` comment that **Removes** names.
+**Evidence:** the implementing session's jobs, with output read. There was no
+verification job: all four checks pass, and every comparison in the criterion
+is exact or `RESULT: match` at `compare_output.py` defaults, not a tolerance
+near the measured difference.
+- `f3jB613LsKju`, `scripts/tuolumne/large_rollup_t5b.flux`, log
+  `/p/lustre5/stewartj/beatnik/large_rollup/T5b/large_rollup_T5b.f3jB613LsKju.log`:
+  COMPLETED, exit 0, queued 1 s in `pdebug`, ran 1.6 min (Flux accounting).
+  Echoed HEAD `d94ff8e`, porcelain 3, none of them code. The dev-env
+  `adaptive_mesh_bubble` and `Beatnik_Test_Restart` are dated 18:09:25, from
+  the `spack install` that finished at 18:09:35 (`T5b/spack_install_2.log`).
+  `d94ff8e` was committed at 18:10:07 and every job was submitted after
+  18:12, so the binaries are `d94ff8e`. Passing direction:
+  - `frz_r4` and `frz_r1` each print `restarted from … at step=5 t=0.015000
+    with V=162 F=320`, reach step 10, and give `RESULT: match` against the
+    reference restart;
+  - `dyn_restart` reaches step 70 with `volRel=+0.00e+00` and F 1032, against
+    `dyn_full`'s 1032;
+  - the `series/` index and master both list steps 0, 5 and 10.
+
+  Failure direction: `nonexist` gives rc 1, with the message naming
+  `/nonexistent.h5`. Overall `T5b overall: PASS`.
+- `f3jB5zmpxqgb`, `unit_tests.flux` at 1 rank, COMPLETED, exit 0, 0.9 min:
+  `SUMMARY: PASS (9/9 tests)`. `Beatnik_Test_Restart` passes 33/33, with
+  three failure-direction PASS lines (missing path, no `/beatnik`,
+  state-model mismatch) and the restart-from-earlier throw naming the index.
+- `f3jB6TgWinzj`, the same at `BEATNIK_UNIT_RANKS=4`, exit 1 (1.35 min). Read
+  member by member: the only failure is `Beatnik_Test_T2bOperators`
+  `check 1: expected 1, got 4`, which is by design. `Beatnik_Test_Restart`
+  passes 28/28 on three ranks and 33/33 on rank 0, with the same three PASS
+  lines.
+- `f3jB6qVdovmd`, `run_regression_minset.flux`, COMPLETED, exit 0, 8.2 min:
+  60 `[gate] ===` launches and `[gate] PASS (label=regression)`. The
+  `FAIL:` lines in it are `Beatnik_Test_InitialConditions`' deliberate
+  mismatched-fixture comparison, inside a passing member.
+
+Mechanical pass: the K4, M2 and M3 candidates are all in the test, on host
+`std::vector` buffers or after a `deep_copy`. The barrier there is reached by
+every rank. All dismissed. The `BEATNIK_NOT_IMPLEMENTED` hits are other
+stubs; none remains in `read` or `load`. No compiler warning in the install
+log comes from a changed file. Reading found the following:
+- every collective in `readHeader`, `resumeSeries` and `read` is reached
+  unconditionally, and each throw follows a broadcast verdict;
+- `load`'s `coldStart` fallback is gated on broadcast flags;
+- `reportRestart` makes its reductions before rank 0 returns;
+- no `MPI_COMM_WORLD` appears in `src/`;
+- the `material_position_loaded` default (`true`) leaves the cold-start path
+  unchanged.
+
+**Removes** is met: neither stub nor `(void)` cast remains, the three stub
+comments are rewritten, and the README Known Issue and its sentence are gone.
+No prompt file remains under `tasks/`.
+
+1. [follow-up] `docs/dataflow.html:868` still says "Restart is not implemented"
+   and that `read` and `load` throw. This diff made the line false. It is not
+   charged to T5b: `docs/` is outside T5b's **Fill in**, **Removes** did not
+   list it, and the file is a one-off snapshot whose citations are otherwise
+   stale too (`IOInterface.hpp:780-785`). The fix is to delete or rewrite that
+   bullet when the file is next touched.
+2. [follow-up] `resumeSeries` accepts an equal-time restart whenever the
+   frame basenames match, without checking which directory the file came
+   from. So a restart from another run's checkpoint, at the same `(time,
+   step)` as the target directory's last frame, rewrites that frame with the
+   other run's state. This needs a deliberate user mistake (two runs sharing
+   a `--checkpoint-dir`), and the chained-job case it exists for is correct.
+   Recorded only.
+
+**Affects:** none. V1j and R1j may build on T5b as the `## T5b` **Affects**
+line states.
