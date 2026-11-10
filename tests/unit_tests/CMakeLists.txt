@@ -71,6 +71,15 @@ set(BEATNIK_UNIT_TEST_SOURCES
   # reduction; ITS RANK SWEEP (1-6) IS
   # scripts/tuolumne/t4d1_mesh_edits.flux. Writes no files.
   Beatnik_Test_MeshEdits.cpp
+  # Restart: CheckpointIO::read and RestartReader::load round-trip a level-2
+  # state exactly (header scalars, V/E/F, every vertex's position and fields
+  # by gid, halo depth 2); the checkpoint series continues across a restart
+  # into its own directory and refuses one from an earlier frame; and a
+  # missing path, a file with no /beatnik group and a state-model mismatch
+  # each throw before readMesh. RANK-COUNT AWARE: run at 1 rank and at
+  # BEATNIK_UNIT_RANKS=4. Writes to BEATNIK_TEST_SCRATCH, which must name a
+  # parallel filesystem: the checkpoints go through MPI-IO.
+  Beatnik_Test_Restart.cpp
   )
 
 # The registered ctest entry runs at ONE rank; the rank sweep is the

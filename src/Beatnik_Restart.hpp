@@ -70,6 +70,7 @@
 
 #include <Kokkos_Core.hpp>
 
+#include <stdexcept>
 #include <string>
 #include <utility>
 
@@ -101,6 +102,14 @@ struct RestartState
     /// \f$h^0_{\min}\f$, the scale the adaptive dt and the proximity radii are
     /// expressed in. Loaded, or computed from the initial surface.
     Real initial_min_edge = 0.0;
+
+    /// True when the mesh's material-position field holds meaningful values
+    /// after setup's first step: seeded by `InitialCondition::build` on a cold
+    /// start, or loaded from `/vertices/u2` on a restart. False only for a
+    /// hand-written checkpoint lacking the field, in which case `Solver::setup`
+    /// seeds it from the loaded vertices (`run_adaptive_mesh_bubble.py:
+    /// 1208-1209`).
+    bool material_position_loaded = true;
 
     /// True when this state came from a checkpoint.
     bool from_checkpoint = false;
@@ -160,29 +169,71 @@ class RestartReader
      * @param[out] state Fields to populate.
      * @return The resumed time, step, and the two carried scalars.
      *
-     * @throws std::runtime_error if the file is missing, unreadable, or carries
-     *         an unrecognized `state_model`. A restart failure is a
-     *         configuration error, so it aborts rather than silently cold
-     *         starting — a silent cold start would produce a plausible-looking
-     *         run of the wrong thing.
+     * Order: `io.readHeader( path )` (the cheap checks, symmetric on every
+     * rank), then the state-model check below, then `io.read( path, mesh )`,
+     * which repeats the cheap checks, continues the checkpoint series, and
+     * calls `readMesh`. So every diagnosable failure is a throw raised before
+     * `readMesh`. A file missing `initial_volume` or `initial_min_edge`
+     * has the missing one recomputed from the loaded mesh with `coldStart`'s
+     * reductions, as the Python does.
+     *
+     * **The state model must match.** The Python takes its state model from
+     * the checkpoint; here `state` was constructed from `--state-model` before
+     * the load, and evolving the inactive slot of the field pack would be a
+     * plausible run of the wrong thing, so a disagreement throws naming both.
+     *
+     * @throws std::runtime_error if the file is missing, unreadable, carries
+     *         an unrecognized `state_model` or one that differs from
+     *         `state.model()`, or cannot continue the checkpoint series in the
+     *         output directory. A restart failure is a configuration error, so
+     *         it aborts rather than silently cold starting — a silent cold
+     *         start would produce a plausible-looking run of the wrong thing.
      *
      * @warning **The other half of "unreadable" is not an exception.** A
      *          file whose precision, dimension, refinement mode or vertex field
      *          pack disagrees with this build is an `MPI_Abort` raised inside
      *          Tessera's `readMesh`, which cannot be caught. The checks this
      *          function *can* make — the file exists, `/beatnik` is present,
-     *          `state_model` is recognized — must therefore happen **before**
-     *          `CheckpointIO::read` is called, not after, or the diagnosable
-     *          errors get reported as an abort too.
+     *          `state_model` is recognized — therefore happen **before**
+     *          `readMesh` is called, or the diagnosable errors would be
+     *          reported as an abort too.
+     *
+     * @note MPI. Collective on `mesh.comm()`, which must be the communicator
+     *       `io` was constructed with.
      */
     static RestartState load( io_type& io, const std::string& path,
                               mesh_type& mesh, state_type& state )
     {
-        (void)io;
-        (void)path;
-        (void)mesh;
-        (void)state;
-        BEATNIK_NOT_IMPLEMENTED( "RestartReader", "load" );
+        const CheckpointHeader peek = io.readHeader( path );
+        if ( peek.state_model != state.model() )
+            throw std::runtime_error(
+                std::string( "Beatnik::RestartReader::load: cannot restart "
+                             "from '" ) +
+                path + "': the checkpoint's state_model is '" +
+                toString( peek.state_model ) + "' but this run's is '" +
+                toString( state.model() ) +
+                "'. Pass the checkpoint's --state-model." );
+
+        const CheckpointHeader header = io.read( path, mesh );
+
+        RestartState out;
+        out.time = header.time;
+        out.step = header.step;
+        out.initial_volume = header.initial_volume;
+        out.initial_min_edge = header.initial_min_edge;
+        if ( !header.has_initial_volume || !header.has_initial_min_edge )
+        {
+            // Collective on every rank: the flags come from one broadcast.
+            const RestartState measured = coldStart( mesh );
+            if ( !header.has_initial_volume )
+                out.initial_volume = measured.initial_volume;
+            if ( !header.has_initial_min_edge )
+                out.initial_min_edge = measured.initial_min_edge;
+        }
+        out.material_position_loaded = header.has_material_position;
+        out.from_checkpoint = true;
+        out.amr_reference_rebased = true;
+        return out;
     }
 
     /**

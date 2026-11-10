@@ -340,9 +340,10 @@ enum : int
  *
  *   1. A checkpoint whose face pack differs from this one is **not readable** —
  *      `Tessera::readMesh` treats a field-pack mismatch as an
- *      `MPI_Abort` inside Tessera, not a catchable exception (M2's trap (b)).
- *      Nothing depends on it yet (`CheckpointIO::read` throws, task T5b), but
- *      T5b must not assume two packs are compatible.
+ *      `MPI_Abort` inside Tessera, not a catchable exception (M2's trap (b)),
+ *      so `--restart-from` reads only a checkpoint written by a build with
+ *      this face pack. `CheckpointIO::read` makes its catchable checks before
+ *      `readMesh` and cannot check this one.
  *   2. `/faces/u<N>` is **positional**, so reordering this enum silently
  *      relabels every file on disk. The vertex pack's mitigation applies: the
  *      writer emits `/beatnik/face_field_names` alongside

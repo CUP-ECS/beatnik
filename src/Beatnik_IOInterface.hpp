@@ -254,12 +254,17 @@
  *    overload rather than the timeless one. It makes a single frame
  *    self-describing, and nothing reads those sidecars — `compare_output.py`
  *    reads `.h5` datasets only.
- *  - **A series is not reopened across a restart.** On a restart the master
- *    would be rewritten with only the post-restart frames while Tessera appends
- *    to the pre-existing `.xmfindex`, leaving the two describing different frame
- *    lists. Unreachable today — `read` below is a throwing stub — and the fix
- *    belongs with the restart path (framework.md T5b owns it). Recorded in
- *    README "Known Issues".
+ *  - **A restart continues the series in its directory.** When `read` finds
+ *    `<directory>/<prefix>.xmfindex`, it reopens the series from it
+ *    (`Tessera::MeshSeries`'s `ReopenSeries` constructor), so the master lists
+ *    the pre-restart frames followed by the post-restart ones, and the index is
+ *    appended to. The restart point must be the series' last frame or later:
+ *    a restart whose `(time, frame name)` comes before the last recorded frame
+ *    throws before any file is touched, naming the index and the remedy (a new
+ *    `--checkpoint-dir`), because continuing there would put an earlier time
+ *    after a later one. A restart into a directory with no index starts a new
+ *    series whose first frame is the restart point. Either way the master and
+ *    the `.xmfindex` list the same frames.
  *
  * FILE NAMING
  * -----------
@@ -324,6 +329,7 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <stdexcept>
 #include <string>
@@ -444,6 +450,149 @@ inline void relink( const std::string& link, const std::string& target )
                       link.c_str(), target.c_str() );
 }
 
+/// Silences HDF5's automatic error-stack printing for its lifetime and restores
+/// the previous handler on exit. The restart checks probe a file that may not
+/// be HDF5 at all, or may lack a group, and report that as one
+/// `std::runtime_error`; HDF5's own stack dump on stderr would bury it.
+class SilenceHdf5Errors
+{
+  public:
+    SilenceHdf5Errors()
+    {
+        H5Eget_auto2( H5E_DEFAULT, &_func, &_data );
+        H5Eset_auto2( H5E_DEFAULT, nullptr, nullptr );
+    }
+    ~SilenceHdf5Errors() { H5Eset_auto2( H5E_DEFAULT, _func, _data ); }
+    SilenceHdf5Errors( const SilenceHdf5Errors& ) = delete;
+    SilenceHdf5Errors& operator=( const SilenceHdf5Errors& ) = delete;
+
+  private:
+    H5E_auto2_t _func = nullptr;
+    void* _data = nullptr;
+};
+
+/// True when `path` names a link that exists under `loc`. Checks each
+/// component in turn, because `H5Lexists` fails rather than returning false
+/// when an intermediate group is missing.
+inline bool linkExists( hid_t loc, const std::string& path )
+{
+    std::string partial;
+    std::size_t start = ( !path.empty() && path[0] == '/' ) ? 1 : 0;
+    if ( start == 1 )
+        partial = "/";
+    while ( start <= path.size() )
+    {
+        std::size_t slash = path.find( '/', start );
+        if ( slash == std::string::npos )
+            slash = path.size();
+        if ( partial.size() > 1 )
+            partial += '/';
+        partial += path.substr( start, slash - start );
+        if ( H5Lexists( loc, partial.c_str(), H5P_DEFAULT ) <= 0 )
+            return false;
+        start = slash + 1;
+    }
+    return true;
+}
+
+/// Read a scalar numeric dataset converted to `double`. Returns false when the
+/// dataset is absent or unreadable. HDF5 converts any stored numeric type.
+inline bool readDouble( hid_t loc, const std::string& path, double& out )
+{
+    if ( !linkExists( loc, path ) )
+        return false;
+    const hid_t dset = H5Dopen2( loc, path.c_str(), H5P_DEFAULT );
+    if ( dset < 0 )
+        return false;
+    const herr_t status = H5Dread( dset, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL,
+                                   H5P_DEFAULT, &out );
+    H5Dclose( dset );
+    return status >= 0;
+}
+
+/// Read a scalar integer dataset converted to `int64`. Returns false when the
+/// dataset is absent or unreadable.
+inline bool readInt64( hid_t loc, const std::string& path, std::int64_t& out )
+{
+    if ( !linkExists( loc, path ) )
+        return false;
+    const hid_t dset = H5Dopen2( loc, path.c_str(), H5P_DEFAULT );
+    if ( dset < 0 )
+        return false;
+    const herr_t status = H5Dread( dset, H5T_NATIVE_INT64, H5S_ALL, H5S_ALL,
+                                   H5P_DEFAULT, &out );
+    H5Dclose( dset );
+    return status >= 0;
+}
+
+/// Read a scalar string dataset, variable- or fixed-length. Returns false when
+/// the dataset is absent, not a string, or unreadable.
+inline bool readString( hid_t loc, const std::string& path, std::string& out )
+{
+    if ( !linkExists( loc, path ) )
+        return false;
+    const hid_t dset = H5Dopen2( loc, path.c_str(), H5P_DEFAULT );
+    if ( dset < 0 )
+        return false;
+    const hid_t ftype = H5Dget_type( dset );
+    bool ok = false;
+    if ( H5Tget_class( ftype ) == H5T_STRING )
+    {
+        if ( H5Tis_variable_str( ftype ) > 0 )
+        {
+            const hid_t mtype = H5Tcopy( H5T_C_S1 );
+            H5Tset_size( mtype, H5T_VARIABLE );
+            char* raw = nullptr;
+            if ( H5Dread( dset, mtype, H5S_ALL, H5S_ALL, H5P_DEFAULT, &raw ) >=
+                     0 &&
+                 raw != nullptr )
+            {
+                out = raw;
+                H5free_memory( raw );
+                ok = true;
+            }
+            H5Tclose( mtype );
+        }
+        else
+        {
+            const std::size_t size = H5Tget_size( ftype );
+            const hid_t mtype = H5Tcopy( H5T_C_S1 );
+            H5Tset_size( mtype, size );
+            std::vector<char> buffer( size + 1, '\0' );
+            if ( H5Dread( dset, mtype, H5S_ALL, H5S_ALL, H5P_DEFAULT,
+                          buffer.data() ) >= 0 )
+            {
+                out.assign( buffer.data() );
+                ok = true;
+            }
+            H5Tclose( mtype );
+        }
+    }
+    H5Tclose( ftype );
+    H5Dclose( dset );
+    return ok;
+}
+
+/// `<path>` without a trailing `.h5`: the stem Tessera appends `.h5` to.
+inline std::string stripH5( const std::string& path )
+{
+    const std::string ext = ".h5";
+    if ( path.size() >= ext.size() &&
+         path.compare( path.size() - ext.size(), ext.size(), ext ) == 0 )
+        return path.substr( 0, path.size() - ext.size() );
+    return path;
+}
+
+/// Broadcast a string from rank 0 of `comm`. Collective.
+inline void broadcastString( MPI_Comm comm, std::string& text )
+{
+    unsigned long long n = text.size();
+    MPI_Bcast( &n, 1, MPI_UNSIGNED_LONG_LONG, 0, comm );
+    text.resize( static_cast<std::size_t>( n ) );
+    if ( n > 0 )
+        MPI_Bcast( &text[0], static_cast<int>( n ), MPI_CHAR, 0, comm );
+}
+
 } // namespace IoDetail
 
 //---------------------------------------------------------------------------//
@@ -489,6 +638,17 @@ struct CheckpointHeader
     /// material coordinate from the vertex positions
     /// (`run_adaptive_mesh_bubble.py:1208-1209`).
     bool has_material_position = false;
+
+    /// True when `/beatnik/initial_volume` was present on read. Derived on
+    /// read and never written; false sends the restart path to recompute the
+    /// volume from the loaded mesh, as the Python does
+    /// (`run_adaptive_mesh_bubble.py:1018-1022`).
+    bool has_initial_volume = false;
+
+    /// True when `/beatnik/initial_min_edge` was present on read. Derived on
+    /// read and never written; false recomputes it from the loaded mesh
+    /// (`run_adaptive_mesh_bubble.py:1023-1027`).
+    bool has_initial_min_edge = false;
 };
 
 //---------------------------------------------------------------------------//
@@ -722,27 +882,37 @@ class CheckpointIO
      * `write` does not, and the implementation is `Tessera::readMesh`, not
      * `Comm::broadcastFromRoot` + `SurfaceMesh::adopt`.
      *
-     * TESSERA MAPPING:
-     *   1. `Tessera::readMesh( mesh, halo, stem )` — collective. Each rank
+     * TESSERA MAPPING, in order:
+     *   1. `readHeader( path )` — the cheap checks and the `/beatnik`
+     *      scalars, decided on rank 0 and broadcast, so a failure throws on
+     *      every rank before any collective I/O.
+     *   2. When this object writes to a directory, the series check: a
+     *      `<directory>/<prefix>.xmfindex` is reopened so the restarted run's
+     *      frames join the existing master, after checking that the restart
+     *      point is not earlier than its last frame (GROUPED OUTPUT in the file
+     *      header). Also before `readMesh`, so its failure is a throw.
+     *   3. `Tessera::readMesh( mesh, halo, stem )` — collective. Each rank
      *      takes a fresh contiguous block of dense face indices *unrelated to
      *      the writing partition*, fetches the vertex/edge records it
      *      references, and hands the result to `migrate()`, which recomputes
      *      ownership and the ghost layer. All three vertex user fields are
-     *      restored with their vertices. **A checkpoint therefore round-trips
-     *      across a change of rank count.**
-     *   2. `Tessera::rebuildHalo( mesh, halo, 2 )` — mandatory, see point 2 of
-     *      the read section in the file header: what `readMesh` leaves is a
-     *      1-deep halo and the RHS needs two rings.
-     *   3. rank 0 reads `/beatnik`, and the header is broadcast.
+     *      restored with their vertices, and every entity keeps the gid it was
+     *      written with (`/vertices/gid`, `/edges/gid`, `/faces/gid`). **A
+     *      checkpoint therefore round-trips across a change of rank count.**
+     *   4. `Tessera::rebuildHalo( mesh, halo, halo_depth )` — mandatory, see
+     *      point 2 of the read section in the file header: what `readMesh`
+     *      leaves is a 1-deep halo and the RHS needs two rings.
      *
      * Fallbacks the Python applies. **All of them are unreachable on a
      * Beatnik-written file** (see point 3 of the read section); they exist for
      * a hand-written one:
      *   - missing `time`  -> 0.0
      *   - missing `step`  -> 0
-     *   - missing `initial_volume`   -> recomputed from the loaded mesh
-     *   - missing `initial_min_edge` -> recomputed from the loaded mesh
-     *   - missing material position  -> seeded from the vertices
+     *   - missing `initial_volume`   -> `has_initial_volume` false; the
+     *     restart path recomputes it from the loaded mesh
+     *   - missing `initial_min_edge` -> `has_initial_min_edge` false; likewise
+     *   - missing material position  -> `has_material_position` false; the
+     *     restart path seeds it from the vertices
      *
      * @param path File to read. Absolute, or relative to the CWD — *not*
      *             relative to `_directory`, matching `--restart-from`. A
@@ -751,25 +921,158 @@ class CheckpointIO
      * @param[out] mesh Surface to populate, fields included.
      * @return The scalar metadata.
      *
-     * @note MPI. Collective. Not a rank-0 read and scatter: the whole point of
-     *       `readMesh`'s fresh block partition is that no rank ever holds the
-     *       global mesh.
+     * @throws std::runtime_error, on every rank and naming `path`, when the
+     *         file is missing or not HDF5, has no `/beatnik` group, carries an
+     *         unrecognized `state_model`, or the series check fails.
+     *
+     * @note MPI. Collective on `_comm`, which must be `mesh.comm()`. Not a
+     *       rank-0 read and scatter: the whole point of `readMesh`'s fresh
+     *       block partition is that no rank ever holds the global mesh.
      *
      * @warning A structural mismatch between the file and this build —
      *          precision, dimension, refinement mode, or the vertex field pack
      *          — is an **`MPI_Abort` inside Tessera**, not an exception. It
      *          cannot be caught and reported as the `std::runtime_error`
-     *          `Beatnik_Restart.hpp` promises. What `read` *can* check first,
-     *          and should, is the cheap Beatnik-side half: that the file
-     *          exists, that `/beatnik` is present, and that `state_model` is
-     *          one Beatnik recognizes.
+     *          `Beatnik_Restart.hpp` promises. That is why every check `read`
+     *          can make runs before `readMesh` is called.
      */
     template <class MeshType>
     CheckpointHeader read( const std::string& path, MeshType& mesh )
     {
-        (void)path;
-        (void)mesh;
-        BEATNIK_NOT_IMPLEMENTED( "CheckpointIO", "read" );
+        const CheckpointHeader header = readHeader( path );
+
+        if ( !_directory.empty() )
+            resumeSeries( header );
+
+        Tessera::readMesh( mesh.tesseraMesh(), mesh.tesseraHalo(),
+                           IoDetail::stripH5( path ) );
+        Tessera::rebuildHalo( mesh.tesseraMesh(), mesh.tesseraHalo(),
+                              MeshType::halo_depth );
+        return header;
+    }
+
+    /**
+     * @brief Check a checkpoint and read its `/beatnik` scalars, without
+     *        touching a mesh.
+     *
+     * The Beatnik-side half of `read`: rank 0 checks that `path` (with `.h5`
+     * appended when it has no such suffix) exists and opens as HDF5, that
+     * `/beatnik` is present, and that `/beatnik/state_model` is one Beatnik
+     * recognizes, then reads the four numeric scalars and whether the
+     * material-position field `/vertices/u2` is present. The outcome is
+     * broadcast, so every rank returns the same header or throws the same
+     * message. `RestartReader::load` calls it before `read` to compare the
+     * state model against the run's.
+     *
+     * @param path Checkpoint file, as for `read`.
+     * @return The scalar metadata, with the `has_*` flags set.
+     * @throws std::runtime_error on every rank, naming `path` and the reason.
+     *
+     * @note MPI. Collective on `_comm`: two broadcasts from rank 0.
+     */
+    CheckpointHeader readHeader( const std::string& path ) const
+    {
+        int rank = 0;
+        MPI_Comm_rank( _comm, &rank );
+
+        // Rank 0's verdict and values, broadcast as one POD block plus the
+        // error text, so every rank throws or returns together.
+        struct Packed
+        {
+            int ok;
+            int state_model;
+            double time;
+            std::int64_t step;
+            double initial_volume;
+            double initial_min_edge;
+            int has_initial_volume;
+            int has_initial_min_edge;
+            int has_material_position;
+        };
+        Packed packed{};
+        std::string error;
+
+        if ( rank == 0 )
+        {
+            const std::string filename = IoDetail::stripH5( path ) + ".h5";
+            const std::string where =
+                "Beatnik::CheckpointIO::read: cannot restart from '" + path +
+                "': ";
+            struct stat sb;
+            if ( ::stat( filename.c_str(), &sb ) != 0 )
+                error = where + "the file '" + filename + "' does not exist";
+            else if ( !S_ISREG( sb.st_mode ) )
+                error = where + "'" + filename + "' is not a regular file";
+            else
+            {
+                IoDetail::SilenceHdf5Errors quiet;
+                const hid_t file =
+                    H5Fopen( filename.c_str(), H5F_ACC_RDONLY, H5P_DEFAULT );
+                if ( file < 0 )
+                    error = where + "'" + filename +
+                            "' cannot be opened as an HDF5 file";
+                else
+                {
+                    std::string model;
+                    if ( !IoDetail::linkExists( file, "/beatnik" ) )
+                        error = where +
+                                "the file has no /beatnik group, so it is "
+                                "not a Beatnik checkpoint (Tessera::writeMesh "
+                                "alone does not write one)";
+                    else if ( !IoDetail::readString(
+                                  file, "/beatnik/state_model", model ) )
+                        error = where + "/beatnik/state_model is missing or "
+                                        "is not a string";
+                    else if ( model == toString( StateModel::Potential ) )
+                        packed.state_model =
+                            static_cast<int>( StateModel::Potential );
+                    else if ( model == toString( StateModel::SheetVector ) )
+                        packed.state_model =
+                            static_cast<int>( StateModel::SheetVector );
+                    else
+                        error = where + "/beatnik/state_model '" + model +
+                                "' is not a recognized state model "
+                                "(potential, sheet-vector)";
+
+                    if ( error.empty() )
+                    {
+                        if ( !IoDetail::readDouble( file, "/beatnik/time",
+                                                    packed.time ) )
+                            packed.time = 0.0;
+                        if ( !IoDetail::readInt64( file, "/beatnik/step",
+                                                   packed.step ) )
+                            packed.step = 0;
+                        packed.has_initial_volume = IoDetail::readDouble(
+                            file, "/beatnik/initial_volume",
+                            packed.initial_volume );
+                        packed.has_initial_min_edge = IoDetail::readDouble(
+                            file, "/beatnik/initial_min_edge",
+                            packed.initial_min_edge );
+                        packed.has_material_position =
+                            IoDetail::linkExists( file, "/vertices/u2" );
+                    }
+                    H5Fclose( file );
+                }
+            }
+            packed.ok = error.empty() ? 1 : 0;
+        }
+
+        MPI_Bcast( &packed, static_cast<int>( sizeof( Packed ) ), MPI_BYTE, 0,
+                   _comm );
+        IoDetail::broadcastString( _comm, error );
+        if ( !packed.ok )
+            throw std::runtime_error( error );
+
+        CheckpointHeader header;
+        header.state_model = static_cast<StateModel>( packed.state_model );
+        header.time = static_cast<Real>( packed.time );
+        header.step = static_cast<long long>( packed.step );
+        header.initial_volume = static_cast<Real>( packed.initial_volume );
+        header.initial_min_edge = static_cast<Real>( packed.initial_min_edge );
+        header.has_initial_volume = packed.has_initial_volume != 0;
+        header.has_initial_min_edge = packed.has_initial_min_edge != 0;
+        header.has_material_position = packed.has_material_position != 0;
+        return header;
     }
 
     /// Directory checkpoints are written to.
@@ -807,6 +1110,136 @@ class CheckpointIO
     {
         const std::size_t slash = path.find_last_of( '/' );
         return ( slash == std::string::npos ) ? path : path.substr( slash + 1 );
+    }
+
+    /**
+     * @brief On a restart, continue the series recorded in this directory.
+     *
+     * Called by `read` before `readMesh`. Rank 0 looks for
+     * `<directory>/<prefix>.xmfindex`; with none, the series stays new and its
+     * first frame (the startup checkpoint at the restart point) starts it.
+     * With one, rank 0 reads its last line, `<frameStem> <time>` as
+     * `MeshSeries` writes it (`%.17g`, so the time round-trips exactly), and
+     * the restart is accepted only if the startup checkpoint `write` will make
+     * next can follow that frame:
+     *
+     *   restart time > last time                   -> appended as a new frame;
+     *   restart time == last time, same frame name -> `write`'s equal-time
+     *                                                 branch rewrites that frame;
+     *   anything else                              -> throw, before any file
+     *                                                 is changed.
+     *
+     * On acceptance the series is reopened with `Tessera::ReopenSeries`, which
+     * rewrites the master from the index, and the equal-time guard's memory
+     * is set to the last frame.
+     *
+     * @throws std::runtime_error on every rank, naming the index and the
+     *         remedy, when the restart point precedes the last frame or the
+     *         index cannot be read or reopened.
+     *
+     * @note MPI. Collective on `_comm`.
+     */
+    void resumeSeries( const CheckpointHeader& header )
+    {
+        int rank = 0;
+        MPI_Comm_rank( _comm, &rank );
+
+        const std::string index = _series.masterStem() + ".xmfindex";
+        const std::string stem = checkpointStem( header.time, header.step );
+        const double time = static_cast<double>( header.time );
+
+        // Rank 0 reads the index's last line. present: 0 = no index,
+        // 1 = index read, -1 = error (text in `error`).
+        int present = 0;
+        double last_time = 0.0;
+        std::string last_stem;
+        std::string error;
+        if ( rank == 0 )
+        {
+            struct stat sb;
+            if ( ::stat( index.c_str(), &sb ) == 0 )
+            {
+                present = 1;
+                std::FILE* fp = std::fopen( index.c_str(), "r" );
+                std::string last_line;
+                if ( fp )
+                {
+                    char buffer[4096];
+                    while ( std::fgets( buffer, sizeof( buffer ), fp ) )
+                    {
+                        std::string line( buffer );
+                        while ( !line.empty() &&
+                                ( line.back() == '\n' || line.back() == '\r' ) )
+                            line.pop_back();
+                        if ( !line.empty() )
+                            last_line = line;
+                    }
+                    std::fclose( fp );
+                }
+                const std::size_t space = last_line.find_last_of( ' ' );
+                char* end = nullptr;
+                if ( space != std::string::npos )
+                    last_time =
+                        std::strtod( last_line.c_str() + space + 1, &end );
+                if ( !fp || space == std::string::npos || space == 0 ||
+                     end == last_line.c_str() + space + 1 )
+                {
+                    present = -1;
+                    error = "Beatnik::CheckpointIO::read: cannot restart into "
+                            "'" +
+                            _directory + "': the series index '" + index +
+                            "' is unreadable or has no frame line. Restart "
+                            "with a new --checkpoint-dir.";
+                }
+                else
+                    last_stem = last_line.substr( 0, space );
+            }
+        }
+        MPI_Bcast( &present, 1, MPI_INT, 0, _comm );
+        MPI_Bcast( &last_time, 1, MPI_DOUBLE, 0, _comm );
+        IoDetail::broadcastString( _comm, last_stem );
+        IoDetail::broadcastString( _comm, error );
+
+        if ( present == 0 )
+            return;
+        if ( present < 0 )
+            throw std::runtime_error( error );
+
+        // Decided identically on every rank from the broadcast values.
+        const bool later = time > last_time;
+        const bool same_frame = time == last_time &&
+                                baseName( stem ) == baseName( last_stem );
+        if ( !later && !same_frame )
+        {
+            char times[96];
+            std::snprintf( times, sizeof( times ), "%.17g, before or at %.17g",
+                           time, last_time );
+            throw std::runtime_error(
+                "Beatnik::CheckpointIO::read: cannot restart into '" +
+                _directory + "': the restart point '" + baseName( stem ) +
+                "' (time " + times + ") does not follow the last frame '" +
+                baseName( last_stem ) + "' recorded in '" + index +
+                "'. Continuing this series would put an earlier frame after "
+                "a later one. Restart with a new --checkpoint-dir, or from "
+                "the series' latest checkpoint." );
+        }
+
+        try
+        {
+            _series = Tessera::MeshSeries( _series.masterStem(),
+                                           Tessera::ReopenSeries{}, _comm );
+        }
+        catch ( const std::exception& e )
+        {
+            // Thrown on every rank by Tessera, with the same text.
+            throw std::runtime_error(
+                std::string( "Beatnik::CheckpointIO::read: cannot continue "
+                             "the checkpoint series in '" ) +
+                _directory + "': " + e.what() +
+                ". Restart with a new --checkpoint-dir." );
+        }
+        _last_frame_time = last_time;
+        _last_frame_stem = masterStem( _directory, baseName( last_stem ) );
     }
 
     /**

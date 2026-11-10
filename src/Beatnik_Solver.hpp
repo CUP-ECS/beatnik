@@ -244,11 +244,13 @@ class Solver
         RestartState start;
         if ( _params.checkpoint.restarting() )
         {
-            // `RestartReader::load` throws (task T5b, not yet implemented);
-            // reached only with --restart-from, which no regression test uses.
+            // Reached only with --restart-from, which no regression test uses.
+            // `load` throws, before reading the mesh, on any failure it can
+            // detect; it never falls back to a cold start.
             ensureCheckpointIO();
             start = RestartReader<ExecutionSpace, MemorySpace>::load(
                 *_io, _params.checkpoint.restart_from, _mesh, _state );
+            reportRestart( start );
         }
         else
         {
@@ -291,7 +293,7 @@ class Solver
         //    `InitialCondition::build` on a cold start; on a restart it comes
         //    out of the checkpoint's `/vertices/u2`, and only a hand-written
         //    file lacking it needs the fallback.
-        if ( start.from_checkpoint )
+        if ( !start.material_position_loaded )
             _state.seedMaterialPosition( _mesh );
 
         // 5. Initialize the AMR reference state. UNCONDITIONAL, not gated on
@@ -852,6 +854,26 @@ class Solver
         geometry.compute( _mesh.positions(), _mesh.totalVertexCount(),
                           _mesh.faceVertices() );
         _state.centerPotential( _mesh, geometry );
+    }
+
+    /// Rank 0 prints the reference's restart line
+    /// (run_adaptive_mesh_bubble.py:1210-1214), so the restart point is in the
+    /// log. Collective: the global counts are reductions.
+    void reportRestart( const RestartState& start )
+    {
+        const long long nv = static_cast<long long>( _mesh.globalVertexCount() );
+        const long long nf = static_cast<long long>( _mesh.globalFaceCount() );
+        int rank = 0;
+        MPI_Comm_rank( _comm, &rank );
+        if ( rank != 0 )
+            return;
+        char line[512];
+        std::snprintf( line, sizeof( line ),
+                       "restarted from %s at step=%lld t=%.6f with V=%lld "
+                       "F=%lld",
+                       _params.checkpoint.restart_from.c_str(), start.step,
+                       static_cast<double>( start.time ), nv, nf );
+        std::cout << line << std::endl;
     }
 
     /// Rank 0 prints the reference's stop line verbatim

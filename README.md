@@ -183,7 +183,7 @@ A `--checkpoint-dir out` run that takes N checkpoints leaves, for the default
 | N x `out/checkpoint_t<timekey>_step<step>.h5` | the frames; one restartable checkpoint each |
 | N x `out/checkpoint_t<timekey>_step<step>.xmf` | per-frame sidecars, so a single frame stays individually openable |
 | `out/checkpoint.xmf` | **the master** — one XDMF temporal collection over every frame |
-| `out/checkpoint.xmfindex` | Tessera's frame/time record, for a future series reopen |
+| `out/checkpoint.xmfindex` | Tessera's frame/time record; a restart into `out` continues the series from it |
 | `out/checkpoint_latest.{h5,xmf}` | symlinks to the newest **frame**; `--restart-from` consumes the `.h5` |
 
 **Open `out/checkpoint.xmf` in Paraview and choose the `Xdmf3ReaderT` reader.**
@@ -205,6 +205,51 @@ always did. Emitted and asserted by
 `tests/unit_tests/Beatnik_Test_CheckpointSeries.cpp`; the reasoning lives in the
 `GROUPED OUTPUT` section of
 [src/Beatnik_IOInterface.hpp](src/Beatnik_IOInterface.hpp).
+
+##### Restarting a run: `--restart-from`
+
+```
+flux run --ntasks=4 --nodes=1 --exclusive --gpus-per-task=1 --cores-per-task=24 \
+    "$(beatnik_exe adaptive_mesh_bubble)" <the same options> \
+    --restart-from out/checkpoint_latest.h5 --steps 500 --checkpoint-dir out
+```
+
+- **Any rank count.** The checkpoint is read collectively by Tessera with a
+  fresh partition, so a run written on 4 ranks restarts on 1 or 8. Vertex,
+  edge and face gids are the ones the file was written with.
+- **`--steps` is a local budget**: the restarted run takes up to that many
+  *further* steps from the checkpoint's step, and its step numbers and
+  filenames continue the original's. `--t-end` stays a global time.
+- **The restart line.** Rank 0 prints
+  `restarted from <path> at step=<n> t=<t> with V=<V> F=<F>` before the
+  startup checkpoint, which is written again at the restart point.
+- **Carried state.** The mesh, the potential, the sheet vector, the material
+  position and the five `/beatnik` scalars (`state_model`, `time`, `step`,
+  `initial_volume`, `initial_min_edge`) are restored, so the volume target and
+  the adaptive-dt scale are the original run's. `--state-model` must match the
+  checkpoint's, or the restart is refused.
+- **The AMR change indicators re-base.** The reference face area and curvature
+  are not stored; they restart from the loaded geometry ("no change so far"),
+  as in the Python reference. With the partition, gid order and remesh-call
+  counter also starting afresh, **a restarted run is not trajectory-identical
+  to an uninterrupted one** once the mesh changes. With a frozen mesh
+  (`--no-dynamic-remesh --refine-every 0`) a restart matches the Python
+  reference restarted from the same file (`scripts/tuolumne/large_rollup_t5b.flux`).
+- **The checkpoint series continues.** Restarting into the directory that holds
+  the series (`--checkpoint-dir out` with `out/checkpoint.xmfindex` present)
+  reopens it: `out/checkpoint.xmf` lists the pre-restart frames followed by the
+  new ones, and the index is appended to. The restart point must be that
+  series' last frame or later; restarting there from an earlier frame is
+  refused before anything is read or written, with a message naming the index,
+  and the remedy is a new `--checkpoint-dir`, which starts a new series at the
+  restart point. Restarting from `out/checkpoint_latest.h5` into `out` is the
+  chained-job case and is always accepted.
+- **Refusals are errors, never a cold start.** A missing file, a file that is
+  not HDF5, one with no `/beatnik` group (not a Beatnik checkpoint), an
+  unrecognized or mismatched `state_model`, or the series conflict above each
+  exits non-zero with `adaptive_mesh_bubble: error:` and the path. A checkpoint
+  written by a build with a different precision, refinement mode or field pack
+  is detected inside Tessera's reader, which calls `MPI_Abort`.
 
 **The option names and defaults match the Python script exactly**, with one
 deliberate exception — `--br-treecode-order`, whose default is 3 here against the
@@ -813,24 +858,6 @@ subsections above, which are intended behavior.
   `tasks/milestone1.md`). Resolves progressively as T4 lands its remaining regression
   tests. See
   [CLAUDE.md](CLAUDE.md#minimum-test-set) and `tasks/framework.md`.
-
-- **A restarted run's checkpoint master and its `.xmfindex` would describe
-  different frame lists.** *New with the grouped checkpoint output
-  (`tasks/completed/grouped-io.md` T1), and **latent**: unreachable today.* `CheckpointIO`
-  holds one `Tessera::MeshSeries` per process, constructed empty, so on a restart
-  the master `<prefix>.xmf` is rewritten from scratch and names only the
-  post-restart frames — while Tessera **appends** to the pre-existing
-  `<prefix>.xmfindex`, which then lists the pre-restart frames as well. The two
-  files would disagree about which frames the series contains. Nothing can reach
-  it: `CheckpointIO::read` is a throwing `BEATNIK_NOT_IMPLEMENTED` stub and
-  `RestartReader::load` throws, so `--restart-from` cannot complete. Deliberately
-  not worked around here, because the answer (reopen the series from the
-  `.xmfindex`, or start a new master under a distinct stem) belongs with the
-  restart path rather than being guessed at now: **`tasks/framework.md` T5b owns
-  it**, and it must be resolved in the same change that makes restart work — a
-  restart that completes while this is open produces a master that silently
-  under-reports the run. The per-frame `.h5` files and sidecars are unaffected
-  either way.
 
 - **The ship gate needs a shared filesystem for its scratch directory.** *Not a
   defect in Beatnik; a launch requirement, found when T2d first ran the gate.*
