@@ -96,7 +96,7 @@ Decisions, with their reasons:
   of the sheet but shortens the dynamics' time scale and the stable dt. That is
   a physics choice, and D1 records it with its reason.
 - **Restart is implemented here.** `RestartReader::load` and
-  `CheckpointIO::read` throw (Current state). T5b keeps its ID from
+  `CheckpointIO::read` restore a run (T5b, Current state). T5b keeps its ID from
   `tasks/framework.md`, whose T5b entry points here. A multi-segment run is
   chained by restarting each segment from the previous segment's
   `checkpoint_latest.h5`.
@@ -146,7 +146,7 @@ node-h, at np8 on 2 nodes (log `## D1`).
 | A change to an example's accepted arguments or behaviour updates `README.md` in the same change; a fixed Known Issue is deleted from README "Known Issues" in the change that fixes it. | CLAUDE.md. | By reading the diff of `README.md`. |
 | Restart code takes its communicator from the mesh (`mesh.comm()`) and names no `MPI_COMM_WORLD`. | Library code is communicator-agnostic. | `git diff src/ \| grep MPI_COMM_WORLD` is empty. |
 | Every collective in `read`/`load` is reached by every rank in the same order. A check that can fail is decided on every rank from replicated data (or reduced first), and the throw follows the decision on every rank. | A throw that only some ranks reach deadlocks the rest. | By reading: no collective sits after a rank-dependent branch or return. |
-| Restart failures the code can detect throw `std::runtime_error` naming the path and the reason, **before** `Tessera::readMesh` is called. A silent cold start is never a fallback. | A structural mismatch inside `readMesh` is an uncatchable `MPI_Abort` ([src/Beatnik_IOInterface.hpp:757-765](../src/Beatnik_IOInterface.hpp#L757-L765)), and a silent cold start produces a plausible run of the wrong thing ([src/Beatnik_Restart.hpp:162-167](../src/Beatnik_Restart.hpp#L162-L167)). | The unit test's failure directions (T5b). |
+| Restart failures the code can detect throw `std::runtime_error` naming the path and the reason, **before** `Tessera::readMesh` is called. A silent cold start is never a fallback. | A structural mismatch inside `readMesh` is an uncatchable `MPI_Abort` ([src/Beatnik_IOInterface.hpp:936-942](../src/Beatnik_IOInterface.hpp#L936-L942)), and a silent cold start produces a plausible run of the wrong thing ([src/Beatnik_Restart.hpp:185-190](../src/Beatnik_Restart.hpp#L185-L190)). | The unit test's failure directions (T5b). |
 | Kernels use `KOKKOS_LAMBDA` and capture locals, never `this`; every View is labelled; no View is allocated inside a per-step loop; the host reads device data only after a fence or `deep_copy`. | These pass on SERIAL and fail on HIP. | By reading; `grep -n 'KOKKOS_CLASS_LAMBDA\|\[=\]\|\[&\]'` in the diff. |
 | A new test joins `BEATNIK_UNIT_TEST_SOURCES` in `tests/unit_tests/CMakeLists.txt` with a comment saying what it checks and that it needs `BEATNIK_TEST_SCRATCH`; it decides its own verdict and returns non-zero on failure. | The unit tier's registration and installed-path convention (`tests/unit_tests/CMakeLists.txt:12-40`). | The test appears in `scripts/tuolumne/unit_tests.flux`'s output at `BEATNIK_UNIT_RANKS=1` and `4`. |
 | New code builds warning-free in the dev env (`spack install`, spack mode; never `cmake`/`make`). | The checkout is spack mode (`profile.local.sh`). | `spack install` output has no new warning from a changed file. |
@@ -175,27 +175,35 @@ node-h, at np8 on 2 nodes (log `## D1`).
 
 ## Current state
 
-- **Restart throws.** `RestartReader::load` is `BEATNIK_NOT_IMPLEMENTED`
-  ([src/Beatnik_Restart.hpp:177-185](../src/Beatnik_Restart.hpp#L177-L185)),
-  and so is `CheckpointIO::read`
-  ([src/Beatnik_IOInterface.hpp:767-773](../src/Beatnik_IOInterface.hpp#L767-L773)).
-  `Solver::setup` dispatches to `load` under `--restart-from`
-  ([src/Beatnik_Solver.hpp:241-262](../src/Beatnik_Solver.hpp#L241-L262)). The
-  writer is complete: a checkpoint carries the mesh, the three vertex fields
-  and the `/beatnik` scalars `state_model`, `time`, `step`, `initial_volume` and
-  `initial_min_edge` (schema at `src/Beatnik_IOInterface.hpp:70-90`).
-  `read`'s doc comment states the two `readMesh` traps:
-  - the halo comes back 1-deep and must be widened to 2;
-  - a structural mismatch is an `MPI_Abort`.
+- **Restart works (T5b).** `RestartReader::load`
+  ([src/Beatnik_Restart.hpp:204-237](../src/Beatnik_Restart.hpp#L204-L237))
+  refuses a checkpoint whose `state_model` differs from the run's, then fills
+  `RestartState` from `CheckpointIO::read`
+  ([src/Beatnik_IOInterface.hpp:944-955](../src/Beatnik_IOInterface.hpp#L944-L955)).
+  `read` makes the cheap checks in `readHeader` (`:977`, rank 0, broadcast),
+  continues the checkpoint series in `resumeSeries` (`:1146`), then calls
+  `Tessera::readMesh` and widens the halo to depth 2; vertex, edge and face
+  gids survive the read. `Solver::setup` dispatches to `load` under
+  `--restart-from`
+  ([src/Beatnik_Solver.hpp:241-313](../src/Beatnik_Solver.hpp#L241-L313)),
+  prints the reference's `restarted from <path> at step=… t=… with V=… F=…`
+  line, and seeds the material position only when the file lacks it. A
+  checkpoint carries the mesh, the three vertex fields and the `/beatnik`
+  scalars `state_model`, `time`, `step`, `initial_volume` and
+  `initial_min_edge` (schema at `src/Beatnik_IOInterface.hpp:70-90`). A
+  structural mismatch between the file and the build is still an `MPI_Abort`
+  inside `readMesh`.
 
-  README "Known Issues" carries the restart master-XDMF problem
-  (`README.md:817-832`): each process's `MeshSeries` starts empty, so a
-  restart rewrites `<prefix>.xmf` with only post-restart frames while Tessera
-  appends to `<prefix>.xmfindex`.
+  **The series across a restart (R7).** A restart into the directory holding
+  `<prefix>.xmfindex` reopens the series, so the master `<prefix>.xmf` lists
+  the pre- and post-restart frames; a restart point earlier than the series'
+  last frame throws before anything is read, naming the index and the remedy
+  (a new `--checkpoint-dir`). Chaining from `checkpoint_latest.h5` into the
+  same directory is always accepted (README "Restarting a run").
 - **`--restart-from`, `--t-end`, `--checkpoint-every-time` and
   `--icosphere-subdivisions` are parsed** by the example
   (`examples/02_adaptive_mesh_bubble/InputFile.hpp:303,358-360,558-562`). A
-  restart's `--steps` is a local budget (`src/Beatnik_Restart.hpp:89-94`).
+  restart's `--steps` is a local budget (`src/Beatnik_Restart.hpp:92-96`).
 - **Nonlocal gap diagnostics are not computed.** `Diagnostics::compute` sets
   `min_nonlocal_distance` and `gap_edge_ratio` to `inf`, and the two exact-gap
   fields to `nan`
@@ -226,7 +234,7 @@ node-h, at np8 on 2 nodes (log `## D1`).
   from the `[acc]` evaluations, not a timed run. Multi-rank scaling of the
   direct sum at more than 41k vertices is unmeasured.
 - **Per-rank RSS grows slowly** in 4-rank dynamic-remesh runs (README Known
-  Issues, `README.md:878-893`): 6–22 MB per rank over 600 steps at about 1040
+  Issues, `README.md:905-920`): 6–22 MB per rank over 600 steps at about 1040
   faces. Whether it plateaus is unmeasured.
 
 ## Progress log
@@ -438,22 +446,39 @@ production run above the node-hours the user accepts, D1 records that and
 stops. A smaller target or an FMM task is then a new design decision, not a
 change made here.
 
-### T5b — restart from a Beatnik checkpoint — **NOT STARTED**
+### T5b — restart from a Beatnik checkpoint — **DONE**
+
+**Met.** Job `f3jB613LsKju` (`scripts/tuolumne/large_rollup_t5b.flux`, dev
+env at `d94ff8e`): the frozen-mesh step-5 restarts at 4 ranks and at 1 rank
+both reach step 10 and give `RESULT: match` against the Python reference
+restarted from the same file; the dynamic-remesh restart from step 50 reaches
+step 70 with `volRel` 0 and F 1032 against the uninterrupted run's 1032; a
+restart into the series' own directory leaves master and index both listing
+steps 0, 5, 10; `--restart-from /nonexistent.h5` exits 1 naming the path. The
+unit tier passes 9/9 at 1 rank (`f3jB5zmpxqgb`); at `BEATNIK_UNIT_RANKS=4`
+(`f3jB6TgWinzj`) every member passes except `Beatnik_Test_T2bOperators`'
+deliberate `comm_size == 1`, and `Beatnik_Test_Restart` passes on every rank
+with its three failure-direction PASS lines at both rank counts. The
+regression gate passes, 60 launches (`f3jB6qVdovmd`). Resolution of Do 4:
+the series is reopened from `<prefix>.xmfindex`; a restart point earlier than
+its last frame throws. Log `## T5b`.
 
 **Depends on:** none. It may run in parallel with P1 and D1.
 **Fill in:**
 - `CheckpointIO::read`
-  ([src/Beatnik_IOInterface.hpp:767-773](../src/Beatnik_IOInterface.hpp#L767-L773))
-  and the restart side of the master-series handling in the same class;
+  ([src/Beatnik_IOInterface.hpp:944-955](../src/Beatnik_IOInterface.hpp#L944-L955))
+  and the restart side of the master-series handling in the same class
+  (`readHeader` at `:977`, `resumeSeries` at `:1146`);
 - `RestartReader::load`
-  ([src/Beatnik_Restart.hpp:177-185](../src/Beatnik_Restart.hpp#L177-L185));
-- the `src/Beatnik_Solver.hpp:247-248` comment that says `load` throws;
+  ([src/Beatnik_Restart.hpp:204-237](../src/Beatnik_Restart.hpp#L204-L237));
+- the comment on the restart branch of `Solver::setup`
+  (`src/Beatnik_Solver.hpp:245-252`);
 - `tests/unit_tests/Beatnik_Test_Restart.cpp` (new), and its entry in
   `tests/unit_tests/CMakeLists.txt`;
 - `scripts/tuolumne/large_rollup_t5b.flux` (new);
 - `README.md`.
 
-**Removes:**
+**Removes** (all removed in `0774838`; line numbers are those before it):
 - `BEATNIK_NOT_IMPLEMENTED` in `read` and in `load`;
 - the `(void)` casts in both;
 - every comment calling either a stub: `src/Beatnik_Solver.hpp:247-248`,
@@ -470,8 +495,9 @@ change made here.
   - `rebuildHalo( mesh, halo, 2 )` after it;
   - the missing-field fallbacks;
   - `RestartState.from_checkpoint` and `amr_reference_rebased` both true;
-- `Tessera_IO.hpp` in `../tessera` for `readMesh` and `MeshSeries`. **This task
-  is the first to open them.**
+- `../tessera/src/Tessera_HDF5Reader.hpp` for `readMesh` and
+  `../tessera/src/Tessera_XdmfSeries.hpp` for `MeshSeries`. **This task is the
+  first to open them.**
 
 **Do:**
 

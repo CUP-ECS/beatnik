@@ -735,3 +735,163 @@ table, the intro paragraph, **Met.** and the close-out subsection. No
    test, as the design intends.
 
 **Affects:** none.
+
+## T5b
+
+**Commits:** `0774838` (`CheckpointIO::readHeader`/`read`/`resumeSeries`,
+`RestartReader::load`, `RestartState::material_position_loaded`,
+`Solver::setup`'s restart branch and `reportRestart`,
+`tests/unit_tests/Beatnik_Test_Restart.cpp` and its `CMakeLists.txt` entry,
+`scripts/tuolumne/large_rollup_t5b.flux`, README); `d94ff8e` (read the
+`/beatnik` strings with the file's character set); the docs commit that adds
+this section and marks T5b DONE in `tasks/large_rollup.md`.
+**Jobs:** all dev env, `beatnik@develop` `ckhvawf` rebuilt at `d94ff8e`, HIP
+6.4.43484, echoed HEAD `d94ff8e`, porcelain 3 (`commands.sh`, the T5b prompt,
+the design doc's citation edits).
+- `f3jB613LsKju`, `scripts/tuolumne/large_rollup_t5b.flux`, job log
+  `/p/lustre5/stewartj/beatnik/large_rollup/T5b/large_rollup_T5b.f3jB613LsKju.log`,
+  per-launch output `/p/lustre5/stewartj/beatnik/large_rollup/T5b/f3jB613LsKju/<tag>/`.
+  Exit 0, every `CHECK` PASS: both restarted step-10 files `RESULT: match`
+  against the reference restart; the dynamic restart reaches step 70 with
+  `volRel` 0 and F 1032 against 1032; the series continues; the nonexistent
+  path exits 1 naming it.
+- `f3jB5zmpxqgb`, `scripts/tuolumne/unit_tests.flux` at 1 rank,
+  `BEATNIK_TEST_SCRATCH=/p/lustre5/stewartj/beatnik/large_rollup/T5b/scratch_unit1`,
+  log `beatnik_unit_tests.f3jB5zmpxqgb.log` in the checkout root:
+  `SUMMARY: PASS (9/9 tests)`, `Beatnik_Test_Restart` 33/33 with its three
+  failure-direction PASS lines.
+- `f3jB6TgWinzj`, the same at `BEATNIK_UNIT_RANKS=4`,
+  `BEATNIK_TEST_SCRATCH=/p/lustre5/stewartj/beatnik/large_rollup/T5b/scratch_unit4`,
+  log `beatnik_unit_tests.f3jB6TgWinzj.log`: `SUMMARY: FAIL (8/9)`, the one
+  failure `Beatnik_Test_T2bOperators`' `comm_size == 1` (expected, below).
+- `f3jB6qVdovmd`, `scripts/tuolumne/run_regression_minset.flux`,
+  `BEATNIK_TEST_SCRATCH=/p/lustre5/stewartj/beatnik/large_rollup/T5b/scratch_gate`,
+  log `beatnik_regression_minset.f3jB6qVdovmd.log`: COMPLETED in 8.2 min,
+  60 launches (5 `regression` members × SERIAL and HIP × ranks 1–6), every
+  rank `[PASS]`, `[gate] PASS (label=regression)`.
+- Not counted: `f3jAxHk8f3uq` (unit tier, 1 rank, at `0774838`) failed
+  `Beatnik_Test_Restart` with `/beatnik/state_model is missing or is not a
+  string` — the bug `d94ff8e` fixes (below); `f3jAxFwiTdjD` (the T5b script at
+  `0774838`) was cancelled after that failure, since every restart in it would
+  have hit the same bug.
+
+### Do 1: what Tessera provides
+
+- **`readMesh` preserves gids.** It reads `/vertices/gid`, `/edges/gid` and
+  `/faces/gid` and rebuilds connectivity from the dense indices through those
+  gids (`tessera/src/Tessera_HDF5Reader.hpp:195-215, 282-294, 331-344,
+  427-476`), then `migrate()`s. So the round trip pairs vertices by gid, and
+  the unit test asserts it: every local vertex of the read mesh at 1 and 4
+  ranks has a written gid and bit-identical position and fields.
+- **`MeshSeries` can reopen `<prefix>.xmfindex`.** It has a reopen
+  constructor, `MeshSeries( masterStem, Tessera::ReopenSeries{}, comm )`
+  (`tessera/src/Tessera_XdmfSeries.hpp:356-409`), collective, which rebuilds
+  each listed frame's metadata from its `.h5`, rewrites the master, and
+  throws on every rank on any failure. A plain `MeshSeries( masterStem )`
+  truncates the index at its first write. Neither exposes the last frame's
+  time or stem.
+
+### Master-series resolution: reopen
+
+Chosen because Tessera supports it, so the design's first option applies.
+`CheckpointIO::read`, when the object writes to a directory, calls
+`resumeSeries` before `readMesh`. Rank 0 reads the last line of
+`<directory>/<prefix>.xmfindex` (`<stem> <time %.17g>`); the values are
+broadcast. No index: the series stays new and the startup checkpoint at the
+restart point starts it. An index: the restart is accepted only if its
+startup frame can follow the last frame — a later time, or the same time
+under the same frame basename (the chained-job case: `write`'s equal-time
+branch rewrites that frame without appending). Otherwise it throws, naming
+the index and the remedy (a new `--checkpoint-dir`), before any file is
+touched. On acceptance the series is reopened and `write`'s equal-time guard
+is set to the last frame. The last line is parsed in Beatnik because
+`MeshSeries` exposes no last time or stem. Master and index therefore never
+disagree, and R7's "restart from an earlier time" is refused rather than
+written.
+
+### Decisions made in this session
+
+- **The 4-rank unit tier is read one member at a time.** At
+  `BEATNIK_UNIT_RANKS=4` the tier summary is FAIL by construction:
+  `Beatnik_Test_T2bOperators` asserts `comm_size == 1`
+  (`tests/unit_tests/Beatnik_Test_T2bOperators.cpp:183-199`). In
+  `f3jB6TgWinzj` it is the single failure (`check 1: expected 1, got 4` on
+  every rank). Passing at 4 ranks: `Beatnik_Test_PythonCompare`,
+  `Beatnik_Test_PythonCompare_Negative` (expected failure, rc 1),
+  `Beatnik_Test_MeshGeometry`, `Beatnik_Test_TangentialRelaxation`,
+  `Beatnik_Test_FmmVsDirect`, `Beatnik_Test_CheckpointSeries`,
+  `Beatnik_Test_MeshEdits`, `Beatnik_Test_Restart` (33/33 on rank 0, 28/28 on
+  ranks 1–3; owned vertices 42 + 38 + 31 + 51 = 162).
+- **`Solver::setup` changed in one place, plus a print.** It seeded the
+  material position on *every* restart, overwriting the `/vertices/u2` the
+  checkpoint carries; it now seeds only when `RestartState`'s new
+  `material_position_loaded` is false (a hand-written file lacking the field,
+  the Python's fallback). No signature changed. `RestartState` gained the
+  field (default `true`, which is what a cold start means: `InitialCondition::
+  build` seeds it). Rank 0 also prints the reference's
+  `restarted from <path> at step=<n> t=<t> with V=<V> F=<F>` line
+  (`run_adaptive_mesh_bubble.py:1210-1214`), which V1 reads for the restart
+  point; `reportRestart` is collective (two global counts).
+- **A state-model mismatch throws.** The Python takes its state model from
+  the checkpoint; here `SurfaceState` is constructed from `--state-model`
+  before the load, so `load` calls `readHeader` first and refuses a mismatch,
+  naming both models, before `readMesh`.
+- **`CheckpointIO::readHeader` is new public API** (no existing signature
+  changed): the cheap checks and the scalars, without a mesh, so `load` can
+  compare the state model before `read`. `read` calls it again; the repeat is
+  two small broadcasts.
+- **`CheckpointHeader` gained `has_initial_volume` and
+  `has_initial_min_edge`**, derived on read and never written, for the
+  Python's recompute fallbacks; `load` recomputes a missing one with
+  `coldStart`'s reductions. Unreachable on a Beatnik-written file.
+- **Restarting from `checkpoint_latest.h5` into the same directory rewrites
+  the file it read** (the startup checkpoint at the same time and step). The
+  Python does the same; the content is the same state in a new dense order.
+
+### Numbers
+
+- **Frozen mesh** (configuration (a) with `--no-dynamic-remesh --refine-every
+  0`, level 2, V 162, F 320): `frz_base` 4 ranks to step 10; step-5 file
+  `checkpoint_t00000p015000_step0000005.h5` (t = 0.014999645315098021).
+  Restarts `frz_r4` (4 ranks) and `frz_r1` (1 rank) each printed
+  `restarted from … at step=5 t=0.015000 with V=162 F=320` and reached step 10
+  at t = 0.029996631612342669, the reference restart's step-10 time.
+  `compare_output.py` at defaults: `frz_r4` `RESULT: match`, `frz_r1`
+  `RESULT: match` (and the uninterrupted `frz_base`, not part of the
+  criterion, `RESULT: match`).
+- **Dynamic remesh** (configuration (a), level 2, 4 ranks): `dyn_full` step 70
+  `t=0.0807 dt=1.11e-03 V=518 F=1032 volRel=+0.00e+00 minQ=0.87
+  minEdge=0.0254 remesh_events=448`; `dyn_restart` from step 50 (t =
+  0.058430, V 518, F 1032) to step 70: the same line except
+  `remesh_events=0`. F within 10 % (equal), `volRel` 0.
+- **Series** (`series/`, 4 ranks): a 5-step run, then a restart from
+  `series/checkpoint_latest.h5` into `series/` for 5 more. Index and master
+  both list steps 0, 5, 10 (3 lines, 3 `<Time Value=`).
+- **Nonexistent path:** rc 1, `adaptive_mesh_bubble: error:
+  Beatnik::CheckpointIO::read: cannot restart from '/nonexistent.h5': the file
+  '/nonexistent.h5' does not exist`.
+
+### What only running revealed
+
+- **HDF5 converts no string between character sets.** The writer stores
+  `/beatnik/state_model` as a UTF-8 variable-length string; reading it with an
+  ASCII memory type fails, so the first build's `readHeader` rejected every
+  Beatnik checkpoint. `Beatnik_Test_Restart` caught it in `f3jAxHk8f3uq`;
+  `d94ff8e` copies the file type's character set onto the memory type.
+- **The dynamic restart matched the uninterrupted run at step 70** in every
+  printed digit at this size and horizon (only the cumulative
+  `remesh_events`, a per-process counter, differs). This is not an
+  equivalence claim: the Deliberate deviation stands, and nothing asserts it.
+- `remesh_events` on a progress line counts from the process start, so after
+  a restart it restarts at 0. V1 should not read it as a per-run total.
+- The design's "Restart throws" Current state, the T5b **Fill in** citations
+  and the Conventions row's citations are updated to the new line numbers;
+  T5b **Reference** names `Tessera_HDF5Reader.hpp` and
+  `Tessera_XdmfSeries.hpp` instead of the nonexistent `Tessera_IO.hpp`.
+
+**Affects:** V1j — a segment restarts with `--restart-from
+<out>/checkpoint_latest.h5 --checkpoint-dir <out>`; the series continues in
+`<out>`, and a restart from an earlier checkpoint into `<out>` is refused (use a
+new directory for that); the `restarted from … at step= t=` line gives the
+restart point. V1 — the first post-restart progress line follows that line;
+`remesh_events` restarts at 0. R1j — as V1j.
