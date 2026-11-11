@@ -1768,3 +1768,63 @@ $1.0\times10^{-3}$).
 args file, five `-t 240m` segments. V1 — re-reads through V1c, re-derives
 production cost, gates R1j on the 85 node-h share. R1j — np4 on 1 node,
 `-t 240m`, about 22 segments with margin, production rows at $s = 0.85$.
+
+## D1 review
+
+**Verdict:** Passed
+**Reviewed:** `6c80935^..d3f4250` (`6c80935`, `87c5292`, `d3f4250`; all three
+touch only `tasks/large_rollup.md` and this log, matching D1's **Fill in**: "No
+code or script")
+**Evidence:** no job; D1 is a decision task, and its exit criterion is checked
+by reading and by re-running its arithmetic.
+`/p/lustre5/stewartj/beatnik/large_rollup/D1/d1_recost.py` was re-run on the
+login node (`python3 -I`, under 90 s) and reproduces every figure the log and
+the design quote: the anchored fit's 85.9 s/step np4 at 200,000 (re-fit
+$V^{2.384}$, 37.51 at 136,952); 4,604 pilot steps, `V` about 169,500 at
+$t = 2.5$; the model check 34,585 s against 32,166 s; the $s = 0.85$ row
+(6,372 steps, `V` 189,553 at 2.22 and 234,605 at 2.5, 200,000 first at
+$t = 2.287$, 67.9 h, 84.9 node-h with ×1.25, 125 s/step at the end); the
+20-step interval at 0.70 h; the `-t 4h` RSS peak 31.6–43.1 GB; the pilot
+continuation's 13.1 h and 3.4 segments. By hand: the $s = 0.85$ flags
+($3.485\times10^{-3}$, $2.55\times10^{-3}$, 0.0136, $1.36\times10^{-2}$,
+$2.312\times10^{-3}$, $1.445\times10^{-4}$); the split threshold
+$1.35 \cdot 3.49\times10^{-3} = 4.71\times10^{-3}$ above the level-6 mean edge;
+eps/`h_max` 3.9; the floor's $8.5\times10^{-4}$; 67.9/3.83 = 17.7 segments,
+22 with the margin; checkpoint size 394 B/vertex, about 93 MB at 235,000,
+about 420 files under 40 GB; budget 84.9 + 16 ≈ 101, inside about 105.
+Exit criterion, clause by clause:
+- every Production configuration row holds a value and a source;
+- the cost paragraph projects node-h from V1's s/step against `V` and its
+  step count;
+- `-t 240m` (cap 3.83 h) fits two 20-step intervals (1.4 h ≤ 1.92 h) at the
+  projected end-of-run 125 s/step, and the projected per-rank RSS (≤ 43.1 GB)
+  is under half of 128 GB;
+- `## D1 — re-cost after V1` records the alternatives (the $s$ table, np8,
+  the budget, cadence and walltime options, the pilot options), the numbers
+  behind each, and the next task;
+- the sequence names V1c (Depends on D1, V1k), V1 on V1c and R1j on V1.
+
+Failure direction: the accepted option fits the accepted budget, so it is not
+met. Citations checked: the ORed cadence at `src/Beatnik_Solver.hpp:678-682`
+(`checkpointDue`); the segment script's `flux run -t 80m` at `:154` and
+`4740` at `:188`; `--checkpoint-every-steps` parsed at
+`examples/02_adaptive_mesh_bubble/InputFile.hpp:562`. **Removes:** no
+production value from the earlier D1 (np8, 12h/`-t 720m`, `--eps 8e-3`,
+level-7 sizing, 59.4/60/35 node-h, 8,000–17,100 steps, 5.0 s/step) remains
+outside the DONE P1/P1c/V1k task records, where they are historical inputs.
+
+1. [nit] The D1 entry puts **Met.** and its intro above **Depends on:**,
+   where other DONE entries in the doc keep the fields first. Cosmetic;
+   accepted.
+2. [follow-up] The production estimate extrapolates the $V^{2.37}$ fit 1.7×
+   past the largest measured `V`, and a level-6 start at $s = 0.85$ holds
+   40,962 vertices rather than the scaled 56,695, so its early `V`
+   trajectory is unmeasured. Both are stated as assumptions in the log; V1
+   (after V1c) re-derives the node-h and gates R1j on the 85 node-h share, as
+   the design already says.
+3. [follow-up] Production's eps $1.36\times10^{-2}$ and `--min-dt`
+   $1.45\times10^{-4}$ are scaled from the pilot and run only at production;
+   V1c checks the pilot's floor behaviour ($dt\,\mu/minEdge^2$ reached 0.47
+   once at the pilot's floor) on the scaled-up side only.
+
+**Affects:** none.
