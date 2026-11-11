@@ -2,7 +2,7 @@
 # flux: --job-name=large_rollup_segment
 # flux: --nodes=1
 # flux: --exclusive
-# flux: -t 90m
+# flux: -t 240m
 # flux: --output=/p/lustre5/stewartj/beatnik/large_rollup/V1/{{name}}.{{jobid}}.log
 # flux: -q pbatch
 # flux: --bank=unm
@@ -16,10 +16,10 @@
 #                                                                          #
 # SPDX-License-Identifier: BSD-3-Clause                                    #
 ############################################################################
-# large_rollup segment job (`tasks/large_rollup.md` V1j, R1j): one segment of
-# a long adaptive_mesh_bubble run, launched from a STAGED directory. A long
-# run is a chain of these jobs, each restarting from the previous segment's
-# latest checkpoint in the same output directory.
+# large_rollup segment job (`tasks/large_rollup.md` V1j, V1c, R1j): one
+# segment of a long adaptive_mesh_bubble run, launched from a STAGED
+# directory. A long run is a chain of these jobs, each restarting from the
+# previous segment's latest checkpoint in the same output directory.
 #
 # Usage (a copy of this file in the stage directory is what gets submitted;
 # segment N>1 adds `# flux: --dependency=afterok:<previous id>` to its copy):
@@ -55,16 +55,21 @@
 # The `--output` directive names the V1 directory; a copy staged for another
 # task edits that line to its own directory, which must exist before submit.
 #
-# How a segment ends. The launch carries `flux run -t 80m`, 10 minutes under
-# the job's -t 90m. The binary writes a final checkpoint when it reaches
-# --t-end or stops on a non-finite state; a launch killed by its cap writes
-# none, so the newest checkpoint is the last one written on the
-# --checkpoint-every-time cadence. Exit status:
+# How a segment ends. Before launching, the script reads the job's remaining
+# time with `flux job timeleft` and caps the launch 10 minutes under it:
+# `flux run -t <cap>s` with cap = timeleft - 600 s, about 230 minutes in a
+# -t 240m job. A launch wall within 60 s of the cap counts as a cap kill. If
+# `flux job timeleft` fails or the cap is not a positive integer, the segment
+# prints `[large_rollup] FAIL:` and its summary line and exits 1 without
+# launching. The binary writes a final checkpoint when it reaches --t-end or
+# stops on a non-finite state; a launch killed by its cap writes none, so the
+# newest checkpoint is the last one written on the arguments file's
+# checkpoint cadence. Exit status:
 #   0        the launch exited 0 (reached --t-end), or the cap killed it and
 #            <out>/checkpoint_latest.h5 exists for the next segment;
-#   non-zero a solver stop (a `nonfinite` stop line), a missing restart file,
-#            any other failure, or no checkpoint to continue from. This
-#            breaks an afterok chain on purpose.
+#   non-zero no launch cap, a solver stop (a `nonfinite` stop line), a
+#            missing restart file, any other failure, or no checkpoint to
+#            continue from. This breaks an afterok chain on purpose.
 ############################################################################
 
 set -u
@@ -127,6 +132,21 @@ sed 's/^/[large_rollup]   /' "${STAGE}/COMMIT"
 echo "[large_rollup] jobid     = $(flux getattr jobid 2>/dev/null || echo unknown)  host = $(hostname)"
 echo "[large_rollup] submit    = \"\$TASKLOOP_SUBMIT\" --purpose \"...\" ${STAGE}/<segment file> -- $*"
 
+# Launch cap: the job's remaining time less 600 s. A launch wall at or past
+# CAP_DETECT (the cap less 60 s) counts as a cap kill.
+cap_fail() {
+    echo "[large_rollup] FAIL: $1" >&2
+    echo "[large_rollup] ${TAG} rc=1 wall=0.0"
+    exit 1
+}
+_left="$(flux job timeleft 2>&1)" || cap_fail "flux job timeleft failed: ${_left}"
+_left="${_left%%.*}"
+[[ "${_left}" =~ ^[0-9]+$ ]] || cap_fail "flux job timeleft gave a non-integer: '${_left}'"
+CAP=$(( _left - 600 ))
+[ "${CAP}" -gt 0 ] || cap_fail "launch cap ${CAP} s is not positive (timeleft ${_left} s)"
+CAP_DETECT=$(( CAP - 60 ))
+echo "[large_rollup] cap       = ${CAP}s (flux job timeleft ${_left}s less 600 s), cap kill at wall >= ${CAP_DETECT}s"
+
 read -r -a BASE <<< "$(tr '\n' ' ' < "${ARGS_FILE}")"
 SEG=( --checkpoint-dir "${OUT}" --t-end "${T_END}" )
 if [ -n "${RESTART}" ]; then
@@ -151,7 +171,7 @@ RSS_PID=$!
 echo "[large_rollup] === ${TAG}: np=4 nodes=1 ${BASE[*]} ${SEG[*]}"
 _t0=$(date +%s.%N)
 echo "${_t0} [large_rollup] ${TAG} start=${_t0} np=4 nodes=1 args: ${BASE[*]} ${SEG[*]}" > "${LAUNCH_LOG}"
-flux run -t 80m \
+flux run -t "${CAP}s" \
     --ntasks=4 \
     --nodes=1 \
     --exclusive \
@@ -182,10 +202,10 @@ if grep -q 'nonfinite' "${LAUNCH_LOG}"; then
     exit 1
 fi
 # A cap kill: Flux's timeout exception in the log, or a wall within a minute
-# of the 80-minute cap (4740 s), whichever text Flux printed.
+# of the launch cap (CAP_DETECT), whichever text Flux printed.
 _capped=0
 if grep -qE 'type=timeout|expired' "${LAUNCH_LOG}" \
-   || awk -v w="${_wall}" 'BEGIN { exit !(w >= 4740) }'; then
+   || awk -v w="${_wall}" -v c="${CAP_DETECT}" 'BEGIN { exit !(w >= c) }'; then
     _capped=1
 fi
 if [ "${_capped}" -eq 1 ] && [ -e "${OUT}/checkpoint_latest.h5" ]; then
