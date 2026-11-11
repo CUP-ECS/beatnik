@@ -1520,9 +1520,10 @@ cadence, and R6's per-segment memory bound.
 
 ## D1 — re-cost after V1
 
-**Status:** options prepared and put to the user (2026-11-11); the
-Production configuration table is unchanged until the answers are in.
-**Commits:** this section only, so far.
+**Status:** DONE. Options prepared and put to the user; answers below.
+**Commits:** `6c80935` (prepared options); CLOSE_SHA (answers, Production
+configuration table, V1c added, V1 and R1j rewritten, D1 marked DONE).
+No job.
 
 Decisions already made, recorded from the task prompt:
 - V1 stays **FAILED**. No continuation segment is submitted in this task, and
@@ -1704,3 +1705,66 @@ cited, or the bullet goes if the rewrite deletes it.
 5. The pilot and the next task: continue V1 to $t = 2.5$ as a new submit
    task, with the segment script's cap made a parameter, then V1 re-read,
    then R1j (recommended); go to R1j directly; or a profiling task first.
+
+### User's answers (2026-11-11), recorded as decisions
+
+The five answers are consistent with each other and fill every row; the
+recommended option was chosen in each.
+
+| # | Choice | Decision | Alternatives considered | Numbers behind it |
+| --- | --- | --- | --- | --- |
+| 1 | Production resolution | **$s = 0.85$**: `--icosphere-subdivisions 6 --remesh-h-max 3.49e-3 --remesh-h-min 2.55e-3 --remesh-sagitta-tolerance 0.0136 --eps 1.36e-2 --dt 2.31e-3 --min-dt 1.45e-4 --dt-edge-power 2`; edit caps 1000/400 and `--t-end 2.5` unchanged | $s$ = 0.92, 0.88, 0.828; the level-7 row | 6,372 steps; `V` 200,000 at $t \approx 2.29$, about 234,600 at 2.5; 67.9 h np4 (Production options table above) |
+| 2 | Budget | **about 105 node-h** | about 60 | production 67.9 (84.9 with ×1.25) + V1c about 16 = about 101 |
+| 3 | Ranks / nodes | **np4 on 1 node** | np8 on 2 nodes | np8 132 (165) node-h at the same wall ×0.97 |
+| 4 | Segment walltime, cadence | **`-t 240m` in `pbatch`, launch cap 230 min, `--checkpoint-every-time 0.025` plus `--checkpoint-every-steps 20`**; the segment script's cap made a parameter in the next task | `-t 90m` with no script change; `-t 6h` | Segment sizing tables above: 20-step interval 0.70 h at 125 s/step (two in 1.92 h); RSS 31.6–43.1 GB against 64 |
+| 5 | Pilot and next task | **New task V1c**: continue the pilot from step 3566 to $t = 2.5$; then V1 re-reads; then R1j | R1j directly; profiling first; re-sized pilot | 1,040 steps, 13.1 h, 4 segments at `-t 240m`, about 16 node-h |
+
+The $s = 0.85$ flags are the pilot row's lengths ×0.85 and its dt and floor
+×$0.85^2$: $4.1\times10^{-3} \cdot 0.85 = 3.485\times10^{-3}$, $3.0\times10^{-3} \cdot 0.85 = 2.55\times10^{-3}$,
+$0.016 \cdot 0.85 = 0.0136$, $1.6\times10^{-2} \cdot 0.85 = 1.36\times10^{-2}$,
+$3.2\times10^{-3} \cdot 0.7225 = 2.31\times10^{-3}$, $2\times10^{-4} \cdot 0.7225 = 1.45\times10^{-4}$.
+The floor keeps $dt\,\mu/minEdge^2 \le 0.4$ down to
+$\sqrt{1.45\times10^{-4} \cdot 0.002 / 0.4} = 8.5\times10^{-4}$ (pilot:
+$1.0\times10^{-3}$).
+
+### Close-out: what was written into `tasks/large_rollup.md`
+
+- **Production configuration** cost paragraph and every row except Physics,
+  End time and Pilot quality floor replaced; Edit caps keeps its values with
+  a new source (V1 measured remeshing with them). Segments: 67.9 h / 3.83 h
+  per cap = 17.7, so about 18 segments, 22 with the margin.
+- **Checkpoint files** (arithmetic): a pilot checkpoint is 16.16 MB at 40,962
+  vertices (`V1/out`), about 394 bytes per vertex, so about 93 MB at 235,000;
+  about 6,400 / 20 = 320 step-cadence files plus 100 time-cadence ones, about
+  420 files, under 40 GB on Lustre.
+- **Per-rank memory figure:** 128 GB per MI300A APU, shared by CPU and GPU
+  (`## V1` Memory); `systems/tuolumne/claude.md` gives no per-process figure,
+  so the bound is 64 GB.
+- **D1** marked DONE with its **Met.** paragraph; its **Removes** no longer
+  lists the old node-hour figures by value, and the Do bullet that projected
+  the level-7 row's s/step and node-h is cut to its inputs (**Removes**).
+- **Stale citation fixed:** the D1 **Do** bullet "Segment walltime against
+  checkpoint cadence" now cites `## V1j` Findings 1 for the loss and
+  `## V1`, Cost, for the 15 % (about 6,200 s of 42,600).
+- **V1c** added (submit task, Depends on D1, V1k): the segment script's `-t`
+  becomes `240m` and its launch cap and cap-detection threshold derive from
+  one value, `flux job timeleft` less 10 minutes (the command exists in the
+  installed Flux, checked with `flux job timeleft --help` on the login node);
+  new `V1/stage/args_c.txt` and `segment10.flux`–`segment14.flux`, five
+  segments of which the fifth is margin.
+- **V1** reset to NOT STARTED, Depends on V1c only (V1k and D1 are upstream of
+  V1c), reading seg1–seg14 into a new top-level section `## V1 — after V1c`
+  so a later `## V1 review` follows the last V1-titled section. V1 also
+  records V1c's s/step against the fit and re-derives production node-h; above
+  the 85 node-h production share with the margin, R1j does not start. Its
+  failure direction reads "its last segment ending on its cap", not seg9.
+- **R1j**: np4, 1 node, `-t 240m`, about 18 segments plus 25 %, stage and
+  args from the production rows, `--output` edited to `R1/`.
+- **R8** restated for the Sizing row instead of the level-7 edge.
+- **Sequence check:** D1 (DONE, awaits review) → V1c → V1 → R1j → R1. V1 no
+  longer waits on D1 rewriting it; nothing is stuck.
+
+**Affects:** V1c — new, next after D1's review: script cap parameter, new
+args file, five `-t 240m` segments. V1 — re-reads through V1c, re-derives
+production cost, gates R1j on the 85 node-h share. R1j — np4 on 1 node,
+`-t 240m`, about 22 segments with margin, production rows at $s = 0.85$.

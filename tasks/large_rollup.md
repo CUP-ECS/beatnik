@@ -48,8 +48,8 @@ Restart (`--restart-from`) is implemented as part of this work (T5b).
 **Measure, decide, pilot, then run.** P1 measures cost, memory and early
 stability at the two candidate starting resolutions with no code change. D1
 turns those numbers into the production parameter set. T5b makes restart work.
-V1j, V1k and V1 run the pilot: the parameter set at reduced resolution, to
-`t_end`, across chained restarts. That shows the configuration survives before
+V1j, V1k, V1c and V1 run the pilot: the parameter set at reduced resolution,
+to `t_end`, across chained restarts. That shows the configuration survives before
 the expensive run is spent. R1j/R1 is the production run.
 
 Decisions, with their reasons:
@@ -111,25 +111,38 @@ Decisions, with their reasons:
 ### Production configuration
 
 D1 sets these values with the user; each source names the log section that
-measured it, or "user, `## D1`" for a pure choice. D1 is open: its cost model
-assumed remeshing at about 5.0 s/step at 200,000 vertices, and the V1 pilot
-measured 35 s/step at 136,952 vertices on np4, growing about as $V^{2.37}$
-(log `## V1`). Scaled to this table's production row, that is about 86 s/step
-and 380–820 node-h against a budget of about 60 (arithmetic, not a run). The
-values below stand until D1 replaces them.
+measured it, or "user, `## D1 — re-cost after V1`" (or the earlier "user,
+`## D1`") for a pure choice.
+
+**Cost.** Production is the V1 pilot's configuration with every length scaled
+by $s = 0.85$ ($h_{max} = 0.85 \cdot 4.1\times10^{-3}$; `h_min`, sagitta and
+eps likewise; `--dt` and `--min-dt` by $s^2$). The projection is arithmetic
+from V1's logs, not a run (log `## D1 — re-cost after V1`, script
+`/p/lustre5/stewartj/beatnik/large_rollup/D1/d1_recost.py`). Remeshing steps
+cost $35\,(V/136{,}952)^{2.37}$ s/step on np4 (log `## V1`, Cost); the pilot's
+trajectory, 4,604 steps to $t = 2.5$ (3,566 measured to $t = 2.2086$, the
+rest at seg9's dt and `V` rate), is scaled to $1/s^2$ steps and $1/s^2$
+vertices at each time. At $s = 1$ the model gives 34,585 s of compute to step
+3566, against V1's measured 32,166 s. At $s = 0.85$: about 6,400 steps, `V`
+crossing 200,000 at $t \approx 2.29$ and reaching about 235,000 at 2.5, 125
+s/step at the end, **67.9 h of wall on np4, 67.9 node-h, 84.9 with the ×1.25
+chain margin**. The pilot continuation (V1c) is about 13.1 h of compute, 4
+segments, about 16 node-h. The budget is about 105 node-h for both. The fit
+is extrapolated 1.7× in `V` past the largest measured point; V1c measures
+s/step from 137,000 to about 170,000 and so checks the first part of it.
 
 | Setting | Option | Value | Source |
 | --- | --- | --- | --- |
 | Physics | `--A 0.3 --g 1.0 --mu 0.002 --viscosity-mode laplace-beltrami --br-approximation direct --source-quadrature vertex --adaptive-dt --dynamic-remesh --isotropic-cleanup` | fixed | configuration (a) |
-| Kernel desingularization | `--eps` | `--eps 8e-3` (about $4h$ at level 7) | `## P1c` (`L7_np4_eps8e-3` stable to $t = 0.023$, dt identical to 0.025); user, `## D1` |
-| Starting mesh | `--icosphere-subdivisions` | `--icosphere-subdivisions 7` (163,842 vertices) | P1b (F held 327680 → 327680 at `h_max` 2.05e-3); user, `## D1` |
-| Sizing | `--remesh-h-max`, `--remesh-h-min`, `--remesh-sagitta-tolerance` | `--remesh-h-max 2.05e-3 --remesh-h-min 1.5e-3 --remesh-sagitta-tolerance 0.004` | P1b; user, `## D1` |
-| Edit caps | `--remesh-max-splits`, `--remesh-max-collapses` | `--remesh-max-splits 1000 --remesh-max-collapses 400` | P1b (about 70 edits/step in the control); user, `## D1`; cost unmeasured (`## P1c`) |
-| Step size | `--dt`, `--min-dt`, `--dt-edge-power` | `--dt 8e-4 --min-dt 5e-5 --dt-edge-power 2` ($dt \approx 172\,h_{min}^2$, 8,000–17,100 steps to $t = 2.5$) | P1b, `## P1c` (ratio $dt\,\mu/h_{min}^2 = 0.343$ in every arm) |
+| Kernel desingularization | `--eps` | `--eps 1.36e-2` (about $3.9\,h_{max}$, the pilot's ratio) | `## V1` (pilot `--eps 1.6e-2` finite to $t = 2.224$), scaled by 0.85; user, `## D1 — re-cost after V1` |
+| Starting mesh | `--icosphere-subdivisions` | `--icosphere-subdivisions 6` (40,962 vertices; mean edge `4.1e-3`, under the split threshold $1.35\,h_{max} = 4.71\times10^{-3}$) | `## V1` (the pilot's start); user, `## D1 — re-cost after V1` |
+| Sizing | `--remesh-h-max`, `--remesh-h-min`, `--remesh-sagitta-tolerance` | `--remesh-h-max 3.49e-3 --remesh-h-min 2.55e-3 --remesh-sagitta-tolerance 0.0136` (projected `V` 200,000 at $t \approx 2.29$, about 235,000 at 2.5) | the pilot row scaled by 0.85; projection log `## D1 — re-cost after V1`; user, same section |
+| Edit caps | `--remesh-max-splits`, `--remesh-max-collapses` | `--remesh-max-splits 1000 --remesh-max-collapses 400` | P1b (about 70 edits/step in the control); user, `## D1`; remeshing cost with these caps measured by the pilot (`## V1`, Cost) |
+| Step size | `--dt`, `--min-dt`, `--dt-edge-power` | `--dt 2.31e-3 --min-dt 1.45e-4 --dt-edge-power 2` ($dt \approx 172\,h_{min}^2$; about 6,400 steps to $t = 2.5$; the floor keeps $dt\,\mu/minEdge^2 \le 0.4$ down to `minEdge` $8.5\times10^{-4}$) | `## P1c` (ratio $dt\,\mu/h_{min}^2 = 0.343$ in every arm); the pilot's 4,604 steps (`## V1`) ×$1/0.85^2$; user, `## D1 — re-cost after V1` |
 | End time | `--t-end` | `--t-end 2.5` | user, `## D1` |
-| Checkpoint cadence | `--checkpoint-every-time` | `--checkpoint-every-time 0.025` (about 100 files, 8 GB, 4.5 min of writes) | P1b (write about 2.2 s at 164k); user, `## D1` |
-| Ranks / nodes, segment walltime | — | np8 on 2 nodes; three 12h segments (`-t 720m`) in `pbatch` | `## P1c` (np8/np4 s/step 0.97; np8 worst case 23.8 h wall, 29.7 with margin, 59.4 node-h); user, `## D1` |
-| Pilot resolution | starting level and `h_max` for V1j | `--icosphere-subdivisions 6 --remesh-h-max 4.1e-3 --remesh-h-min 3.0e-3 --remesh-sagitta-tolerance 0.016 --eps 1.6e-2 --dt 3.2e-3 --min-dt 2e-4 --dt-edge-power 2`, np4 on 1 node, chained segments at `-t 90m` in `pbatch`: two from V1j, up to seven more from V1k (about 2,000–4,300 steps to $t = 2.5$) | `## P1c` (`L6_np4_eps1.6e-2` stable at ratio 0.343, 0.118 s/step np4); user, `## D1`; segment count from V1j's measured cost (V1k) |
+| Checkpoint cadence | `--checkpoint-every-time`, `--checkpoint-every-steps` | `--checkpoint-every-time 0.025 --checkpoint-every-steps 20` (the two are ORed, `src/Beatnik_Solver.hpp:678-682`; one interval is at most 20 steps, 0.70 h at the projected end's 125 s/step; about 420 files of up to about 93 MB) | `## V1` (Cost; checkpoint 16.2 MB at 40,962 vertices); user, `## D1 — re-cost after V1` |
+| Ranks / nodes, segment walltime | — | np4 on 1 node; segments of `-t 240m` in `pbatch` with a 230-minute launch cap, about 18 segments (22 with the ×1.25 margin). Two intervals (1.4 h) fit the cap's 1.92 h half; peak per-rank RSS about 31.6–43.1 GB, under the 64 GB bound | `## P1c` (np8/np4 s/step 0.97, so np8 doubles node-h); `## V1` Memory (7–10 GB per rank per hour; 128 GB per MI300A APU); user, `## D1 — re-cost after V1` |
+| Pilot resolution | starting level and `h_max` for V1j, V1k, V1c | `--icosphere-subdivisions 6 --remesh-h-max 4.1e-3 --remesh-h-min 3.0e-3 --remesh-sagitta-tolerance 0.016 --eps 1.6e-2 --dt 3.2e-3 --min-dt 2e-4 --dt-edge-power 2`, np4 on 1 node. V1j and V1k ran nine `-t 90m` segments to $t = 2.224$; V1c continues from the step-3566 checkpoint with `--checkpoint-every-steps 20` added, in `-t 240m` segments (about 1,040 steps, 13.1 h, 4 segments) | `## P1c` (`L6_np4_eps1.6e-2` stable at ratio 0.343); `## V1` (Cost); user, `## D1` and `## D1 — re-cost after V1` |
 | Pilot quality floor | minimum `minQ` V1 asserts | `minQ` ≥ 0.12 | user, `## D1` (pre-T4d long runs ended at 0.033–0.11; 0.18 is the repair trigger) |
 
 ### Conventions
@@ -415,13 +428,28 @@ the steps to $t = 2.5$ are about 8,000–17,100 for both. np8/np4 s/step is
 0.428 / 0.440 = 0.97: no rank speedup over 4 → 8. No launch remeshed, so the
 raised caps and the remesh-interval scaling are unmeasured.
 
-### D1 — choose the production parameter set — **NOT STARTED**
+### D1 — choose the production parameter set — **DONE**
 
-The Production configuration table holds a complete parameter set, with the
-alternatives and the measured basis for each value in the log's `## D1`. Its
-cost estimate rests on remeshing at about 5.0 s/step at 200,000 vertices, and
-the V1 pilot measured far more (log `## V1`). D1 re-costs and re-sizes
-production and the pilot from V1's measurements.
+D1 sizes production and the pilot from the V1 pilot's measurements (log
+`## V1`): its s/step against `V`, its step count, its vertex growth and its
+per-rank memory growth. The alternatives and the numbers behind each value are
+in the log's `## D1` and `## D1 — re-cost after V1`.
+
+**Met.** Every row of the Production configuration table holds a value and a
+source. The cost paragraph gives production at $s = 0.85$ as about 6,400
+steps, 67.9 h of wall on np4, 67.9 node-h (84.9 with the ×1.25 margin),
+computed from V1's fit $35\,(V/136{,}952)^{2.37}$ s/step, its 4,604-step
+trajectory (3,566 measured steps to $t = 2.2086$, then seg9's dt `2.81e-4` and
+33 vertices per step) and its growth to 136,952 vertices; the model reproduces
+the pilot's own compute within 7.5 % (34,585 s against 32,166 s). The budget
+is about 105 node-h: production plus V1c's 16. Segment sizing at `-t 240m`
+(launch cap 230 min, 3.83 h): one `--checkpoint-every-steps 20` interval is
+0.70 h at the projected end-of-run 125 s/step (0.32 h for the pilot at 58), so
+two fit in 1.92 h; peak per-rank RSS at 7–10 GB/h is 31.6–43.1 GB at
+$s = 0.85$ (30.3–41.8 for the pilot), under half of one MI300A APU's 128 GB.
+The log's `## D1 — re-cost after V1` records the options, the user's
+answers and the arithmetic. The next task is V1c (continue the pilot), then
+V1, then R1j; V1 depends on V1c, R1j on V1.
 
 **Depends on:** P1, P1c. D1 also reads the log's `## V1`; V1 itself is not
 DONE and does not gate D1.
@@ -431,8 +459,8 @@ tasks and R1j, below); a new section `## D1 — re-cost after V1` appended at
 the end of the log (a top-level section, not a subsection of the existing
 `## D1`, so that the reopened D1 gets its own review). No code or script.
 **Removes:** every table value and cost figure D1 replaces, with the sentences
-that cite it, including the 2.8–6.1 / 21.6–47.5 / 59.4 node-h figures wherever
-they appear in this document.
+that cite it, including the level-7 row's node-hour figures wherever they
+appear in this document.
 **Reference:** log `## V1` (Cost, Memory, Trajectory); log `## D1` (the
 current values and their alternatives); `## P1c` (np8/np4 s/step 0.97); R1,
 R2, R6 and R8.
@@ -446,9 +474,7 @@ labelled as arithmetic:
   outside the direct sum. Project production node-hours for each candidate
   resolution from that fit, from the pilot's step count (3,566 steps to
   $t = 2.2086$, about 4,600 to 2.5), and from the vertex growth the pilot
-  showed (3.3× its start by $t = 2.22$). At the current production row the
-  projection is about 86 s/step at 200,000 and 380–820 node-h, against a
-  budget of about 60.
+  showed (3.3× its start by $t = 2.22$).
 - **What fits the budget.** For each option, the projected node-hours and
   what it gives up: a smaller vertex target; a coarser `--remesh-h-max` or
   `--remesh-sagitta-tolerance` that bounds `V` growth (R8); a larger budget;
@@ -460,8 +486,8 @@ labelled as arithmetic:
   Otherwise a segment writes no checkpoint and the chain repeats without
   progress, because `scripts/tuolumne/large_rollup_segment.flux` exits 0 on a
   cap kill whenever any `checkpoint_latest.h5` exists. Each cap also discards
-  the work after the last checkpoint (`## V1j` Findings 1, 15 % of the pilot's
-  wall).
+  the work after the last checkpoint (`## V1j` Findings 1); in the pilot that
+  was about 6,200 s of 42,600, 15 % (`## V1`, Cost).
 - **Segment walltime against memory (R6).** Per-rank RSS grows 7–10 GB per
   hour of process life and resets at a restart, so the segment walltime bounds
   peak RSS. Choose `-t` so that the rate × walltime stays well under a rank's
@@ -733,23 +759,83 @@ for $k = 4…9$ prints only `8a9 > # flux: --dependency=afterok:<seg k−1 id>`.
 and `COMMIT` names `4b33843`. Seg3's launch log shows the restart at step 2326,
 $t = 1.577$. IDs and logs: progress log `## V1k`.
 
-### V1 — read the pilot — **FAILED — returned to D1**
+### V1c — pilot continuation from $t = 2.2086$ to `t_end`, submitted — **NOT STARTED**
 
-The success clause fails: seg9 `f3jGiqL31AFH` ended on its 80-minute cap at
-step 3624, $t = 2.224$, short of `t_end` 2.5 (last checkpoint step 3566,
-$t = 2.2086$). Every other clause holds: no `nonfinite` stop in any segment,
+The nine V1j/V1k segments end on seg9's cap at $t = 2.224$; the newest
+checkpoint is `V1/out/checkpoint_t00002p208576_step0003566.h5` (step 3566,
+$t = 2.2086$, 136,952 vertices), which `V1/out/checkpoint_latest.h5` names.
+At 35–58 s/step one `--checkpoint-every-time 0.025` interval is 1.4–2.0 h, so
+the 80-minute cap of `-t 90m` segments cannot reach the next checkpoint (log
+`## V1`, "The 90-minute chain cannot finish it"). V1c continues the run in
+`-t 240m` segments with a 20-step checkpoint cadence added.
+
+**Depends on:** D1, V1k.
+**Fill in:**
+- `scripts/tuolumne/large_rollup_segment.flux`: the `-t` directive becomes
+  `240m`; the launch cap and the cap-detection threshold are derived from one
+  value, the job's remaining time from `flux job timeleft` (present in the
+  installed Flux: `Usage: flux-job timeleft [JOBID]`) less a 10-minute
+  margin, in place of the literal `flux run -t 80m` (`:154`) and `4740`
+  (`:188`). If `flux job timeleft` fails or the cap it gives is not positive,
+  the segment prints `[large_rollup] FAIL:` with the reason and exits non-zero
+  before launching. The header comment's "How a segment ends" paragraph
+  states the derived cap. The exit logic (`:176-196`) is otherwise unchanged,
+  and the script stays generic for R1j.
+- New stage files only: `V1/stage/args_c.txt` (`args.txt` plus
+  `--checkpoint-every-steps 20`) and `V1/stage/segment10.flux` …
+  `segment14.flux`. `args.txt`, `bin/`, `COMMIT` and `segment1.flux` …
+  `segment9.flux` are unchanged.
+
+**Submits:** `V1/stage/segment10.flux` … `segment14.flux`, staged copies of
+the edited `scripts/tuolumne/large_rollup_segment.flux`, each 1 node, np4,
+`-t 240m` (launch cap 230 min), in `pbatch`, from stage
+`/p/lustre5/stewartj/beatnik/large_rollup/V1/stage`, writing to
+`/p/lustre5/stewartj/beatnik/large_rollup/V1/out/` (job logs in `V1/`).
+Expected run time: about 1,040 steps and 13.1 h of compute (log
+`## D1 — re-cost after V1`, arithmetic from seg9's rates and the
+$V^{2.37}$ fit), plus at most one 20-step interval (0.32 h) lost per cap:
+four segments; the fifth is margin and, started after `t_end`, exits at once
+(V1k **Do** 4). At most 20 node-h.
+**Removes:** the literal `80m` launch cap and `4740` threshold in
+`scripts/tuolumne/large_rollup_segment.flux`, with the comments that state
+them.
+**Do:**
+
+1. Do not rebuild or re-stage the binary. The continuation runs the staged
+   `bin/adaptive_mesh_bubble` and `COMMIT` that V1j staged, so every segment
+   of the pilot runs the same code.
+2. Edit the repository script as **Fill in** says, check it with `bash -n`,
+   and commit it before staging.
+3. Write `segment10.flux` as a byte copy of the committed script, with no
+   dependency. Write `segment<k>.flux` for $k = 11…14$ as the same copy plus
+   `# flux: --dependency=afterok:<seg k−1 id>`, after seg $k-1$ is accepted.
+4. Submit every segment with the arguments `V1/stage/args_c.txt V1/out 2.5
+   seg<k> V1/out/checkpoint_latest.h5` (full paths).
+5. Append every job ID to the log's `## V1c` **Jobs:** line.
+
+**Exit criterion:** all five segments are accepted by the scheduler,
+seg11–seg14 each with an `afterok` dependency on its predecessor, and every ID
+is on the log's `## V1c` **Jobs:** line. `segment10.flux` is `cmp`-identical
+to the committed `scripts/tuolumne/large_rollup_segment.flux`, and each later
+copy differs from it only by its dependency directive. `diff args.txt
+args_c.txt` shows only the added `--checkpoint-every-steps 20`. `bin/` and
+`COMMIT` are unchanged from V1j (`cmp` against the install `COMMIT` names).
+The committed script has no `80m` or `4740` literal (`grep -nE '80m|4740'` is
+empty), its cap comes from `flux job timeleft`, and the non-positive-cap path
+exits non-zero before `flux run` (by reading).
+
+### V1 — read the pilot — **NOT STARTED**
+
+V1 reads the pilot through V1c's last segment. The reading of seg1–seg9 is
+in log `## V1`: no `nonfinite` stop,
 $\lvert volRel \rvert \le 4.22\times10^{-15}$ and `minQ` ≥ 0.300 at all 218
-progress lines, and every restart's first progress line is later than its
-checkpoint. The cause is cost, not stability: s/step rose to 35 at 136,952
-vertices. R1j does not start. The user chose to return to D1 to re-cost and
-re-size production and the pilot from V1's measurements. Tables, diagnosis,
-projections and the decision: progress log `## V1`.
+progress lines, every
+restart later than its checkpoint, and seg9 ending on its cap at $t = 2.224$.
+V1 records the whole pilot in a new top-level log section `## V1 — after V1c`.
 
-**Depends on:** V1k, D1. D1 is reopened after this task's first reading of
-the pilot (log `## V1`) and names the task that follows it; V1 is not run
-again until D1 has rewritten or replaced it.
-**Fill in:** the log's `## V1`; this document's Current state, if the pilot
-changes a fact stated there.
+**Depends on:** V1c.
+**Fill in:** the log's `## V1 — after V1c`; this document's Current state, if
+the pilot changes a fact stated there.
 **Removes:** nothing.
 **Do:** record the following from the progress lines and `rss.log`:
 - `t`, `V`, `F`, `minQ`, `minEdge` and `dt`, every 0.1 time units;
@@ -759,8 +845,18 @@ changes a fact stated there.
   pre-restart step and `t`, the `restarted from … at step= t=` line, and the
   first post-restart progress line).
 
-Read every segment's job log and `<tag>.launch.log` from V1j and V1k. A
-segment that restarted at `t_end` and took no step is recorded as surplus.
+Read every segment's job log and `<tag>.launch.log` from V1j, V1k and V1c
+(seg1–seg14). A segment that restarted at `t_end` and took no step is
+recorded as surplus. `V1/analysis/v1_read_pilot.py` reads seg1–seg9; extend
+a copy for seg10–seg14.
+
+Against the production projection (log `## D1 — re-cost after V1`): record
+V1c's measured s/step against `V` beside $35\,(V/136{,}952)^{2.37}$, and the
+pilot's steps from 3566 to `t_end` beside the projected 1,040. Re-derive the
+production node-h at $s = 0.85$ with the measured values in place of the
+extrapolated ones. If that figure, with the ×1.25 margin, exceeds the 85
+node-h production share of the budget, R1j does not start and the log says
+so; re-sizing is D1's.
 
 If the pilot stopped, record its stop line, the last three progress lines,
 and which of R1–R3 the measurements point to, by the distinctions those risks
@@ -773,30 +869,38 @@ give. Then return to D1. This task does not change parameters.
   pilot floor.
 - Every post-restart segment's first progress line has `step` and `t` greater
   than its restart checkpoint's.
+- The re-derived production node-h is recorded.
 - **Failure direction:** a pilot that stopped early (a `nonfinite` stop, or
-  seg9 ending on its cap short of `t_end`), or broke the volume or quality
-  bound, is recorded as a failed V1 with the diagnosis above, and R1j
+  its last segment ending on its cap short of `t_end`), or broke the volume or
+  quality bound, is recorded as a failed V1 with the diagnosis above, and R1j
   does not start.
 
 ### R1j — production run, submitted — **NOT STARTED**
 
 **Depends on:** V1.
 **Fill in:** the stage directory; no new script (it reuses
-`large_rollup_segment.flux`).
-**Submits:** `scripts/tuolumne/large_rollup_segment.flux`, on D1's production
-nodes in `pbatch` at D1's segment walltime, as a dependency chain of segments.
-Stage `/p/lustre5/stewartj/beatnik/large_rollup/R1/stage`, output
-`/p/lustre5/stewartj/beatnik/large_rollup/R1/out/`. Expected run time: D1's
-production estimate, refined by V1's measured s/step against `V`. Each
-segment's `-t` is D1's segment walltime.
+`large_rollup_segment.flux` as V1c leaves it).
+**Submits:** staged copies of `scripts/tuolumne/large_rollup_segment.flux`,
+each 1 node, np4, `-t 240m` (launch cap 230 min) in `pbatch`, as an `afterok`
+chain. Stage `/p/lustre5/stewartj/beatnik/large_rollup/R1/stage`, output
+`/p/lustre5/stewartj/beatnik/large_rollup/R1/out/`; each copy's `--output`
+directive names `R1/`, created before submitting. Expected run time: 67.9 h of
+compute, about 18 segments, 22 with the ×1.25 margin (cost paragraph above
+the Production configuration table), refined by V1's re-derived estimate.
 **Removes:** nothing.
 **Do:**
 1. Re-check that the prod env is at the commit V1 ran. Re-stage only if the
    commit changed, and never `spack install` the prod env while a V1 or R1
-   segment is live.
-2. Submit the first segment. Submit enough dependent segments
-   (`--dependency=afterok`) to cover the estimate plus 25 %.
-3. Record every job ID.
+   segment is live. If the commit is unchanged, copy V1's staged
+   `bin/adaptive_mesh_bubble` and `COMMIT`.
+2. Write `R1/stage/args.txt` from the production rows: Physics, Kernel,
+   Starting mesh, Sizing, Edit caps, Step size and Checkpoint cadence, plus
+   `--steps 1000000 --progress-time-interval 0.01`, as V1j's `args.txt`. The
+   segment script appends `--checkpoint-dir` and `--t-end 2.5`.
+3. Submit the first segment cold. Submit enough dependent segments
+   (`--dependency=afterok`), each restarting from
+   `R1/out/checkpoint_latest.h5`, to cover the estimate plus 25 %.
+4. Record every job ID.
 
 **Exit criterion:** every segment is accepted, with its ID on the log's
 `**Jobs:**` line, and the stage's `COMMIT` matches V1's.
@@ -887,9 +991,9 @@ restarting from an earlier time than the previous one reached. *Do:* T5b
 resolves it; V1 checks that each segment's first progress line is later than
 the previous segment's last checkpoint.
 
-**R8 — `h_min` binds before 200,000 vertices.** At level 7 the starting edge
-`2.05e-3` is close to the default `h_min` 0.0015, so refinement has little
-headroom, and the sizing field clamps where the roll-up needs finer edges.
+**R8 — `h_min` binds before 200,000 vertices.** The sizing field clamps at
+`--remesh-h-min` (Sizing row), so where the roll-up needs finer edges than
+that, refinement stops and `V` grows more slowly than the projection.
 *Presents as:* `minEdge` pinned at `h_min` for many progress lines while
 `max|S|` grows. *Do:* D1 sets `h_min` with this in view. A pinned `minEdge`
 is not a defect.
