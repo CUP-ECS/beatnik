@@ -1828,3 +1828,120 @@ outside the DONE P1/P1c/V1k task records, where they are historical inputs.
    once at the pilot's floor) on the scaled-up side only.
 
 **Affects:** none.
+
+## V1c
+
+**Commits:** `57903c4` (`scripts/tuolumne/large_rollup_segment.flux`); the
+docs commit that adds this section and marks V1c DONE in
+`tasks/large_rollup.md`.
+**Jobs:** production env, staged binary built at beatnik `4b33843`, from stage
+`/p/lustre5/stewartj/beatnik/large_rollup/V1/stage/`, writing to
+`/p/lustre5/stewartj/beatnik/large_rollup/V1/out/`. Each segment is 1 node,
+np4, `-t 240m`, `pbatch`, submitted through the loop's wrapper with arguments
+`V1/stage/args_c.txt V1/out 2.5 seg<k> V1/out/checkpoint_latest.h5` (full
+paths).
+- `f3jVdhyQ8zwy`, seg10, `V1/stage/segment10.flux`, no dependency, job log
+  `V1/large_rollup_segment.f3jVdhyQ8zwy.log`, launch log
+  `V1/out/seg10.launch.log` — pending: read by `V1`.
+- `f3jVdzNzL25D`, seg11, `V1/stage/segment11.flux`, `afterok:f3jVdhyQ8zwy`,
+  job log `V1/large_rollup_segment.f3jVdzNzL25D.log`, launch log
+  `V1/out/seg11.launch.log` — pending: read by `V1`.
+- `f3jVeGSiafEX`, seg12, `V1/stage/segment12.flux`, `afterok:f3jVdzNzL25D`,
+  job log `V1/large_rollup_segment.f3jVeGSiafEX.log`, launch log
+  `V1/out/seg12.launch.log` — pending: read by `V1`.
+- `f3jVeXfVm1jV`, seg13, `V1/stage/segment13.flux`, `afterok:f3jVeGSiafEX`,
+  job log `V1/large_rollup_segment.f3jVeXfVm1jV.log`, launch log
+  `V1/out/seg13.launch.log` — pending: read by `V1`.
+- `f3jVf89kr2Hd`, seg14 (margin), `V1/stage/segment14.flux`,
+  `afterok:f3jVeXfVm1jV`, job log `V1/large_rollup_segment.f3jVf89kr2Hd.log`,
+  launch log `V1/out/seg14.launch.log` — pending: read by `V1`.
+
+At the 2026-11-11 09:35:29 check (`flux jobs --no-header -o "{id.f58} {state}
+{dependencies}"`): seg10 `SCHED` (submitted 09:32:19, not yet started);
+seg11–seg14 each `DEPEND` with `after-success=` their predecessor's ID.
+
+### Pre-submit check
+
+seg3–seg9 (`f3jGfa2qqqNX` … `f3jGiqL31AFH`) were all `INACTIVE COMPLETED`
+rc 0 (read by `## V1`). `V1/out/checkpoint_latest.h5` pointed to
+`checkpoint_t00002p208576_step0003566.h5`, which is also the last frame of
+`V1/out/checkpoint.xmfindex` (`t = 2.2085757839191364`).
+
+### Decisions (made before the session; recorded here)
+
+- **No rebuild, no re-stage of the binary, no `spack install` of either env.**
+  `bin/adaptive_mesh_bubble`, `args.txt`, `COMMIT` and `segment1.flux` …
+  `segment9.flux` stay byte-for-byte as they were, so every pilot segment runs
+  the code `COMMIT` names (production beatnik `4b33843`). The segment
+  script's own commit, `57903c4`, is recorded here, not in `COMMIT`.
+- **The cap derives from one value.** Launch cap = `flux job timeleft` less
+  600 s, passed as `flux run -t <cap>s`; cap-detection threshold = the cap
+  less 60 s. A failed `timeleft` or a non-positive or non-integer cap prints
+  `[large_rollup] FAIL: <reason>` and the `<tag> rc=1 wall=0.0` summary line
+  and exits 1 before the RSS sampler and `flux run`. The derived cap is
+  echoed in the provenance block. The rest of the exit logic is unchanged,
+  and the script stays generic for R1j.
+- **Every segment gets `--t-end 2.5`** and restarts from
+  `V1/out/checkpoint_latest.h5` into `V1/out`.
+- **Five segments, seg10–seg14.** Four cover the estimate; the fifth is
+  margin and, if it starts after `t_end`, exits at once (V1k **Do** 4).
+- **`args_c.txt`** is `args.txt` plus one line, `--checkpoint-every-steps 20`
+  (D1, user's answer 4).
+
+### Implementation choices
+
+- The cap is computed at the end of the provenance block, after the `submit`
+  echo and before the restart check, through a `cap_fail` helper. A fractional
+  `timeleft` is truncated to whole seconds (`${_left%%.*}`) before the
+  integer check.
+- The "How a segment ends" header paragraph states the derived cap and says
+  the newest checkpoint is the last one written on "the arguments file's
+  checkpoint cadence", which covers both the time and step cadences. `V1c` is
+  added beside `V1j, R1j` in the header's first line.
+- Stage copies were written with the Write tool to literal absolute paths
+  (as in `## V1j`). `segment<k>.flux` for k = 11…14 was written only after
+  seg k−1 was accepted, with the dependency directive after line 8
+  (`# flux: --bank=unm`).
+
+### Approvals and resubmissions
+
+- seg10 got exit 3: `NEEDS APPROVAL (script sha256 a0cb8907e35d): 4.00
+  node-hours exceeds max_node_hours_per_job 2.` The user approved it, once,
+  and it was resubmitted unchanged and accepted.
+- seg11, seg12 and seg13 were accepted on first submission (rc 0).
+- seg14 got exit 3: `NEEDS APPROVAL (script sha256 e317eb451e66): 4.00
+  node-hours would bring the run to 40.75, over budget_node_hours 40.` The
+  user approved it, once, and it was resubmitted unchanged and accepted.
+- No segment was cancelled.
+
+### Verification
+
+- `bash -n scripts/tuolumne/large_rollup_segment.flux` passes;
+  `grep -nE '80m|4740'` on it is empty.
+- `cmp` of `segment10.flux` against the working script and against
+  `git show 57903c4:scripts/tuolumne/large_rollup_segment.flux` is silent.
+  `diff` of the script against `segment<k>.flux` for k = 11…14 prints only
+  `8a9 > # flux: --dependency=afterok:<seg k−1 id>`.
+- `diff args.txt args_c.txt` prints only `4a5 > --checkpoint-every-steps 20`.
+- `cmp V1/stage/bin/adaptive_mesh_bubble
+  /usr/WS2/stewartj/spack/opt/spack/linux-zen4/beatnik-develop-jrgarvack5rup44kphc4vjxpp7jxzt6q/bin/adaptive_mesh_bubble`
+  is silent. `args.txt` (2026-11-09 18:50:15), `COMMIT` (18:50:20) and
+  `segment1.flux` keep their V1j timestamps; `COMMIT`'s first line names
+  `4b33843`.
+
+### Wait estimate
+
+920 min. Inputs:
+- run time: 13.1 h of compute plus one 20-step interval (0.32 h) lost per cap
+  over four segments, about 14.4 h (864 min), under the 4 × 230-min cap bound
+  (920 min);
+- four hand-offs at about 5 min each (V1k's chain: 1–6 min), plus seg14's
+  start-up and exit if it runs;
+- seg10 had not started at the check. Recent `pbatch` waits: V1j/V1k's first
+  segments started within 23 s, with one 7.7 h outlier on 2026-11-06; about
+  30 min is allowed.
+
+**Affects:** V1 reads seg10–seg14's job and launch logs (above) beside
+seg1–seg9, and the `[large_rollup] cap = ...` provenance line. Any segment
+that starts at $t = 2.5$ is surplus. R1j inherits the edited
+`scripts/tuolumne/large_rollup_segment.flux` (derived cap, `-t 240m`).

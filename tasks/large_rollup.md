@@ -759,7 +759,7 @@ for $k = 4…9$ prints only `8a9 > # flux: --dependency=afterok:<seg k−1 id>`.
 and `COMMIT` names `4b33843`. Seg3's launch log shows the restart at step 2326,
 $t = 1.577$. IDs and logs: progress log `## V1k`.
 
-### V1c — pilot continuation from $t = 2.2086$ to `t_end`, submitted — **NOT STARTED**
+### V1c — pilot continuation from $t = 2.2086$ to `t_end`, submitted — **DONE**
 
 The nine V1j/V1k segments end on seg9's cap at $t = 2.224$; the newest
 checkpoint is `V1/out/checkpoint_t00002p208576_step0003566.h5` (step 3566,
@@ -823,6 +823,24 @@ args_c.txt` shows only the added `--checkpoint-every-steps 20`. `bin/` and
 The committed script has no `80m` or `4740` literal (`grep -nE '80m|4740'` is
 empty), its cap comes from `flux job timeleft`, and the non-positive-cap path
 exits non-zero before `flux run` (by reading).
+
+**Met.** At the 2026-11-11 09:35 check all five segments were accepted: seg10
+`f3jVdhyQ8zwy` `SCHED`, and seg11 `f3jVdzNzL25D`, seg12 `f3jVeGSiafEX`, seg13
+`f3jVeXfVm1jV` and seg14 `f3jVf89kr2Hd` each `DEPEND` with `after-success=`
+its predecessor's ID. The script commit is `57903c4`; `bash -n` passes and
+`grep -nE '80m|4740'` on it is empty. Its cap is `flux job timeleft` less
+600 s, passed as `flux run -t "${CAP}s"`, with cap detection at the cap less
+60 s; a failed `timeleft`, a non-integer or a non-positive cap calls
+`cap_fail`, which prints `[large_rollup] FAIL:` and the `rc=1 wall=0.0`
+summary and exits 1 before the RSS sampler and `flux run` (read). `cmp
+segment10.flux` against the script, both the working copy and
+`git show 57903c4:`, is silent; `diff` against the script for seg11–seg14
+prints only `8a9 > # flux: --dependency=afterok:<seg k−1 id>`, each the right
+predecessor. `diff args.txt args_c.txt` prints only `4a5 >
+--checkpoint-every-steps 20`. `bin/adaptive_mesh_bubble` is `cmp`-identical to
+the `beatnik-develop-jrgarvack5rup44kphc4vjxpp7jxzt6q` install; `args.txt`,
+`COMMIT` and `segment1.flux` keep their 2026-11-09 timestamps, and `COMMIT`
+names `4b33843`. IDs and logs: progress log `## V1c`.
 
 ### V1 — read the pilot — **NOT STARTED**
 
