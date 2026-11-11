@@ -1254,3 +1254,233 @@ V1's to read. `12c48ff` touches only `tasks/`; no V1k prompt file remains
 under `tasks/`.
 
 **Affects:** none
+
+## V1
+
+**Status:** FAILED — awaiting user decision. Seg9 ended on its cap at
+$t = 2.224$, short of `t_end` 2.5 (the failure direction's "seg9 ending on its
+cap short of `t_end`"). The volume, quality, restart-ordering and finiteness
+clauses all hold.
+**Commits:** the docs commit that adds this section, updates Current state and
+sets V1's FAILED heading in `tasks/large_rollup.md`. No code commit.
+**Jobs:** all nine `INACTIVE COMPLETED`, exit 0 (a cap kill exits 0 by
+design). Job logs `/p/lustre5/stewartj/beatnik/large_rollup/V1/large_rollup_segment.<id>.log`,
+launch logs `/p/lustre5/stewartj/beatnik/large_rollup/V1/out/seg<k>.launch.log`.
+Every job log echoes the staged exe `V1/stage/bin/adaptive_mesh_bubble` and
+`stage/COMMIT` (`prod_beatnik_HEAD 4b33843…`, embedded hash `4b33843…`).
+- `f3jBPQzmiXhq` seg1: `rc=0 wall=4226.8`, `end=t_end` (reached its
+  `--t-end 1.25`).
+- `f3jBPi5KJgJb` seg2: `rc=142 wall=4800.5`, `end=cap`, checkpoint step 2326.
+- `f3jGfa2qqqNX` seg3: `rc=142 wall=4800.6`, `end=cap`, step 2675.
+- `f3jGg4ENVXpK` seg4: `rc=142 wall=4801.1`, `end=cap`, step 2911.
+- `f3jGhvGwFoiF` seg5: `rc=142 wall=4800.5`, `end=cap`, step 3104.
+- `f3jGi9bd7VU3` seg6: `rc=142 wall=4800.6`, `end=cap`, step 3246.
+- `f3jGiNrJD7yh` seg7: `rc=142 wall=4801.0`, `end=cap`, step 3369.
+- `f3jGic4He3u9` seg8: `rc=142 wall=4800.9`, `end=cap`, step 3492.
+- `f3jGiqL31AFH` seg9: `rc=142 wall=4800.6`, `end=cap`, step 3566
+  (`checkpoint_t00002p208576_step0003566.h5`) — **failure direction**.
+
+Every capped launch log ends with Flux's `job.exception … type=timeout …
+resource allocation expired` at about 4,799 s. No segment is surplus: every
+one took steps. Total job runtime 42,824 s, 11.9 node-h.
+
+Analysis script: `/p/lustre5/stewartj/beatnik/large_rollup/V1/analysis/v1_read_pilot.py`,
+run on the login node with `python3 -I`. It parses all 218 progress lines in
+the nine launch logs, the nine job logs and `rss.log`.
+
+### Checks on every progress line
+
+| Check | Result | Extreme |
+| --- | --- | --- |
+| `nonfinite` stop line, any segment | none | — |
+| $\lvert volRel \rvert \le 10^{-12}$ | 218 of 218 | max $4.22\times10^{-15}$, seg5 step 3090, $t = 1.9987$ |
+| `minQ` ≥ 0.12 | 218 of 218 | min 0.300, seg6 step 3234, $t = 2.0777$ |
+| first post-restart line later than the restart | 8 of 8 | table below |
+| last progress line $t \ge t_{end} - dt$ | **no** | step 3624, $t = 2.2240$, dt `2.78e-4`; needs $t \ge 2.4997$ |
+
+### Restart points
+
+Each restart read the checkpoint the previous segment's `end=` line names
+(`out/checkpoint.xmfindex` lists the same frames, 89 in all, the last
+`…_step0003566`).
+
+| Segment | Previous segment's last progress line | `restarted from … at` | First progress line |
+| --- | --- | --- | --- |
+| seg2 | step 1750, $t = 1.2422$ | step=1764 t=1.250000, V=64406 F=128808 | step 1782, $t = 1.2605$, V 65,214 |
+| seg3 | step 2322, $t = 1.5750$ | step=2326 t=1.577250, V=81142 F=162280 | step 2344, $t = 1.5877$, V 81,844 |
+| seg4 | step 2705, $t = 1.7963$ | step=2675 t=1.779249, V=93985 F=187966 | step 2693, $t = 1.7894$, V 94,664 |
+| seg5 | step 2904, $t = 1.9018$ | step=2911 t=1.905694, V=103851 F=207698 | step 2931, $t = 1.9160$, V 104,786 |
+| seg6 | step 3128, $t = 2.0190$ | step=3104 t=2.006749, V=113325 F=226646 | step 3124, $t = 2.0171$, V 114,375 |
+| seg7 | step 3260, $t = 2.0881$ | step=3246 t=2.082516, V=121116 F=242228 | step 3271, $t = 2.0928$, V 122,144 |
+| seg8 | step 3397, $t = 2.1439$ | step=3369 t=2.133259, V=126452 F=252900 | step 3396, $t = 2.1435$, V 127,576 |
+| seg9 | step 3494, $t = 2.1844$ | step=3492 t=2.183523, V=132136 F=264268 | step 3516, $t = 2.1937$, V 133,390 |
+
+Where the previous segment's last line is past its restart step (seg4, seg6,
+seg7, seg8, seg9), those steps were lost at the cap and re-run (`## V1j`
+Findings 1). `remesh_events` restarts at 0 in every segment and is not read
+as a total (`## T5b`).
+
+### Trajectory every 0.1 time units
+
+Lines past a capped segment's last checkpoint are dropped (they were re-run);
+the first line at or after each mark:
+
+| $t$ | step | `V` | `F` | `minQ` | `minEdge` | `dt` |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0.0032 | 1 | 40,962 | 81,920 | 0.974 | `3.95e-3` | `3.2e-3` |
+| 0.1011 | 66 | 40,962 | 81,920 | 0.974 | `2.68e-3` | `1.23e-3` |
+| 0.2064 | 161 | 40,962 | 81,920 | 0.974 | `2.44e-3` | `1.02e-3` |
+| 0.3003 | 259 | 40,962 | 81,920 | 0.974 | `2.30e-3` | `9.05e-4` |
+| 0.4049 | 382 | 40,962 | 81,920 | 0.973 | `2.16e-3` | `8.01e-4` |
+| 0.5083 | 521 | 44,116 | 88,228 | 0.622 | `1.87e-3` | `5.97e-4` |
+| 0.6008 | 674 | 50,768 | 101,532 | 0.745 | `1.90e-3` | `6.17e-4` |
+| 0.7039 | 840 | 52,446 | 104,888 | 0.704 | `1.88e-3` | `6.08e-4` |
+| 0.8061 | 1010 | 53,906 | 107,808 | 0.713 | `1.92e-3` | `6.34e-4` |
+| 0.9084 | 1181 | 55,334 | 110,664 | 0.730 | `1.85e-3` | `5.87e-4` |
+| 1.0018 | 1340 | 57,144 | 114,284 | 0.731 | `1.85e-3` | `5.85e-4` |
+| 1.1057 | 1517 | 59,894 | 119,784 | 0.738 | `1.86e-3` | `5.83e-4` |
+| 1.2001 | 1678 | 62,642 | 125,280 | 0.756 | `1.85e-3` | `5.86e-4` |
+| 1.3026 | 1854 | 67,202 | 134,400 | 0.762 | `1.85e-3` | `5.84e-4` |
+| 1.4077 | 2034 | 72,052 | 144,100 | 0.737 | `1.84e-3` | `5.84e-4` |
+| 1.5020 | 2196 | 76,912 | 153,820 | 0.702 | `1.85e-3` | `5.85e-4` |
+| 1.6084 | 2380 | 82,886 | 165,768 | 0.681 | `1.85e-3` | `5.83e-4` |
+| 1.7025 | 2543 | 88,546 | 177,088 | 0.708 | `1.85e-3` | `5.89e-4` |
+| 1.8098 | 2730 | 96,139 | 192,274 | 0.606 | `1.83e-3` | `5.81e-4` |
+| 1.9018 | 2904 | 103,531 | 207,058 | 0.665 | `1.84e-3` | `5.82e-4` |
+| 2.0171 | 3124 | 114,375 | 228,746 | 0.558 | `1.83e-3` | `5.70e-4` |
+| 2.1032 | 3295 | 123,096 | 246,188 | 0.479 | `1.70e-3` | `4.92e-4` |
+| 2.2037 | 3545 | 134,708 | 269,412 | 0.487 | `9.23e-4` | `2.0e-4` |
+| 2.2240 (last) | 3624 | 136,952 | 273,900 | 0.599 | `1.28e-3` | `2.78e-4` |
+
+`minEdge` against $t$ (`## D1 review` follow-up 2): it falls to
+$0.45\,h_{max} = 1.845\times10^{-3}$ by $t \approx 0.5$ and sits there to
+$t = 2.0$, with dt at about `5.85e-4` ($\approx 172\,h^2$), as D1 assumed.
+After $t = 2.08$ it falls below that floor: `1.70e-3` at 2.10, `9.23e-4` at
+2.2037 (the only line with dt at `--min-dt` 2e-4), then `1.24e-3`–`1.28e-3`.
+At step 3545, $dt\,\mu/minEdge^2 = 2\times10^{-4} \cdot 0.002 / (9.23\times10^{-4})^2 = 0.47$,
+above D1's 0.4 target and near the 0.5 limit (R1): the `--min-dt` floor binds
+below `minEdge` about `1.0e-3`. `minQ` drifts from about 0.73 ($t$ 1.0–1.3) to
+0.30–0.60 after $t = 2.0$, still 2.5× the floor.
+
+### Cost
+
+Steps per segment are counted from the restart step to the segment's last
+checkpoint, so re-run steps count once. s/step is timed between the first and
+last progress lines of a segment (start-up excluded).
+
+| Segment | Steps (net) | $t$ covered | Timed s/step | Launch wall / net step | `V` over the segment | dt range |
+| --- | --- | --- | --- | --- | --- | --- |
+| seg1 | 0 → 1764 (1764) | 0 → 1.250 | 2.37 | 2.40 | 40,962 → 64,128 | `5.8e-4`–`3.2e-3` |
+| seg2 | 1764 → 2326 (562) | 1.250 → 1.577 | 8.55 | 8.54 | 65,214 → 81,028 | `5.5e-4`–`6.0e-4` |
+| seg3 | 2326 → 2675 (349) | 1.577 → 1.779 | 12.75 | 13.76 | 81,844 → 95,093 | `5.1e-4`–`5.9e-4` |
+| seg4 | 2675 → 2911 (236) | 1.779 → 1.906 | 18.41 | 20.34 | 94,664 → 103,531 | `3.4e-4`–`5.9e-4` |
+| seg5 | 2911 → 3104 (193) | 1.906 → 2.007 | 22.22 | 24.87 | 104,786 → 114,564 | `3.8e-4`–`5.8e-4` |
+| seg6 | 3104 → 3246 (142) | 2.007 → 2.083 | 28.89 | 33.81 | 114,375 → 121,718 | `4.1e-4`–`5.9e-4` |
+| seg7 | 3246 → 3369 (123) | 2.083 → 2.133 | 27.64 | 39.03 | 122,144 → 127,626 | `2.7e-4`–`4.9e-4` |
+| seg8 | 3369 → 3492 (123) | 2.133 → 2.184 | 34.44 | 39.03 | 127,576 → 132,221 | `3.4e-4`–`4.4e-4` |
+| seg9 | 3492 → 3566 (74) | 2.184 → 2.209 | 35.00 | 64.87 | 133,390 → 136,952 | `2.0e-4`–`3.6e-4` |
+
+s/step against `V` (consecutive progress lines; np4, HIP):
+
+| `V` | 40,962 | 51,046 | 64,128 | 73,208 | 81,028 | 88,546 | 99,201 | 110,416 | 121,718 | 131,088 | 136,952 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| s/step | 0.12 | 1.94 | 5.26 | 9.58 | 10.65 | 12.24 | 17.87 | 20.46 | 29.54 | 35.35 | 35.03 |
+
+A least-squares fit for $V \ge 65{,}000$ gives s/step $\propto V^{2.37}$. The
+direct sum alone, scaled as $V^2$ from P1c's 0.118 s/step at 40,962, is about
+1.3 s/step at 137,000, so about 34 of seg9's 35 s/step is outside the direct
+sum (arithmetic; which phase is unmeasured). Re-run work lost at the caps,
+(launch wall − net steps × timed s/step), is about 6,200 s of 42,600 (15 %),
+2,200 s of it in seg9 alone.
+
+**Against D1** (arithmetic, not a run):
+- *Pilot estimate* (`## D1` close-out): 2,000–4,300 steps and 40–90 min at
+  about 1.2 s/step. Measured: 3,566 steps to $t = 2.2086$ in 11.9 node-h, at
+  2.4 s/step (seg1 mean) rising to 35 s/step, 29× the assumed rate at the end.
+  From seg9's mean dt (`2.81e-4`), $t = 2.5$ is about 1,040 more steps, about
+  4,600 in all, above the estimate's upper end.
+- *Production cost model*: 5.0 s/step at 200,000 vertices np8 while
+  remeshing, 8,000–17,100 steps, 59.4 node-h with margin. The pilot already
+  runs 35 s/step at 137,000 np4 (np8/np4 is 0.97, `## P1c`). Scaled by the
+  fitted $V^{2.37}$ to 200,000: about 86 s/step, 17× the model. At
+  8,000–17,100 steps that is about 190–410 h of wall and 380–820 node-h on 2
+  nodes, against about 60, before counting `V` growth past 200,000 (the pilot
+  grew 3.3× from its start).
+
+**Remaining to $t = 2.5$** (arithmetic, from seg9's rates): from the last
+checkpoint ($t = 2.2086$, step 3566), about 1,040 steps. At a constant 35
+s/step, 10.1 h. With s/step rising as $V^{2}$–$V^{2.37}$ and `V` growing
+about 33 per step (seg9), `V` reaches about 169,000 and s/step about 57, for
+12.5–12.9 h of compute. Assumes dt stays near `2.8e-4`; a further `minEdge`
+fall to the `--min-dt` floor would raise the step count.
+
+**The 90-minute chain cannot finish it.** A 0.025 checkpoint interval is
+46–74 steps here (`checkpoint.xmfindex`). At 57 s/step, 74 steps is 4,200 s,
+and at about 65 s/step it exceeds the 4,800 s launch cap: a segment would
+then write no checkpoint, and the next would restart from the same one.
+`large_rollup_segment.flux` exits 0 on a cap kill with any
+`checkpoint_latest.h5` present, so such a chain repeats without progress.
+Continuing needs longer segments (or a finer `--checkpoint-every-time`).
+
+### Memory (R6)
+
+`rss.log` (709 samples, 4 PIDs on the node each). RSS per rank against the
+progress line in force at the sample:
+
+| Segment | First sample: step, `V`, RSS per rank (GB), sum/`V` | Last sample: step, `V`, RSS per rank (GB), sum/`V` | Peak rank |
+| --- | --- | --- | --- |
+| seg1 | 369, 40,962, 1.09/1.14/1.12/1.12, 109 kB | 1750, 64,128, 2.91/2.80/6.73/12.82, 394 kB | 12.82 GB |
+| seg2 | 1764, 64,406, 1.21/1.25/1.44/1.33, 81 kB | 2322, 81,028, 5.48/5.98/5.22/6.88, 291 kB | 6.88 GB |
+| seg3 | 2326, 81,142, 1.25/1.48/1.48/1.35, 69 kB | 2687, 94,414, 4.99/3.06/5.94/4.11, 192 kB | 5.94 GB |
+| seg4 | 2675, 93,985, 1.13/1.22/1.25/1.18, 51 kB | 2904, 103,531, 4.36/5.85/2.82/3.73, 162 kB | 5.85 GB |
+| seg5 | 2911, 103,851, 1.37/1.62/1.58/1.44, 58 kB | 3108, 113,576, 3.96/2.86/7.36/3.10, 152 kB | 7.39 GB |
+| seg6 | 3104, 113,325, 1.31/1.56/1.48/1.42, 51 kB | 3260, 121,718, 4.92/2.57/4.16/2.17, 114 kB | 4.92 GB |
+| seg7 | 3246, 121,116, 1.30/1.60/1.58/1.43, 49 kB | 3397, 127,626, 4.71/6.48/5.50/4.96, 170 kB | 6.53 GB |
+| seg8 | 3369, 126,452, 1.62/1.30/1.53/1.43, 47 kB | 3494, 132,221, 10.50/4.45/6.32/4.73, 197 kB | 10.50 GB |
+| seg9 | 3492, 132,136, 1.38/1.78/1.57/1.49, 47 kB | 3624, 136,952, 5.06/3.71/4.03/4.70, 128 kB | 5.07 GB |
+
+R6's test: **RSS divided by `V` rises** within every segment, 2.2–4.2× while
+`V` grows 4–57 %, and falls back to 47–81 kB per vertex at each restart. So
+memory grows with steps (process lifetime), not with `V`: R6 presents. The
+fastest growth is about 10 GB per rank per hour (seg1's rank 3, 1.1 → 12.8 GB
+in 70 min); seg8's rank 0 grew 1.6 → 10.5 GB in 80 min, 6.7 GB/h. At 7–10
+GB/h a 12 h segment (R1j's) would reach about 80–120 GB per rank
+(arithmetic), close to the 128 GB of an MI300A APU; 80-minute segments bound
+it below 13 GB. The rise is uneven
+across ranks. The `rss_kb=` peaks `/usr/bin/time` printed for seg1 (2.83,
+2.94, 6.75, 12.92 GB) agree.
+
+### Diagnosis
+
+No segment has a `nonfinite` stop line, so **none of R1–R3 fired**. The pilot
+failed on cost, not stability: it ran out of chained wall at $t = 2.224$
+because s/step rose from 0.12 to 35 as `V` grew 40,962 → 136,952 (s/step
+$\propto V^{2.37}$, about 97 % of it outside the direct sum). Precursors seen
+near the end, none at a stop: `minEdge` leaving the $0.45\,h_{max}$ floor and
+dt touching `--min-dt` once at $t = 2.20$ with $dt\,\mu/minEdge^2 = 0.47$ (R1's
+ratio), and `minQ` lower after $t = 2.0$ (0.30–0.60) but far above 0.12 (R2
+not presenting). R6 presents (above).
+
+### Decisions (recorded from the task prompt)
+
+- This task ran nothing and changed no parameter. No continuation segment was
+  submitted. Extending the pilot, re-sizing it, or changing D1's values is the
+  user's decision.
+- Seg9 ending on its cap short of `t_end` is the failure direction, so V1 is
+  not marked DONE; its heading reads FAILED — awaiting user decision, and R1j
+  does not start.
+- Re-run steps are counted once (restart step to last checkpoint).
+
+### Follow-ups
+
+1. [design] Known risk R2 still says no T4d-era run has passed $t$ 1.33 or
+   about 2,000 vertices. Current state now records the pilot; R2's sentence is
+   outside V1's **Fill in** and is left for D1 to restate.
+2. [R1j] R1j's 12h segments would hit R6's growth (about 80–120 GB per rank,
+   by arithmetic) and lose up to one checkpoint interval per cap (`## V1j`
+   Findings 1).
+
+**Affects:** R1j — must not start; its node-hour budget and segment walltime
+rest on D1's 5.0 s/step, which the pilot puts about 17× low. D1 — reopened:
+the production cost model, the pilot's segment length against the checkpoint
+cadence, and R6's per-segment memory bound.

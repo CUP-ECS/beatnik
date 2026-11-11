@@ -228,6 +228,16 @@ node-h, at np8 on 2 nodes (log `## D1`).
   over its last few progress lines and dt at or near its `--min-dt` of 5e-5.
   Variant A ran 8457 steps in 476 s, about 0.056 s/step at 2,000–10,000
   vertices.
+
+  **The V1 pilot** (with the T4d passes; Pilot resolution row, np4 HIP, nine
+  chained segments, log `## V1`) runs to $t = 2.224$ (step 3624) with no
+  nonfinite stop, and ends on its ninth segment's cap, not at `t_end`. `V`
+  grows 40,962 → 136,952; $\lvert volRel \rvert \le 4.2\times10^{-15}$ and
+  `minQ` ≥ 0.30 at all 218 progress lines. `minEdge` holds at
+  $0.45\,h_{max} = 1.845\times10^{-3}$ from $t \approx 0.5$ to 2.0 with dt
+  about `5.85e-4`, then falls to `9.2e-4`–`1.3e-3` with dt `2.0e-4`–`3.6e-4`.
+  Cost rises from 0.12 s/step at 40,962 vertices to 35 s/step at 137,000
+  (about $V^{2.37}$), 3,566 checkpointed steps in 11.9 node-h.
 - **Direct-sum cost at fixed connectivity**: the direct estimate is 0.108
   s/step at level 6 HIP np1 and 0.125 s/step at np4
   (`tasks/canopy_profiling-progress-log.md`, table "(d)"). It is an estimate
@@ -235,7 +245,10 @@ node-h, at np8 on 2 nodes (log `## D1`).
   direct sum at more than 41k vertices is unmeasured.
 - **Per-rank RSS grows slowly** in 4-rank dynamic-remesh runs (README Known
   Issues, `README.md:905-920`): 6–22 MB per rank over 600 steps at about 1040
-  faces. Whether it plateaus is unmeasured.
+  faces. In the V1 pilot it does not plateau within an 80-minute segment:
+  per-rank RSS rises from about 1.3 GB to 5–13 GB in each segment, RSS per
+  vertex rises 2.2–4.2× while `V` grows 4–57 %, and a restart resets it (log
+  `## V1`, Memory).
 
 ## Progress log
 
@@ -696,7 +709,16 @@ for $k = 4…9$ prints only `8a9 > # flux: --dependency=afterok:<seg k−1 id>`.
 and `COMMIT` names `4b33843`. Seg3's launch log shows the restart at step 2326,
 $t = 1.577$. IDs and logs: progress log `## V1k`.
 
-### V1 — read the pilot — **NOT STARTED**
+### V1 — read the pilot — **FAILED — awaiting user decision**
+
+The success clause fails: seg9 `f3jGiqL31AFH` ended on its 80-minute cap at
+step 3624, $t = 2.224$, short of `t_end` 2.5 (last checkpoint step 3566,
+$t = 2.2086$). Every other clause holds: no `nonfinite` stop in any segment,
+$\lvert volRel \rvert \le 4.22\times10^{-15}$ and `minQ` ≥ 0.300 at all 218
+progress lines, and every restart's first progress line is later than its
+checkpoint. The cause is cost, not stability: s/step rose to 35 at 136,952
+vertices. R1j does not start. Tables, diagnosis and projections: progress log
+`## V1`.
 
 **Depends on:** V1k.
 **Fill in:** the log's `## V1`; this document's Current state, if the pilot
