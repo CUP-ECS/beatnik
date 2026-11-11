@@ -427,7 +427,9 @@ production and the pilot from V1's measurements.
 DONE and does not gate D1.
 **Fill in:** this document's [Production configuration](#production-configuration)
 table and its cost paragraph; the task entries D1's choices change (the pilot
-tasks and R1j, below); the log's `## D1` (a new subsection). No code or script.
+tasks and R1j, below); a new section `## D1 — re-cost after V1` appended at
+the end of the log (a top-level section, not a subsection of the existing
+`## D1`, so that the reopened D1 gets its own review). No code or script.
 **Removes:** every table value and cost figure D1 replaces, with the sentences
 that cite it, including the 2.8–6.1 / 21.6–47.5 / 59.4 node-h figures wherever
 they appear in this document.
@@ -474,7 +476,7 @@ value and a source; the cost paragraph above the table gives projected
 production node-hours computed from V1's measured s/step against `V` and step
 count; the chosen segment walltime fits at least two checkpoint intervals at
 the projected end-of-segment s/step and keeps the projected per-rank RSS under
-half a rank's memory; the log's new `## D1` subsection records the
+half a rank's memory; the log's `## D1 — re-cost after V1` section records the
 alternatives, the numbers behind each choice, and the next task; and the task
 sequence names that task with its dependencies. Failure direction: if no
 option the user accepts fits the node-hours the user accepts, D1 records that
@@ -743,7 +745,9 @@ vertices. R1j does not start. The user chose to return to D1 to re-cost and
 re-size production and the pilot from V1's measurements. Tables, diagnosis,
 projections and the decision: progress log `## V1`.
 
-**Depends on:** V1k.
+**Depends on:** V1k, D1. D1 is reopened after this task's first reading of
+the pilot (log `## V1`) and names the task that follows it; V1 is not run
+again until D1 has rewritten or replaced it.
 **Fill in:** the log's `## V1`; this document's Current state, if the pilot
 changes a fact stated there.
 **Removes:** nothing.

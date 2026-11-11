@@ -1496,6 +1496,13 @@ The user then authorised this session to make the design change itself
   now states the pilot's result (follow-up 1 below, resolved).
 - R1j's dependency on V1 is unchanged. Which task follows D1 (a pilot
   continuation, a re-sized pilot, or R1j) is D1's to name.
+- So that the task loop takes D1 next (the user's instruction), V1 now
+  depends on V1k **and D1**, and D1 logs to a new top-level section
+  `## D1 — re-cost after V1`. The loop counts a `## D1 review` as current
+  only when it follows the last section titled with D1, so a subsection
+  under the old `## D1` would leave the old Passed review standing for the
+  reopened task. Checked with the loop's own parser: D1 is the only ready
+  task; V1 waits on D1, R1j on V1.
 
 ### Follow-ups
 
