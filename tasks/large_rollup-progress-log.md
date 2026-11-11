@@ -1521,7 +1521,7 @@ cadence, and R6's per-segment memory bound.
 ## D1 — re-cost after V1
 
 **Status:** DONE. Options prepared and put to the user; answers below.
-**Commits:** `6c80935` (prepared options); CLOSE_SHA (answers, Production
+**Commits:** `6c80935` (prepared options); `87c5292` (answers, Production
 configuration table, V1c added, V1 and R1j rewritten, D1 marked DONE).
 No job.
 
