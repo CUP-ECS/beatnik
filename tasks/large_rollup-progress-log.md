@@ -1517,3 +1517,190 @@ The user then authorised this session to make the design change itself
 rest on D1's 5.0 s/step, which the pilot puts about 17× low. D1 — reopened:
 the production cost model, the pilot's segment length against the checkpoint
 cadence, and R6's per-segment memory bound.
+
+## D1 — re-cost after V1
+
+**Status:** options prepared and put to the user (2026-11-11); the
+Production configuration table is unchanged until the answers are in.
+**Commits:** this section only, so far.
+
+Decisions already made, recorded from the task prompt:
+- V1 stays **FAILED**. No continuation segment is submitted in this task, and
+  R1j does not start until D1 names the task that follows (`## V1`, "User's
+  decision").
+- D1 logs here, in a new top-level section, not under the old `## D1`.
+- The physics row (configuration (a), direct sum) is fixed. The FMM is out of
+  scope; an FMM task would be a new design decision, not an option costed here.
+
+All numbers below are **arithmetic over V1's logs, not runs**. Script
+`/p/lustre5/stewartj/beatnik/large_rollup/D1/d1_recost.py` (`python3 -I`,
+login node), reading the same nine launch logs and job logs as
+`V1/analysis/v1_read_pilot.py`.
+
+### Cost model
+
+- **s/step against `V`, remeshing:** $35\,(V/136{,}952)^{2.37}$ s/step on np4
+  HIP, anchored on `## V1`'s 35 s/step at 136,952. Re-fitting the 90
+  consecutive-line intervals with $V \ge 65{,}000$ gives $V^{2.384}$, 37.5
+  s/step at 136,952, so the anchored form is the slightly cheaper of the two.
+  At 200,000 it gives 85.9 s/step np4, 83.3 np8 (×0.97).
+- **No-remesh steps** (pilot steps 0–504, `V` held at 40,962): P1c's direct
+  cost, 0.118 s/step at 40,962 and 0.440 at 163,842 np4, interpolated as
+  $V^{0.95}$.
+- **Pilot trajectory to $t = 2.5$:** V1's progress lines to the last
+  checkpoint (step 3566, $t = 2.2086$), then 1,039 more steps at seg9's mean
+  dt `2.81e-4` with `V` growing 33.0 per step, to about 169,500 at
+  $t = 2.5$; 4,604 steps in all.
+- **Check at the pilot's own resolution:** the model gives 34,585 s of
+  compute to step 3566; V1's timed net compute is 32,166 s. The model is 7.5 %
+  high, on the conservative side.
+- **Other resolutions** are the pilot scaled in length by $s$ ($h_{max} =
+  s \cdot 4.1\times10^{-3}$, and `h_min`, sagitta and eps with it; `--dt` and
+  `--min-dt` by $s^2$): steps ×$1/s^2$ (dt $\approx 172\,h^2$), `V` at each
+  scaled time ×$1/s^2$, s/step from the fit at the scaled `V`. $s = 0.5$ is the
+  level-7 production row. np8 is charged 0.97× np4's wall on twice the nodes
+  (`## P1c` derived result 2), with no further speedup credited.
+
+Assumptions a later reader must carry: the fit is extrapolated past 136,952,
+by 1.24× in `V` for the pilot's own end, 1.7× for $s = 0.85$ and 5× for the
+level-7 row; the remesh cost's split by phase is unmeasured (about 97 %
+outside the direct sum, `## V1` Cost); growth past $t = 2.2086$ assumes seg9's
+dt and `V` rate hold, and a fall of `minEdge` to the `--min-dt` floor (V1 saw
+it once, at $t = 2.20$; `## D1 review` follow-up 2) would raise the step count;
+a run started from level 6 at a smaller `h_max` holds 40,962 vertices at the
+start (split threshold $1.35\,h_{max} > 4.1\times10^{-3}$ for $s \ge 0.75$)
+rather than the scaled count, so its early phase is cheaper than modelled and
+whether `V` then tracks the scaled trajectory is unmeasured; eps $8\times10^{-3}$
+at level 7 and the scaled eps are each shown stable only at their start.
+
+### Production options (arithmetic)
+
+| $s$ | `--remesh-h-max` | `V` at $t = 2.22$ | `V` at 2.5 | first `V` ≥ 200,000 | steps | wall np4 | node-h np4 (×1.25) | node-h np8 (×1.25) | s/step at end, np4 |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| 1.00 (pilot) | `4.1e-3` | 136,952 | 169,500 | not by 2.5 | 4,604 | 22.7 h | 22.7 (28.4) | 44.0 (55.1) | 58 |
+| 0.92 | `3.77e-3` | 161,800 | 200,300 | $t = 2.498$ | 5,440 | 39.8 h | 39.8 (49.8) | 77.3 (96.6) | 86 |
+| 0.88 | `3.61e-3` | 176,800 | 218,900 | $t = 2.376$ | 5,945 | 53.7 h | 53.7 (67.2) | 104 (130) | 106 |
+| 0.85 | `3.49e-3` | 189,600 | 234,600 | $t = 2.287$ | 6,372 | 67.9 h | 67.9 (84.9) | 132 (165) | 125 |
+| 0.828 | `3.39e-3` | 199,800 | 247,200 | $t = 2.225$ | 6,715 | 81.0 h | 81.0 (101) | 157 (196) | 142 |
+| 0.75 | `3.08e-3` | 243,500 | 301,300 | before 2.2 | 8,185 | 158 h | 158 (197) | 306 (383) | 227 |
+| 0.50 (level-7 row) | `2.05e-3` | 547,800 | 678,000 | at the start | 18,416 | 2,426 h | 2,426 (3,032) | 4,706 (5,882) | 1,550 |
+
+The design's own framing of the level-7 row, `V` held at 200,000 on np8
+(86 s/step), gives 370 node-h at 8,000 steps, 791 at 17,100 and 851 at the
+pilot-scaled 18,416; with the 3.3× `V` growth the pilot showed, it is about
+4,700. No budget near 60 node-h holds the level-7 row. The ×1.25 is R1j's
+chain margin, which also covers the work lost at each cap (below).
+
+What each option gives up:
+- **A smaller vertex target** (keep a resolution that never reaches 200,000):
+  changes the design's End state; the pilot itself ends near 169,500.
+- **Coarser sizing that bounds `V` growth** (R8): the table's $s$ rows.
+  $s = 0.92$ fits 60 node-h with its margin but reaches 200,000 only at
+  $t = 2.498$ on the extrapolated growth: no margin on the End state's vertex
+  clause, and a stop before $t = 2.5$ (R3) fails R1. $s = 0.85$ crosses
+  200,000 at $t = 2.287$, inside the measured-plus-short-extrapolation range,
+  for about 85 node-h. Coarsening the level-7 start instead (larger `h_max`
+  at level 7) relies on the collapse pass at 400 per pass removing about
+  100,000 edges, unmeasured.
+- **A larger budget:** the table's node-h columns.
+- **np8 instead of np4:** twice the node-h for about 3 % less wall, on a ratio
+  measured without remeshing (`## P1c` derived result 2). How remeshing cost
+  scales with ranks is unmeasured.
+- **A profiling task ahead of R1j** that finds which phase holds the 97 %:
+  about 1 node-h (a restart from the V1 checkpoint at 136,952, about 20 steps
+  at 35 s/step, in `pdebug`). It changes no cost by itself; a fix it points
+  to is a code change outside this design, and the pilot's evidence would
+  then be for a different binary. Whether it needs instrumentation or a
+  profiler dependency is not established. Offered, not recommended as the
+  default.
+
+### Segment sizing (arithmetic)
+
+The segment script's launch cap is the walltime less 10 minutes
+(`scripts/tuolumne/large_rollup_segment.flux:154`, `flux run -t 80m` under
+`-t 90m`). One checkpoint interval's wall is steps per interval × s/step at
+the run's end (the worst point of every segment):
+
+| Cadence | pilot, end (58 s/step) | $s = 0.92$ (86) | $s = 0.85$ (125) | $s = 0.828$ (142) |
+| --- | --- | --- | --- | --- |
+| `--checkpoint-every-time 0.025` | 89 steps, 1.44 h (2.01 h at `--min-dt`) | 105 steps, 2.52 h (3.53 h) | 123 steps, 4.28 h (6.0 h) | 130 steps, 5.12 h (7.19 h) |
+| `--checkpoint-every-time 0.01` | 0.57 h (0.81 h) | 1.01 h (1.41 h) | 1.71 h (2.40 h) | 2.05 h (2.88 h) |
+| `--checkpoint-every-time 0.005` | 0.29 h (0.40 h) | 0.50 h (0.71 h) | 0.86 h (1.20 h) | 1.02 h (1.44 h) |
+| add `--checkpoint-every-steps 20` | 0.32 h | 0.48 h | 0.70 h | 0.79 h |
+
+The two cadences are ORed (`src/Beatnik_Solver.hpp:678-682`), so adding
+`--checkpoint-every-steps 20` keeps the 0.025 time series and bounds an
+interval's wall whatever dt does, including at the `--min-dt` floor. At 0.025
+alone the pilot's end interval does not fit twice in V1's 80-minute cap (the
+`## V1` "90-minute chain" finding), and at $s = 0.828$ it does not fit twice
+in any walltime under the memory bound.
+
+**Memory (R6).** Per-rank RSS grows 7–10 GB per hour of process life and
+resets at a restart (`## V1` Memory). A rank's memory is one MI300A APU's
+128 GB, shared by CPU and GPU (`## V1` Memory); no better per-process figure
+was found in `systems/tuolumne/claude.md`, which gives none. Bound: half, 64
+GB. Start-of-segment RSS per rank is taken at the worst restart value, 81 kB
+per vertex summed over 4 ranks (`## V1` Memory, seg2), at the run's final `V`:
+
+| `-t` | launch cap | room for two intervals | peak RSS per rank, pilot (start 3.4 GB) | peak, $s = 0.85$ (start 4.8 GB) | under 64 GB |
+| --- | --- | --- | --- | --- | --- |
+| 90m | 1.33 h | 0.67 h | 12.8–16.8 GB | 14.1–18.1 GB | yes |
+| 3h | 2.83 h | 1.42 h | 23.3–31.8 GB | 24.6–33.1 GB | yes |
+| 4h | 3.83 h | 1.92 h | 30.3–41.8 GB | 31.6–43.1 GB | yes |
+| 6h | 5.83 h | 2.92 h | 44.3–61.8 GB | 45.6–63.1 GB | barely, at 10 GB/h |
+| 8h | 7.83 h | 3.92 h | 58.3–81.8 GB | 59.6–83.1 GB | no |
+| 12h | 11.83 h | 5.92 h | 86.3–121.8 GB | 87.6–123.1 GB | no |
+
+At `-t 4h` with `--checkpoint-every-steps 20`, two intervals (at most 1.6 h
+at $s = 0.828$, 1.4 h at 0.85, 0.64 h for the pilot) fit the 1.92 h room, and
+peak RSS stays at or under 43 GB. A cap loses at most one interval: 0.32–0.79
+h of 3.83 h.
+
+**The segment script fixes the launch cap at 80 minutes** (`flux run -t 80m`,
+`:154`) and the cap-detection threshold at 4,740 s (`:188`), and V1k staged
+byte copies of it. Any walltime other than 90m therefore needs a script
+change: the cap and threshold derived from one value. D1 changes no script,
+so that change belongs to the next task, which is a sequence decision for the
+user. At 90m with `--checkpoint-every-steps 20`, both checks pass (pilot: two
+0.32 h intervals in 1.33 h), at about 10 segments for the pilot continuation
+and about 50–65 for production at $s = 0.85$, each with its own `pbatch`
+wait and start-up.
+
+### The pilot (arithmetic)
+
+- **Continue V1** from `V1/out/checkpoint_t00002p208576_step0003566.h5`,
+  same binary and stage, with `--checkpoint-every-steps 20` added: about
+  1,040 steps and 13.1 h of compute, about 3.4 segments at `-t 4h`
+  (4 segments, about 16 node-h) or about 10 at `-t 90m`. It shows the
+  configuration surviving $t = 2.22 \to 2.5$ (R1–R3, the `--min-dt` floor)
+  and measures s/step from 137,000 to about 170,000, a direct check of the
+  $V^{2.37}$ extrapolation the production estimate rests on.
+- **Re-run at a re-sized resolution:** repeats the 0–2.2 part already
+  measured; production at $s = 0.85$–0.92 is itself the pilot's
+  configuration scaled by 0.85–0.92 in length.
+- **Go to R1j on V1's evidence to $t = 2.224$:** cheapest, but a production
+  stop between 2.22 and 2.5 is found at production cost.
+
+### Stale citation (fixed with the table, after the answers)
+
+The D1 **Do** bullet "Segment walltime against checkpoint cadence" attributes
+"15 % of the pilot's wall" to `## V1j` Findings 1. Findings 1 describes the
+loss; the 15 % (about 6,200 s of 42,600) is in `## V1`, Cost. Both are to be
+cited, or the bullet goes if the rewrite deletes it.
+
+### Questions put to the user
+
+1. Production resolution: $s = 0.85$ (`--icosphere-subdivisions 6
+   --remesh-h-max 3.49e-3 --remesh-h-min 2.55e-3 --remesh-sagitta-tolerance
+   0.0136 --eps 1.36e-2 --dt 2.31e-3 --min-dt 1.45e-4 --dt-edge-power 2`,
+   recommended), $s = 0.92$, $s = 0.88$, $s = 0.828$, or the level-7 row.
+2. Node-hour budget: about 105 node-h (recommended: production at $s = 0.85$
+   about 85 with margin plus the pilot continuation about 16), about 60, or
+   another figure.
+3. Ranks and nodes: np4 on 1 node (recommended) or np8 on 2.
+4. Segment walltime and cadence: `-t 4h` with `--checkpoint-every-steps 20`
+   added to `--checkpoint-every-time 0.025` (recommended), `-t 90m` with the
+   same cadence and no script change, or `-t 6h`.
+5. The pilot and the next task: continue V1 to $t = 2.5$ as a new submit
+   task, with the segment script's cap made a parameter, then V1 re-read,
+   then R1j (recommended); go to R1j directly; or a profiling task first.
