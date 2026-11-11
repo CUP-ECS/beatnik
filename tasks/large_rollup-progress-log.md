@@ -1257,7 +1257,7 @@ under `tasks/`.
 
 ## V1
 
-**Status:** FAILED — awaiting user decision. Seg9 ended on its cap at
+**Status:** FAILED — returned to D1 (user's decision, below). Seg9 ended on its cap at
 $t = 2.224$, short of `t_end` 2.5 (the failure direction's "seg9 ending on its
 cap short of `t_end`"). The volume, quality, restart-ordering and finiteness
 clauses all hold.
@@ -1470,6 +1470,16 @@ not presenting). R6 presents (above).
   not marked DONE; its heading reads FAILED — awaiting user decision, and R1j
   does not start.
 - Re-run steps are counted once (restart step to last checkpoint).
+
+### User's decision (2026-11-11)
+
+Asked how to proceed (continue the pilot with longer segments; return to D1;
+accept the pilot and go on to R1j), the user chose **return to D1**: re-cost
+and re-size production, and the pilot, from V1's measured s/step against `V`,
+segment length against the checkpoint cadence, and R6's memory growth. V1
+stays FAILED, no continuation segment is submitted, and R1j does not start.
+Reopening D1 in `tasks/large_rollup.md` is a design change for
+design-doc-writer, not this implementing session.
 
 ### Follow-ups
 

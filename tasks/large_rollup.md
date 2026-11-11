@@ -709,7 +709,7 @@ for $k = 4…9$ prints only `8a9 > # flux: --dependency=afterok:<seg k−1 id>`.
 and `COMMIT` names `4b33843`. Seg3's launch log shows the restart at step 2326,
 $t = 1.577$. IDs and logs: progress log `## V1k`.
 
-### V1 — read the pilot — **FAILED — awaiting user decision**
+### V1 — read the pilot — **FAILED — returned to D1**
 
 The success clause fails: seg9 `f3jGiqL31AFH` ended on its 80-minute cap at
 step 3624, $t = 2.224$, short of `t_end` 2.5 (last checkpoint step 3566,
@@ -717,8 +717,9 @@ $t = 2.2086$). Every other clause holds: no `nonfinite` stop in any segment,
 $\lvert volRel \rvert \le 4.22\times10^{-15}$ and `minQ` ≥ 0.300 at all 218
 progress lines, and every restart's first progress line is later than its
 checkpoint. The cause is cost, not stability: s/step rose to 35 at 136,952
-vertices. R1j does not start. Tables, diagnosis and projections: progress log
-`## V1`.
+vertices. R1j does not start. The user chose to return to D1 to re-cost and
+re-size production and the pilot from V1's measurements. Tables, diagnosis,
+projections and the decision: progress log `## V1`.
 
 **Depends on:** V1k.
 **Fill in:** the log's `## V1`; this document's Current state, if the pilot
