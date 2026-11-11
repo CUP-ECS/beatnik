@@ -1261,8 +1261,8 @@ under `tasks/`.
 $t = 2.224$, short of `t_end` 2.5 (the failure direction's "seg9 ending on its
 cap short of `t_end`"). The volume, quality, restart-ordering and finiteness
 clauses all hold.
-**Commits:** the docs commit that adds this section, updates Current state and
-sets V1's FAILED heading in `tasks/large_rollup.md`. No code commit.
+**Commits:** `141872d` (adds this section, updates Current state and sets
+V1's FAILED heading in `tasks/large_rollup.md`). No code commit.
 **Jobs:** all nine `INACTIVE COMPLETED`, exit 0 (a cap kill exits 0 by
 design). Job logs `/p/lustre5/stewartj/beatnik/large_rollup/V1/large_rollup_segment.<id>.log`,
 launch logs `/p/lustre5/stewartj/beatnik/large_rollup/V1/out/seg<k>.launch.log`.
