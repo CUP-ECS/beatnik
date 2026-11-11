@@ -1945,3 +1945,41 @@ rc 0 (read by `## V1`). `V1/out/checkpoint_latest.h5` pointed to
 seg1–seg9, and the `[large_rollup] cap = ...` provenance line. Any segment
 that starts at $t = 2.5$ is surplus. R1j inherits the edited
 `scripts/tuolumne/large_rollup_segment.flux` (derived cap, `-t 240m`).
+
+## V1c review
+
+**Verdict:** Passed
+**Reviewed:** `57903c4^..57903c4` (code: `scripts/tuolumne/large_rollup_segment.flux`
+only, matching **Fill in**); `03a3469` touches only `tasks/`.
+**Evidence:** no verification job; V1c is a submit task, verified from the
+scheduler and the stage. `flux jobs -a` shows seg10 `f3jVdhyQ8zwy` `SCHED`
+(submitted 09:32:19, not started), and seg11 `f3jVdzNzL25D`, seg12
+`f3jVeGSiafEX`, seg13 `f3jVeXfVm1jV`, seg14 `f3jVf89kr2Hd` each `DEPEND` with
+`after-success=` its predecessor, all five on the `## V1c` **Jobs:** line.
+`cmp V1/stage/segment10.flux scripts/tuolumne/large_rollup_segment.flux` is
+silent; `diff` against seg11–seg14 prints only `8a9 > # flux:
+--dependency=afterok:<seg k−1 id>`, each the right predecessor. `diff args.txt
+args_c.txt` prints only `4a5 > --checkpoint-every-steps 20`.
+`bin/adaptive_mesh_bubble` is `cmp`-identical to the
+`beatnik-develop-jrgarvack5rup44kphc4vjxpp7jxzt6q` install; `args.txt`, `bin/`
+and `COMMIT` keep their 2026-11-09 timestamps, and `COMMIT` names `4b33843`,
+the staged binary's code (the stage's provenance, per V1c **Do** 1; the
+segment script's own commit `57903c4` is recorded in the log). The script runs
+`${STAGE}/bin/adaptive_mesh_bubble` and echoes `${STAGE}/COMMIT`.
+`V1/out/checkpoint_latest.h5` names `checkpoint_t00002p208576_step0003566.h5`.
+`bash -n` passes; `grep -nE '80m|4740'` on the script is empty. By reading:
+the cap is `flux job timeleft` (fractional part truncated, integer-checked)
+less 600 s, passed as `flux run -t "${CAP}s"`; cap detection is `CAP - 60`
+through `awk -v c=`; a failed `timeleft`, a non-integer or a non-positive cap
+calls `cap_fail` (defined after `TAG` is set), which prints `[large_rollup]
+FAIL:` and the `rc=1 wall=0.0` summary and exits 1 before the RSS sampler and
+`flux run` — the failure direction. `flux job timeleft [JOBID]` with no
+argument reports the enclosing instance's remaining time (its usage text),
+which is the batch job's. `review_checks.py` reported no candidates. Whether
+the segments succeed is V1's question.
+
+**Removes:** the `80m` launch cap, the `4740` threshold and the comments that
+stated them are gone from the script; `git grep` outside `tasks/` finds them
+nowhere else (two unrelated numeric hits in a gold-stats header).
+
+**Affects:** none.
