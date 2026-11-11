@@ -1478,14 +1478,30 @@ accept the pilot and go on to R1j), the user chose **return to D1**: re-cost
 and re-size production, and the pilot, from V1's measured s/step against `V`,
 segment length against the checkpoint cadence, and R6's memory growth. V1
 stays FAILED, no continuation segment is submitted, and R1j does not start.
-Reopening D1 in `tasks/large_rollup.md` is a design change for
-design-doc-writer, not this implementing session.
+The user then authorised this session to make the design change itself
+(design-doc-writer), and a later session writes D1's prompt. Changes to
+`tasks/large_rollup.md`:
+- D1 is **NOT STARTED** again. Its old **Met.** paragraph is replaced by a
+  statement of why it is open. Its **Do** now presents V1's inputs: cost
+  against `V` ($V^{2.37}$, 35 s/step at 136,952), what fits the budget,
+  segment walltime against checkpoint cadence and against R6's memory growth,
+  and whether and how the pilot runs again. Its exit criterion adds the
+  projection from V1's numbers, the segment-sizing tests and naming the next
+  task. D1 depends on P1 and P1c and reads `## V1`; V1, being FAILED, does
+  not gate it.
+- The Production configuration paragraph gives V1's measured cost and the
+  arithmetic projection instead of D1's old node-hour range. The table values
+  stand until D1 replaces them.
+- R2's sentence that no T4d-era run passed $t$ 1.33 or about 2,000 vertices
+  now states the pilot's result (follow-up 1 below, resolved).
+- R1j's dependency on V1 is unchanged. Which task follows D1 (a pilot
+  continuation, a re-sized pilot, or R1j) is D1's to name.
 
 ### Follow-ups
 
-1. [design] Known risk R2 still says no T4d-era run has passed $t$ 1.33 or
-   about 2,000 vertices. Current state now records the pilot; R2's sentence is
-   outside V1's **Fill in** and is left for D1 to restate.
+1. [design] Known risk R2 said no T4d-era run had passed $t$ 1.33 or about
+   2,000 vertices. Resolved in the D1 reopening above: R2 now states the
+   pilot's result.
 2. [R1j] R1j's 12h segments would hit R6's growth (about 80–120 GB per rank,
    by arithmetic) and lose up to one checkpoint interval per cap (`## V1j`
    Findings 1).

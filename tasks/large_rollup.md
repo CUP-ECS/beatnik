@@ -110,11 +110,13 @@ Decisions, with their reasons:
 
 ### Production configuration
 
-D1 set these values with the user; each source names the log section that
-measured it, or "user, `## D1`" for a pure choice. Estimated production cost:
-2.8–6.1 node-h if the direct sum dominates, 21.6–47.5 node-h if it remeshes
-every step (59.4 with R1j's ×1.25 chain margin), against a budget of about 60
-node-h, at np8 on 2 nodes (log `## D1`).
+D1 sets these values with the user; each source names the log section that
+measured it, or "user, `## D1`" for a pure choice. D1 is open: its cost model
+assumed remeshing at about 5.0 s/step at 200,000 vertices, and the V1 pilot
+measured 35 s/step at 136,952 vertices on np4, growing about as $V^{2.37}$
+(log `## V1`). Scaled to this table's production row, that is about 86 s/step
+and 380–820 node-h against a budget of about 60 (arithmetic, not a run). The
+values below stand until D1 replaces them.
 
 | Setting | Option | Value | Source |
 | --- | --- | --- | --- |
@@ -413,51 +415,71 @@ the steps to $t = 2.5$ are about 8,000–17,100 for both. np8/np4 s/step is
 0.428 / 0.440 = 0.97: no rank speedup over 4 → 8. No launch remeshed, so the
 raised caps and the remesh-interval scaling are unmeasured.
 
-### D1 — choose the production parameter set — **DONE**
+### D1 — choose the production parameter set — **NOT STARTED**
 
-**Met.** Every row of the Production configuration table holds a value and a
-source. Eps `8e-3`, the step-size rule and the pilot's eps/dt pair come from
-P1c's four stable arms (ratio 0.343); level 7, `h_max` and the edit caps from
-P1b; np8 on 2 nodes, `t_end`, checkpoint cadence, segment walltime and the
-pilot quality floor are the user's choices (P1c measured np8/np4 s/step 0.97).
-Estimated production cost at np8: 2.8–6.1 node-h direct-sum only, 21.6–47.5
-node-h remeshing every step, 59.4 with the ×1.25 margin, inside the user's
-budget of about 60 node-h. The log's `## D1` records the alternatives and the node-hour table.
+The Production configuration table holds a complete parameter set, with the
+alternatives and the measured basis for each value in the log's `## D1`. Its
+cost estimate rests on remeshing at about 5.0 s/step at 200,000 vertices, and
+the V1 pilot measured far more (log `## V1`). D1 re-costs and re-sizes
+production and the pilot from V1's measurements.
 
-**Depends on:** P1, P1c.
+**Depends on:** P1, P1c. D1 also reads the log's `## V1`; V1 itself is not
+DONE and does not gate D1.
 **Fill in:** this document's [Production configuration](#production-configuration)
-table; the log's `## D1`. No code or script.
-**Removes:** the `D1` placeholders in that table.
-**Reference:** P1's and P1c's measurements; Current state's long-run table; R1–R4.
+table and its cost paragraph; the task entries D1's choices change (the pilot
+tasks and R1j, below); the log's `## D1` (a new subsection). No code or script.
+**Removes:** every table value and cost figure D1 replaces, with the sentences
+that cite it, including the 2.8–6.1 / 21.6–47.5 / 59.4 node-h figures wherever
+they appear in this document.
+**Reference:** log `## V1` (Cost, Memory, Trajectory); log `## D1` (the
+current values and their alternatives); `## P1c` (np8/np4 s/step 0.97); R1,
+R2, R6 and R8.
 **Do:** this is a decision session held with the user. The session prepares
 options and their measured consequences, and the user chooses; the session
-does not fill the table alone. Present:
+does not fill the table alone. Present each of these, with the arithmetic
+labelled as arithmetic:
 
-- **eps:** 0.025 against a value tied to the edge length. For each, the
-  stable dt P1 and P1c imply and the step count to `t_end`.
-- **Starting level and sizing:** level 7 held at `h_max` ≈ `2.05e-3`, against
-  level 6 grown by AMR. Include `h_min`, sagitta and the edit caps.
-- **Step size:** `--dt`, `--min-dt` and `--dt-edge-power`, under the viscous
-  limit of R1, from P1b's stable arms `L7_np4_dt4e-4`, `L7_np4_dt8e-4_pow2`
-  and `L7_np4_dt1e-3_mu0`, and P1c's four arms, all at
-  $dt\,\mu/h_{min}^2 = 0.343$ ($dt \approx 172\,h_{min}^2$). P1's `L7_np4` and
-  `L7_np4_dt1e-3` arms bound it from the unstable side.
-- **Ranks and nodes:** from the np1/np4 scaling, P1c's np8 measurement (np8/np4
-  s/step 0.97) and P1's cost extrapolation.
-- **Segment walltime and checkpoint cadence:** `pbatch`'s maximum `-t`, from
-  `flux queue list` or the system documentation, and checkpoint write cost
-  from P1's final checkpoint.
-- **`t_end`:** at least 2.5.
-- **Pilot resolution:** about 4–16× fewer vertices than production, at the
-  same eps and dt rule, and the pilot's quality floor.
+- **Cost against `V`.** The pilot's s/step grows about as $V^{2.37}$ for
+  $V \ge 65{,}000$ (35 s/step at 136,952, np4 HIP), and about 97 % of it is
+  outside the direct sum. Project production node-hours for each candidate
+  resolution from that fit, from the pilot's step count (3,566 steps to
+  $t = 2.2086$, about 4,600 to 2.5), and from the vertex growth the pilot
+  showed (3.3× its start by $t = 2.22$). At the current production row the
+  projection is about 86 s/step at 200,000 and 380–820 node-h, against a
+  budget of about 60.
+- **What fits the budget.** For each option, the projected node-hours and
+  what it gives up: a smaller vertex target; a coarser `--remesh-h-max` or
+  `--remesh-sagitta-tolerance` that bounds `V` growth (R8); a larger budget;
+  or a profiling task, ahead of R1j, that finds which phase holds the 97 %
+  (a new task, added to the sequence only if the user chooses it).
+- **Segment walltime against checkpoint cadence.** One
+  `--checkpoint-every-time` interval, in wall time (steps per interval ×
+  projected s/step at the segment's end), must fit well inside the launch cap.
+  Otherwise a segment writes no checkpoint and the chain repeats without
+  progress, because `scripts/tuolumne/large_rollup_segment.flux` exits 0 on a
+  cap kill whenever any `checkpoint_latest.h5` exists. Each cap also discards
+  the work after the last checkpoint (`## V1j` Findings 1, 15 % of the pilot's
+  wall).
+- **Segment walltime against memory (R6).** Per-rank RSS grows 7–10 GB per
+  hour of process life and resets at a restart, so the segment walltime bounds
+  peak RSS. Choose `-t` so that the rate × walltime stays well under a rank's
+  memory.
+- **The pilot.** Whether a pilot runs again: continue the existing one from
+  `V1/out/checkpoint_t00002p208576_step0003566.h5` with segments sized as
+  above, re-run it at a re-sized resolution, or go to R1j on V1's evidence to
+  $t = 2.224$. Name the tasks that follow.
 
 **Exit criterion:** every row of the Production configuration table holds a
-value and a source, and the log's `## D1` section records the alternatives
-considered, the measured number behind each chosen value, and the estimated
-production node-hours. Failure direction: if P1's extrapolation puts the
-production run above the node-hours the user accepts, D1 records that and
-stops. A smaller target or an FMM task is then a new design decision, not a
-change made here.
+value and a source; the cost paragraph above the table gives projected
+production node-hours computed from V1's measured s/step against `V` and step
+count; the chosen segment walltime fits at least two checkpoint intervals at
+the projected end-of-segment s/step and keeps the projected per-rank RSS under
+half a rank's memory; the log's new `## D1` subsection records the
+alternatives, the numbers behind each choice, and the next task; and the task
+sequence names that task with its dependencies. Failure direction: if no
+option the user accepts fits the node-hours the user accepts, D1 records that
+and stops. A smaller target, a profiling task or an FMM task is then a new
+design decision, not a change made here.
 
 ### T5b — restart from a Beatnik checkpoint — **DONE**
 
@@ -819,8 +841,9 @@ enough.
 
 **R2 — mesh quality collapses late.** The pre-T4d sweeps stopped with `minQ`
 0.03–0.11 and dt at or near its floor (Current state). The T4d passes
-(collapse, quality flips, guarded smoothing, cleanup) exist to prevent this,
-but none has run past `t` 1.33 or above about 2,000 vertices. *Presents as:*
+(collapse, quality flips, guarded smoothing, cleanup) exist to prevent this.
+The V1 pilot, with them, keeps `minQ` ≥ 0.30 to $t = 2.224$ and 136,952
+vertices (Current state). *Presents as:*
 `minQ` falling steadily over many progress lines before a nonfinite stop,
 with dt at `--min-dt`. *Do:* record the trend. Remedies (`--remesh-min-quality`,
 smoothing iterations, flip gain) are D1's to choose, not V1's or R1's.
