@@ -152,7 +152,20 @@ rb_stage/
   bin/adaptive_mesh_bubble   copied from the production view
   noflip.args  flip.args     the two arguments files
   reference/examples/  reference/zmodel3d/   copied from the reference checkout
+  jobs/                  the job files actually submitted (below)
 ```
+
+**Jobs are submitted from `rb_stage/jobs/`.** Every submission goes through
+the task loop's wrapper, `"$TASKLOOP_SUBMIT" --purpose "<why>" <job file> --
+<script args>`, which reads nodes, walltime, queue and bank **only** from the
+file's `# flux:` directives and takes no scheduler option on the command line.
+So each queue/walltime combination is its own copy of
+`rb_compare_beatnik.flux` or `rb_compare_python.flux` in `rb_stage/jobs/`,
+identical but for its `# flux: -q` and `# flux: -t` lines, named for them,
+for example `rb_compare_python.pbatch-240m.flux`. Only the directive lines
+differ (`diff` against the committed script shows nothing else). The scripts
+find the checkout from `PWD` (as `large_rollup_segment.flux` does), so submit
+from the repository root.
 
 The reference checkout carries one uncommitted line: `--source-quadrature`
 defaults to `vertex` instead of `face`. Every run passes
@@ -297,8 +310,8 @@ provenance), `run_adaptive_mesh_bubble.py:1637-1652` (interrupt path).
    cleared, systems doc §3). If they do not differ, the install (`inrvs7n`)
    is current; record `spack find -lv beatnik` and stage it.
 2. Write the files and the stage.
-3. Smoke: four jobs, each submitted with `-q pdebug -t 15m` on the command line
-   (which overrides the directives) and `t_end 0.01` into
+3. Smoke: four jobs, each from a `rb_stage/jobs/*.pdebug-15m.flux` copy
+   (directives `-q pdebug`, `-t 15m`) with `t_end 0.01`, into
    `/p/lustre5/stewartj/beatnik/rb_smoke/<tag>`: `b4` `noflip`, `b1` `flip`,
    `pd` `noflip`, `pt` `flip`. Then resubmit the `b1 flip` job into its
    now-populated directory with no restart path.
@@ -362,8 +375,8 @@ it exits non-zero with a parity message naming that run and `--eps`.
 - `rb_compare_python.flux … direct … 3.45 pd` × 2: 1 node, pbatch, `-t 300m`;
   runs to its cap, about 290 min (Python estimate in Approach); outputs
   `/p/lustre5/stewartj/beatnik/rb_python/{noflip,flip}/direct`.
-- `rb_compare_python.flux … treecode … 3.45 pt` × 2: 1 node, pbatch, submitted
-  with `-t 240m`; expected 2–5 h, so it may end on its cap; outputs
+- `rb_stage/jobs/rb_compare_python.pbatch-240m.flux … treecode … 3.45 pt` × 2:
+  1 node, pbatch, `-t 240m`; expected 2–5 h, so it may end on its cap; outputs
   `/p/lustre5/stewartj/beatnik/rb_python/{noflip,flip}/treecode`.
 - Staged directory: `/p/lustre5/stewartj/beatnik/rb_stage/` from T1. Job logs:
   `/p/lustre5/stewartj/beatnik/rb_logs/`.
@@ -372,8 +385,10 @@ it exits non-zero with a parity message naming that run and `--eps`.
 
 **Do:** confirm `rb_stage/COMMIT` still names the production install that is
 current (`spack find -lv beatnik` in the production env matches it) and that no
-production `spack install` is pending. Submit all eight with `flux batch` from
-the repo root.
+production `spack install` is pending. Submit all eight through
+`"$TASKLOOP_SUBMIT"` from the repo root: the Beatnik and `pd` jobs from
+`rb_stage/jobs/` copies identical to the committed scripts, the `pt` jobs from
+the `pbatch-240m` copy. The eight jobs total 22 node-h requested.
 
 **Exit criterion:** `flux jobs` lists eight accepted jobs with the queues and
 time limits above, and the log's `**Jobs:**` line carries all eight IDs with
@@ -387,8 +402,8 @@ their run tag and variant.
 1. For each job, record from its summary line `rc`, `wall`, `end`, the last
    progress line (step, `t`, `V`, `F`, `max|S|`), and peak `rss_kb`.
 2. A Beatnik run that ended on `cap` restarts from its
-   `checkpoint_latest.h5` with the same script in pbatch
-   (`-q pbatch -t <1.5× the remaining estimate>`); its wall is the sum of the
+   `checkpoint_latest.h5` from a `rb_stage/jobs/` copy with directives
+   `-q pbatch` and `-t` 1.5× the remaining estimate; its wall is the sum of the
    segments (R3). A `pt` run that ended on `cap` short of 3.45 is reported as
    is, with its `t`. A `solver_stop` in any run is reported with its last finite
    `t` (R2).
